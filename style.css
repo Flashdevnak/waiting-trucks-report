@@ -1,13 +1,14 @@
-/* พื้นฐานปกติ */
+/* ===================== พื้นฐาน ===================== */
 body {
   font-family: 'Sarabun', sans-serif;
   background: #f0f0f0;
   padding: 1rem;
   margin: 0;
 }
+
 .container {
   max-width: 1200px;
-  margin: 0 auto; /* ✅ ทำให้กึ่งกลางจอ */
+  margin: 0 auto;
   padding: 1rem;
 }
 
@@ -33,14 +34,13 @@ body {
   font-weight: bold;
   font-size: 1.1rem;
   width: fit-content;
-  margin: 1rem auto;          /* ✅ สำคัญ: จัดกึ่งกลาง */
-  display: block;             /* ✅ block เพื่อให้ใช้ margin auto ได้ */
+  margin: 1rem auto;
+  display: block;
   color: #003366;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  text-align: center;
 }
 
-
+/* ===================== Table ===================== */
 .table-container {
   overflow-x: auto;
   width: 100%;
@@ -74,7 +74,34 @@ tr:nth-child(even) {
   background-color: #fafafa;
 }
 
-/* ✅ ส่วนสำหรับมือถือ */
+/* ===================== Card View (Mobile Only) ===================== */
+.card {
+  background: #ffffff;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.card-item {
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.card-item span {
+  font-weight: bold;
+  color: #333;
+}
+
+/* ===================== Responsive ===================== */
+.desktop-only {
+  display: block;
+}
+
+.mobile-only {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .main-title {
     font-size: 1.5rem;
@@ -94,5 +121,13 @@ tr:nth-child(even) {
   table {
     min-width: unset;
     font-size: 0.85rem;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .mobile-only {
+    display: block;
   }
 }

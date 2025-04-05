@@ -1,0 +1,18 @@
+
+body {
+  font-family: 'Sarabun', sans-serif;
+  background: #f0f0f0;
+  padding: 1rem;
+}
+.main-title {
+  text-align: center;
+  font-size: 2rem;
+  color: #333;
+}
+#data > div {
+  background: white;
+  border-radius: 1rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}

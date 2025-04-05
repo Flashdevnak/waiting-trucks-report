@@ -43,6 +43,12 @@ function loadData() {
         totalPackages += parseInt(row['包裹量 จำนวนพัสดุ']) || 0;
 
         const tr = document.createElement('tr');
+        const waitTime = parseInt(row['เวลาที่รอลงงาน/นาที']) || 0;
+        let waitColor = '';
+        if (waitTime > 120) waitColor = 'style="color:red;font-weight:bold"';
+        else if (waitTime >= 60) waitColor = 'style="color:orange;font-weight:bold"';
+        else waitColor = 'style="color:green"';
+
         tr.innerHTML = `
           <td>${row['上一站网点名称 สาขาก่อนหน้า']}</td>
           <td>${row['司机姓名 ชื่อพนักงานขับรถ']}</td>
@@ -51,7 +57,7 @@ function loadData() {
           <td>${row['包裹量 จำนวนพัสดุ']}</td>
           <td>${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</td>
           <td>${row['สถานะ 120 นาที']}</td>
-          <td>${row['เวลาที่รอลงงาน/นาที']} นาที</td>
+          <td ${waitColor}>${waitTime} นาที</td>
         `;
         tableBody.appendChild(tr);
       });

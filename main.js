@@ -51,7 +51,7 @@ function loadData() {
           <td>${row['包裹量 จำนวนพัสดุ']}</td>
           <td>${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</td>
           <td>${row['สถานะ 120 นาที']}</td>
-          <td>${row['เวลาที่รอลงงาน/นาที']}</td>
+          <td>${row['เวลาที่รอลงงาน/นาที']} นาที</td>
         `;
         tableBody.appendChild(tr);
       });

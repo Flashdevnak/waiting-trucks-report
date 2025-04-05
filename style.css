@@ -27,11 +27,14 @@ body {
   border-radius: 0.5rem;
   font-weight: bold;
   font-size: 1.1rem;
-  display: inline-block;
-  margin: 1rem auto;
+  width: fit-content;
+  margin: 1rem auto;          /* ✅ สำคัญ: จัดกึ่งกลาง */
+  display: block;             /* ✅ block เพื่อให้ใช้ margin auto ได้ */
   color: #003366;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  text-align: center;
 }
+
 
 .table-container {
   overflow-x: auto;

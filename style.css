@@ -53,7 +53,7 @@ table {
   border-radius: 0.5rem;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  table-layout: auto; /* ✅ ขยายช่องอัตโนมัติตามเนื้อหา */
+  table-layout: auto; /* ✅ ขยายคอลัมน์ตามเนื้อหา */
 }
 
 th, td {
@@ -61,8 +61,9 @@ th, td {
   border: 1px solid #ddd;
   text-align: center;
   font-size: 0.95rem;
-  white-space: normal;     /* ✅ ข้อความขึ้นบรรทัดใหม่ */
-  word-break: break-word;  /* ✅ ตัดคำที่ยาวเกิน */
+  white-space: nowrap;     /* ❌ ไม่ให้ขึ้นบรรทัดใหม่ */
+  overflow: hidden;
+  text-overflow: ellipsis; /* ✅ แสดง ... หากยาวเกิน */
 }
 
 th {
@@ -121,7 +122,7 @@ tr:nth-child(even) {
 
   table {
     font-size: 0.85rem;
-    table-layout: auto; /* ✅ ยังให้ขยายในมือถือ */
+    table-layout: auto;
   }
 
   .desktop-only {
@@ -133,6 +134,12 @@ tr:nth-child(even) {
   }
 
   .table-container {
-    overflow-x: auto; /* ✅ ให้ scroll ได้ในมือถือ */
+    overflow-x: auto; /* ✅ เปิด scroll บนมือถือ */
+  }
+
+  th, td {
+    white-space: normal;      /* ✅ ให้ข้อความขึ้นบรรทัด */
+    word-break: break-word;   /* ✅ ป้องกันล้น */
+    text-overflow: unset;
   }
 }

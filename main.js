@@ -31,17 +31,18 @@ function loadData() {
   fetch("https://script.google.com/macros/s/AKfycbxE2-_8h6EzOQQ3FeDwFxNIAn4U40pacvRnp3XeOGevXDzhw15bgDi74LVgtozfjgiHXQ/exec")
     .then(res => res.json())
     .then(data => {
-      const tbody = document.getElementById("data");
-      tbody.innerHTML = '';
-      let totalCars = 0;
-      let totalParcels = 0;
+      const tableBody = document.getElementById("data");
+      tableBody.innerHTML = '';
+      let totalTrucks = 0;
+      let totalPackages = 0;
 
       data.forEach(row => {
         if (!row['上一站网点名称 สาขาก่อนหน้า']) return;
-        totalCars++;
-        totalParcels += parseInt(row['包裹量 จำนวนพัสดุ']) || 0;
 
-        const tr = document.createElement("tr");
+        totalTrucks++;
+        totalPackages += parseInt(row['包裹量 จำนวนพัสดุ']) || 0;
+
+        const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${row['上一站网点名称 สาขาก่อนหน้า']}</td>
           <td>${row['司机姓名 ชื่อพนักงานขับรถ']}</td>
@@ -52,11 +53,11 @@ function loadData() {
           <td>${row['สถานะ 120 นาที']}</td>
           <td>${row['เวลาที่รอลงงาน/นาที']}</td>
         `;
-        tbody.appendChild(tr);
+        tableBody.appendChild(tr);
       });
 
       document.getElementById("summary").innerText =
-        `🚛 รถทั้งหมด: ${totalCars} คัน | 📦 พัสดุทั้งหมด: ${totalParcels} ชิ้น`;
+        `🚛 รถทั้งหมด: ${totalTrucks} คัน | 📦 พัสดุทั้งหมด: ${totalPackages} ชิ้น`;
 
       const now = new Date();
       document.getElementById("last-update").innerText = `อัปเดตล่าสุดเมื่อ: ${formatThaiDate(now.toISOString())}`;
@@ -69,4 +70,4 @@ function loadData() {
 }
 
 loadData();
-setInterval(loadData, 20000);
+setInterval(loadData, 15000);

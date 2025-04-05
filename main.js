@@ -46,7 +46,7 @@ function renderTable(data) {
       <td>${row['司机姓名 ชื่อพนักงานขับรถ']}</td>
       <td>${row['司机电话 เบอร์โทรพนักงานขับรถ']}</td>
       <td>${row['车辆类型 ประเภทรถ']}</td>
-      <td>${row['包裹量 จำนวนพัสดุ']}</td>
+      <td>${row['包裹量 จำนวนพัสดุ']} ชิ้น</td>
       <td>${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</td>
       <td>${row['สถานะ 120 นาที']}</td>
       <td ${waitColor}>${waitTime} นาที</td>

@@ -1,4 +1,3 @@
-
 function updateDateTime() {
   const now = new Date();
   const day = now.getDate();
@@ -32,31 +31,39 @@ function loadData() {
   fetch("https://script.google.com/macros/s/AKfycbxE2-_8h6EzOQQ3FeDwFxNIAn4U40pacvRnp3XeOGevXDzhw15bgDi74LVgtozfjgiHXQ/exec")
     .then(res => res.json())
     .then(data => {
-      const container = document.getElementById("data");
-      container.innerHTML = '';
+      const tbody = document.getElementById("data");
+      tbody.innerHTML = '';
+      let totalCars = 0;
+      let totalParcels = 0;
+
       data.forEach(row => {
         if (!row['上一站网点名称 สาขาก่อนหน้า']) return;
-        const card = document.createElement("div");
-        card.className = "card";
-        card.innerHTML = `
-          <div><strong>สาขาก่อนหน้า:</strong> ${row['上一站网点名称 สาขาก่อนหน้า']}</div>
-          <div><strong>เบอร์โทร:</strong> ${row['司机电话 เบอร์โทรพนักงานขับรถ']}</div>
-          <div><strong>ชื่อคนขับ:</strong> ${row['司机姓名 ชื่อพนักงานขับรถ']}</div>
-          <div><strong>ประเภท:</strong> ${row['车辆类型 ประเภทรถ']}</div>
-          <div><strong>จำนวนพัสดุ:</strong> ${row['包裹量 จำนวนพัสดุ']}</div>
-          <div><strong>เวลารถถึงจริง:</strong> ${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</div>
-          <div><strong>สถานะ:</strong> ${row['สถานะ 120 นาที']}</div>
-          <div><strong>เวลาที่รอลงงาน:</strong> ${row['เวลาที่รอลงงาน/นาที']} นาที</div>
-          <hr />
+        totalCars++;
+        totalParcels += parseInt(row['包裹量 จำนวนพัสดุ']) || 0;
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${row['上一站网点名称 สาขาก่อนหน้า']}</td>
+          <td>${row['司机姓名 ชื่อพนักงานขับรถ']}</td>
+          <td>${row['司机电话 เบอร์โทรพนักงานขับรถ']}</td>
+          <td>${row['车辆类型 ประเภทรถ']}</td>
+          <td>${row['包裹量 จำนวนพัสดุ']}</td>
+          <td>${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</td>
+          <td>${row['สถานะ 120 นาที']}</td>
+          <td>${row['เวลาที่รอลงงาน/นาที']}</td>
         `;
-        container.appendChild(card);
+        tbody.appendChild(tr);
       });
+
+      document.getElementById("summary").innerText =
+        `🚛 รถทั้งหมด: ${totalCars} คัน | 📦 พัสดุทั้งหมด: ${totalParcels} ชิ้น`;
 
       const now = new Date();
       document.getElementById("last-update").innerText = `อัปเดตล่าสุดเมื่อ: ${formatThaiDate(now.toISOString())}`;
     })
     .catch(err => {
-      document.getElementById("data").innerHTML = "❌ โหลดข้อมูลไม่สำเร็จ";
+      document.getElementById("data").innerHTML =
+        `<tr><td colspan="8">❌ โหลดข้อมูลไม่สำเร็จ</td></tr>`;
       console.error(err);
     });
 }

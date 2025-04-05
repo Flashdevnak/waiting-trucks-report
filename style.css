@@ -42,18 +42,18 @@ body {
 
 /* ===================== Table ===================== */
 .table-container {
-  overflow-x: auto;
   width: 100%;
+  overflow-x: unset; /* ✅ ปิด scroll แนวนอนในคอม */
 }
 
 table {
   width: 100%;
-  min-width: 900px;
   border-collapse: collapse;
   background: white;
   border-radius: 0.5rem;
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  table-layout: fixed; /* ✅ แบ่งคอลัมน์อัตโนมัติ */
 }
 
 th, td {
@@ -61,7 +61,8 @@ th, td {
   border: 1px solid #ddd;
   text-align: center;
   font-size: 0.95rem;
-  white-space: nowrap;
+  white-space: normal;     /* ✅ ให้ข้อความตัดบรรทัด */
+  word-break: break-word;  /* ✅ ให้ข้อความยาวไม่ล้น */
 }
 
 th {
@@ -119,8 +120,8 @@ tr:nth-child(even) {
   }
 
   table {
-    min-width: unset;
     font-size: 0.85rem;
+    table-layout: auto;
   }
 
   .desktop-only {
@@ -129,5 +130,9 @@ tr:nth-child(even) {
 
   .mobile-only {
     display: block;
+  }
+
+  .table-container {
+    overflow-x: auto; /* ✅ ให้มือถือ scroll ได้ */
   }
 }

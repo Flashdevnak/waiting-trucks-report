@@ -29,7 +29,7 @@ function formatThaiDate(isoString) {
 }
 
 function loadData() {
-  fetch("https://script.google.com/macros/s/AKfycbziljIgmq3mbwYZbJqrAOddie1noma_sqtwWnTXo5BJZ_lQMSmyAw4EizOdc7gKbp99/exec")
+  fetch("https://script.google.com/macros/s/AKfycbxE2-_8h6EzOQQ3FeDwFxNIAn4U40pacvRnp3XeOGevXDzhw15bgDi74LVgtozfjgiHXQ/exec")
     .then(res => res.json())
     .then(data => {
       const container = document.getElementById("data");

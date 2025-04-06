@@ -9,7 +9,7 @@ body {
 }
 
 body.dark {
-  background: #000000; /* 🔁 ปรับให้พื้นหลังดำสนิท */
+  background: #000000;
   color: #e0e0e0;
 }
 
@@ -82,10 +82,9 @@ body.dark #toggle-theme {
 
 /* ===================== Table ===================== */
 .table-container {
-  display: flex;
-  justify-content: center;
+  width: 100%;
   margin-top: 1rem;
-  overflow-x: auto;
+  overflow-x: hidden; /* ❌ ปิด scroll แนวนอน */
 }
 
 table {
@@ -94,9 +93,8 @@ table {
   border-radius: 0.5rem;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  table-layout: auto;
-  width: auto;
-  min-width: 1000px;
+  table-layout: auto;      /* ✅ ให้ขยายคอลัมน์ตามเนื้อหา */
+  width: 100%;             /* ✅ กินพื้นที่เต็ม */
   transition: background 0.3s, color 0.3s;
 }
 
@@ -110,7 +108,7 @@ th, td {
   border: 1px solid #ddd;
   text-align: center;
   font-size: 0.95rem;
-  white-space: nowrap;
+  white-space: nowrap;       /* ✅ ไม่ตัดบรรทัด */
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -189,7 +187,7 @@ body.dark .card-item span {
   .table-container {
     display: block;
     margin: 0;
-    overflow-x: auto;
+    overflow-x: auto; /* ✅ เปิด scroll เฉพาะมือถือ */
   }
 
   table {

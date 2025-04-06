@@ -59,4 +59,67 @@
   body.dark .card-row .value {
     color: #bbb;
   }
+
+  /* ✅ กึ่งกลาง Card และจัดสไตล์ภายใน */
+  #cards-container .card {
+    max-width: 95%;
+    margin: 1rem auto;
+    background: #fff;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+
+  .card-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0.5rem 0;
+    border-bottom: 1px dashed #ccc;
+  }
+
+  .card-item:last-child {
+    border-bottom: none;
+  }
+
+  .card-item .label {
+    flex: 1;
+    font-weight: 600;
+    color: #007bff;
+    padding-right: 0.5rem;
+  }
+
+  .card-item .value {
+    flex: 1;
+    text-align: right;
+    color: #333;
+  }
+
+  body.dark .card-item {
+    border-color: #444;
+  }
+
+  body.dark .card-item .label {
+    color: #4fc3f7;
+  }
+
+  body.dark .card-item .value {
+    color: #ddd;
+  }
+
+  /* ✅ สีสถานะสำหรับค่ารอลงงาน */
+  .value.red {
+    color: #d32f2f;
+    font-weight: bold;
+  }
+
+  .value.orange {
+    color: #ff9800;
+    font-weight: bold;
+  }
+
+  .value.green {
+    color: #2e7d32;
+    font-weight: bold;
+  }
 }

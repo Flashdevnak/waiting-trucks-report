@@ -7,12 +7,17 @@
   <link rel="stylesheet" href="style.css"/>
 
   <style>
-    /* ปุ่มเปลี่ยนธีมที่ดูดีบนทุกหน้าจอ */
+    html, body {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    /* ปุ่มเปลี่ยนธีม */
     #toggle-theme {
       position: fixed;
       top: 0.75rem;
       right: 0.75rem;
-      z-index: 999;
+      z-index: 9999;
       background: #ffc107;
       color: #000;
       border: none;
@@ -38,7 +43,6 @@
 </head>
 
 <body class="light">
-
   <!-- ปุ่มเปลี่ยนธีม -->
   <button id="toggle-theme">🌙 เปลี่ยนเป็นโหมดมืด</button>
 

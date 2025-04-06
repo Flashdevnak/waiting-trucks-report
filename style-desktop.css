@@ -1,90 +1,60 @@
-.table-container {
-  width: 100%;
-  margin-top: 1rem;
-  display: flex;
-  justify-content: center;
-  overflow-x: auto;
-}
+/* =================== ปรับปรุง Table Desktop =================== */
+@media (min-width: 769px) {
+  .table-container {
+    padding: 0 2rem;
+    box-sizing: border-box;
+    justify-content: center;
+    overflow-x: hidden; /* ไม่ให้เกิด scroll แนวนอน */
+  }
 
-table {
-  border-collapse: collapse;
-  background: white;
-  border-radius: 0.5rem;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  table-layout: auto;
-  width: 100%;
-  max-width: 1200px;
-  transition: background 0.3s, color 0.3s;
-}
+  table {
+    width: auto; /* ปรับขนาดอัตโนมัติตามเนื้อหา */
+    max-width: 100%;
+    table-layout: auto;
+  }
 
-th, td {
-  padding: 0.7rem 1rem;
-  border: 1px solid #ddd;
-  text-align: center;
-  font-size: 0.95rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  th, td {
+    padding: 0.6rem 0.75rem;
+    font-size: 1rem;
+    text-align: center;
+    white-space: nowrap;
+    word-break: break-word;
+    text-overflow: ellipsis;
+    overflow: hidden;
+  }
 
-th {
-  background-color: #007bff;
-  color: white;
-  font-weight: bold;
-}
+  th {
+    background-color: #007bff;
+    color: white;
+    font-weight: bold;
+    font-size: 1.05rem;
+  }
 
-tr:nth-child(even) {
-  background-color: #f9f9f9;
-}
+  tr:hover {
+    background-color: #f1f8ff;
+  }
 
-.card {
-  background: linear-gradient(135deg, #ffffff, #f5faff);
-  border: 1px solid #dbe9ff;
-  border-radius: 1rem;
-  padding: 1.25rem;
-  margin: 1.25rem auto;
-  max-width: 95%;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  transition: background 0.3s, color 0.3s, box-shadow 0.3s;
-  font-size: 1rem;
-  line-height: 1.6;
-}
+  body.dark tr:hover {
+    background-color: #1f2b3a;
+  }
 
-.card:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
-}
+  /* ปรับแต่ง cell สีต่างๆ */
+  td.value.red {
+    color: #d32f2f;
+    font-weight: bold;
+  }
 
-.card-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 0.5rem 0;
-  border-bottom: 1px dashed #ccc;
-}
+  td.value.orange {
+    color: #ff9800;
+    font-weight: bold;
+  }
 
-.card-item:last-child {
-  border-bottom: none;
-}
+  td.value.green {
+    color: #2e7d32;
+    font-weight: bold;
+  }
 
-.card-item .label {
-  font-weight: 600;
-  color: #0056b3;
-  flex: 1;
-  padding-right: 1rem;
-}
-
-.card-item .value {
-  font-weight: 500;
-  color: #333;
-  flex: 1;
-  text-align: right;
-}
-
-.desktop-only {
-  display: block;
-}
-
-.mobile-only {
-  display: none;
+  .card {
+    display: none !important; /* ซ่อน card view บน desktop */
+  }
 }

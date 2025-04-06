@@ -237,6 +237,10 @@ body.dark .red {
 }
 
 @media (max-width: 768px) {
+  body {
+    font-size: clamp(0.9rem, 2.5vw, 1.1rem);
+  }
+
   .desktop-only {
     display: none;
   }
@@ -252,15 +256,15 @@ body.dark .red {
   .header-info-box {
     padding: 16px;
     margin: 16px auto;
-    font-size: 1rem;
+    font-size: clamp(1rem, 3.5vw, 1.2rem);
   }
 
   .header-info-box h1 {
-    font-size: 1.4rem;
+    font-size: clamp(1.2rem, 5vw, 1.6rem);
   }
 
   .summary-box {
-    font-size: 1rem;
+    font-size: clamp(0.95rem, 3vw, 1.1rem);
     padding: 10px 16px;
     margin: 16px auto;
   }
@@ -277,7 +281,7 @@ body.dark .red {
 
   .label, .value {
     text-align: left;
-    font-size: 0.95rem;
+    font-size: clamp(0.9rem, 2.8vw, 1rem);
   }
 
   button#toggle-theme {

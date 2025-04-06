@@ -54,12 +54,38 @@ body.dark #summary {
   color: #b3e5fc;
 }
 
+/* ===================== ปุ่มเปลี่ยนธีม ===================== */
+#toggle-theme {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 999;
+  background: #ffc107;
+  color: #000;
+  border: none;
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.3s, color 0.3s;
+}
+
+#toggle-theme:hover {
+  background: #e0a800;
+}
+
+body.dark #toggle-theme {
+  background: #4fc3f7;
+  color: #000;
+}
+
 /* ===================== Table ===================== */
 .table-container {
   display: flex;
   justify-content: center;
   margin-top: 1rem;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 table {
@@ -69,8 +95,8 @@ table {
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   table-layout: auto;
-  width: 100%;
-  max-width: 100%;
+  width: auto;
+  min-width: 1000px;
   transition: background 0.3s, color 0.3s;
 }
 
@@ -84,8 +110,9 @@ th, td {
   border: 1px solid #ddd;
   text-align: center;
   font-size: 0.95rem;
-  white-space: normal;
-  word-break: break-word;
+  white-space: nowrap;     /* ✅ ไม่ตัดบรรทัด */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 th {
@@ -162,11 +189,12 @@ body.dark .card-item span {
   .table-container {
     display: block;
     margin: 0;
-    overflow-x: hidden;
+    overflow-x: auto;
   }
 
   table {
     width: 100%;
+    min-width: 600px;
     font-size: 0.85rem;
   }
 

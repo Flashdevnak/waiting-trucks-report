@@ -73,7 +73,7 @@ function renderCards(data) {
     card.className = "card";
     card.innerHTML = `
       <div class="card-item"><span>สาขาก่อนหน้า:</span> ${row['上一站网点名称 สาขาก่อนหน้า']}</div>
-      <div class="card-item"><span>สาขาก่อนหน้า:</span> ${row['车线名称 ชื่อเส้นทางการเดินรถ']}</div>
+      <div class="card-item"><span>ชื่อเส้นทาง:</span> ${row['车线名称 ชื่อเส้นทางการเดินรถ']}</div>
       <div class="card-item"><span>ชื่อพนักงาน:</span> ${row['司机姓名 ชื่อพนักงานขับรถ']}</div>
       <div class="card-item"><span>เบอร์โทร:</span> ${row['司机电话 เบอร์โทรพนักงานขับรถ']}</div>
       <div class="card-item"><span>ประเภทรถ:</span> ${row['车辆类型 ประเภทรถ']}</div>

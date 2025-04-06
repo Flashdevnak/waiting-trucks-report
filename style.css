@@ -1,10 +1,12 @@
 /* ===================== พื้นฐาน ===================== */
-body {
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
   font-family: 'Sarabun', sans-serif;
   background: #f0f0f0;
   color: #333;
-  padding: 1rem;
-  margin: 0;
   transition: background 0.3s, color 0.3s;
 }
 
@@ -23,8 +25,8 @@ body.dark {
 .main-title {
   text-align: center;
   font-size: 2rem;
-  color: inherit;
   margin-bottom: 1rem;
+  color: inherit;
 }
 
 #datetime, #last-update, #summary {
@@ -58,19 +60,19 @@ body.dark #summary {
 /* ===================== ปุ่มเปลี่ยนธีม ===================== */
 #toggle-theme {
   position: fixed;
-  top: 0.75rem;
-  right: 0.75rem;
-  z-index: 999;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
   background: #ffc107;
   color: #000;
   border: none;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.8rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
   font-weight: bold;
-  border-radius: 20px;
+  border-radius: 999px;
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-  transition: background 0.3s ease, color 0.3s ease, transform 0.2s;
+  transition: background 0.3s ease, transform 0.2s;
 }
 
 #toggle-theme:hover {
@@ -89,7 +91,7 @@ body.dark #toggle-theme {
   margin-top: 1rem;
   display: flex;
   justify-content: center;
-  overflow-x: visible;
+  overflow-x: auto;
 }
 
 table {
@@ -139,7 +141,8 @@ body.dark tr:nth-child(even) {
   border: 1px solid #dbe9ff;
   border-radius: 1rem;
   padding: 1.25rem;
-  margin: 1.25rem 0;
+  margin: 1.25rem auto;
+  max-width: 95%;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   transition: background 0.3s, color 0.3s, box-shadow 0.3s;
   font-size: 1rem;
@@ -195,7 +198,6 @@ body.dark .card-item .value {
   color: #ddd;
 }
 
-
 /* ===================== Responsive ===================== */
 .desktop-only {
   display: block;
@@ -225,14 +227,13 @@ body.dark .card-item .value {
   }
 
   .table-container {
-    display: none; /* ซ่อนตารางบนมือถือ */
+    display: none;
   }
 
   table {
     display: none;
   }
 
-  /* Card layout ที่ดูเป็นตารางบนมือถือ */
   .card-table {
     display: flex;
     flex-direction: column;

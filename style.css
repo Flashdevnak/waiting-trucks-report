@@ -13,24 +13,30 @@ body {
   margin: auto;
 }
 
+/* ==== Theme Toggle Button ==== */
 button#toggle-theme {
   position: fixed;
   top: 10px;
   right: 10px;
   padding: 6px 10px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   background-color: #333;
   color: #fff;
   border: none;
   border-radius: 20px;
   cursor: pointer;
-  z-index: 1000;
+  z-index: 9999;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
   transition: background-color 0.3s, color 0.3s;
 }
 
 button#toggle-theme:hover {
   background-color: #009688;
+}
+
+body.dark button#toggle-theme {
+  background-color: #ddd;
+  color: #222;
 }
 
 /* ==== Header Info Box ==== */
@@ -190,11 +196,6 @@ body.dark .summary-box {
   color: #c8e6c9;
 }
 
-body.dark button#toggle-theme {
-  background-color: #ddd;
-  color: #222;
-}
-
 /* ==== Status Colors in Dark Mode ==== */
 body.dark .green {
   color: #81c784;
@@ -218,9 +219,11 @@ body.dark .red {
   .desktop-only {
     display: none;
   }
+
   .mobile-only {
     display: flex !important;
   }
+
   #cards-container {
     display: flex !important;
   }
@@ -254,13 +257,6 @@ body.dark .red {
   .label, .value {
     text-align: left;
     font-size: 0.95rem;
-  }
-
-  button#toggle-theme {
-    font-size: 0.85rem;
-    padding: 5px 8px;
-    top: 8px;
-    right: 8px;
   }
 }
 

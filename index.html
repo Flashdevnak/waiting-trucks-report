@@ -4,42 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>🚛 รายละเอียดรถรอลงงานรายวัน BNAK</title>
-  <link rel="stylesheet" href="style.css"/>
 
-  <style>
-    html, body {
-      max-width: 100%;
-      overflow-x: hidden;
-    }
-
-    /* ปุ่มเปลี่ยนธีม */
-    #toggle-theme {
-      position: fixed;
-      top: 0.75rem;
-      right: 0.75rem;
-      z-index: 9999;
-      background: #ffc107;
-      color: #000;
-      border: none;
-      padding: 0.4rem 0.75rem;
-      font-size: 0.8rem;
-      font-weight: bold;
-      border-radius: 20px;
-      cursor: pointer;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-      transition: background 0.3s, transform 0.2s;
-    }
-
-    #toggle-theme:hover {
-      background: #e0a800;
-      transform: scale(1.05);
-    }
-
-    body.dark #toggle-theme {
-      background: #4fc3f7;
-      color: #000;
-    }
-  </style>
+  <!-- 🔗 CSS แยกตามอุปกรณ์ -->
+  <link rel="stylesheet" href="style-base.css" />
+  <link rel="stylesheet" href="style-desktop.css" media="screen and (min-width: 769px)" />
+  <link rel="stylesheet" href="style-mobile.css" media="screen and (max-width: 768px)" />
 </head>
 
 <body class="light">

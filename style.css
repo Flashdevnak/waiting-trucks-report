@@ -57,9 +57,9 @@ tr:nth-child(even) {
   background-color: #f9f9f9;
 }
 
-/* ==== Card View (Mobile) ==== */
+/* ==== Card View (Mobile Only) ==== */
 #cards-container {
-  display: flex;
+  display: none; /* ซ่อนไว้เป็นค่าเริ่มต้น */
   flex-direction: column;
   gap: 16px;
   margin-top: 20px;
@@ -131,15 +131,26 @@ body.dark button#toggle-theme {
 .mobile-only {
   display: none;
 }
+
+/* แสดงเฉพาะการ์ดบนมือถือ */
 @media (max-width: 768px) {
   .desktop-only {
     display: none;
   }
   .mobile-only {
-    display: block;
+    display: flex !important;
+  }
+  #cards-container {
+    display: flex !important;
   }
   h1.main-title {
     font-size: 1.4rem;
   }
 }
 
+/* ซ่อนการ์ดอย่างเด็ดขาดบนจอใหญ่ */
+@media (min-width: 769px) {
+  #cards-container {
+    display: none !important;
+  }
+}

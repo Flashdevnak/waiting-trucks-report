@@ -1,205 +1,248 @@
-/* ===================== พื้นฐาน ===================== */
-body {
-  font-family: 'Sarabun', sans-serif;
-  background: #f0f0f0;
-  color: #333;
-  padding: 1rem;
-  margin: 0;
-  transition: background 0.3s, color 0.3s;
-}
+/* ===================== พื้นฐาน ===================== */  
+body {  
+  font-family: 'Sarabun', sans-serif;  
+  background: #f0f0f0;  
+  color: #333;  
+  padding: 1rem;  
+  margin: 0;  
+  transition: background 0.3s, color 0.3s;  
+}  
 
-body.dark {
-  background: #000000;
-  color: #e0e0e0;
-}
+body.dark {  
+  background: #000000;  
+  color: #e0e0e0;  
+}  
 
-.container {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1rem;
-}
+.container {  
+  width: 100%;  
+  max-width: 1200px;  
+  margin: 0 auto;  
+  padding: 1rem;  
+}  
 
-.main-title {
-  text-align: center;
-  font-size: 2rem;
-  color: inherit;
-  margin-bottom: 1rem;
-}
+.main-title {  
+  text-align: center;  
+  font-size: 2rem;  
+  color: inherit;  
+  margin-bottom: 1rem;  
+}  
 
-#datetime, #last-update, #summary {
-  text-align: center;
-  font-size: 1rem;
-  margin: 0.5rem 0;
-  color: inherit;
-}
+#datetime, #last-update, #summary {  
+  text-align: center;  
+  font-size: 1rem;  
+  margin: 0.5rem 0;  
+  color: inherit;  
+}  
 
-#summary {
-  border: 2px solid #007bff;
-  background-color: #eaf4ff;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  font-weight: bold;
-  font-size: 1.1rem;
-  width: fit-content;
-  margin: 1rem auto;
-  display: block;
-  color: #003366;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: background 0.3s, color 0.3s;
-}
+#summary {  
+  border: 2px solid #007bff;  
+  background-color: #eaf4ff;  
+  padding: 1rem;  
+  border-radius: 0.5rem;  
+  font-weight: bold;  
+  font-size: 1.1rem;  
+  width: fit-content;  
+  margin: 1rem auto;  
+  display: block;  
+  color: #003366;  
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);  
+  transition: background 0.3s, color 0.3s;  
+}  
 
-body.dark #summary {
-  background-color: #1e2a38;
-  border-color: #4fc3f7;
-  color: #b3e5fc;
-}
+body.dark #summary {  
+  background-color: #1e2a38;  
+  border-color: #4fc3f7;  
+  color: #b3e5fc;  
+}  
 
-/* ===================== ปุ่มเปลี่ยนธีม ===================== */
-#toggle-theme {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 999;
-  background: #ffc107;
-  color: #000;
-  border: none;
-  padding: 0.6rem 1rem;
-  font-size: 0.9rem;
-  font-weight: bold;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.3s, color 0.3s;
-}
+/* ===================== ปุ่มเปลี่ยนธีม ===================== */  
+#toggle-theme {  
+  position: fixed;  
+  top: 1rem;  
+  right: 1rem;  
+  z-index: 999;  
+  background: #ffc107;  
+  color: #000;  
+  border: none;  
+  padding: 0.6rem 1rem;  
+  font-size: 0.9rem;  
+  font-weight: bold;  
+  border-radius: 8px;  
+  cursor: pointer;  
+  transition: background 0.3s, color 0.3s;  
+}  
 
-#toggle-theme:hover {
-  background: #e0a800;
-}
+#toggle-theme:hover {  
+  background: #e0a800;  
+}  
 
-body.dark #toggle-theme {
-  background: #4fc3f7;
-  color: #000;
-}
+body.dark #toggle-theme {  
+  background: #4fc3f7;  
+  color: #000;  
+}  
 
-/* ===================== Table ===================== */
-.table-container {
-  width: 100%;
-  margin-top: 1rem;
-  display: flex;
-  justify-content: center;   /* ✅ จัดตารางให้อยู่กึ่งกลาง */
-  overflow-x: visible;       /* ✅ ไม่มี scroll บน Desktop */
-}
+/* ===================== Table ===================== */  
+.table-container {  
+  width: 100%;  
+  margin-top: 1rem;  
+  display: flex;  
+  justify-content: center;   /* ✅ จัดตารางให้อยู่กึ่งกลาง */  
+  overflow-x: visible;       /* ✅ ไม่มี scroll บน Desktop */  
+}  
 
-table {
-  border-collapse: collapse;
-  background: white;
-  border-radius: 0.5rem;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  table-layout: auto;
-  width: 100%;
-  max-width: 1200px;         /* ✅ ขยายเท่าจอ ไม่เกิน container */
-  transition: background 0.3s, color 0.3s;
-}
+table {  
+  border-collapse: collapse;  
+  background: white;  
+  border-radius: 0.5rem;  
+  overflow: hidden;  
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);  
+  table-layout: auto;  
+  width: 100%;  
+  max-width: 1200px;         /* ✅ ขยายเท่าจอ ไม่เกิน container */  
+  transition: background 0.3s, color 0.3s;  
+}  
 
-body.dark table {
-  background: #1c1c1c;
-  color: #e0e0e0;
-}
+body.dark table {  
+  background: #1c1c1c;  
+  color: #e0e0e0;  
+}  
 
-th, td {
-  padding: 0.7rem 1rem;
-  border: 1px solid #ddd;
-  text-align: center;
-  font-size: 0.95rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+th, td {  
+  padding: 0.7rem 1rem;  
+  border: 1px solid #ddd;  
+  text-align: center;  
+  font-size: 0.95rem;  
+  white-space: nowrap;  
+  overflow: hidden;  
+  text-overflow: ellipsis;  
+}  
 
-th {
-  background-color: #007bff;
-  color: white;
-  font-weight: bold;
-}
+th {  
+  background-color: #007bff;  
+  color: white;  
+  font-weight: bold;  
+}  
 
-tr:nth-child(even) {
-  background-color: #f9f9f9;
-}
+tr:nth-child(even) {  
+  background-color: #f9f9f9;  
+}  
 
-body.dark tr:nth-child(even) {
-  background-color: #1a1a1a;
-}
+body.dark tr:nth-child(even) {  
+  background-color: #1a1a1a;  
+}  
 
-/* ===================== Card View (Mobile Only) ===================== */
-.card {
-  background: #ffffff;
-  border-radius: 0.5rem;
-  padding: 1rem;
-  margin: 1rem 0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-  transition: background 0.3s, color 0.3s;
-}
+/* ===================== Card View (Mobile Only) ===================== */  
+.card {  
+  background: #ffffff;  
+  border-radius: 0.5rem;  
+  padding: 1rem;  
+  margin: 1rem 0;  
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);  
+  transition: background 0.3s, color 0.3s;  
+}  
 
-body.dark .card {
-  background: #1e1e1e;
-  color: #ffffff;
-}
+body.dark .card {  
+  background: #1e1e1e;  
+  color: #ffffff;  
+}  
 
-.card-item {
-  margin-bottom: 0.5rem;
-  font-size: 0.95rem;
-}
+.card-item {  
+  margin-bottom: 0.5rem;  
+  font-size: 0.95rem;  
+}  
 
-.card-item span {
-  font-weight: bold;
-  color: #333;
-}
+.card-item span {  
+  font-weight: bold;  
+  color: #333;  
+}  
 
-body.dark .card-item span {
-  color: #cccccc;
-}
+body.dark .card-item span {  
+  color: #cccccc;  
+}  
 
-/* ===================== Responsive ===================== */
-.desktop-only {
-  display: block;
-}
+/* ===================== Responsive ===================== */  
+.desktop-only {  
+  display: block;  
+}  
 
-.mobile-only {
-  display: none;
-}
+.mobile-only {  
+  display: none;  
+}  
 
-@media (max-width: 768px) {
-  .main-title {
-    font-size: 1.5rem;
+@media (max-width: 768px) {  
+  .main-title {  
+    font-size: 1.5rem;  
+  }  
+
+  #summary {  
+    width: 90%;  
+    font-size: 1rem;  
+    padding: 0.75rem;  
+  }  
+
+  .desktop-only {  
+    display: none;  
+  }  
+
+  .mobile-only {  
+    display: block;  
+  }  
+
+  .table-container {  
+    overflow-x: auto;          /* ✅ ให้ scroll ได้เฉพาะมือถือ */  
+    justify-content: flex-start; /* ✅ ไม่จัดกึ่งกลางบนมือถือ */  
+  }  
+
+  table {  
+    min-width: 600px;          /* ✅ ป้องกันแสดงผิดรูป */  
+    font-size: 0.85rem;  
+  }  
+
+  th, td {  
+    padding: 0.5rem;  
+    font-size: 0.85rem;  
   }
 
-  #summary {
-    width: 90%;
-    font-size: 1rem;
-    padding: 0.75rem;
+  /* Card layout ที่ทำให้ดูเป็นตารางในมือถือ */
+  .card-table {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
 
-  .desktop-only {
-    display: none;
+  .card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f5f5f5;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.95rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   }
 
-  .mobile-only {
-    display: block;
+  .card-row span:first-child {
+    font-weight: bold;
+    color: #007bff;
+    flex: 1;
+    margin-right: 0.5rem;
   }
 
-  .table-container {
-    overflow-x: auto;          /* ✅ ให้ scroll ได้เฉพาะมือถือ */
-    justify-content: flex-start; /* ✅ ไม่จัดกึ่งกลางบนมือถือ */
+  .card-row span:last-child {
+    white-space: nowrap;
+    color: #555;
   }
 
-  table {
-    min-width: 600px;          /* ✅ ป้องกันแสดงผิดรูป */
-    font-size: 0.85rem;
+  body.dark .card-row {
+    background: #2a2a2a;
+    color: #ddd;
   }
 
-  th, td {
-    padding: 0.5rem;
-    font-size: 0.85rem;
+  body.dark .card-row span:first-child {
+    color: #4fc3f7;
+  }
+
+  body.dark .card-row span:last-child {
+    color: #bbb;
   }
 }

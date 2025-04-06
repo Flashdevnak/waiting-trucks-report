@@ -299,3 +299,14 @@ body.dark .red {
     display: none !important;
   }
 }
+
+/* ==== Separate Lines for Summary on Mobile ==== */
+#summary span {
+  display: inline-block;  /* Default: inline for normal screens */
+}
+
+@media (max-width: 768px) {
+  #summary span {
+    display: block;  /* Separate lines for mobile screens */
+  }
+}

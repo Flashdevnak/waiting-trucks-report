@@ -5,13 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>🚛 รายละเอียดรถรอลงงานรายวัน BNAK</title>
   <link rel="stylesheet" href="style.css"/>
+  <style>
+    /* ปุ่มเปลี่ยนธีมมุมขวาบน */
+    #toggle-theme {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 999;
+      background: #ffc107;
+      color: #000;
+      border: none;
+      padding: 0.6rem 1rem;
+      font-size: 0.9rem;
+      font-weight: bold;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    #toggle-theme:hover {
+      background: #e0a800;
+    }
+
+    body.dark #toggle-theme {
+      background: #4fc3f7;
+      color: #000;
+    }
+  </style>
 </head>
 <body class="light">
+
+  <!-- ✅ ปุ่มเปลี่ยนธีมวางมุมขวาบน -->
+  <button id="toggle-theme">🌙 เปลี่ยนเป็นโหมดมืด</button>
+
   <div class="container">
     <h1 class="main-title">🚛 รายงานรถรอลงงานวันนี้ 🚛</h1>
-
-    <!-- ✅ ปุ่มเปลี่ยนธีม -->
-    <button id="toggle-theme">🌙 เปลี่ยนเป็นโหมดมืด</button>
 
     <div id="datetime">🗓️ วันที่: ... เวลา: ...</div>
     <div id="last-update">อัปเดตล่าสุดเมื่อ: ...</div>
@@ -57,20 +85,17 @@
 
     // เปลี่ยนธีมเมื่อคลิก
     themeToggleBtn.addEventListener("click", () => {
-      const currentTheme = document.body.classList.contains("dark") ? "dark" : "light";
-      const newTheme = currentTheme === "dark" ? "light" : "dark";
+      const isDark = document.body.classList.contains("dark");
+      const newTheme = isDark ? "light" : "dark";
       document.body.className = newTheme;
       localStorage.setItem("theme", newTheme);
       updateThemeButtonText(newTheme);
     });
 
-    // เปลี่ยนข้อความปุ่มตามธีม
     function updateThemeButtonText(theme) {
-      if (theme === "dark") {
-        themeToggleBtn.innerText = "🌞 เปลี่ยนเป็นโหมดสว่าง";
-      } else {
-        themeToggleBtn.innerText = "🌙 เปลี่ยนเป็นโหมดมืด";
-      }
+      themeToggleBtn.innerText = theme === "dark"
+        ? "🌞 เปลี่ยนเป็นโหมดสว่าง"
+        : "🌙 เปลี่ยนเป็นโหมดมืด";
     }
   </script>
 </body>

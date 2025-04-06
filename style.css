@@ -9,8 +9,9 @@ body {
 }
 
 .container {
-  max-width: 1200px;
+  max-width: 98%;
   margin: auto;
+  padding: 0 16px;
 }
 
 /* ==== Theme Toggle Button ==== */
@@ -87,6 +88,7 @@ body.dark button#toggle-theme {
 
 table {
   width: 100%;
+  min-width: 1400px;
   border-collapse: collapse;
   background: #fff;
   border-radius: 12px;
@@ -195,12 +197,10 @@ body.dark td {
   border-color: #555;
 }
 
-/* ปรับพื้นหลังแถวสลับให้อ่านง่ายขึ้นใน dark mode */
 body.dark tr:nth-child(even) {
   background-color: #2e2e2e;
 }
 
-/* การ์ดในโหมดมืด */
 body.dark .card {
   background-color: #2a2a2a;
   color: #e0e0e0;
@@ -215,7 +215,6 @@ body.dark .value {
   color: #e0e0e0;
 }
 
-/* ==== Status Colors in Dark Mode ==== */
 body.dark .green {
   color: #81c784;
 }

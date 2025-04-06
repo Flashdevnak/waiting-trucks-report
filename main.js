@@ -27,6 +27,12 @@ function formatThaiDate(isoString) {
   return `${day} ${month} ${year} เวลา ${hours}:${minutes} น.`;
 }
 
+function getWaitClass(minutes) {
+  if (minutes > 120) return "red";
+  if (minutes >= 60) return "orange";
+  return "green";
+}
+
 function renderTable(data) {
   const tableBody = document.getElementById("data");
   tableBody.innerHTML = '';
@@ -34,13 +40,11 @@ function renderTable(data) {
   data.forEach(row => {
     if (!row['上一站网点名称 สาขาก่อนหน้า']) return;
 
-    const tr = document.createElement('tr');
     const waitTime = parseInt(row['เวลาที่รอลงงาน/นาที']) || 0;
-    let waitColor = '';
-    if (waitTime > 120) waitColor = 'style="color:red;font-weight:bold"';
-    else if (waitTime >= 60) waitColor = 'style="color:orange;font-weight:bold"';
-    else waitColor = 'style="color:green;font-weight:bold"';
+    const waitClass = getWaitClass(waitTime);
+    const waitHtml = `<td class="${waitClass}" style="font-weight:bold">${waitTime} นาที</td>`;
 
+    const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${row['上一站网点名称 สาขาก่อนหน้า']}</td>
       <td>${row['车线名称 ชื่อเส้นทางการเดินรถ']}</td>
@@ -50,7 +54,7 @@ function renderTable(data) {
       <td>${row['包裹量 จำนวนพัสดุ']} ชิ้น</td>
       <td>${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</td>
       <td>${row['สถานะ 120 นาที']}</td>
-      <td ${waitColor}>${waitTime} นาที</td>
+      ${waitHtml}
     `;
     tableBody.appendChild(tr);
   });
@@ -64,23 +68,20 @@ function renderCards(data) {
     if (!row['上一站网点名称 สาขาก่อนหน้า']) return;
 
     const waitTime = parseInt(row['เวลาที่รอลงงาน/นาที']) || 0;
-    let waitColor = '';
-    if (waitTime > 120) waitColor = 'color:red;font-weight:bold';
-    else if (waitTime >= 60) waitColor = 'color:orange;font-weight:bold';
-    else waitColor = 'color:green;font-weight:bold';
+    const waitClass = getWaitClass(waitTime);
 
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
-      <div class="card-item"><span>สาขาก่อนหน้า:</span> ${row['上一站网点名称 สาขาก่อนหน้า']}</div>
-      <div class="card-item"><span>ชื่อเส้นทาง:</span> ${row['车线名称 ชื่อเส้นทางการเดินรถ']}</div>
-      <div class="card-item"><span>ชื่อพนักงาน:</span> ${row['司机姓名 ชื่อพนักงานขับรถ']}</div>
-      <div class="card-item"><span>เบอร์โทร:</span> ${row['司机电话 เบอร์โทรพนักงานขับรถ']}</div>
-      <div class="card-item"><span>ประเภทรถ:</span> ${row['车辆类型 ประเภทรถ']}</div>
-      <div class="card-item"><span>จำนวนพัสดุ:</span> ${row['包裹量 จำนวนพัสดุ']}</div>
-      <div class="card-item"><span>เวลาที่รถถึงจริง:</span> ${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</div>
-      <div class="card-item"><span>สถานะ:</span> ${row['สถานะ 120 นาที']}</div>
-      <div class="card-item" style="${waitColor}"><span>เวลาที่รอลงงาน:</span> ${waitTime} นาที</div>
+      <div class="card-item"><div class="label">สาขาก่อนหน้า:</div><div class="value">${row['上一站网点名称 สาขาก่อนหน้า']}</div></div>
+      <div class="card-item"><div class="label">ชื่อเส้นทาง:</div><div class="value">${row['车线名称 ชื่อเส้นทางการเดินรถ']}</div></div>
+      <div class="card-item"><div class="label">ชื่อพนักงาน:</div><div class="value">${row['司机姓名 ชื่อพนักงานขับรถ']}</div></div>
+      <div class="card-item"><div class="label">เบอร์โทร:</div><div class="value">${row['司机电话 เบอร์โทรพนักงานขับรถ']}</div></div>
+      <div class="card-item"><div class="label">ประเภทรถ:</div><div class="value">${row['车辆类型 ประเภทรถ']}</div></div>
+      <div class="card-item"><div class="label">จำนวนพัสดุ:</div><div class="value">${row['包裹量 จำนวนพัสดุ']} ชิ้น</div></div>
+      <div class="card-item"><div class="label">เวลาที่รถถึงจริง:</div><div class="value">${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</div></div>
+      <div class="card-item"><div class="label">สถานะ:</div><div class="value">${row['สถานะ 120 นาที']}</div></div>
+      <div class="card-item"><div class="label">เวลาที่รอลงงาน:</div><div class="value ${waitClass}">${waitTime} นาที</div></div>
     `;
     cardContainer.appendChild(card);
   });
@@ -111,13 +112,12 @@ function loadData() {
     })
     .catch(err => {
       document.getElementById("data").innerHTML =
-        `<tr><td colspan="8">❌ โหลดข้อมูลไม่สำเร็จ</td></tr>`;
+        `<tr><td colspan="9">❌ โหลดข้อมูลไม่สำเร็จ</td></tr>`;
       document.getElementById("cards-container").innerHTML =
         `<div class="card">❌ โหลดข้อมูลไม่สำเร็จ</div>`;
       console.error(err);
     });
 }
 
-// โหลดข้อมูลครั้งแรก + รีเฟรชทุก 15 วินาที
 loadData();
 setInterval(loadData, 15000);

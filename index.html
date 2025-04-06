@@ -9,6 +9,10 @@
 <body>
   <div class="container">
     <h1 class="main-title">🚛 รายงานรถรอลงงานวันนี้ 🚛</h1>
+
+    <!-- ✅ ปุ่มเปลี่ยนธีม -->
+    <button id="toggle-theme">🌓 เปลี่ยนธีม</button>
+
     <div id="datetime">🗓️ วันที่: ... เวลา: ...</div>
     <div id="last-update">อัปเดตล่าสุดเมื่อ: ...</div>
     <div id="summary">📦 สรุปข้อมูล...</div>
@@ -41,6 +45,27 @@
     </div>
   </div>
 
+  <!-- ✅ JavaScript -->
   <script src="main.js"></script>
+  <script>
+    // 🚦 Theme Toggle Script
+    const themeToggleBtn = document.getElementById("toggle-theme");
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme) {
+      document.body.classList.add(savedTheme);
+    } else {
+      document.body.classList.add("light");
+    }
+
+    themeToggleBtn.addEventListener("click", () => {
+      if (document.body.classList.contains("dark")) {
+        document.body.classList.replace("dark", "light");
+        localStorage.setItem("theme", "light");
+      } else {
+        document.body.classList.replace("light", "dark");
+        localStorage.setItem("theme", "dark");
+      }
+    });
+  </script>
 </body>
 </html>

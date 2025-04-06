@@ -54,6 +54,7 @@ body.dark button#toggle-theme {
   line-height: 1.6;
   transition: all 0.3s ease-in-out;
 }
+
 .header-info-box h1 {
   margin-top: 0;
   margin-bottom: 10px;
@@ -83,6 +84,7 @@ body.dark button#toggle-theme {
   overflow-x: auto;
   margin-top: 20px;
 }
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -91,16 +93,19 @@ table {
   overflow: hidden;
   box-shadow: 0 0 10px rgba(0,0,0,0.05);
 }
+
 th, td {
   padding: 12px;
   text-align: center;
   border-bottom: 1px solid #eee;
 }
+
 th {
   background-color: #009688;
   color: white;
   font-weight: bold;
 }
+
 tr:nth-child(even) {
   background-color: #f9f9f9;
 }
@@ -112,24 +117,29 @@ tr:nth-child(even) {
   gap: 16px;
   margin-top: 20px;
 }
+
 .card {
   background: white;
   border-radius: 10px;
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
+
 .card-item {
   display: flex;
   justify-content: space-between;
   padding: 6px 0;
   border-bottom: 1px dashed #ccc;
 }
+
 .card-item:last-child {
   border-bottom: none;
 }
+
 .label {
   font-weight: bold;
 }
+
 .value {
   text-align: right;
 }
@@ -138,9 +148,11 @@ tr:nth-child(even) {
 .green {
   color: #2e7d32;
 }
+
 .orange {
   color: #f57c00;
 }
+
 .red {
   color: #c62828;
 }
@@ -148,35 +160,6 @@ tr:nth-child(even) {
 /* ==== Theme: Dark Mode ==== */
 body.dark {
   background-color: #1e1e1e;
-  color: #e0e0e0;
-}
-
-body.dark table {
-  background-color: #2c2c2c;
-  color: #e0e0e0;
-}
-
-body.dark th {
-  background-color: #444;
-  color: #ffffff;
-}
-
-body.dark td {
-  color: #e0e0e0;
-  border-color: #555;
-}
-
-body.dark .card {
-  background-color: #2a2a2a;
-  color: #e0e0e0;
-}
-
-body.dark .card-item {
-  border-color: #444;
-}
-
-body.dark .label,
-body.dark .value {
   color: #e0e0e0;
 }
 
@@ -196,13 +179,51 @@ body.dark .summary-box {
   color: #c8e6c9;
 }
 
+body.dark table {
+  background-color: #2c2c2c;
+  color: #f5f5f5;
+  border: 1px solid #555;
+}
+
+body.dark th {
+  background-color: #444;
+  color: #ffffff;
+}
+
+body.dark td {
+  color: #f5f5f5;
+  border-color: #555;
+}
+
+/* ปรับพื้นหลังแถวสลับให้อ่านง่ายขึ้นใน dark mode */
+body.dark tr:nth-child(even) {
+  background-color: #2e2e2e;
+}
+
+/* การ์ดในโหมดมืด */
+body.dark .card {
+  background-color: #2a2a2a;
+  color: #e0e0e0;
+}
+
+body.dark .card-item {
+  border-color: #444;
+}
+
+body.dark .label,
+body.dark .value {
+  color: #e0e0e0;
+}
+
 /* ==== Status Colors in Dark Mode ==== */
 body.dark .green {
   color: #81c784;
 }
+
 body.dark .orange {
   color: #ffb74d;
 }
+
 body.dark .red {
   color: #ef5350;
 }
@@ -211,6 +232,7 @@ body.dark .red {
 .desktop-only {
   display: block;
 }
+
 .mobile-only {
   display: none;
 }

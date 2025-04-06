@@ -9,7 +9,7 @@ body {
 }
 
 body.dark {
-  background: #121212;
+  background: #000000; /* 🔁 ปรับให้พื้นหลังดำสนิท */
   color: #e0e0e0;
 }
 
@@ -110,7 +110,7 @@ th, td {
   border: 1px solid #ddd;
   text-align: center;
   font-size: 0.95rem;
-  white-space: nowrap;     /* ✅ ไม่ตัดบรรทัด */
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }

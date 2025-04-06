@@ -14,6 +14,7 @@ body.dark {
 }
 
 .container {
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   padding: 1rem;
@@ -84,7 +85,7 @@ body.dark #toggle-theme {
 .table-container {
   width: 100%;
   margin-top: 1rem;
-  overflow-x: hidden; /* ❌ ปิด scroll แนวนอน */
+  overflow-x: visible; /* ✅ ไม่มี scroll บน desktop */
 }
 
 table {
@@ -93,7 +94,7 @@ table {
   border-radius: 0.5rem;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  table-layout: auto;      /* ✅ ให้ขยายคอลัมน์ตามเนื้อหา */
+  table-layout: auto;      /* ✅ ให้คอลัมน์ขยายตามเนื้อหา */
   width: 100%;             /* ✅ กินพื้นที่เต็ม */
   transition: background 0.3s, color 0.3s;
 }
@@ -108,7 +109,7 @@ th, td {
   border: 1px solid #ddd;
   text-align: center;
   font-size: 0.95rem;
-  white-space: nowrap;       /* ✅ ไม่ตัดบรรทัด */
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -185,14 +186,11 @@ body.dark .card-item span {
   }
 
   .table-container {
-    display: block;
-    margin: 0;
-    overflow-x: auto; /* ✅ เปิด scroll เฉพาะมือถือ */
+    overflow-x: auto; /* ✅ Scroll ได้เฉพาะบนมือถือ */
   }
 
   table {
-    width: 100%;
-    min-width: 600px;
+    min-width: 600px; /* ✅ เผื่อแสดงไม่พอ */
     font-size: 0.85rem;
   }
 

@@ -256,7 +256,7 @@ body.dark .red {
   .header-info-box {
     padding: 16px;
     margin: 16px auto;
-    font-size: clamp(1rem, 3.5vw, 1.2rem);
+    font-size: clamp(0.9rem, 2.5vw, 1.1rem);
   }
 
   .header-info-box h1 {
@@ -264,7 +264,7 @@ body.dark .red {
   }
 
   .summary-box {
-    font-size: clamp(0.95rem, 3vw, 1.1rem);
+    font-size: clamp(0.95rem, 2.5vw, 1.1rem);
     padding: 10px 16px;
     margin: 16px auto;
   }

@@ -6,12 +6,12 @@
   <title>🚛 รายละเอียดรถรอลงงานรายวัน BNAK</title>
   <link rel="stylesheet" href="style.css"/>
 </head>
-<body>
+<body class="light">
   <div class="container">
     <h1 class="main-title">🚛 รายงานรถรอลงงานวันนี้ 🚛</h1>
 
     <!-- ✅ ปุ่มเปลี่ยนธีม -->
-    <button id="toggle-theme">🌓 เปลี่ยนธีม</button>
+    <button id="toggle-theme">🌙 เปลี่ยนเป็นโหมดมืด</button>
 
     <div id="datetime">🗓️ วันที่: ... เวลา: ...</div>
     <div id="last-update">อัปเดตล่าสุดเมื่อ: ...</div>
@@ -48,24 +48,30 @@
   <!-- ✅ JavaScript -->
   <script src="main.js"></script>
   <script>
-    // 🚦 Theme Toggle Script
     const themeToggleBtn = document.getElementById("toggle-theme");
-    const savedTheme = localStorage.getItem("theme");
-    if (savedTheme) {
-      document.body.classList.add(savedTheme);
-    } else {
-      document.body.classList.add("light");
-    }
 
+    // โหลดธีมจาก localStorage
+    const savedTheme = localStorage.getItem("theme") || "light";
+    document.body.className = savedTheme;
+    updateThemeButtonText(savedTheme);
+
+    // เปลี่ยนธีมเมื่อคลิก
     themeToggleBtn.addEventListener("click", () => {
-      if (document.body.classList.contains("dark")) {
-        document.body.classList.replace("dark", "light");
-        localStorage.setItem("theme", "light");
-      } else {
-        document.body.classList.replace("light", "dark");
-        localStorage.setItem("theme", "dark");
-      }
+      const currentTheme = document.body.classList.contains("dark") ? "dark" : "light";
+      const newTheme = currentTheme === "dark" ? "light" : "dark";
+      document.body.className = newTheme;
+      localStorage.setItem("theme", newTheme);
+      updateThemeButtonText(newTheme);
     });
+
+    // เปลี่ยนข้อความปุ่มตามธีม
+    function updateThemeButtonText(theme) {
+      if (theme === "dark") {
+        themeToggleBtn.innerText = "🌞 เปลี่ยนเป็นโหมดสว่าง";
+      } else {
+        themeToggleBtn.innerText = "🌙 เปลี่ยนเป็นโหมดมืด";
+      }
+    }
   </script>
 </body>
 </html>

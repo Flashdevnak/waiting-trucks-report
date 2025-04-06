@@ -264,7 +264,7 @@ body.dark .red {
   }
 
   .summary-box {
-    font-size: clamp(0.95rem, 2.5vw, 1.1rem);
+    font-size: clamp(0.8rem, 2.5vw, 0.9rem);
     padding: 10px 16px;
     margin: 16px auto;
   }

@@ -285,4 +285,14 @@ body.dark .red {
   #cards-container {
     display: none !important;
   }
+  @media (max-width: 768px) {
+  button#toggle-theme {
+    display: block;
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    margin-left: auto;
+    margin-bottom: 10px;
+    float: right;
+  }
+}
 }

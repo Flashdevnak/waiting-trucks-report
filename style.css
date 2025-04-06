@@ -30,6 +30,14 @@ button#toggle-theme {
   z-index: 1000;
 }
 
+/* ==== Centered Text Utility ==== */
+.center-text {
+  text-align: center;
+  margin: 10px 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
 /* ==== Table View (Desktop) ==== */
 .table-container {
   overflow-x: auto;

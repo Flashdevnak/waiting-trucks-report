@@ -279,13 +279,7 @@ body.dark .red {
     text-align: left;
     font-size: 0.95rem;
   }
-}
 
-@media (min-width: 769px) {
-  #cards-container {
-    display: none !important;
-  }
-  @media (max-width: 768px) {
   button#toggle-theme {
     display: block;
     font-size: 0.75rem;
@@ -295,4 +289,9 @@ body.dark .red {
     float: right;
   }
 }
+
+@media (min-width: 769px) {
+  #cards-container {
+    display: none !important;
+  }
 }

@@ -1,1 +1,145 @@
+/* ==== Base Styles ==== */
+body {
+  font-family: "Prompt", sans-serif;
+  margin: 0;
+  padding: 20px;
+  background-color: #f4f4f4;
+  color: #222;
+  transition: background-color 0.3s, color 0.3s;
+}
+h1.main-title {
+  font-size: 1.8rem;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.container {
+  max-width: 1200px;
+  margin: auto;
+}
+button#toggle-theme {
+  position: fixed;
+  top: 15px;
+  right: 15px;
+  padding: 8px 12px;
+  font-size: 1rem;
+  background-color: #333;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 1000;
+}
+
+/* ==== Table View (Desktop) ==== */
+.table-container {
+  overflow-x: auto;
+  margin-top: 20px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 10px rgba(0,0,0,0.05);
+}
+th, td {
+  padding: 12px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+}
+th {
+  background-color: #009688;
+  color: white;
+  font-weight: bold;
+}
+tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+/* ==== Card View (Mobile) ==== */
+#cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+.card {
+  background: white;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.card-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px dashed #ccc;
+}
+.card-item:last-child {
+  border-bottom: none;
+}
+.label {
+  font-weight: bold;
+}
+.value {
+  text-align: right;
+}
+
+/* ==== Status Colors ==== */
+.green {
+  color: #2e7d32;
+}
+.orange {
+  color: #f57c00;
+}
+.red {
+  color: #c62828;
+}
+
+/* ==== Theme: Dark Mode ==== */
+body.dark {
+  background-color: #1e1e1e;
+  color: #ddd;
+}
+body.dark table {
+  background-color: #2c2c2c;
+  color: #eee;
+}
+body.dark th {
+  background-color: #444;
+}
+body.dark td {
+  border-color: #555;
+}
+body.dark .card {
+  background-color: #2a2a2a;
+  color: #ddd;
+}
+body.dark .card-item {
+  border-color: #444;
+}
+body.dark button#toggle-theme {
+  background-color: #ddd;
+  color: #222;
+}
+
+/* ==== Responsive Design ==== */
+.desktop-only {
+  display: block;
+}
+.mobile-only {
+  display: none;
+}
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none;
+  }
+  .mobile-only {
+    display: block;
+  }
+  h1.main-title {
+    font-size: 1.4rem;
+  }
+}
 

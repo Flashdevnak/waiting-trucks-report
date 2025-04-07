@@ -80,6 +80,34 @@ body.dark button#toggle-theme {
   transition: background-color 0.3s;
 }
 
+/* ==== Summary Flex Layout ==== */
+.summary-flex {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .summary-flex {
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+
+/* ==== Highlighted Numbers ==== */
+.highlight {
+  font-weight: bold;
+  color: #00695c;
+}
+
+body.dark .highlight {
+  color: #4dd0e1;
+}
+
 /* ==== Table View (Desktop) ==== */
 .table-container {
   overflow-x: auto;
@@ -297,16 +325,5 @@ body.dark .red {
 @media (min-width: 769px) {
   #cards-container {
     display: none !important;
-  }
-}
-
-/* ==== Separate Lines for Summary on Mobile ==== */
-#summary span {
-  display: inline-block;  /* Default: inline for normal screens */
-}
-
-@media (max-width: 768px) {
-  #summary span {
-    display: block;  /* Separate lines for mobile screens */
   }
 }

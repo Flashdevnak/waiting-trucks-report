@@ -111,10 +111,11 @@ body.dark .highlight {
 /* ==== Table View (Desktop) ==== */
 .table-container {
   overflow: visible;          /* ✅ ไม่ให้มี scroll แนวนอน */
-  margin: 20px auto;          /* ✅ ช่วยจัดให้อยู่กึ่งกลาง */
+  margin: 0 auto;             /* ✅ ช่วยจัดให้อยู่กึ่งกลาง */
   display: flex;              /* ✅ ใช้ flex เพื่อจัดกึ่งกลาง */
-  width: 1400px;              /* ✅ กำหนดความกว้างเท่ากับเนื้อหา */
   justify-content: center;    /* ✅ จัดแนวนอน */
+  max-width: 1400px;          /* ✅ จำกัดความกว้างสูงสุด */
+  width: 100%;                /* ✅ ให้เต็มจอแต่ไม่เกิน max */
 }
 
 table {

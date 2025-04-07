@@ -112,6 +112,8 @@ body.dark .highlight {
 .table-container {
   overflow: visible; /* ✅ ไม่ให้มี scroll แนวนอน */
   margin-top: 20px;
+  display: flex;              /* ✅ ใช้ flex เพื่อจัดกึ่งกลาง */
+  justify-content: center;   /* ✅ จัดแนวนอน */
 }
 
 table {

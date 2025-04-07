@@ -122,12 +122,13 @@ table {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 0 10px rgba(0,0,0,0.05);
+  border: 1px solid #ccc; /* ✅ เพิ่มเส้นรอบตาราง */
 }
 
 th, td {
   padding: 12px;
   text-align: center;
-  border-bottom: 1px solid #eee;
+  border: 1px solid #ddd; /* ✅ เส้นรอบทุกเซลล์ */
 }
 
 th {
@@ -139,6 +140,7 @@ th {
 tr:nth-child(even) {
   background-color: #f9f9f9;
 }
+
 
 /* ==== Card View (Mobile Only) ==== */
 #cards-container {

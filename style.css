@@ -121,6 +121,7 @@ body.dark .highlight {
 table {
   width: auto;              /* ✅ ยืดตามเนื้อหา */
   min-width: unset;         /* ✅ ยกเลิกการ fix ขนาด */
+  margin: 0 auto;           /* ✅ จัดตารางให้กึ่งกลางจริง ๆ */
   border-collapse: collapse;
   background: #fff;
   border-radius: 12px;

@@ -113,6 +113,7 @@ body.dark .highlight {
   overflow: visible;          /* ✅ ไม่ให้มี scroll แนวนอน */
   margin: 20px auto;          /* ✅ ช่วยจัดให้อยู่กึ่งกลาง */
   display: flex;              /* ✅ ใช้ flex เพื่อจัดกึ่งกลาง */
+  width: 100%;                /* ✅ เพิ่มบรรทัดนี้! */
   justify-content: center;    /* ✅ จัดแนวนอน */
 }
 

@@ -97,7 +97,7 @@ function loadData() {
       data.forEach(row => {
         if (!row['上一站网点名称 สาขาก่อนหน้า']) return;
         totalTrucks++;
-        totalPackages += parseInt(row['包裹量 จำนวนพัสดุ']) || 0;
+        totalPackages += parseInt(row['包裹总量 จำนวนพัสดุทั้งหมด']) || 0;
       });
 
       document.getElementById("summary").innerText =

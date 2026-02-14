@@ -50,8 +50,8 @@ function renderTable(data) {
       <td>${row['车线名称 ชื่อเส้นทางการเดินรถ']}</td>
       <td>${row['司机姓名 ชื่อพนักงานขับรถ']}</td>
       <td>${row['司机电话 เบอร์โทรพนักงานขับรถ']}</td>
-      <td>${row['车辆类型 ประเภทรถ']}</td>
-      <td>${row['包裹量 จำนวนพัสดุ']} ชิ้น</td>
+      <td>${row['车辆类型 ประภทรถ']}</td>
+      <td>${row['包裹总量 จำนวนพัสดุทั้งหมด']} ชิ้น</td>
       <td>${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</td>
       <td>${row['สถานะ 120 นาที']}</td>
       ${waitHtml}
@@ -77,8 +77,8 @@ function renderCards(data) {
       <div class="card-item"><div class="label">ชื่อเส้นทาง:</div><div class="value">${row['车线名称 ชื่อเส้นทางการเดินรถ']}</div></div>
       <div class="card-item"><div class="label">ชื่อพนักงาน:</div><div class="value">${row['司机姓名 ชื่อพนักงานขับรถ']}</div></div>
       <div class="card-item"><div class="label">เบอร์โทร:</div><div class="value">${row['司机电话 เบอร์โทรพนักงานขับรถ']}</div></div>
-      <div class="card-item"><div class="label">ประเภทรถ:</div><div class="value">${row['车辆类型 ประเภทรถ']}</div></div>
-      <div class="card-item"><div class="label">จำนวนพัสดุ:</div><div class="value">${row['包裹量 จำนวนพัสดุ']} ชิ้น</div></div>
+      <div class="card-item"><div class="label">ประเภทรถ:</div><div class="value">${row['车辆类型 ประภทรถ']}</div></div>
+      <div class="card-item"><div class="label">จำนวนพัสดุ:</div><div class="value">${row['包裹总量 จำนวนพัสดุทั้งหมด']} ชิ้น</div></div>
       <div class="card-item"><div class="label">เวลาที่รถถึงจริง:</div><div class="value">${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</div></div>
       <div class="card-item"><div class="label">สถานะ:</div><div class="value">${row['สถานะ 120 นาที']}</div></div>
       <div class="card-item"><div class="label">เวลาที่รอลงงาน:</div><div class="value ${waitClass}">${waitTime} นาที</div></div>

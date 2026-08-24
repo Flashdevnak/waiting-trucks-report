@@ -369,3 +369,113 @@ dialog::backdrop{background:rgba(15,15,15,.62)}
   .user-row{grid-template-columns:1fr 1fr}
   .user-row .user-name,.user-row .user-branches,.user-row .user-password{grid-column:1/-1}
 }
+
+/* Visual refinement: keep the original black-yellow identity. */
+body{font-size:14px;line-height:1.45}
+
+.site-header{box-shadow:0 2px 10px rgba(0,0,0,.16)}
+.site-header-inner{min-height:72px;padding-top:11px;padding-bottom:11px}
+.brand-mark{min-width:64px;height:46px;border-radius:4px}
+.brand-copy strong{font-size:19px;line-height:1.2}
+.brand-copy span{color:#d0d0ce}
+
+.app-shell{padding-top:20px}
+
+.metric-grid{
+  border-color:var(--line-dark);
+  border-radius:6px;
+  overflow:hidden;
+  box-shadow:0 2px 8px rgba(0,0,0,.05);
+}
+.metric-card{min-height:106px;padding:16px 18px;background:#fff}
+.metric-card strong{margin-top:8px;font-size:30px}
+
+.panel{
+  border-color:var(--line-dark);
+  border-radius:6px;
+  box-shadow:0 2px 8px rgba(0,0,0,.04);
+}
+.toolbar-panel{padding:0 16px 14px}
+.tabs{margin-bottom:14px}
+.tab{padding:14px 15px 10px;color:#565b60}
+.tab:hover{color:var(--ink);background:var(--surface-soft)}
+.tab.active{background:#fff;color:#111}
+
+.filters input,.filters select,.dialog-card input,.dialog-card textarea{
+  min-height:38px;
+  border-radius:4px;
+}
+.sync-text{margin-top:10px}
+
+.table-panel{margin-top:14px}
+th{
+  background:var(--navy-2);
+  color:#fff;
+  padding:11px 12px;
+  border-bottom-color:#111;
+  font-size:12px;
+  letter-spacing:.01em;
+}
+td{padding:12px;border-bottom-color:var(--line)}
+tbody tr{background:#fff;transition:background-color .12s ease}
+tbody tr:hover{background:var(--yellow-soft)}
+tbody tr.is-unloading{background:#f0f1f1;box-shadow:inset 4px 0 var(--working)}
+tbody tr.is-unloading:hover{background:#e8e9e9}
+.wait-time{font-size:17px}
+.secondary{color:#6a6e72}
+.vehicle-line{gap:10px}
+.vehicle-line .vehicle-type{color:#45494d}
+
+.status-pill{min-height:26px;align-items:center;padding:4px 8px;border-radius:4px}
+.row-actions{gap:6px}
+.row-actions .btn{min-height:32px;padding:6px 10px}
+
+.mobile-cards{padding:12px}
+.truck-card{
+  padding:14px;
+  margin-bottom:10px;
+  border-radius:5px;
+  box-shadow:0 1px 4px rgba(0,0,0,.05);
+}
+.truck-card-head{padding-bottom:10px;border-bottom:1px solid var(--line)}
+.detail-grid{gap:11px 14px}
+.detail-grid strong{display:block;margin-top:2px;color:#202124;line-height:1.35}
+.truck-card .row-actions{gap:7px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+
+.empty-state{min-height:220px;background:#fff}
+
+@media(max-width:900px){
+  .site-header-inner{padding-left:16px;padding-right:16px}
+  .topbar-actions{padding-top:2px}
+  .metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .metric-card:nth-child(odd){border-right:1px solid var(--line)}
+  .metric-card:nth-child(even){border-right:0}
+}
+
+@media(max-width:700px){
+  body{background:#eeeeeb}
+  .site-header-inner{padding:10px 12px 12px}
+  .brand-mark{min-width:58px;height:42px}
+  .brand-copy strong{font-size:17px}
+  .brand-copy span{font-size:11px}
+  .app-shell{padding-top:12px;padding-bottom:22px}
+  .metric-grid{margin-bottom:10px;border-radius:5px}
+  .metric-card{min-height:92px;padding:12px 13px}
+  .metric-card strong{font-size:25px}
+  .toolbar-panel{padding:0 10px 12px}
+  .tabs{overflow-x:auto;white-space:nowrap}
+  .tab{flex:1;padding-left:10px;padding-right:10px}
+  .table-panel{margin-top:10px;background:transparent;border:0;box-shadow:none}
+  .mobile-cards{padding:0;background:transparent}
+  .truck-card{background:#fff}
+  .truck-card-head .primary{font-size:14px}
+  .truck-status{min-width:105px}
+  .truck-status .status-progress{display:block;margin:4px 0 0}
+  .truck-card .row-actions .btn{min-height:38px}
+}
+
+@media(max-width:420px){
+  .detail-grid{grid-template-columns:1fr 1fr}
+  .detail-grid>div:nth-child(4),.detail-grid>div:nth-child(6){grid-column:1/-1}
+  .truck-card{padding:12px}
+}

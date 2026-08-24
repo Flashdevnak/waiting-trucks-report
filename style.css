@@ -59,7 +59,7 @@ button,input,select,textarea{font:inherit}
   letter-spacing:.04em;
   gap:7px;
 }
-.brand-truck{font-size:21px;line-height:1}
+.brand-truck{display:block;width:25px;height:25px;font-size:0;background:url("favicon.svg") center/contain no-repeat}
 
 .brand-copy{display:flex;flex-direction:column;gap:3px}
 .brand-copy strong{font-size:18px}
@@ -202,6 +202,7 @@ tbody tr:hover{background:#fff8f2}
 .wait-time{font-size:16px;font-weight:700;white-space:nowrap}
 .primary{font-weight:700}
 .secondary{margin-top:3px;color:var(--muted);font-size:12px}
+.vehicle-type{color:var(--ink);font-size:14px;font-weight:800}
 
 .status-pill{
   display:inline-flex;
@@ -244,6 +245,7 @@ tbody tr:hover{background:#fff8f2}
 .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 .detail-grid span{display:block;color:var(--muted);font-size:11px}
 .detail-grid strong{font-size:13px}
+.detail-grid div:nth-child(2) strong{font-size:15px;font-weight:800}
 .truck-card .row-actions{margin-top:12px}
 .truck-card .row-actions .btn{flex:1}
 

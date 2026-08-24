@@ -277,6 +277,11 @@ dialog::backdrop{background:rgba(23,33,43,.58)}
 .setting-row input,.setting-row select{width:100%;min-height:40px;border:1px solid var(--line);border-radius:4px;padding:8px 10px;background:#fff;color:var(--ink)}
 .setting-row label{display:flex;align-items:center;gap:8px;font-weight:700}
 .remove-setting{min-height:38px;border:1px solid #d92d20;background:#fff;color:#b42318;border-radius:4px;padding:0 12px;font-weight:700;cursor:pointer}
+.setting-help{margin:0 0 10px;color:var(--muted);font-size:12px}
+.user-row{display:grid;grid-template-columns:120px 110px minmax(130px,1fr) minmax(180px,1fr) auto auto;gap:8px;align-items:center;margin-bottom:8px;padding:10px;border:1px solid var(--line);background:#f8f9fa}
+.user-row input,.user-row select{width:100%;min-height:40px;border:1px solid var(--line);border-radius:4px;padding:8px 10px;background:#fff;color:var(--ink)}
+.user-active{display:flex!important;align-items:center;gap:6px;white-space:nowrap;font-weight:700}
+.user-active input{width:18px;min-height:18px}
 .form-error{margin:9px 0 0;color:var(--red);font-size:12px}
 .toast{position:fixed;right:18px;bottom:18px;z-index:20;background:var(--navy);color:#fff;border-left:5px solid var(--orange);padding:11px 14px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
 
@@ -312,4 +317,6 @@ dialog::backdrop{background:rgba(23,33,43,.58)}
   .pause-row .setting-label,.vehicle-row .vehicle-type{grid-column:1/-1}
   .pause-row .remove-setting,.vehicle-row .remove-setting{grid-column:1/-1}
   .pause-row span{text-align:center}
+  .user-row{grid-template-columns:1fr 1fr}
+  .user-row .user-name,.user-row .user-branches,.user-row .user-password{grid-column:1/-1}
 }

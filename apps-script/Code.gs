@@ -27,7 +27,7 @@ const AUDIT_HEADERS = [
 ];
 
 const SYSTEM_HEADERS = [
-  'category', 'key', 'label', 'startHour', 'endHour',
+  'branch', 'category', 'key', 'label', 'startHour', 'endHour',
   'minutes', 'color', 'enabled', 'updatedAt', 'updatedBy'
 ];
 
@@ -46,14 +46,6 @@ const DEFAULT_PAUSE_WINDOWS = [
 const DEFAULT_VEHICLE_LIMITS = [
   ['4W', 120], ['4WJ', 120], ['6W', 120],
   ['14W', 120], ['18W', 120], ['22W', 120]
-];
-
-const DEFAULT_WAIT_STATUSES = [
-  ['starting', 'เริ่มรอ', 0, '#157347'],
-  ['waiting', 'กำลังรอ', 25, '#2878b5'],
-  ['watch', 'เฝ้าระวัง', 50, '#9a6700'],
-  ['near', 'ใกล้ครบกำหนด', 75, '#d96c00'],
-  ['overdue', 'เกินกำหนด', 100, '#b42318']
 ];
 
 // เปลี่ยน 55555 เป็นรหัสกลางก่อนกด Run ครั้งแรก
@@ -127,9 +119,10 @@ function doGet(e) {
     }
 
     if (action === 'settings') {
+      const branch = settingsBranch_(operator, e?.parameter?.branch);
       return json_({
         ok: true,
-        data: readSystemSettings_()
+        data: readSystemSettings_(branch)
       });
     }
 
@@ -191,9 +184,10 @@ function doPost(e) {
 
     if (body.action === 'saveSettings') {
       assertAdmin_(operator);
+      const branch = settingsBranch_(operator, body.branch);
       return json_({
         ok: true,
-        data: saveSystemSettings_(body.settings || {}, operator.username)
+        data: saveSystemSettings_(body.settings || {}, operator.username, branch)
       });
     }
 
@@ -687,6 +681,15 @@ function scopeRows_(rows, operator) {
   return rows.filter(row => canAccessRow_(row, operator));
 }
 
+function settingsBranch_(operator, requested) {
+  const branch = normalizeBranch_(requested);
+  if (operator.role === 'admin') return branch || SETTINGS.USERNAME;
+  if (branch && !operator.branches.includes(branch) && !operator.branches.includes('*')) {
+    throw new Error('ไม่มีสิทธิ์เข้าถึงการตั้งค่าฮับนี้');
+  }
+  return branch || operator.branches[0] || SETTINGS.USERNAME;
+}
+
 function ensureSystemSettings_(ss) {
   const sheet = ensureSheet_(ss, SETTINGS.SYSTEM_SHEET, SYSTEM_HEADERS);
 
@@ -695,53 +698,51 @@ function ensureSystemSettings_(ss) {
     const rows = [];
 
     DEFAULT_PAUSE_WINDOWS.forEach(item => rows.push({
+      branch: SETTINGS.USERNAME,
       category: 'pause', key: item[0], label: item[1],
       startHour: item[2], endHour: item[3], minutes: '',
       enabled: true, updatedAt: now, updatedBy: 'SYSTEM'
     }));
 
     DEFAULT_VEHICLE_LIMITS.forEach(item => rows.push({
+      branch: SETTINGS.USERNAME,
       category: 'vehicle', key: item[0], label: item[0],
       startHour: '', endHour: '', minutes: item[1],
-      enabled: true, updatedAt: now, updatedBy: 'SYSTEM'
-    }));
-
-    DEFAULT_WAIT_STATUSES.forEach(item => rows.push({
-      category: 'status', key: item[0], label: item[1],
-      startHour: '', endHour: '', minutes: item[2], color: item[3],
       enabled: true, updatedAt: now, updatedBy: 'SYSTEM'
     }));
 
     replaceData_(sheet, SYSTEM_HEADERS, rows);
   }
 
-  const data = sheet.getDataRange().getValues();
-  const headers = data.shift().map(String);
-  const categoryIndex = headers.indexOf('category');
-  const hasStatuses = data.some(row => row[categoryIndex] === 'status');
-
-  if (!hasStatuses) {
-    const now = new Date().toISOString();
-    DEFAULT_WAIT_STATUSES.forEach(item => appendObject_(sheet, SYSTEM_HEADERS, {
-      category: 'status', key: item[0], label: item[1],
-      startHour: '', endHour: '', minutes: item[2], color: item[3],
-      enabled: true, updatedAt: now, updatedBy: 'SYSTEM'
-    }));
-  }
-
   return sheet;
 }
 
-function readSystemSettings_() {
+function readSystemSettings_(branch) {
+  branch = normalizeBranch_(branch) || SETTINGS.USERNAME;
   const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
   const sheet = ensureSystemSettings_(ss);
   const values = sheet.getDataRange().getValues();
   const headers = values.shift().map(String);
   const rows = values
     .filter(row => row.some(value => value !== '' && value !== null))
-    .map(row => Object.fromEntries(headers.map((header, index) => [header, row[index]])));
+    .map(row => Object.fromEntries(headers.map((header, index) => [header, row[index]])))
+    .filter(row => normalizeBranch_(row.branch) === branch ||
+      (!normalizeBranch_(row.branch) && branch === SETTINGS.USERNAME));
+
+  if (!rows.length) {
+    return {
+      branch: branch,
+      pauseWindows: DEFAULT_PAUSE_WINDOWS.map(item => ({
+        key: item[0], label: item[1], startHour: item[2], endHour: item[3]
+      })),
+      vehicleLimits: DEFAULT_VEHICLE_LIMITS.map(item => ({
+        type: item[0], minutes: item[1]
+      }))
+    };
+  }
 
   return {
+    branch: branch,
     pauseWindows: rows
       .filter(row => row.category === 'pause' && boolean_(row.enabled))
       .map(row => ({
@@ -755,32 +756,19 @@ function readSystemSettings_() {
       .map(row => ({
         type: String(row.key).trim().toUpperCase(),
         minutes: Number(row.minutes) || 120
-      })),
-    statuses: rows
-      .filter(row => row.category === 'status' && boolean_(row.enabled))
-      .map(row => ({
-        key: String(row.key),
-        label: String(row.label || ''),
-        startPercent: Number(row.minutes) || 0,
-        color: String(row.color || '#667085')
       }))
-      .sort((a, b) => a.startPercent - b.startPercent)
   };
 }
 
-function saveSystemSettings_(settings, username) {
+function saveSystemSettings_(settings, username, branch) {
+  branch = normalizeBranch_(branch) || SETTINGS.USERNAME;
   const pauseWindows = Array.isArray(settings.pauseWindows)
     ? settings.pauseWindows : [];
   const vehicleLimits = Array.isArray(settings.vehicleLimits)
     ? settings.vehicleLimits : [];
-  const statuses = Array.isArray(settings.statuses)
-    ? settings.statuses : [];
 
   if (vehicleLimits.length < 1) {
     throw new Error('ต้องมีประเภทรถอย่างน้อย 1 ประเภท');
-  }
-  if (statuses.length < 2) {
-    throw new Error('ต้องมีสถานะเวลาอย่างน้อย 2 ระดับ');
   }
 
   const now = new Date().toISOString();
@@ -794,6 +782,7 @@ function saveSystemSettings_(settings, username) {
       throw new Error('ช่วงไม่มีกะลำดับที่ ' + (index + 1) + ' ไม่ถูกต้อง');
     }
     rows.push({
+      branch: branch,
       category: 'pause', key: 'pause-' + (index + 1),
       label: String(item.label || ('ช่วงไม่มีกะ ' + (index + 1))).slice(0, 100),
       startHour: start, endHour: end, minutes: '', enabled: true,
@@ -810,39 +799,27 @@ function saveSystemSettings_(settings, username) {
     }
     seen.add(type);
     rows.push({
+      branch: branch,
       category: 'vehicle', key: type, label: type,
       startHour: '', endHour: '', minutes: minutes, enabled: true,
       updatedAt: now, updatedBy: username
     });
   });
 
-  const statusKeys = new Set();
-  statuses
-    .sort((a, b) => Number(a.startPercent) - Number(b.startPercent))
-    .forEach((item, index) => {
-      const key = String(item.key || ('status-' + (index + 1)))
-        .trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-      const label = String(item.label || '').trim();
-      const startPercent = Math.round(Number(item.startPercent));
-      const color = String(item.color || '#667085').trim();
-      if (!key || statusKeys.has(key) || !label ||
-          !Number.isFinite(startPercent) || startPercent < 0 || startPercent > 500 ||
-          !/^#[0-9a-f]{6}$/i.test(color)) {
-        throw new Error('ข้อมูลสถานะลำดับที่ ' + (index + 1) + ' ไม่ถูกต้อง');
-      }
-      statusKeys.add(key);
-      rows.push({
-        category: 'status', key: key, label: label.slice(0, 60),
-        startHour: '', endHour: '', minutes: startPercent, color: color,
-        enabled: true, updatedAt: now, updatedBy: username
-      });
-    });
-
   const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
   const sheet = ensureSheet_(ss, SETTINGS.SYSTEM_SHEET, SYSTEM_HEADERS);
-  replaceData_(sheet, SYSTEM_HEADERS, rows);
-  audit_('SAVE_SETTINGS', '', JSON.stringify(settings), username);
-  return readSystemSettings_();
+  const existing = sheet.getDataRange().getValues();
+  const headers = existing.shift().map(String);
+  const keep = existing
+    .filter(row => row.some(value => value !== '' && value !== null))
+    .map(row => Object.fromEntries(headers.map((header, index) => [header, row[index]])))
+    .filter(row => {
+      const rowBranch = normalizeBranch_(row.branch) || SETTINGS.USERNAME;
+      return rowBranch !== branch;
+    });
+  replaceData_(sheet, SYSTEM_HEADERS, keep.concat(rows));
+  audit_('SAVE_SETTINGS', branch, JSON.stringify(settings), username);
+  return readSystemSettings_(branch);
 }
 
 function boolean_(value) {

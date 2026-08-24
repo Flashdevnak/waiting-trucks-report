@@ -435,6 +435,7 @@ tbody tr.is-unloading:hover{background:#e8e9e9}
 .truck-card{
   padding:14px;
   margin-bottom:10px;
+  border-left:1px solid var(--line-dark);
   border-radius:5px;
   box-shadow:0 1px 4px rgba(0,0,0,.05);
 }

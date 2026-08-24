@@ -1,123 +1,22 @@
-function updateDateTime() {
-  const now = new Date();
-  const day = now.getDate();
-  const monthNames = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
-    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-  const month = monthNames[now.getMonth()];
-  const year = now.getFullYear() + 543;
-  const hours = now.getHours().toString().padStart(2, '0');
-  const minutes = now.getMinutes().toString().padStart(2, '0');
-  const seconds = now.getSeconds().toString().padStart(2, '0');
-  document.getElementById("datetime").innerText =
-    `📅 วันที่: ${day} ${month} ${year} เวลา: ${hours}:${minutes}:${seconds} น.`;
-}
-setInterval(updateDateTime, 1000);
-updateDateTime();
-
-function formatThaiDate(isoString) {
-  const date = new Date(isoString);
-  if (isNaN(date)) return "-";
-  const day = date.getDate();
-  const monthNames = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
-    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-  const month = monthNames[date.getMonth()];
-  const year = date.getFullYear() + 543;
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  return `${day} ${month} ${year} เวลา ${hours}:${minutes} น.`;
-}
-
-function getWaitClass(minutes) {
-  if (minutes > 120) return "red";
-  if (minutes >= 60) return "orange";
-  return "green";
-}
-
-function renderTable(data) {
-  const tableBody = document.getElementById("data");
-  tableBody.innerHTML = '';
-
-  data.forEach(row => {
-    if (!row['上一站网点名称 สาขาก่อนหน้า']) return;
-
-    const waitTime = parseInt(row['เวลาที่รอลงงาน/นาที']) || 0;
-    const waitClass = getWaitClass(waitTime);
-    const waitHtml = `<td class="${waitClass}" style="font-weight:bold">${waitTime} นาที</td>`;
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${row['上一站网点名称 สาขาก่อนหน้า']}</td>
-      <td>${row['车线名称 ชื่อเส้นทางการเดินรถ']}</td>
-      <td>${row['司机姓名 ชื่อพนักงานขับรถ']}</td>
-      <td>${row['司机电话 เบอร์โทรพนักงานขับรถ']}</td>
-      <td>${row['车辆类型 ประภทรถ']}</td>
-      <td>${row['包裹总量 จำนวนพัสดุทั้งหมด']} ชิ้น</td>
-      <td>${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</td>
-      <td>${row['สถานะ 120 นาที']}</td>
-      ${waitHtml}
-    `;
-    tableBody.appendChild(tr);
-  });
-}
-
-function renderCards(data) {
-  const cardContainer = document.getElementById("cards-container");
-  cardContainer.innerHTML = "";
-
-  data.forEach(row => {
-    if (!row['上一站网点名称 สาขาก่อนหน้า']) return;
-
-    const waitTime = parseInt(row['เวลาที่รอลงงาน/นาที']) || 0;
-    const waitClass = getWaitClass(waitTime);
-
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
-      <div class="card-item"><div class="label">สาขาก่อนหน้า:</div><div class="value">${row['上一站网点名称 สาขาก่อนหน้า']}</div></div>
-      <div class="card-item"><div class="label">ชื่อเส้นทาง:</div><div class="value">${row['车线名称 ชื่อเส้นทางการเดินรถ']}</div></div>
-      <div class="card-item"><div class="label">ชื่อพนักงาน:</div><div class="value">${row['司机姓名 ชื่อพนักงานขับรถ']}</div></div>
-      <div class="card-item"><div class="label">เบอร์โทร:</div><div class="value">${row['司机电话 เบอร์โทรพนักงานขับรถ']}</div></div>
-      <div class="card-item"><div class="label">ประเภทรถ:</div><div class="value">${row['车辆类型 ประภทรถ']}</div></div>
-      <div class="card-item"><div class="label">จำนวนพัสดุ:</div><div class="value">${row['包裹总量 จำนวนพัสดุทั้งหมด']} ชิ้น</div></div>
-      <div class="card-item"><div class="label">เวลาที่รถถึงจริง:</div><div class="value">${formatThaiDate(row['实际到达时间 เวลารถถึงจริง'])}</div></div>
-      <div class="card-item"><div class="label">สถานะ:</div><div class="value">${row['สถานะ 120 นาที']}</div></div>
-      <div class="card-item"><div class="label">เวลาที่รอลงงาน:</div><div class="value ${waitClass}">${waitTime} นาที</div></div>
-    `;
-    cardContainer.appendChild(card);
-  });
-}
-
-function loadData() {
-  fetch("https://script.google.com/macros/s/AKfycbxE2-_8h6EzOQQ3FeDwFxNIAn4U40pacvRnp3XeOGevXDzhw15bgDi74LVgtozfjgiHXQ/exec")
-    .then(res => res.json())
-    .then(data => {
-      let totalTrucks = 0;
-      let totalPackages = 0;
-
-      data.forEach(row => {
-        if (!row['上一站网点名称 สาขาก่อนหน้า']) return;
-        totalTrucks++;
-        totalPackages += parseInt(row['包裹总量 จำนวนพัสดุทั้งหมด']) || 0;
-      });
-
-      document.getElementById("summary").innerText =
-        `🚛 รถทั้งหมด: ${totalTrucks} คัน | 📦 พัสดุทั้งหมด: ${totalPackages} ชิ้น`;
-
-      renderTable(data);
-      renderCards(data);
-
-      const now = new Date();
-      document.getElementById("last-update").innerText =
-        `อัปเดตล่าสุดเมื่อ: ${formatThaiDate(now.toISOString())}`;
-    })
-    .catch(err => {
-      document.getElementById("data").innerHTML =
-        `<tr><td colspan="9">❌ โหลดข้อมูลไม่สำเร็จ</td></tr>`;
-      document.getElementById("cards-container").innerHTML =
-        `<div class="card">❌ โหลดข้อมูลไม่สำเร็จ</div>`;
-      console.error(err);
-    });
-}
-
-loadData();
-setInterval(loadData, 15000);
+const CONFIG={apiUrl:"https://script.google.com/macros/s/AKfycbxE2-_8h6EzOQQ3FeDwFxNIAn4U40pacvRnp3XeOGevXDzhw15bgDi74LVgtozfjgiHXQ/exec",pollMs:30000,pauseWindows:[[0,1],[7,8],[10,15],[18,19]]};
+const state={rows:[],history:[],view:"active",query:"",filter:"all",pin:sessionStorage.getItem("bnak_operator_pin")||"",pending:null};
+const el=id=>document.getElementById(id),nf=new Intl.NumberFormat("th-TH"),dtf=new Intl.DateTimeFormat("th-TH",{dateStyle:"medium",timeStyle:"short",hour12:false});
+document.addEventListener("DOMContentLoaded",()=>{el("refresh-btn").onclick=()=>loadData();el("unlock-btn").onclick=()=>el("pin-dialog").showModal();el("import-btn").onclick=locked(()=>el("file-input").click());el("file-input").onchange=importExcel;el("search-input").oninput=e=>{state.query=e.target.value.trim().toLowerCase();render()};el("status-filter").onchange=e=>{state.filter=e.target.value;render()};document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{state.view=t.dataset.view;document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));el("status-filter").disabled=state.view==="history";loadData()});el("pin-form").onsubmit=savePin;el("confirm-form").onsubmit=submitAction;setInterval(clock,1000);clock();loadData();setInterval(()=>state.view==="active"&&loadData(true),CONFIG.pollMs);setInterval(render,60000)});
+function clock(){el("live-clock").textContent=`เวลารายงานแบบเรียลไทม์ · ${dtf.format(new Date())} น.`}function locked(fn){return()=>{if(state.pin)return fn();state.afterUnlock=fn;el("pin-dialog").showModal()}}
+async function savePin(e){e.preventDefault();const pin=el("pin-input").value.trim();try{await apiGet("verify",{pin});state.pin=pin;sessionStorage.setItem("bnak_operator_pin",pin);el("pin-error").classList.add("hidden");el("pin-dialog").close();toast("ปลดล็อกการจัดการแล้ว");const fn=state.afterUnlock;state.afterUnlock=null;if(fn)fn()}catch(err){el("pin-error").textContent=err.message;el("pin-error").classList.remove("hidden")}}
+async function loadData(silent=false){if(!silent){el("loading-state").classList.remove("hidden");el("desktop-table").classList.add("hidden");el("mobile-cards").classList.add("hidden")}try{const data=await apiGet(state.view==="history"?"history":"list");const rows=Array.isArray(data)?data:(data.data||[]);if(state.view==="history")state.history=rows;else state.rows=rows;connection(true);el("last-sync").textContent=`ซิงก์ล่าสุด ${dtf.format(new Date())} น. · รีเฟรชอัตโนมัติทุก 30 วินาที`;render()}catch(err){connection(false);if(!silent)empty(`โหลดข้อมูลไม่สำเร็จ: ${err.message}`)}}
+function connection(ok){const b=el("connection-badge");b.textContent=ok?"ออนไลน์":"เชื่อมต่อไม่ได้";b.className=`badge ${ok?"badge-online":"badge-offline"}`}
+function render(){el("loading-state").classList.add("hidden");const rows=(state.view==="history"?state.history:state.rows).map(normalize).filter(match).sort((a,b)=>state.view==="history"?new Date(b.actionAt)-new Date(a.actionAt):b.waitMinutes-a.waitMinutes);metrics(state.rows.map(normalize));if(!rows.length)return empty(state.view==="history"?"ยังไม่มีประวัติการดำเนินการ":"ยังไม่มีรถรอลงงาน");el("empty-state").classList.add("hidden");el("desktop-table").classList.remove("hidden");el("mobile-cards").classList.remove("hidden");el("table-body").innerHTML=rows.map(tableRow).join("");el("mobile-cards").innerHTML=rows.map(card).join("");document.querySelectorAll(".action-btn").forEach(b=>b.onclick=locked(()=>confirmAction(b.dataset.action,b.dataset.id)))}
+function pick(r,keys){for(const k of keys)if(r?.[k]!==undefined&&r[k]!==null&&r[k]!=="")return r[k];return""}function normalize(r){const arrival=pick(r,["arrivalAt","实际到达时间 เวลารถถึงจริง"]),wait=state.view==="active"?workingMinutes(arrival,new Date()):Number(pick(r,["waitMinutes","等位时长_分钟 ระยะเวลาที่รอลงงาน/นาที"]))||0;return{id:pick(r,["id","recordId"]),barcode:pick(r,["barcode","出车凭证 บาร์โค้ดรถ"]),previous:pick(r,["previousStation","上一站网点名称 สาขาก่อนหน้า","上一站网点名称 สถานีก่อนหน้า"]),route:pick(r,["routeName","车线名称 ชื่อเส้นทางการเดินรถ"]),driver:pick(r,["driverName","司机姓名 ชื่อพนักงานขับรถ"]),phone:String(pick(r,["driverPhone","司机电话 เบอร์โทรพนักงานขับรถ"])||""),vehicleType:pick(r,["vehicleType","车辆类型 ประภทรถ"]),plate:String(pick(r,["plate","车牌号 เลขทะเบียนรถ"])||""),parcels:Number(pick(r,["parcels","包裹总量 จำนวนพัสดุทั้งหมด"]))||0,arrivalAt:arrival,waitMinutes:wait,status:pick(r,["status","action"]),actionAt:pick(r,["actionAt"]),note:pick(r,["note"])}}
+function parseDate(v){if(!v)return null;if(v instanceof Date)return v;const d=new Date(String(v).trim().replace(" ","T"));return isNaN(d)?null:d}function workingMinutes(startValue,end){const start=parseDate(startValue);if(!start||start>end)return 0;let total=(end-start)/60000;for(let d=new Date(start.getFullYear(),start.getMonth(),start.getDate());d<=end;d.setDate(d.getDate()+1))for(const[from,to]of CONFIG.pauseWindows){const a=new Date(d),b=new Date(d);a.setHours(from,0,0,0);b.setHours(to,0,0,0);total-=Math.max(0,Math.min(end,b)-Math.max(start,a))/60000}return Math.max(0,Math.floor(total))}
+const kind=m=>m>120?"overdue":m>=60?"warning":"safe",label=m=>m>120?"เกิน 120 นาที":m>=60?"ใกล้เกิน 120 นาที":"ยังไม่ถึง 120 นาที",esc=v=>String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c])),fmt=v=>{const d=parseDate(v);return d?`${dtf.format(d)} น.`:"-"};
+function match(r){const text=[r.previous,r.route,r.driver,r.phone,r.plate,r.barcode].join(" ").toLowerCase();return(!state.query||text.includes(state.query))&&(state.view!=="active"||state.filter==="all"||kind(r.waitMinutes)===state.filter)}
+function actions(r){return state.view==="active"?`<div class="row-actions"><button class="btn btn-primary action-btn" data-action="complete" data-id="${esc(r.id)}">ลงเสร็จสิ้น</button><button class="btn btn-danger action-btn" data-action="remove" data-id="${esc(r.id)}">ลบ</button></div>`:`<div class="primary">${r.status==="COMPLETED"?"ลงเสร็จสิ้น":"ลบออกจากรายการ"}</div><div class="secondary">${fmt(r.actionAt)}${r.note?` · ${esc(r.note)}`:""}</div>`}
+function tableRow(r){return`<tr><td><div class="wait-time">${nf.format(r.waitMinutes)} นาที</div></td><td><div class="primary">${esc(r.previous||"-")}</div><div class="secondary">${esc(r.route||"-")}</div></td><td><div class="primary">${esc(r.plate||r.vehicleType||"-")}</div><div class="secondary">${esc(r.driver||"-")} · ${esc(r.phone||"-")}</div></td><td class="primary">${nf.format(r.parcels)}</td><td>${fmt(r.arrivalAt)}</td><td><span class="status-pill status-${kind(r.waitMinutes)}">${label(r.waitMinutes)}</span></td><td>${actions(r)}</td></tr>`}
+function card(r){return`<article class="truck-card"><div class="truck-card-head"><div><div class="primary">${esc(r.previous||"-")}</div><div class="secondary">${esc(r.route||"-")}</div></div><div><div class="wait-time">${nf.format(r.waitMinutes)} นาที</div><span class="status-pill status-${kind(r.waitMinutes)}">${label(r.waitMinutes)}</span></div></div><div class="detail-grid"><div><span>รถ / คนขับ</span><strong>${esc(r.plate||r.vehicleType||"-")} · ${esc(r.driver||"-")}</strong></div><div><span>จำนวนพัสดุ</span><strong>${nf.format(r.parcels)} ชิ้น</strong></div><div><span>เวลาถึงจริง</span><strong>${fmt(r.arrivalAt)}</strong></div><div><span>บาร์โค้ดรถ</span><strong>${esc(r.barcode||"-")}</strong></div></div>${state.view==="active"?actions(r):""}</article>`}
+function confirmAction(action,id){const r=state.rows.map(normalize).find(x=>String(x.id)===String(id));state.pending={action,id};el("confirm-title").textContent=action==="complete"?"ยืนยันว่าลงงานเสร็จสิ้น":"ลบออกจากรายการรอลงงาน";el("confirm-message").textContent=`${r?.previous||"รถรายการนี้"} · ${r?.route||""}`;el("confirm-submit").textContent=action==="complete"?"ยืนยันเสร็จสิ้น":"ยืนยันลบ";el("confirm-submit").className=`btn ${action==="complete"?"btn-primary":"btn-danger"}`;el("confirm-note").value="";el("confirm-dialog").showModal()}
+async function submitAction(e){e.preventDefault();if(!state.pending)return;const b=el("confirm-submit");b.disabled=true;try{await apiPost(state.pending.action,{id:state.pending.id,note:el("confirm-note").value.trim(),pin:state.pin});el("confirm-dialog").close();toast(state.pending.action==="complete"?"บันทึกลงงานเสร็จสิ้นแล้ว":"ลบออกจากรายการแล้ว (ยังมีประวัติตรวจสอบ)");await loadData()}catch(err){toast(err.message,true)}finally{b.disabled=false;state.pending=null}}
+async function importExcel(e){const file=e.target.files?.[0];e.target.value="";if(!file)return;try{const wb=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:true}),raw=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:"",raw:false}),rows=raw.map(mapExcel).filter(r=>r.previousStation&&r.arrivalAt);if(!rows.length)throw new Error("ไม่พบข้อมูลรถจากชีตแรก");const result=await apiPost("import",{pin:state.pin,fileName:file.name,rows});toast(`นำเข้าสำเร็จ ${nf.format(result.imported||rows.length)} รายการ${result.skipped?` · ข้ามประวัติเดิม ${nf.format(result.skipped)} รายการ`:""}`);await loadData()}catch(err){toast(`นำเข้าไม่สำเร็จ: ${err.message}`,true)}}
+function mapExcel(r){const a=pick(r,["实际到达时间 เวลารถถึงจริง"]);return{barcode:String(pick(r,["出车凭证 บาร์โค้ดรถ"])),previousStation:pick(r,["上一站网点名称 สถานีก่อนหน้า","上一站网点名称 สาขาก่อนหน้า"]),routeName:pick(r,["车线名称 ชื่อเส้นทางการเดินรถ"]),driverName:pick(r,["司机姓名 ชื่อพนักงานขับรถ"]),driverPhone:String(pick(r,["司机电话 เบอร์โทรพนักงานขับรถ"])),vehicleType:pick(r,["车辆类型 ประภทรถ"]),plate:String(pick(r,["车牌号 เลขทะเบียนรถ"])),parcels:Number(pick(r,["包裹总量 จำนวนพัสดุทั้งหมด"]))||0,arrivalAt:(parseDate(a)?.toISOString()||String(a||"")),hub:pick(r,["HUB名称 ชื่อHUB"]),supplier:pick(r,["车辆公司名称 Supplier รถ"])}}
+function metrics(rows){el("metric-trucks").textContent=nf.format(rows.length);el("metric-parcels").textContent=nf.format(rows.reduce((s,r)=>s+r.parcels,0));el("metric-warning").textContent=nf.format(rows.filter(r=>kind(r.waitMinutes)==="warning").length);el("metric-overdue").textContent=nf.format(rows.filter(r=>kind(r.waitMinutes)==="overdue").length)}function empty(msg){el("loading-state").classList.add("hidden");el("desktop-table").classList.add("hidden");el("mobile-cards").classList.add("hidden");el("empty-state").classList.remove("hidden");el("empty-state").innerHTML=`<strong>${esc(msg)}</strong><span>${state.view==="active"?'กด “นำเข้า Excel” เพื่อเพิ่มข้อมูลรอบล่าสุด':""}</span>`}
+async function apiGet(action,params={}){const u=new URL(CONFIG.apiUrl);u.searchParams.set("action",action);Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));const j=await(await fetch(u,{cache:"no-store"})).json();if(j.ok===false)throw new Error(j.message);return j.data??j}async function apiPost(action,payload){const j=await(await fetch(CONFIG.apiUrl,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action,...payload})})).json();if(j.ok===false){if(j.code==="INVALID_PIN"){state.pin="";sessionStorage.removeItem("bnak_operator_pin")}throw new Error(j.message)}return j.data??j}let tt;function toast(m,error=false){clearTimeout(tt);el("toast").textContent=m;el("toast").style.background=error?"#b42318":"#101828";el("toast").classList.remove("hidden");tt=setTimeout(()=>el("toast").classList.add("hidden"),4500)}

@@ -180,6 +180,13 @@ function doPost(e) {
       });
     }
 
+    if (body.action === 'cancelStart') {
+      return json_({
+        ok: true,
+        data: cancelUnloading_(body.id, operator)
+      });
+    }
+
     if (body.action === 'remove') {
       return json_({
         ok: true,
@@ -443,6 +450,24 @@ function startUnloading_(id, operator) {
     startedAt: rows[index].startedAt,
     startedBy: rows[index].startedBy
   };
+}
+
+function cancelUnloading_(id, operator) {
+  if (!id) throw new Error('ไม่พบรหัสรายการ');
+  const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
+  const active = ensureSheet_(ss, SETTINGS.ACTIVE_SHEET, ACTIVE_HEADERS);
+  const rows = readSheet_(SETTINGS.ACTIVE_SHEET);
+  const index = rows.findIndex(row => String(row.id) === String(id));
+  if (index < 0) throw new Error('ไม่พบรถรายการนี้ กรุณารีเฟรชหน้าเว็บ');
+  if (!canAccessRow_(rows[index], operator)) {
+    throw new Error('ไม่มีสิทธิ์จัดการข้อมูลของสาขานี้');
+  }
+  rows[index].workStatus = '';
+  rows[index].startedAt = '';
+  rows[index].startedBy = '';
+  replaceData_(active, ACTIVE_HEADERS, rows);
+  audit_('CANCEL_UNLOADING', id, 'ย้อนกลับสถานะกำลังลงงาน', operator.username);
+  return { id: id, workStatus: '' };
 }
 
 function archiveRecord_(id, status, note, operator) {

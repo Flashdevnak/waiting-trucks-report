@@ -214,6 +214,7 @@ tbody tr:hover{background:#fff8f2}
   background:color-mix(in srgb,var(--status-color) 12%,white);
   border:1px solid color-mix(in srgb,var(--status-color) 30%,white);
 }
+.status-progress{margin-top:4px;color:var(--muted);font-size:10px;white-space:nowrap}
 
 .status-safe{background:var(--green-bg);color:var(--green)}
 .status-warning{background:var(--amber-bg);color:var(--amber)}
@@ -237,6 +238,9 @@ tbody tr:hover{background:#fff8f2}
 .mobile-cards{display:none;padding:10px}
 .truck-card{border:1px solid var(--line);border-left:4px solid var(--orange);padding:12px;margin-bottom:8px;background:#fff}
 .truck-card-head{display:flex;justify-content:space-between;gap:12px;align-items:start;margin-bottom:10px}
+.truck-status{text-align:right}
+.truck-status .status-pill{margin-top:4px}
+.truck-status .status-progress{display:inline;margin-left:5px}
 .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 .detail-grid span{display:block;color:var(--muted);font-size:11px}
 .detail-grid strong{font-size:13px}
@@ -274,16 +278,20 @@ dialog::backdrop{background:rgba(23,33,43,.58)}
 
 .dialog-close:hover{background:#edf0f2;color:#111}
 .dialog-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:16px}
-#settings-dialog{width:min(96vw,1280px);max-width:none;height:min(94vh,920px)}
-.settings-card{width:100%;height:100%;max-height:none;overflow:auto;padding:28px 34px}
-.settings-section{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+#settings-dialog{width:min(96vw,1320px);max-width:none;height:min(94vh,920px);border:0;background:#eef1f3}
+.settings-card{width:100%;height:100%;max-height:none;overflow:auto;padding:0 30px 90px;background:#eef1f3}
+.settings-titlebar{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:24px;margin:0 -30px;padding:22px 58px 18px 30px;background:#17212b;color:#fff;border-bottom:4px solid var(--orange)}
+.settings-titlebar h2{margin:4px 0;font-size:23px}.settings-titlebar .muted{margin:0;color:#c7d0d7}
+.hub-picker{min-width:230px}.hub-picker span{display:block;margin-bottom:5px;color:#c7d0d7;font-size:11px;font-weight:700}.hub-picker select{width:100%;min-height:42px;border:1px solid #64717c;border-radius:4px;padding:8px 12px;background:#fff;color:#17212b;font-size:16px;font-weight:800}
+.settings-section{margin-top:18px;padding:18px;background:#fff;border:1px solid var(--line-dark);box-shadow:0 2px 8px rgba(23,33,43,.06)}
+.settings-rule-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.users-section{margin-top:22px}
+.status-note{display:flex;align-items:center;gap:16px;margin-top:18px;padding:13px 16px;background:#fff7ed;border-left:4px solid var(--orange);font-size:12px}.status-note span{color:var(--muted)}
 .settings-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .settings-heading h3{margin:0;font-size:16px}
 .setting-row{display:grid;align-items:center;gap:8px;margin-bottom:8px}
 .pause-row{grid-template-columns:minmax(140px,1fr) 110px auto 110px auto}
 .vehicle-row{grid-template-columns:minmax(130px,1fr) minmax(140px,1fr) auto}
-.status-row{grid-template-columns:minmax(180px,1fr) minmax(140px,220px) minmax(150px,200px) auto}
-.color-field input[type=color]{width:48px;padding:3px}
 .setting-row input,.setting-row select{width:100%;min-height:40px;border:1px solid var(--line);border-radius:4px;padding:8px 10px;background:#fff;color:var(--ink)}
 .setting-row label{display:flex;align-items:center;gap:8px;font-weight:700}
 .remove-setting{min-height:38px;border:1px solid #d92d20;background:#fff;color:#b42318;border-radius:4px;padding:0 12px;font-weight:700;cursor:pointer}
@@ -293,6 +301,7 @@ dialog::backdrop{background:rgba(23,33,43,.58)}
 .user-active{display:flex!important;align-items:center;gap:6px;white-space:nowrap;font-weight:700}
 .user-active input{width:18px;min-height:18px}
 .form-error{margin:9px 0 0;color:var(--red);font-size:12px}
+.settings-actions{position:sticky;bottom:-90px;margin:20px -30px -90px;padding:14px 30px;background:#fff;border-top:1px solid var(--line-dark);box-shadow:0 -4px 14px rgba(23,33,43,.08)}
 .toast{position:fixed;right:18px;bottom:18px;z-index:20;background:var(--navy);color:#fff;border-left:5px solid var(--orange);padding:11px 14px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
 
 @media(max-width:900px){
@@ -300,6 +309,7 @@ dialog::backdrop{background:rgba(23,33,43,.58)}
   .topbar-actions{width:100%;margin-left:0;flex-wrap:wrap}
   .metric-grid{grid-template-columns:repeat(2,1fr)}
   .metric-card:nth-child(2){border-right:0}
+  .settings-rule-grid{grid-template-columns:1fr}
 }
 
 @media(max-width:700px){
@@ -324,13 +334,14 @@ dialog::backdrop{background:rgba(23,33,43,.58)}
 @media(max-width:620px){
   .settings-heading{align-items:flex-start;flex-direction:column}
   .pause-row,.vehicle-row{grid-template-columns:1fr 1fr}
-  .status-row{grid-template-columns:1fr 1fr}
-  .status-row .status-label{grid-column:1/-1}
   .pause-row .setting-label,.vehicle-row .vehicle-type{grid-column:1/-1}
   .pause-row .remove-setting,.vehicle-row .remove-setting{grid-column:1/-1}
   .pause-row span{text-align:center}
   #settings-dialog{width:100vw;height:100vh;max-height:none;border-radius:0}
-  .settings-card{padding:22px 14px}
+  .settings-card{padding:0 12px 84px}
+  .settings-titlebar{position:relative;align-items:stretch;flex-direction:column;margin:0 -12px;padding:18px 48px 16px 16px;gap:12px}
+  .hub-picker{min-width:0}.settings-section{padding:14px}.status-note{align-items:flex-start;flex-direction:column;gap:4px}
+  .settings-actions{bottom:-84px;margin:16px -12px -84px;padding:12px}
   .user-row{grid-template-columns:1fr 1fr}
   .user-row .user-name,.user-row .user-branches,.user-row .user-password{grid-column:1/-1}
 }

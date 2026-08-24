@@ -5,6 +5,7 @@ const SETTINGS = {
   HISTORY_SHEET: 'ระบบ_ประวัติ',
   AUDIT_SHEET: 'ระบบ_บันทึกการใช้งาน',
   SYSTEM_SHEET: 'ระบบ_ตั้งค่า',
+  USERS_SHEET: 'ระบบ_ผู้ใช้งาน',
   USERNAME: 'NE1',
   ADMIN_USERNAME: 'ADMIN',
   SESSION_DAYS: 30
@@ -28,6 +29,11 @@ const AUDIT_HEADERS = [
 const SYSTEM_HEADERS = [
   'category', 'key', 'label', 'startHour', 'endHour',
   'minutes', 'enabled', 'updatedAt', 'updatedBy'
+];
+
+const USER_HEADERS = [
+  'username', 'passwordHash', 'role', 'branches', 'active',
+  'createdAt', 'updatedAt', 'updatedBy'
 ];
 
 const DEFAULT_PAUSE_WINDOWS = [
@@ -70,6 +76,7 @@ function setupSystem(operatorPin) {
   ensureSheet_(ss, SETTINGS.HISTORY_SHEET, HISTORY_HEADERS);
   ensureSheet_(ss, SETTINGS.AUDIT_SHEET, AUDIT_HEADERS);
   ensureSystemSettings_(ss);
+  ensureUserSystem_(ss);
 
   const migrated = active.getLastRow() < 2
     ? migrateLegacyData_(ss, active)
@@ -82,13 +89,6 @@ function doGet(e) {
   try {
     const action = String(e?.parameter?.action || 'list');
 
-    if (action === 'history') {
-      return json_({
-        ok: true,
-        data: readSheet_(SETTINGS.HISTORY_SHEET).slice(-1000)
-      });
-    }
-
     if (action === 'health') {
       return json_({
         ok: true,
@@ -96,6 +96,25 @@ function doGet(e) {
           service: 'waiting-trucks-api',
           time: new Date().toISOString()
         }
+      });
+    }
+
+    const operator = verifySession_(e?.parameter?.token);
+
+    if (action === 'history') {
+      return json_({
+        ok: true,
+        data: scopeRows_(
+          readSheet_(SETTINGS.HISTORY_SHEET), operator
+        ).slice(-1000)
+      });
+    }
+
+    if (action === 'users') {
+      assertAdmin_(operator);
+      return json_({
+        ok: true,
+        data: listUsers_()
       });
     }
 
@@ -108,7 +127,9 @@ function doGet(e) {
 
     return json_({
       ok: true,
-      data: readSheet_(SETTINGS.ACTIVE_SHEET)
+      data: scopeRows_(
+        readSheet_(SETTINGS.ACTIVE_SHEET), operator
+      )
     });
   } catch (error) {
     return errorResponse_(error);
@@ -168,6 +189,35 @@ function doPost(e) {
       });
     }
 
+    if (body.action === 'saveUser') {
+      assertAdmin_(operator);
+      return json_({
+        ok: true,
+        data: saveUser_(body.user || {}, operator.username)
+      });
+    }
+
+    if (body.action === 'setUserActive') {
+      assertAdmin_(operator);
+      return json_({
+        ok: true,
+        data: setUserActive_(
+          body.username, body.active, operator.username
+        )
+      });
+    }
+
+    if (body.action === 'changePassword') {
+      return json_({
+        ok: true,
+        data: changePassword_(
+          operator,
+          body.currentPassword,
+          body.newPassword
+        )
+      });
+    }
+
     throw new Error('ไม่รู้จักคำสั่งที่ส่งมา');
   } catch (error) {
     return errorResponse_(error);
@@ -179,25 +229,18 @@ function doPost(e) {
 }
 
 function login_(username, pin) {
-  const props = PropertiesService.getScriptProperties();
   const inputUsername = String(username || '').trim().toUpperCase();
-  const operatorUsername = props.getProperty('OPERATOR_USERNAME') || SETTINGS.USERNAME;
-  const adminUsername = props.getProperty('ADMIN_USERNAME') || SETTINGS.ADMIN_USERNAME;
-  let role = '';
+  const user = getUser_(inputUsername);
 
-  if (inputUsername === operatorUsername) {
-    if (hash_(String(pin || '')) !== props.getProperty('OPERATOR_PIN_HASH')) {
-      throw loginError_();
-    }
-    role = 'operator';
-  } else if (inputUsername === adminUsername) {
-    if (hash_(String(pin || '')) !== props.getProperty('ADMIN_PIN_HASH')) {
-      throw loginError_();
-    }
-    role = 'admin';
-  } else {
+  if (
+    !user || !boolean_(user.active) ||
+    hash_(String(pin || '')) !== String(user.passwordHash || '')
+  ) {
     throw loginError_();
   }
+
+  const role = String(user.role || 'operator').toLowerCase();
+  const branches = parseBranches_(user.branches);
 
   const expiresAt = Date.now() +
     SETTINGS.SESSION_DAYS * 24 * 60 * 60 * 1000;
@@ -219,6 +262,7 @@ function login_(username, pin) {
   return {
     username: inputUsername,
     role: role,
+    branches: branches,
     token: token,
     expiresAt: expiresAt
   };
@@ -256,7 +300,16 @@ function verifySession_(token) {
       throw new Error('Expired token');
     }
 
-    return { username: username, role: role };
+    const user = getUser_(username);
+    if (!user || !boolean_(user.active) || String(user.role) !== role) {
+      throw new Error('Disabled user');
+    }
+
+    return {
+      username: username,
+      role: role,
+      branches: parseBranches_(user.branches)
+    };
   } catch (error) {
     const sessionError = new Error(
       'สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง'
@@ -290,16 +343,19 @@ function importRows_(incoming, fileName, operator) {
     readSheet_(SETTINGS.HISTORY_SHEET).map(row => String(row.id))
   );
 
-  // ไฟล์ Excel คือภาพคิวล่าสุดทั้งชุด จึงสร้างรายการใหม่จากไฟล์ทุกครั้ง
-  // รถที่ไม่มีอยู่ในไฟล์รอบล่าสุดจะถูกนำออกจากคิวหน้าเว็บอัตโนมัติ
-  const activeMap = new Map();
-  const previousTotal = readSheet_(SETTINGS.ACTIVE_SHEET).length;
+  const existingRows = readSheet_(SETTINGS.ACTIVE_SHEET);
+  const defaultBranch = operator.role === 'admin'
+    ? ''
+    : (operator.branches.length === 1 ? operator.branches[0] : '');
+  const importedBranches = new Set();
+  const incomingMap = new Map();
 
   let imported = 0;
   let skipped = 0;
 
   incoming.forEach(raw => {
-    const row = cleanIncoming_(raw, fileName);
+    const prepared = { ...raw, hub: raw.hub || defaultBranch };
+    const row = cleanIncoming_(prepared, fileName);
 
     if (!row.previousStation || !row.arrivalAt) {
       return;
@@ -310,11 +366,26 @@ function importRows_(incoming, fileName, operator) {
       return;
     }
 
-    activeMap.set(String(row.id), row);
+    if (!row.hub) {
+      throw new Error('ไม่พบสาขาในไฟล์ กรุณาระบุสาขาของผู้ใช้ให้เหลือ 1 สาขา');
+    }
+
+    if (!canAccessRow_(row, operator)) {
+      throw new Error('ไม่มีสิทธิ์นำเข้าข้อมูลของสาขา ' + row.hub);
+    }
+
+    importedBranches.add(normalizeBranch_(row.hub));
+    incomingMap.set(String(row.id), row);
     imported++;
   });
 
-  replaceData_(active, ACTIVE_HEADERS, Array.from(activeMap.values()));
+  const preserved = existingRows.filter(row =>
+    !importedBranches.has(normalizeBranch_(row.hub))
+  );
+  const finalRows = preserved.concat(Array.from(incomingMap.values()));
+  const previousScopedTotal = existingRows.length - preserved.length;
+
+  replaceData_(active, ACTIVE_HEADERS, finalRows);
 
   audit_(
     'IMPORT', '',
@@ -325,8 +396,9 @@ function importRows_(incoming, fileName, operator) {
   return {
     imported: imported,
     skipped: skipped,
-    total: activeMap.size,
-    removed: Math.max(0, previousTotal - activeMap.size)
+    total: incomingMap.size,
+    removed: Math.max(0, previousScopedTotal - incomingMap.size),
+    branches: Array.from(importedBranches)
   };
 }
 
@@ -347,6 +419,10 @@ function archiveRecord_(id, status, note, operator) {
     throw new Error(
       'รายการนี้ถูกดำเนินการไปแล้ว กรุณารีเฟรชหน้าเว็บ'
     );
+  }
+
+  if (!canAccessRow_(rows[index], operator)) {
+    throw new Error('ไม่มีสิทธิ์จัดการข้อมูลของสาขานี้');
   }
 
   const history = ensureSheet_(ss, SETTINGS.HISTORY_SHEET, HISTORY_HEADERS);
@@ -387,6 +463,15 @@ function setAdminAccount_(username, adminPin) {
     props.setProperty('AUTH_SECRET', Utilities.getUuid() + Utilities.getUuid());
   }
 
+  const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
+  ensureUserSystem_(ss);
+  upsertUserRow_({
+    username: cleanUsername,
+    passwordHash: hash_(cleanPin),
+    role: 'admin',
+    branches: '*',
+    active: true
+  }, cleanUsername);
   audit_('ADMIN_SETUP', '', 'ตั้งค่าบัญชีผู้ดูแล', cleanUsername);
   return 'ตั้งค่าบัญชีผู้ดูแล ' + cleanUsername + ' สำเร็จ';
 }
@@ -397,6 +482,201 @@ function assertAdmin_(operator) {
     error.code = 'ADMIN_REQUIRED';
     throw error;
   }
+}
+
+function ensureUserSystem_(ss) {
+  const sheet = ensureSheet_(ss, SETTINGS.USERS_SHEET, USER_HEADERS);
+  const props = PropertiesService.getScriptProperties();
+  const now = new Date().toISOString();
+
+  if (!getUserFromSheet_(sheet, SETTINGS.USERNAME)) {
+    const operatorHash = props.getProperty('OPERATOR_PIN_HASH');
+    if (operatorHash) {
+      sheet.appendRow(USER_HEADERS.map(header => ({
+        username: SETTINGS.USERNAME,
+        passwordHash: operatorHash,
+        role: 'operator',
+        branches: SETTINGS.USERNAME,
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+        updatedBy: 'SYSTEM'
+      })[header] ?? ''));
+    }
+  }
+
+  const adminName = props.getProperty('ADMIN_USERNAME') || SETTINGS.ADMIN_USERNAME;
+  const adminHash = props.getProperty('ADMIN_PIN_HASH');
+  if (adminHash && !getUserFromSheet_(sheet, adminName)) {
+    sheet.appendRow(USER_HEADERS.map(header => ({
+      username: adminName,
+      passwordHash: adminHash,
+      role: 'admin',
+      branches: '*',
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      updatedBy: 'SYSTEM'
+    })[header] ?? ''));
+  }
+
+  return sheet;
+}
+
+function getUserFromSheet_(sheet, username) {
+  if (sheet.getLastRow() < 2) return null;
+  const values = sheet.getDataRange().getValues();
+  const headers = values.shift().map(String);
+  const target = String(username || '').trim().toUpperCase();
+  const row = values.find(item => String(item[0]).trim().toUpperCase() === target);
+  return row ? Object.fromEntries(headers.map((header, index) => [header, row[index]])) : null;
+}
+
+function getUser_(username) {
+  const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
+  return getUserFromSheet_(ensureUserSystem_(ss), username);
+}
+
+function parseBranches_(value) {
+  const text = String(value || '').trim().toUpperCase();
+  if (text === '*') return ['*'];
+  return [...new Set(text.split(',').map(x => x.trim()).filter(Boolean))];
+}
+
+function listUsers_() {
+  const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
+  const sheet = ensureUserSystem_(ss);
+  if (sheet.getLastRow() < 2) return [];
+  const values = sheet.getDataRange().getValues();
+  const headers = values.shift().map(String);
+  return values
+    .filter(row => row.some(value => value !== '' && value !== null))
+    .map(row => Object.fromEntries(headers.map((header, index) => [header, row[index]])))
+    .map(user => ({
+      username: String(user.username),
+      role: String(user.role),
+      branches: parseBranches_(user.branches),
+      active: boolean_(user.active),
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      updatedBy: user.updatedBy
+    }));
+}
+
+function saveUser_(input, updatedBy) {
+  const username = String(input.username || '').trim().toUpperCase();
+  const role = String(input.role || 'operator').trim().toLowerCase();
+  const branches = Array.isArray(input.branches)
+    ? parseBranches_(input.branches.join(','))
+    : parseBranches_(input.branches);
+  const password = String(input.password || '').trim();
+  const existing = getUser_(username);
+
+  if (!/^[A-Z0-9_-]{2,30}$/.test(username)) {
+    throw new Error('Username ใช้ได้เฉพาะ A-Z, 0-9, _ และ - จำนวน 2–30 ตัว');
+  }
+  if (!['operator', 'admin'].includes(role)) {
+    throw new Error('สิทธิ์ผู้ใช้ไม่ถูกต้อง');
+  }
+  if (role !== 'admin' && !branches.length) {
+    throw new Error('ผู้ใช้งานทั่วไปต้องมีอย่างน้อย 1 สาขา');
+  }
+  if (!existing && password.length < 6) {
+    throw new Error('ผู้ใช้ใหม่ต้องมีรหัสผ่านอย่างน้อย 6 ตัว');
+  }
+  if (password && password.length < 6) {
+    throw new Error('รหัสผ่านต้องมีอย่างน้อย 6 ตัว');
+  }
+
+  upsertUserRow_({
+    username: username,
+    passwordHash: password ? hash_(password) : existing.passwordHash,
+    role: role,
+    branches: role === 'admin' ? '*' : branches.join(','),
+    active: input.active !== false
+  }, updatedBy);
+  audit_('SAVE_USER', username, role + ' / ' + branches.join(','), updatedBy);
+  return listUsers_();
+}
+
+function upsertUserRow_(input, updatedBy) {
+  const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
+  const sheet = ensureSheet_(ss, SETTINGS.USERS_SHEET, USER_HEADERS);
+  const values = sheet.getDataRange().getValues();
+  const username = String(input.username).trim().toUpperCase();
+  let rowIndex = -1;
+  for (let index = 1; index < values.length; index++) {
+    if (String(values[index][0]).trim().toUpperCase() === username) {
+      rowIndex = index + 1;
+      break;
+    }
+  }
+  const existingCreatedAt = rowIndex > 0 ? values[rowIndex - 1][5] : '';
+  const now = new Date().toISOString();
+  const object = {
+    username: username,
+    passwordHash: input.passwordHash,
+    role: input.role,
+    branches: input.branches,
+    active: input.active !== false,
+    createdAt: existingCreatedAt || now,
+    updatedAt: now,
+    updatedBy: updatedBy
+  };
+  const row = USER_HEADERS.map(header => object[header] ?? '');
+  if (rowIndex > 0) sheet.getRange(rowIndex, 1, 1, USER_HEADERS.length).setValues([row]);
+  else sheet.appendRow(row);
+}
+
+function setUserActive_(username, active, updatedBy) {
+  const existing = getUser_(username);
+  if (!existing) throw new Error('ไม่พบผู้ใช้งาน');
+  if (String(username).toUpperCase() === String(updatedBy).toUpperCase() && !active) {
+    throw new Error('ไม่สามารถปิดบัญชีที่กำลังใช้งานอยู่');
+  }
+  upsertUserRow_({
+    username: existing.username,
+    passwordHash: existing.passwordHash,
+    role: existing.role,
+    branches: existing.branches,
+    active: Boolean(active)
+  }, updatedBy);
+  audit_('SET_USER_ACTIVE', username, String(Boolean(active)), updatedBy);
+  return listUsers_();
+}
+
+function changePassword_(operator, currentPassword, newPassword) {
+  const next = String(newPassword || '').trim();
+  const user = getUser_(operator.username);
+  if (!user || hash_(String(currentPassword || '')) !== String(user.passwordHash)) {
+    throw new Error('รหัสผ่านปัจจุบันไม่ถูกต้อง');
+  }
+  if (next.length < 6) throw new Error('รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัว');
+  if (hash_(next) === String(user.passwordHash)) throw new Error('รหัสผ่านใหม่ต้องไม่ซ้ำรหัสเดิม');
+  upsertUserRow_({
+    username: user.username,
+    passwordHash: hash_(next),
+    role: user.role,
+    branches: user.branches,
+    active: true
+  }, operator.username);
+  audit_('CHANGE_PASSWORD', operator.username, 'เปลี่ยนรหัสผ่าน', operator.username);
+  return { changed: true };
+}
+
+function normalizeBranch_(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function canAccessRow_(row, operator) {
+  if (operator.role === 'admin' || operator.branches.includes('*')) return true;
+  const hub = normalizeBranch_(row.hub);
+  if (!hub) return operator.branches.length === 1;
+  return operator.branches.some(branch => hub === branch || hub.includes(branch));
+}
+
+function scopeRows_(rows, operator) {
+  return rows.filter(row => canAccessRow_(row, operator));
 }
 
 function ensureSystemSettings_(ss) {

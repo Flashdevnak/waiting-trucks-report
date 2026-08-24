@@ -28,7 +28,7 @@ const AUDIT_HEADERS = [
 
 const SYSTEM_HEADERS = [
   'category', 'key', 'label', 'startHour', 'endHour',
-  'minutes', 'enabled', 'updatedAt', 'updatedBy'
+  'minutes', 'color', 'enabled', 'updatedAt', 'updatedBy'
 ];
 
 const USER_HEADERS = [
@@ -46,6 +46,14 @@ const DEFAULT_PAUSE_WINDOWS = [
 const DEFAULT_VEHICLE_LIMITS = [
   ['4W', 120], ['4WJ', 120], ['6W', 120],
   ['14W', 120], ['18W', 120], ['22W', 120]
+];
+
+const DEFAULT_WAIT_STATUSES = [
+  ['starting', 'เริ่มรอ', 0, '#157347'],
+  ['waiting', 'กำลังรอ', 25, '#2878b5'],
+  ['watch', 'เฝ้าระวัง', 50, '#9a6700'],
+  ['near', 'ใกล้ครบกำหนด', 75, '#d96c00'],
+  ['overdue', 'เกินกำหนด', 100, '#b42318']
 ];
 
 // เปลี่ยน 55555 เป็นรหัสกลางก่อนกด Run ครั้งแรก
@@ -698,7 +706,27 @@ function ensureSystemSettings_(ss) {
       enabled: true, updatedAt: now, updatedBy: 'SYSTEM'
     }));
 
+    DEFAULT_WAIT_STATUSES.forEach(item => rows.push({
+      category: 'status', key: item[0], label: item[1],
+      startHour: '', endHour: '', minutes: item[2], color: item[3],
+      enabled: true, updatedAt: now, updatedBy: 'SYSTEM'
+    }));
+
     replaceData_(sheet, SYSTEM_HEADERS, rows);
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift().map(String);
+  const categoryIndex = headers.indexOf('category');
+  const hasStatuses = data.some(row => row[categoryIndex] === 'status');
+
+  if (!hasStatuses) {
+    const now = new Date().toISOString();
+    DEFAULT_WAIT_STATUSES.forEach(item => appendObject_(sheet, SYSTEM_HEADERS, {
+      category: 'status', key: item[0], label: item[1],
+      startHour: '', endHour: '', minutes: item[2], color: item[3],
+      enabled: true, updatedAt: now, updatedBy: 'SYSTEM'
+    }));
   }
 
   return sheet;
@@ -727,7 +755,16 @@ function readSystemSettings_() {
       .map(row => ({
         type: String(row.key).trim().toUpperCase(),
         minutes: Number(row.minutes) || 120
+      })),
+    statuses: rows
+      .filter(row => row.category === 'status' && boolean_(row.enabled))
+      .map(row => ({
+        key: String(row.key),
+        label: String(row.label || ''),
+        startPercent: Number(row.minutes) || 0,
+        color: String(row.color || '#667085')
       }))
+      .sort((a, b) => a.startPercent - b.startPercent)
   };
 }
 
@@ -736,9 +773,14 @@ function saveSystemSettings_(settings, username) {
     ? settings.pauseWindows : [];
   const vehicleLimits = Array.isArray(settings.vehicleLimits)
     ? settings.vehicleLimits : [];
+  const statuses = Array.isArray(settings.statuses)
+    ? settings.statuses : [];
 
   if (vehicleLimits.length < 1) {
     throw new Error('ต้องมีประเภทรถอย่างน้อย 1 ประเภท');
+  }
+  if (statuses.length < 2) {
+    throw new Error('ต้องมีสถานะเวลาอย่างน้อย 2 ระดับ');
   }
 
   const now = new Date().toISOString();
@@ -773,6 +815,28 @@ function saveSystemSettings_(settings, username) {
       updatedAt: now, updatedBy: username
     });
   });
+
+  const statusKeys = new Set();
+  statuses
+    .sort((a, b) => Number(a.startPercent) - Number(b.startPercent))
+    .forEach((item, index) => {
+      const key = String(item.key || ('status-' + (index + 1)))
+        .trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      const label = String(item.label || '').trim();
+      const startPercent = Math.round(Number(item.startPercent));
+      const color = String(item.color || '#667085').trim();
+      if (!key || statusKeys.has(key) || !label ||
+          !Number.isFinite(startPercent) || startPercent < 0 || startPercent > 500 ||
+          !/^#[0-9a-f]{6}$/i.test(color)) {
+        throw new Error('ข้อมูลสถานะลำดับที่ ' + (index + 1) + ' ไม่ถูกต้อง');
+      }
+      statusKeys.add(key);
+      rows.push({
+        category: 'status', key: key, label: label.slice(0, 60),
+        startHour: '', endHour: '', minutes: startPercent, color: color,
+        enabled: true, updatedAt: now, updatedBy: username
+      });
+    });
 
   const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
   const sheet = ensureSheet_(ss, SETTINGS.SYSTEM_SHEET, SYSTEM_HEADERS);

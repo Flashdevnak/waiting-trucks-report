@@ -334,6 +334,7 @@ dialog::backdrop{background:rgba(15,15,15,.62)}
   .topbar-actions{width:100%;margin-left:0;flex-wrap:wrap}
   .metric-grid{grid-template-columns:repeat(2,1fr)}
   .metric-card:nth-child(2){border-right:0}
+  .status-metrics .status-metric:last-child{grid-column:1/-1}
   .settings-rule-grid{grid-template-columns:1fr}
 }
 

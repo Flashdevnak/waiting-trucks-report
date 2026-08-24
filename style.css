@@ -439,11 +439,11 @@ tbody tr.is-unloading:hover{background:#e8e9e9}
   padding:14px;
   margin-bottom:10px;
   border:1px solid #bfc1bd;
-  border-top:3px solid var(--navy-2);
   border-radius:5px;
   box-shadow:0 2px 5px rgba(0,0,0,.06);
 }
-.truck-card-head{margin:-14px -14px 12px;padding:12px 14px;background:#f3f3f0;border-bottom:1px solid #d3d4d1;border-radius:3px 3px 0 0}
+.truck-card-head{margin:-14px -14px 12px;padding:17px 14px 14px;background:#f3f3f0;border-bottom:1px solid #d3d4d1;border-radius:5px 5px 0 0}
+.truck-card-head .secondary{margin-top:6px;line-height:1.35}
 .detail-grid{gap:11px 14px}
 .detail-grid strong{display:block;margin-top:2px;color:#202124;line-height:1.35}
 .truck-card .row-actions{gap:7px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}

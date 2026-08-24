@@ -468,7 +468,7 @@ function saveSystemSettings_(settings, username) {
     const start = Number(item.startHour);
     const end = Number(item.endHour);
     if (!Number.isFinite(start) || !Number.isFinite(end) ||
-        start < 0 || start >= 24 || end <= 0 || end > 24 || start === end) {
+        start < 0 || start >= 24 || end < 0 || end >= 24 || start === end) {
       throw new Error('ช่วงไม่มีกะลำดับที่ ' + (index + 1) + ' ไม่ถูกต้อง');
     }
     rows.push({

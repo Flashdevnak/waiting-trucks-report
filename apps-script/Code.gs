@@ -241,11 +241,10 @@ function importRows_(incoming, fileName, operator) {
     readSheet_(SETTINGS.HISTORY_SHEET).map(row => String(row.id))
   );
 
-  const activeMap = new Map(
-    readSheet_(SETTINGS.ACTIVE_SHEET).map(
-      row => [String(row.id), row]
-    )
-  );
+  // ไฟล์ Excel คือภาพคิวล่าสุดทั้งชุด จึงสร้างรายการใหม่จากไฟล์ทุกครั้ง
+  // รถที่ไม่มีอยู่ในไฟล์รอบล่าสุดจะถูกนำออกจากคิวหน้าเว็บอัตโนมัติ
+  const activeMap = new Map();
+  const previousTotal = readSheet_(SETTINGS.ACTIVE_SHEET).length;
 
   let imported = 0;
   let skipped = 0;
@@ -277,7 +276,8 @@ function importRows_(incoming, fileName, operator) {
   return {
     imported: imported,
     skipped: skipped,
-    total: activeMap.size
+    total: activeMap.size,
+    removed: Math.max(0, previousTotal - activeMap.size)
   };
 }
 

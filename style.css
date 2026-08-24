@@ -425,6 +425,7 @@ tbody tr.is-unloading:hover{background:#e8e9e9}
 .secondary{color:#6a6e72}
 .vehicle-line{gap:10px}
 .vehicle-line .vehicle-type{color:#45494d}
+.vehicle-line .vehicle-type::before{content:"/";margin-right:10px;color:#777b7e;font-weight:600}
 
 .status-pill{min-height:26px;align-items:center;padding:4px 8px;border-radius:4px}
 .row-actions{gap:6px}

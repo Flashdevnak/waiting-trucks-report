@@ -443,11 +443,21 @@ tbody tr.is-unloading:hover{background:#e8e9e9}
   border-radius:5px;
   box-shadow:0 2px 5px rgba(0,0,0,.06);
 }
-.truck-card-head{margin:-14px -14px 14px;padding:17px 14px 15px;background:#f3f3f0;border-bottom:1px solid #d3d4d1;border-radius:0}
-.truck-card-head .secondary{margin-top:6px;line-height:1.35}
-.detail-grid{gap:11px 14px}
+.truck-card-head{display:block;margin:-14px -14px 14px;padding:16px 14px 14px;background:#f3f3f0;border-bottom:1px solid #d3d4d1;border-radius:0;text-align:center}
+.truck-route{min-width:0}
+.truck-card-head .primary{font-size:15px;line-height:1.4;overflow-wrap:anywhere}
+.truck-card-head .secondary{margin-top:5px;line-height:1.35;overflow-wrap:anywhere}
+.truck-status{margin-top:12px;text-align:center}
+.mobile-wait-time{color:var(--status-color);font-size:22px}
+.truck-status-line{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:7px}
+.truck-status-line .status-pill{margin-top:0}
+.truck-status-line .status-progress{display:block;margin:0}
+.detail-grid{gap:0 14px}
+.detail-grid>div{min-width:0;padding:10px 0;border-bottom:1px solid var(--line)}
+.detail-grid>div:nth-child(even):not(.detail-driver):not(.detail-arrival){padding-left:14px;border-left:1px solid var(--line)}
 .detail-grid strong{display:block;margin-top:2px;color:#202124;line-height:1.35}
 .detail-driver,.detail-arrival{grid-column:1/-1}
+.detail-arrival{border-bottom:0!important}
 .truck-card .row-actions{gap:7px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 
 .empty-state{min-height:220px;background:#fff}
@@ -476,9 +486,8 @@ tbody tr.is-unloading:hover{background:#e8e9e9}
   .table-panel{margin-top:10px;background:transparent;border:0;box-shadow:none}
   .mobile-cards{padding:0;background:transparent}
   .truck-card{background:#fff}
-  .truck-card-head .primary{font-size:14px}
-  .truck-status{min-width:105px}
-  .truck-status .status-progress{display:block;margin:4px 0 0}
+  .truck-card-head .primary{font-size:15px}
+  .truck-status{min-width:0}
   .truck-card .row-actions .btn{min-height:38px}
 }
 

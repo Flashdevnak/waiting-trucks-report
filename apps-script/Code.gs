@@ -15,7 +15,7 @@ const ACTIVE_HEADERS = [
   'id', 'barcode', 'previousStation', 'routeName',
   'driverName', 'driverPhone', 'vehicleType', 'plate',
   'parcels', 'arrivalAt', 'hub', 'supplier',
-  'importedAt', 'sourceFile'
+  'importedAt', 'sourceFile', 'workStatus', 'startedAt', 'startedBy'
 ];
 
 const HISTORY_HEADERS = [
@@ -170,6 +170,13 @@ function doPost(e) {
         data: archiveRecord_(
           body.id, 'COMPLETED', body.note || '', operator
         )
+      });
+    }
+
+    if (body.action === 'start') {
+      return json_({
+        ok: true,
+        data: startUnloading_(body.id, operator)
       });
     }
 
@@ -346,6 +353,9 @@ function importRows_(incoming, fileName, operator) {
   );
 
   const existingRows = readSheet_(SETTINGS.ACTIVE_SHEET);
+  const existingById = new Map(
+    existingRows.map(row => [String(row.id), row])
+  );
   const defaultBranch = operator.role === 'admin'
     ? ''
     : (operator.branches.length === 1 ? operator.branches[0] : '');
@@ -358,6 +368,12 @@ function importRows_(incoming, fileName, operator) {
   incoming.forEach(raw => {
     const prepared = { ...raw, hub: raw.hub || defaultBranch };
     const row = cleanIncoming_(prepared, fileName);
+    const existing = existingById.get(String(row.id));
+    if (existing) {
+      row.workStatus = existing.workStatus || '';
+      row.startedAt = existing.startedAt || '';
+      row.startedBy = existing.startedBy || '';
+    }
 
     if (!row.previousStation || !row.arrivalAt) {
       return;
@@ -401,6 +417,31 @@ function importRows_(incoming, fileName, operator) {
     total: incomingMap.size,
     removed: Math.max(0, previousScopedTotal - incomingMap.size),
     branches: Array.from(importedBranches)
+  };
+}
+
+function startUnloading_(id, operator) {
+  if (!id) throw new Error('ไม่พบรหัสรายการ');
+  const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
+  const active = ensureSheet_(ss, SETTINGS.ACTIVE_SHEET, ACTIVE_HEADERS);
+  const rows = readSheet_(SETTINGS.ACTIVE_SHEET);
+  const index = rows.findIndex(row => String(row.id) === String(id));
+  if (index < 0) throw new Error('ไม่พบรถรายการนี้ กรุณารีเฟรชหน้าเว็บ');
+  if (!canAccessRow_(rows[index], operator)) {
+    throw new Error('ไม่มีสิทธิ์จัดการข้อมูลของสาขานี้');
+  }
+  if (String(rows[index].workStatus) !== 'UNLOADING') {
+    rows[index].workStatus = 'UNLOADING';
+    rows[index].startedAt = new Date().toISOString();
+    rows[index].startedBy = operator.username;
+    replaceData_(active, ACTIVE_HEADERS, rows);
+    audit_('START_UNLOADING', id, 'เริ่มลงงาน', operator.username);
+  }
+  return {
+    id: id,
+    workStatus: 'UNLOADING',
+    startedAt: rows[index].startedAt,
+    startedBy: rows[index].startedBy
   };
 }
 
@@ -852,7 +893,10 @@ function cleanIncoming_(raw, fileName) {
     hub: String(raw.hub || '').trim(),
     supplier: String(raw.supplier || '').trim(),
     importedAt: new Date().toISOString(),
-    sourceFile: String(fileName || '').slice(0, 200)
+    sourceFile: String(fileName || '').slice(0, 200),
+    workStatus: '',
+    startedAt: '',
+    startedBy: ''
   };
 }
 
@@ -1019,6 +1063,11 @@ function readSheet_(sheetName) {
 }
 
 function replaceData_(sheet, headers, rows) {
+  const actualHeaders = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getValues()[0]
+    .map(String);
+
   if (sheet.getLastRow() > 1) {
     sheet
       .getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn())
@@ -1027,15 +1076,19 @@ function replaceData_(sheet, headers, rows) {
 
   if (rows.length) {
     sheet
-      .getRange(2, 1, rows.length, headers.length)
+      .getRange(2, 1, rows.length, actualHeaders.length)
       .setValues(
-        rows.map(row => headers.map(header => row[header] ?? ''))
+        rows.map(row => actualHeaders.map(header => row[header] ?? ''))
       );
   }
 }
 
 function appendObject_(sheet, headers, object) {
-  sheet.appendRow(headers.map(header => object[header] ?? ''));
+  const actualHeaders = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getValues()[0]
+    .map(String);
+  sheet.appendRow(actualHeaders.map(header => object[header] ?? ''));
 }
 
 function audit_(action, recordId, detail, operator) {

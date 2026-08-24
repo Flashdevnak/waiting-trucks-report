@@ -1,14 +1,14 @@
 :root{
-  --navy:#14242d;
-  --navy-2:#203842;
-  --orange:#2f7d8c;
-  --orange-dark:#256675;
-  --ink:#17212b;
-  --muted:#66727d;
-  --line:#d8dde2;
-  --line-dark:#c4cbd2;
+  --navy:#171717;
+  --navy-2:#262626;
+  --orange:#ffd400;
+  --orange-dark:#e5bd00;
+  --ink:#171717;
+  --muted:#6f6f6f;
+  --line:#dfdfdc;
+  --line-dark:#c9c9c4;
   --surface:#ffffff;
-  --background:#eef1f3;
+  --background:#f5f5f2;
   --green:#18794e;
   --green-bg:#eaf6ef;
   --amber:#9a6700;
@@ -53,7 +53,7 @@ button,input,select,textarea{font:inherit}
   align-items:center;
   justify-content:center;
   background:var(--orange);
-  color:#fff;
+  color:#171717;
   font-size:18px;
   font-weight:700;
   letter-spacing:.04em;
@@ -88,11 +88,12 @@ button,input,select,textarea{font:inherit}
 
 .btn:hover{filter:brightness(.96)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-.btn-primary{background:#1967a8;color:#fff}
-.btn-start{background:#2f7d8c;color:#fff}
+.btn-primary{background:#171717;color:#fff}
+.btn-start{background:#ffd400;border-color:#1a1a1a;color:#111}
+.btn-undo{background:#ede9fe;border-color:#7c3aed;color:#5b21b6}
 .btn-secondary{background:#fff;border-color:var(--line-dark);color:var(--ink)}
 .btn-danger{background:#fff;border-color:#d92d20;color:var(--red)}
-.btn-accent{background:var(--orange);color:#fff}
+.btn-accent{background:var(--orange);border-color:#1a1a1a;color:#111}
 .btn-accent:hover{background:var(--orange-dark)}
 .btn-header{background:var(--navy-2);border-color:#43505c;color:#fff}
 .btn-full{width:100%;margin-top:16px;padding:10px}
@@ -200,11 +201,13 @@ td{
 }
 
 tbody tr:hover{background:#f2f8fa}
-tbody tr.is-unloading{background:#edf7fa;box-shadow:inset 4px 0 #2f7d8c}
+tbody tr.is-unloading{background:#f5f3ff;box-shadow:inset 4px 0 #7c3aed}
 .wait-time{font-size:16px;font-weight:700;white-space:nowrap}
 .primary{font-weight:700}
 .secondary{margin-top:3px;color:var(--muted);font-size:12px}
 .vehicle-type{color:var(--ink);font-size:14px;font-weight:800}
+.vehicle-line{display:flex;align-items:center;gap:10px;white-space:nowrap}
+.vehicle-line .vehicle-type{padding-left:10px;border-left:2px solid #ffd400}
 
 .status-pill{
   display:inline-flex;
@@ -248,9 +251,10 @@ tbody tr.is-unloading{background:#edf7fa;box-shadow:inset 4px 0 #2f7d8c}
 .detail-grid span{display:block;color:var(--muted);font-size:11px}
 .detail-grid strong{font-size:13px}
 .detail-grid div:nth-child(2) strong{font-size:13px;font-weight:700}
-.truck-card.is-unloading{border-left-color:#2f7d8c;background:#f4fafb}
+.truck-card.is-unloading{border-left-color:#7c3aed;background:#faf8ff}
 .truck-card .row-actions{margin-top:12px}
-.truck-card .row-actions .btn{flex:1}
+.truck-card .row-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr))}
+.truck-card .row-actions .btn{width:100%}
 
 dialog{
   width:min(92vw,410px);

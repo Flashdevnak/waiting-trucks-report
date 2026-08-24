@@ -57,7 +57,9 @@ button,input,select,textarea{font:inherit}
   font-size:18px;
   font-weight:700;
   letter-spacing:.04em;
+  gap:7px;
 }
+.brand-truck{font-size:21px;line-height:1}
 
 .brand-copy{display:flex;flex-direction:column;gap:3px}
 .brand-copy strong{font-size:18px}
@@ -110,11 +112,13 @@ button,input,select,textarea{font:inherit}
 
 .metric-grid{
   display:grid;
-  grid-template-columns:repeat(4,1fr);
+  grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
   background:var(--surface);
   border:1px solid var(--line-dark);
   margin-bottom:14px;
 }
+.status-metrics{display:contents}
+.status-metric{border-bottom-color:var(--status-color)}
 
 .metric-card{
   min-height:100px;
@@ -206,6 +210,9 @@ tbody tr:hover{background:#fff8f2}
   font-size:11px;
   font-weight:700;
   white-space:nowrap;
+  color:var(--status-color);
+  background:color-mix(in srgb,var(--status-color) 12%,white);
+  border:1px solid color-mix(in srgb,var(--status-color) 30%,white);
 }
 
 .status-safe{background:var(--green-bg);color:var(--green)}
@@ -267,13 +274,16 @@ dialog::backdrop{background:rgba(23,33,43,.58)}
 
 .dialog-close:hover{background:#edf0f2;color:#111}
 .dialog-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:16px}
-.settings-card{width:min(760px,calc(100vw - 24px));max-height:90vh;overflow:auto}
+#settings-dialog{width:min(96vw,1280px);max-width:none;height:min(94vh,920px)}
+.settings-card{width:100%;height:100%;max-height:none;overflow:auto;padding:28px 34px}
 .settings-section{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 .settings-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .settings-heading h3{margin:0;font-size:16px}
 .setting-row{display:grid;align-items:center;gap:8px;margin-bottom:8px}
 .pause-row{grid-template-columns:minmax(140px,1fr) 110px auto 110px auto}
 .vehicle-row{grid-template-columns:minmax(130px,1fr) minmax(140px,1fr) auto}
+.status-row{grid-template-columns:minmax(180px,1fr) minmax(140px,220px) minmax(150px,200px) auto}
+.color-field input[type=color]{width:48px;padding:3px}
 .setting-row input,.setting-row select{width:100%;min-height:40px;border:1px solid var(--line);border-radius:4px;padding:8px 10px;background:#fff;color:var(--ink)}
 .setting-row label{display:flex;align-items:center;gap:8px;font-weight:700}
 .remove-setting{min-height:38px;border:1px solid #d92d20;background:#fff;color:#b42318;border-radius:4px;padding:0 12px;font-weight:700;cursor:pointer}
@@ -314,9 +324,13 @@ dialog::backdrop{background:rgba(23,33,43,.58)}
 @media(max-width:620px){
   .settings-heading{align-items:flex-start;flex-direction:column}
   .pause-row,.vehicle-row{grid-template-columns:1fr 1fr}
+  .status-row{grid-template-columns:1fr 1fr}
+  .status-row .status-label{grid-column:1/-1}
   .pause-row .setting-label,.vehicle-row .vehicle-type{grid-column:1/-1}
   .pause-row .remove-setting,.vehicle-row .remove-setting{grid-column:1/-1}
   .pause-row span{text-align:center}
+  #settings-dialog{width:100vw;height:100vh;max-height:none;border-radius:0}
+  .settings-card{padding:22px 14px}
   .user-row{grid-template-columns:1fr 1fr}
   .user-row .user-name,.user-row .user-branches,.user-row .user-password{grid-column:1/-1}
 }

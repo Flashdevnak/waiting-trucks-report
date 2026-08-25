@@ -454,13 +454,22 @@ tbody tr.is-unloading:hover{background:#e8e9e9}
 .truck-status-line{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:5px}
 .truck-status-line .status-pill{margin-top:0}
 .truck-status-line .status-progress{display:block;margin:0}
-.detail-grid{gap:0 20px}
-.detail-grid>div{min-width:0;padding:8px 0;border-bottom:1px solid var(--line)}
-.detail-grid>div:nth-child(even):not(.detail-driver):not(.detail-arrival){padding-left:0;border-left:0}
-.detail-grid strong{display:block;margin-top:2px;color:#202124;line-height:1.35}
+.detail-grid{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  gap:0;
+  overflow:hidden;
+  margin-top:2px;
+  border:1px solid #d5d6d3;
+  border-radius:5px;
+  background:#fff;
+}
+.detail-grid>div{min-width:0;padding:10px 12px;border-bottom:1px solid #dedfdd}
+.detail-grid>div:nth-child(odd):not(.detail-driver):not(.detail-arrival){border-right:1px solid #dedfdd}
+.detail-grid span{font-size:11px;line-height:1.25}
+.detail-grid strong{display:block;margin-top:3px;color:#202124;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
 .detail-driver,.detail-arrival{grid-column:1/-1}
 .detail-arrival{border-bottom:0!important}
-.truck-card .row-actions{gap:7px;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
+.truck-card .row-actions{gap:7px;margin-top:12px;padding-top:0;border-top:0}
 
 .empty-state{min-height:220px;background:#fff}
 

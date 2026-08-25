@@ -22,6 +22,7 @@
 }
 
 *{box-sizing:border-box}
+html,body{width:100%;max-width:100%;overflow-x:hidden}
 
 body{
   margin:0;
@@ -32,6 +33,7 @@ body{
 }
 
 button,input,select,textarea{font:inherit}
+button,input,select,textarea{max-width:100%}
 
 .site-header{
   background:var(--navy);
@@ -483,6 +485,7 @@ tbody tr.is-unloading:hover{background:#e8e9e9}
 
 @media(max-width:700px){
   body{background:#eeeeeb}
+  .site-header,.site-header-inner,.app-shell,main,.panel,.metric-grid,.mobile-cards,.truck-card,.topbar-actions{min-width:0;max-width:100%}
   .site-header-inner{padding:10px 12px 12px}
   .brand-mark{min-width:58px;height:42px}
   .brand-copy strong{font-size:17px}
@@ -492,12 +495,13 @@ tbody tr.is-unloading:hover{background:#e8e9e9}
   .metric-card{min-height:92px;padding:12px 13px}
   .metric-card strong{font-size:25px}
   .toolbar-panel{padding:0 10px 12px}
-  .tabs{overflow-x:auto;white-space:nowrap}
-  .tab{flex:1;padding-left:10px;padding-right:10px}
+  .tabs{overflow-x:hidden;white-space:normal}
+  .tab{flex:1;min-width:0;padding-left:10px;padding-right:10px;white-space:normal}
   .table-panel{margin-top:10px;background:transparent;border:0;box-shadow:none}
   .mobile-cards{padding:0;background:transparent}
-  .truck-card{background:#fff}
+  .truck-card{width:100%;margin-left:0;margin-right:0;background:#fff}
   .truck-card-head .primary{font-size:15px}
+  .truck-card-head .primary,.truck-card-head .secondary,.detail-grid strong{overflow-wrap:anywhere;word-break:break-word}
   .truck-status{min-width:0}
   .truck-card .row-actions .btn{min-height:38px}
 }

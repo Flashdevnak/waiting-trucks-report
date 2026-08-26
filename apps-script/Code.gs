@@ -6,6 +6,7 @@ const SETTINGS = {
   AUDIT_SHEET: 'ระบบ_บันทึกการใช้งาน',
   SYSTEM_SHEET: 'ระบบ_ตั้งค่า',
   USERS_SHEET: 'ระบบ_ผู้ใช้งาน',
+  MS_ROUTE_SHEET: 'ระบบ_ติดตามเส้นทาง_MS',
   USERNAME: 'NE1',
   ADMIN_USERNAME: 'ADMIN',
   SESSION_DAYS: 180
@@ -34,6 +35,14 @@ const SYSTEM_HEADERS = [
 const USER_HEADERS = [
   'username', 'passwordHash', 'role', 'branches', 'active',
   'createdAt', 'updatedAt', 'updatedBy'
+];
+
+const MS_ROUTE_HEADERS = [
+  'id', 'hub', 'proofId', 'routeName', 'region', 'routeAttribute',
+  'routeType', 'attendanceType', 'estimatedArrivalAt', 'actualArrivalAt',
+  'estimatedDepartureAt', 'actualDepartureAt', 'supplier', 'vehicleType',
+  'plate', 'driverName', 'driverPhone', 'trackingStatus', 'vehicleStatus',
+  'loadStatus', 'sourceUpdatedAt', 'syncedAt', 'syncedBy'
 ];
 
 const DEFAULT_PAUSE_WINDOWS = [
@@ -99,6 +108,7 @@ function setupSystem(operatorPin) {
   ensureSheet_(ss, SETTINGS.AUDIT_SHEET, AUDIT_HEADERS);
   ensureSystemSettings_(ss);
   ensureUserSystem_(ss);
+  ensureSheet_(ss, SETTINGS.MS_ROUTE_SHEET, MS_ROUTE_HEADERS);
 
   const migrated = active.getLastRow() < 2
     ? migrateLegacyData_(ss, active)
@@ -156,6 +166,27 @@ function doGet(e) {
       return json_({
         ok: true,
         data: readSystemSettings_(branch)
+      });
+    }
+
+    if (action === 'msRoutes') {
+      const rows = scopeRows_(
+        readMsRoutes_(),
+        operator
+      );
+
+      return json_({
+        ok: true,
+        data: {
+          rows: rows,
+          lastSync: rows.reduce(
+            (latest, row) =>
+              String(row.syncedAt || '') > latest
+                ? String(row.syncedAt)
+                : latest,
+            ''
+          )
+        }
       });
     }
 
@@ -319,6 +350,17 @@ function doPost(e) {
           operator,
           body.currentPassword,
           body.newPassword
+        )
+      });
+    }
+
+    if (body.action === 'syncMsRoutes') {
+      return json_({
+        ok: true,
+        data: syncMsRoutes_(
+          body.rows || [],
+          body.branch || '',
+          operator
         )
       });
     }
@@ -1572,6 +1614,122 @@ function changePassword_(
   return {
     changed: true
   };
+}
+
+function readMsRoutes_() {
+  const ss = SpreadsheetApp.openById(
+    SETTINGS.SPREADSHEET_ID
+  );
+  const sheet = ensureSheet_(
+    ss,
+    SETTINGS.MS_ROUTE_SHEET,
+    MS_ROUTE_HEADERS
+  );
+  return readRowsFromSheet_(sheet);
+}
+
+function syncMsRoutes_(incoming, requestedBranch, operator) {
+  if (!Array.isArray(incoming)) {
+    throw new Error('รูปแบบข้อมูล MS ไม่ถูกต้อง');
+  }
+  if (incoming.length > 2000) {
+    throw new Error('ข้อมูล MS เกิน 2,000 รายการต่อครั้ง');
+  }
+
+  const branch = normalizeBranch_(
+    requestedBranch ||
+    (operator.role === 'admin' ? '' : operator.branches[0])
+  );
+  if (!branch) {
+    throw new Error('ไม่พบ HUB สำหรับซิงก์ข้อมูล MS');
+  }
+  if (
+    operator.role !== 'admin' &&
+    !operator.branches.includes('*') &&
+    !operator.branches.includes(branch)
+  ) {
+    throw new Error('ไม่มีสิทธิ์ซิงก์ข้อมูลของ HUB นี้');
+  }
+
+  const now = new Date().toISOString();
+  const seen = new Set();
+  const cleaned = incoming.map((raw, index) => {
+    const proofId = safeText_(raw.proofId, 100);
+    const routeName = safeText_(raw.routeName, 300);
+    const estimatedArrivalAt = safeDateText_(raw.estimatedArrivalAt);
+    const naturalId = safeText_(raw.id, 160) ||
+      [proofId, routeName, estimatedArrivalAt, index].join('|');
+    const id = hash_(branch + '|' + naturalId);
+
+    if (seen.has(id)) {
+      return null;
+    }
+    seen.add(id);
+
+    return {
+      id: id,
+      hub: branch,
+      proofId: proofId,
+      routeName: routeName,
+      region: safeText_(raw.region, 60),
+      routeAttribute: safeText_(raw.routeAttribute, 100),
+      routeType: safeText_(raw.routeType, 100),
+      attendanceType: safeText_(raw.attendanceType, 100),
+      estimatedArrivalAt: estimatedArrivalAt,
+      actualArrivalAt: safeDateText_(raw.actualArrivalAt),
+      estimatedDepartureAt: safeDateText_(raw.estimatedDepartureAt),
+      actualDepartureAt: safeDateText_(raw.actualDepartureAt),
+      supplier: safeText_(raw.supplier, 240),
+      vehicleType: safeText_(raw.vehicleType, 80),
+      plate: safeText_(raw.plate, 100),
+      driverName: safeText_(raw.driverName, 160),
+      driverPhone: phone_(raw.driverPhone),
+      trackingStatus: safeText_(raw.trackingStatus, 120),
+      vehicleStatus: safeText_(raw.vehicleStatus, 120),
+      loadStatus: safeText_(raw.loadStatus, 120),
+      sourceUpdatedAt: safeDateText_(raw.sourceUpdatedAt),
+      syncedAt: now,
+      syncedBy: operator.username
+    };
+  }).filter(Boolean);
+
+  const ss = SpreadsheetApp.openById(SETTINGS.SPREADSHEET_ID);
+  const sheet = ensureSheet_(
+    ss,
+    SETTINGS.MS_ROUTE_SHEET,
+    MS_ROUTE_HEADERS
+  );
+  const keep = readRowsFromSheet_(sheet).filter(
+    row => normalizeBranch_(row.hub) !== branch
+  );
+  replaceData_(sheet, MS_ROUTE_HEADERS, keep.concat(cleaned));
+
+  audit_(
+    'SYNC_MS_ROUTES',
+    branch,
+    'ซิงก์ข้อมูล MS ' + cleaned.length + ' รายการ',
+    operator.username
+  );
+
+  return {
+    branch: branch,
+    synced: cleaned.length,
+    syncedAt: now
+  };
+}
+
+function safeText_(value, maxLength) {
+  return String(value || '').trim().slice(0, maxLength || 500);
+}
+
+function safeDateText_(value) {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+  const date = new Date(value);
+  return isNaN(date.getTime())
+    ? safeText_(value, 40)
+    : date.toISOString();
 }
 
 function normalizeBranch_(value) {

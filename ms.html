@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#151515">
+  <title>ติดตามเส้นทาง MS</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="style.css?v=20260827-01">
+  <script src="ms.js?v=20260827-01" defer></script>
+</head>
+<body class="ms-page">
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div class="brand-mark"><span class="brand-truck" aria-hidden="true"></span><span id="site-code">HUB</span></div>
+      <div class="brand-copy"><strong id="site-title">ติดตามเส้นทาง MS</strong><span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span></div>
+      <div class="topbar-actions">
+        <span id="connection-badge" class="badge badge-neutral">กำลังเชื่อมต่อ</span>
+        <a class="btn btn-header header-link" href="index.html">รถรอลงงาน</a>
+        <button id="refresh-btn" class="btn btn-header" type="button">รีเฟรช</button>
+        <button id="login-btn" class="btn btn-accent" type="button">เข้าสู่ระบบ</button>
+        <button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="ms-heading">
+      <div><h1>ติดตามเส้นทาง MS</h1><p>สถานะรถต้นทาง จุดดร็อป และปลายทางจาก MS แบบอ่านอย่างเดียว</p></div>
+      <div class="ms-live-note"><span id="live-dot" class="ms-live-dot stale"></span><span id="source-sync">ยังไม่มีข้อมูลจากตัวเชื่อม MS</span></div>
+    </section>
+
+    <section class="metric-grid ms-metrics">
+      <article class="metric-card metric-dark"><span>เที่ยวรถทั้งหมด</span><strong id="metric-total">0</strong><small>รายการตามสิทธิ์</small></article>
+      <article class="metric-card"><span>ยังมาไม่ถึง</span><strong id="metric-not-arrived">0</strong><small>รอรถเข้าสาขา</small></article>
+      <article class="metric-card"><span>มาถึงแล้ว</span><strong id="metric-arrived">0</strong><small>ยังไม่ออกจากสาขา</small></article>
+      <article class="metric-card"><span>ออกจากสาขาแล้ว</span><strong id="metric-departed">0</strong><small>ดำเนินการแล้ว</small></article>
+      <article class="metric-card metric-warning"><span>มาถึงล่าช้า</span><strong id="metric-arrival-late">0</strong><small>เกิน ETA</small></article>
+      <article class="metric-card metric-danger"><span>รอออกล่าช้า</span><strong id="metric-departure-late">0</strong><small>เกินเวลาออก</small></article>
+    </section>
+
+    <section class="panel toolbar-panel">
+      <div class="ms-toolbar">
+        <label><span>ค้นหา</span><input id="search-input" type="search" placeholder="บาร์โค้ดรถ เส้นทาง ทะเบียน ประเภทรถ…"></label>
+        <label><span>ประเภท Attendance</span><select id="attendance-filter"><option value="all">ทั้งหมด</option></select></label>
+        <label><span>ประเภทเส้นทาง</span><select id="route-filter"><option value="all">ทั้งหมด</option></select></label>
+        <label><span>สถานะรถ</span><select id="status-filter"><option value="all">ทั้งหมด</option><option value="not-arrived">ยังมาไม่ถึง</option><option value="arrived">มาถึงแล้ว</option><option value="departed">ออกจากสาขาแล้ว</option><option value="arrival-late">มาถึงล่าช้า</option><option value="departure-late">รอออกล่าช้า</option></select></label>
+      </div>
+      <p id="last-refresh" class="sync-text">ยังไม่ได้โหลดข้อมูล</p>
+    </section>
+
+    <section class="panel table-panel">
+      <div id="loading-state" class="empty-state">กำลังโหลดข้อมูล…</div>
+      <div id="empty-state" class="empty-state hidden"></div>
+      <div id="desktop-table" class="table-scroll hidden">
+        <table class="ms-table">
+          <thead><tr><th>บาร์โค้ด / รถ</th><th>ชื่อเส้นทาง</th><th>Attendance</th><th>เวลาถึง</th><th>เวลาออก</th><th>สถานะรถ</th><th>โหลดพัสดุ</th></tr></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+      <div id="mobile-cards" class="mobile-cards hidden"></div>
+    </section>
+    <p class="privacy-note">เบอร์โทรคนขับจะแสดงเฉพาะบัญชีผู้ดูแลระบบ ข้อมูลหน้านี้เป็นโหมดอ่านอย่างเดียวและไม่แก้สถานะใน MS</p>
+  </main>
+
+  <dialog id="login-dialog">
+    <form class="dialog-card" id="login-form">
+      <button id="login-close" class="dialog-close" type="button" aria-label="ปิด">×</button>
+      <div class="dialog-kicker">ระบบรถรอลงงาน · สิทธิ์เดียวกันทุกหน้า</div>
+      <h2>เข้าสู่ระบบ</h2>
+      <label><span>Username</span><input id="username-input" type="text" value="NE1" autocomplete="username" required></label>
+      <label><span>รหัสจัดการ</span><input id="pin-input" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="form-error hidden"></p>
+      <button class="btn btn-accent btn-full" type="submit">เข้าสู่ระบบ</button>
+    </form>
+  </dialog>
+  <div id="toast" class="toast hidden" role="status"></div>
+</body>
+</html>

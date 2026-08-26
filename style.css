@@ -109,6 +109,7 @@ button,input,select,textarea{max-width:100%}
 .btn-accent:hover{background:var(--orange-dark)}
 .btn-header{background:var(--navy-2);border-color:#4a4a4a;color:#fff}
 .btn-header:hover{background:#3a3a3a;border-color:#656565}
+.header-link{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 .btn-full{width:100%;margin-top:16px;padding:10px}
 
 .badge{
@@ -366,6 +367,47 @@ dialog::backdrop{background:rgba(15,15,15,.62)}
   .detail-grid{grid-template-columns:1fr}
   .metric-card span{font-size:12px}
   .metric-card small{font-size:10px}
+}
+
+/* MS route monitor */
+.ms-page .app-shell{max-width:1600px}
+.ms-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:14px}
+.ms-heading h1{margin:0;font-size:24px}
+.ms-heading p{margin:4px 0 0;color:var(--muted)}
+.ms-live-note{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
+.ms-live-dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px var(--green-bg)}
+.ms-live-dot.stale{background:var(--amber);box-shadow:0 0 0 4px var(--amber-bg)}
+.ms-metrics{grid-template-columns:repeat(6,minmax(130px,1fr))}
+.ms-toolbar{display:grid;grid-template-columns:minmax(240px,2fr) repeat(3,minmax(150px,1fr));gap:10px;align-items:end;padding-top:14px}
+.ms-toolbar label{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:12px;font-weight:700}
+.ms-toolbar input,.ms-toolbar select{min-height:39px;border:1px solid var(--line-dark);border-radius:4px;background:#fff;padding:8px 10px;color:var(--ink)}
+.ms-table th,.ms-table td{text-align:center}
+.ms-table th:nth-child(2),.ms-table td:nth-child(2){text-align:left}
+.ms-route-name{max-width:360px;overflow-wrap:anywhere}
+.ms-time-stack{white-space:nowrap}
+.ms-time-stack span{display:block;color:var(--muted);font-size:11px}
+.ms-time-stack strong{display:block;font-size:12px}
+.ms-status{display:flex;flex-direction:column;align-items:center;gap:5px}
+.ms-status small{color:var(--muted)}
+.ms-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.ms-card-grid div{min-width:0;padding:9px 10px;border:1px solid var(--line);background:#fff}
+.ms-card-grid span{display:block;color:var(--muted);font-size:11px}
+.ms-card-grid strong{display:block;margin-top:3px;overflow-wrap:anywhere}
+.ms-card .truck-card-head{border-top-color:var(--card-accent)}
+.privacy-note{margin-top:8px;color:var(--muted);font-size:11px}
+
+@media(max-width:1100px){
+  .ms-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .ms-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+@media(max-width:700px){
+  .ms-heading{align-items:flex-start;flex-direction:column}
+  .ms-live-note{white-space:normal}
+  .ms-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ms-toolbar{grid-template-columns:1fr}
+  .ms-card-grid{grid-template-columns:1fr 1fr}
+  .topbar-actions .header-link{width:100%;min-height:40px}
 }
 
 @media(max-width:620px){

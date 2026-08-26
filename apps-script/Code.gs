@@ -248,6 +248,27 @@ function doPost(e) {
       });
     }
 
+    if (body.action === 'restoreHistory') {
+      return json_({
+        ok: true,
+        data: restoreHistoryRecord_(
+          body.id,
+          body.actionAt,
+          operator
+        )
+      });
+    }
+
+    if (body.action === 'clearQueue') {
+      return json_({
+        ok: true,
+        data: clearQueue_(
+          body.note || '',
+          operator
+        )
+      });
+    }
+
     if (body.action === 'saveSettings') {
       assertAdmin_(operator);
 
@@ -502,7 +523,11 @@ function importRows_(incoming, fileName, operator) {
   const blocked = new Set(
     readSheet_(
       SETTINGS.HISTORY_SHEET
-    ).map(row => String(row.id))
+    )
+      .filter(row =>
+        String(row.status) !== 'CLEARED'
+      )
+      .map(row => String(row.id))
   );
 
   const existingRows = readSheet_(
@@ -830,6 +855,158 @@ function archiveRecord_(id, status, note, operator) {
     status: status,
     operator: operator.username
   };
+}
+
+function restoreHistoryRecord_(id, actionAt, operator) {
+  if (!id) {
+    throw new Error('ไม่พบรหัสรายการ');
+  }
+
+  const ss = SpreadsheetApp.openById(
+    SETTINGS.SPREADSHEET_ID
+  );
+
+  const active = ensureSheet_(
+    ss,
+    SETTINGS.ACTIVE_SHEET,
+    ACTIVE_HEADERS
+  );
+
+  const activeRows = readRowsFromSheet_(active);
+
+  if (activeRows.some(
+    row => String(row.id) === String(id)
+  )) {
+    throw new Error(
+      'รถรายการนี้กลับมาอยู่ในคิวแล้ว กรุณารีเฟรชหน้าเว็บ'
+    );
+  }
+
+  const history = ensureSheet_(
+    ss,
+    SETTINGS.HISTORY_SHEET,
+    HISTORY_HEADERS
+  );
+
+  const historyRows = readRowsFromSheet_(history);
+  let index = -1;
+
+  for (let i = historyRows.length - 1; i >= 0; i--) {
+    const row = historyRows[i];
+    const sameActionAt = !actionAt ||
+      String(row.actionAt) === String(actionAt);
+
+    if (
+      String(row.id) === String(id) &&
+      sameActionAt &&
+      String(row.status) === 'COMPLETED'
+    ) {
+      index = i;
+      break;
+    }
+  }
+
+  if (index < 0) {
+    throw new Error(
+      'ไม่พบประวัติลงเสร็จสิ้นรายการนี้ หรือถูกกู้คืนแล้ว'
+    );
+  }
+
+  const row = historyRows[index];
+
+  if (!canAccessRow_(row, operator)) {
+    throw new Error(
+      'ไม่มีสิทธิ์กู้คืนข้อมูลของสาขานี้'
+    );
+  }
+
+  appendObject_(active, ACTIVE_HEADERS, row);
+  history.deleteRow(index + 2);
+
+  audit_(
+    'RESTORE_COMPLETED',
+    id,
+    'กู้คืนรายการที่กดลงเสร็จสิ้นผิด',
+    operator.username
+  );
+
+  return {
+    id: id,
+    restored: true,
+    workStatus: row.workStatus || '',
+    startedAt: row.startedAt || '',
+    startedBy: row.startedBy || ''
+  };
+}
+
+function clearQueue_(note, operator) {
+  const ss = SpreadsheetApp.openById(
+    SETTINGS.SPREADSHEET_ID
+  );
+
+  const active = ensureSheet_(
+    ss,
+    SETTINGS.ACTIVE_SHEET,
+    ACTIVE_HEADERS
+  );
+
+  const rows = readRowsFromSheet_(active);
+  const clearing = rows.filter(
+    row => canAccessRow_(row, operator)
+  );
+
+  if (!clearing.length) {
+    return { cleared: 0 };
+  }
+
+  const keeping = rows.filter(
+    row => !canAccessRow_(row, operator)
+  );
+
+  const history = ensureSheet_(
+    ss,
+    SETTINGS.HISTORY_SHEET,
+    HISTORY_HEADERS
+  );
+
+  const now = new Date().toISOString();
+  const detail = String(note || 'เคลียร์คิวเพื่อเปลี่ยนชุดข้อมูล')
+    .slice(0, 500);
+
+  const actualHeaders = history
+    .getRange(1, 1, 1, history.getLastColumn())
+    .getValues()[0]
+    .map(String);
+
+  history
+    .getRange(
+      history.getLastRow() + 1,
+      1,
+      clearing.length,
+      actualHeaders.length
+    )
+    .setValues(
+      clearing.map(row =>
+        actualHeaders.map(header => ({
+          ...row,
+          status: 'CLEARED',
+          actionAt: now,
+          note: detail,
+          operator: operator.username
+        })[header] ?? '')
+      )
+    );
+
+  replaceData_(active, ACTIVE_HEADERS, keeping);
+
+  audit_(
+    'CLEAR_QUEUE',
+    '',
+    'เคลียร์คิว ' + clearing.length + ' รายการ: ' + detail,
+    operator.username
+  );
+
+  return { cleared: clearing.length };
 }
 
 function setAdminAccount_(username, adminPin) {

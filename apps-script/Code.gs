@@ -655,9 +655,7 @@ function startUnloading_(id, operator) {
     ACTIVE_HEADERS
   );
 
-  const rows = readSheet_(
-    SETTINGS.ACTIVE_SHEET
-  );
+  const rows = readRowsFromSheet_(active);
 
   const index = rows.findIndex(
     row => String(row.id) === String(id)
@@ -687,10 +685,10 @@ function startUnloading_(id, operator) {
     rows[index].startedBy =
       operator.username;
 
-    replaceData_(
+    writeObjectRow_(
       active,
-      ACTIVE_HEADERS,
-      rows
+      index + 2,
+      rows[index]
     );
 
     audit_(
@@ -724,9 +722,7 @@ function cancelUnloading_(id, operator) {
     ACTIVE_HEADERS
   );
 
-  const rows = readSheet_(
-    SETTINGS.ACTIVE_SHEET
-  );
+  const rows = readRowsFromSheet_(active);
 
   const index = rows.findIndex(
     row => String(row.id) === String(id)
@@ -748,10 +744,10 @@ function cancelUnloading_(id, operator) {
   rows[index].startedAt = '';
   rows[index].startedBy = '';
 
-  replaceData_(
+  writeObjectRow_(
     active,
-    ACTIVE_HEADERS,
-    rows
+    index + 2,
+    rows[index]
   );
 
   audit_(
@@ -782,9 +778,7 @@ function archiveRecord_(id, status, note, operator) {
     ACTIVE_HEADERS
   );
 
-  const rows = readSheet_(
-    SETTINGS.ACTIVE_SHEET
-  );
+  const rows = readRowsFromSheet_(active);
 
   const index = rows.findIndex(
     row => String(row.id) === String(id)
@@ -2155,6 +2149,38 @@ function formatHeader_(sheet, startColumn, count) {
     .setFontColor('#ffffff');
 }
 
+function readRowsFromSheet_(sheet) {
+  if (sheet.getLastRow() < 2) {
+    return [];
+  }
+
+  const values =
+    sheet.getDataRange().getValues();
+
+  const sheetHeaders =
+    values.shift().map(String);
+
+  return values
+    .filter(row =>
+      row.some(value =>
+        value !== '' &&
+        value !== null
+      )
+    )
+    .map(row =>
+      Object.fromEntries(
+        sheetHeaders.map(
+          (header, index) => [
+            header,
+            row[index] instanceof Date
+              ? row[index].toISOString()
+              : row[index]
+          ]
+        )
+      )
+    );
+}
+
 function readSheet_(sheetName) {
   const ss = SpreadsheetApp.openById(
     SETTINGS.SPREADSHEET_ID
@@ -2202,6 +2228,31 @@ function readSheet_(sheetName) {
         )
       )
     );
+}
+
+function writeObjectRow_(sheet, rowIndex, object) {
+  const actualHeaders = sheet
+    .getRange(
+      1,
+      1,
+      1,
+      sheet.getLastColumn()
+    )
+    .getValues()[0]
+    .map(String);
+
+  sheet
+    .getRange(
+      rowIndex,
+      1,
+      1,
+      actualHeaders.length
+    )
+    .setValues([
+      actualHeaders.map(
+        header => object[header] ?? ''
+      )
+    ]);
 }
 
 function replaceData_(sheet, headers, rows) {

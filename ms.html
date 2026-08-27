@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#151515" />
     <title>ติดตามเส้นทาง MS</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="style.css?v=20260828-02" />
-    <script src="ms.js?v=20260828-02" defer></script>
+    <link rel="stylesheet" href="style.css?v=20260828-03" />
+    <script src="ms.js?v=20260828-03" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -73,27 +73,27 @@
 
       <section class="metric-grid ms-metrics">
         <article class="metric-card metric-dark">
-          <span>ข้อมูลที่เก็บไว้ทั้งหมด</span><strong id="metric-archive">0</strong
-          ><small>รายการเก่าไม่ถูกลบ</small>
+          <span>รายการสะสม</span><strong id="metric-archive">0</strong
+          ><small>รายการที่ระบบบันทึกไว้</small>
         </article>
         <article class="metric-card">
-          <span>คิวเริ่มต้น</span><strong id="metric-total">0</strong
-          ><small>รถมาถึงแล้ว รอเริ่มลงงาน</small>
+          <span>รถอยู่ในคิว</span><strong id="metric-total">0</strong
+          ><small>รถเข้าและรถออกที่ยังไม่เสร็จ</small>
         </article>
         <article class="metric-card">
-          <span>กำลังลงงาน</span><strong id="metric-unloading">0</strong
-          ><small>MS แสดงว่ากำลังโหลดพัสดุลงรถ</small>
+          <span>กำลังลงรถ</span><strong id="metric-unloading">0</strong
+          ><small>รถที่เริ่มลงงานแล้ว</small>
         </article>
         <article class="metric-card">
-          <span>โหลดเสร็จแล้ว</span><strong id="metric-completed">0</strong
-          ><small>เก็บไว้ในประวัติ</small>
+          <span>ลงรถเสร็จ</span><strong id="metric-completed">0</strong
+          ><small>รายการที่จบแล้ว</small>
         </article>
         <article class="metric-card">
           <span>รถเข้าตรงเวลา</span><strong id="metric-not-arrived">0</strong
           ><small>มาถึงจริงไม่เกิน ETA</small>
         </article>
         <article class="metric-card metric-danger">
-          <span>รถเข้าตกเวลา</span><strong id="metric-arrived">0</strong
+          <span>รถเข้าช้า</span><strong id="metric-arrived">0</strong
           ><small>มาถึงจริงเกิน ETA</small>
         </article>
         <article class="metric-card">
@@ -101,7 +101,7 @@
           ><small>ออกจริงไม่เกิน ETD</small>
         </article>
         <article class="metric-card metric-warning">
-          <span>ปล่อยตกเวลา</span><strong id="metric-within-standard">0</strong
+          <span>ปล่อยรถช้า</span><strong id="metric-within-standard">0</strong
           ><small>ออกจริงเกิน ETD</small>
         </article>
       </section>
@@ -113,7 +113,7 @@
             ><select id="queue-filter">
               <option value="queue">คิวปัจจุบัน</option>
               <option value="completed">งานที่จบแล้ว / ตัดออกจากคิว</option>
-              <option value="all">ข้อมูลที่เก็บไว้ทั้งหมด</option>
+              <option value="all">รายการทั้งหมด</option>
             </select></label
           >
           <label
@@ -167,7 +167,7 @@
               <option value="not-arrived">ยังมาไม่ถึง</option>
               <option value="arrived">มาถึงแล้ว</option>
               <option value="departed">ออกจากสาขาแล้ว</option>
-              <option value="unloading">กำลังลงงาน</option>
+              <option value="unloading">กำลังลงรถ</option>
               <option value="completed">โหลดเสร็จสิ้น</option>
               <option value="arrival-late">มาถึงล่าช้า</option>
               <option value="departure-late">รอออกล่าช้า</option>

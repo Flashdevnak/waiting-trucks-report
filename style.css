@@ -1837,3 +1837,30 @@ tbody tr.is-unloading:hover {
 .ms-page .ms-table tbody tr:hover {
   background: #fffbed;
 }
+
+.timing-chip,
+.work-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.timing-chip.ontime { color: #08734b; background: #e6f5ed; }
+.timing-chip.late { color: #ad241d; background: #fdecea; }
+.timing-chip.neutral { color: #62686d; background: #eef0f1; }
+.work-badge { color: #34404a; background: #eef1f3; }
+.work-badge .status-dot { background: #7a838a; }
+.work-badge.arrived { color: #1757a6; background: #e9f1ff; }
+.work-badge.arrived .status-dot { background: #2874dc; }
+.work-badge.unloading { color: #845800; background: #fff3cf; }
+.work-badge.unloading .status-dot { background: #c88700; }
+.work-badge.completed,
+.work-badge.departed { color: #08734b; background: #e6f5ed; }
+.work-badge.completed .status-dot,
+.work-badge.departed .status-dot { background: #14905e; }
+.work-badge.expired { color: #62686d; background: #eceeef; }
+.work-badge.expired .status-dot { background: #7a838a; }

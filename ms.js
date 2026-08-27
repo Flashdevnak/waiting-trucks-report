@@ -1,8 +1,8 @@
 const CONFIG = {
   apiUrl:
     "https://script.google.com/macros/s/AKfycbxE2-_8h6EzOQQ3FeDwFxNIAn4U40pacvRnp3XeOGevXDzhw15bgDi74LVgtozfjgiHXQ/exec",
-  pollMs: 30000,
-  staleMs: 90000,
+  pollMs: 15000,
+  staleMs: 45000,
 };
 
 CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report.alert-squid-6738.chatgpt.site" : window.location.origin}/api`;
@@ -208,7 +208,7 @@ async function loadData(silent = false) {
     );
     if (state.syncError) toast(state.syncError, true);
     el("last-refresh").textContent =
-      `โหลดหน้าจอล่าสุด ${dtf.format(new Date())} น. · รีเฟรชอัตโนมัติทุก 30 วินาที`;
+      `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ดึงข้อมูลใหม่ทุก 15 วินาที`;
     render();
   } catch (error) {
     connection(false);
@@ -285,7 +285,7 @@ function routeState(row, now = new Date()) {
   if (Number(row.unloadingState) === 1)
     return {
       key: "unloading",
-      label: "กำลังลงงาน",
+      label: "กำลังลงรถ",
       color: "#9a6700",
       arrivalLate,
       departureLate: false,
@@ -340,10 +340,10 @@ function punctuality(row) {
     key: late ? "late" : "ontime",
     label: incoming
       ? late
-        ? "รถเข้าตกเวลา"
+        ? "รถเข้าช้า"
         : "รถเข้าตรงเวลา"
       : late
-        ? "ปล่อยตกเวลา"
+        ? "ปล่อยรถช้า"
         : "ปล่อยตรงเวลา",
     color: late ? "#b3261e" : "#167044",
     diff,
@@ -461,9 +461,8 @@ function metrics() {
     arrivals = destinations.map((row) => punctuality(row)),
     releases = origins.map((row) => punctuality(row)),
     waits = destinations.map(waitInfo).filter((item) => item.minutes !== null);
-  const waiting = active.filter((row) => Number(row.unloadingState) !== 1);
   setMetric("metric-archive", state.archiveRows.length);
-  setMetric("metric-total", waiting.length);
+  setMetric("metric-total", active.length);
   setMetric("metric-unloading", active.filter((row) => Number(row.unloadingState) === 1).length);
   setMetric("metric-completed", destinations.filter((row) => Number(row.unloadingState) === 2).length);
   setMetric(
@@ -532,7 +531,7 @@ function tableRow(row) {
   const plan = isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt,
     actual = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt,
     timingText = p.diff === null ? "ยังไม่มีเวลาจริง" : `${p.label} · ${p.diff > 0 ? "ช้า" : "ก่อนแผน"} ${nf.format(Math.abs(p.diff))} นาที`,
-    queueText = q.done ? "เสร็จแล้ว · เก็บในประวัติ" : q.expired ? "ตัดจากคิวเกิน 12 ชม." : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว",
+    queueText = q.done ? "เสร็จแล้ว" : q.expired ? "ตัดจากคิวเกิน 12 ชม." : q.active ? "อยู่ในคิว" : "ยังไม่เริ่ม",
     wait = isDestination(row) ? waitInfo(row) : null,
     durationHtml = isDestination(row)
       ? wait.minutes === null
@@ -541,7 +540,7 @@ function tableRow(row) {
       : p.diff === null
         ? '<span class="row-muted">รอเวลาออกจริง</span>'
         : `<div class="duration-line ${p.diff > 0 ? "is-late" : "is-ok"}"><strong>${nf.format(Math.abs(p.diff))} นาที</strong><span>${p.diff > 0 ? "ปล่อยช้ากว่าแผน" : "ปล่อยก่อนแผน"}</span></div>`;
-  return `<tr><td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td><td><div class="route-meta"><span><b>ภูมิภาค</b> ${esc(row.region || "-")}</span><span><b>ลักษณะ</b> ${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b> ${esc(row.routeType || "-")}</span></div></td><td><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${esc(row.attendanceType || "-")}</span><div class="row-muted">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</div></td><td><div class="time-pair"><div><span>${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "มาถึงจริง" : "ออกจริง"}</span><strong>${shortDateTime(actual)}</strong></div><small class="${p.diff > 0 ? "text-late" : "text-ok"}">${esc(timingText)}</small></div></td><td><div class="work-summary"><div class="work-head"><span class="status-dot" style="--dot:${q.expired ? "#697177" : status.color}"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small>${esc(queueText)}</small></div></td><td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${state.auth?.role === "admin" && row.driverPhone ? `<small>${esc(row.driverPhone)}</small>` : ""}</div></td></tr>`;
+  return `<tr><td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td><td><div class="route-meta"><span><b>ภูมิภาค</b> ${esc(row.region || "-")}</span><span><b>ลักษณะ</b> ${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b> ${esc(row.routeType || "-")}</span></div></td><td><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${esc(row.attendanceType || "-")}</span><div class="row-muted">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</div></td><td><div class="time-pair"><div><span>${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "มาถึงจริง" : "ออกจริง"}</span><strong>${shortDateTime(actual)}</strong></div><small class="timing-chip ${p.diff === null ? "neutral" : p.diff > 0 ? "late" : "ontime"}">${esc(timingText)}</small></div></td><td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small>${esc(queueText)}</small></div></td><td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${state.auth?.role === "admin" && row.driverPhone ? `<small>${esc(row.driverPhone)}</small>` : ""}</div></td></tr>`;
 }
 
 function card(row) {
@@ -641,7 +640,7 @@ function empty(message) {
   el("mobile-cards").classList.add("hidden");
   el("empty-state").classList.remove("hidden");
   el("empty-state").innerHTML =
-    `<strong>${esc(message)}</strong><span>ระบบออนไลน์จะตรวจข้อมูล MS ใหม่อัตโนมัติทุก 30 วินาทีขณะมีผู้เปิดดู</span>`;
+    `<strong>${esc(message)}</strong><span>ระบบจะดึงข้อมูล MS ใหม่ทุก 15 วินาทีขณะมีผู้เปิดดู</span>`;
 }
 
 async function apiGet(action, params = {}) {

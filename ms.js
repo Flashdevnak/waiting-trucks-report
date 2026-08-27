@@ -530,10 +530,18 @@ function tableRow(row) {
     q = queueInfo(row);
   const workStatus = isDestination(row) ? (row.loadStatus || status.label) : (row.vehicleStatus || status.label);
   const plan = isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt,
-    actual = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt;
-  const actualHtml = actual ? `<div class="plain-time"><strong>${shortDateTime(actual)}</strong>${p.diff === null ? "" : `<span class="timing-note ${p.diff > 0 ? "late" : "ontime"}">${p.label} · ${p.diff > 0 ? "ช้า" : "ก่อนแผน"} ${nf.format(Math.abs(p.diff))} นาที</span>`}</div>` : '<span class="empty-chip">ยังไม่มีเวลาจริง</span>';
-  const loadDetail = isDestination(row) ? workCell(row) : (p.diff === null ? '<span class="empty-chip">รอปล่อยรถ</span>' : `<span class="status-pill" style="--status-color:${p.color}">${p.label}</span>`);
-  return `<tr><td><div class="vehicle-identity"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "ไม่พบประเภทรถ")}</span><small>${esc(row.plate || "ไม่พบทะเบียน")}</small></div></td><td><div class="primary ms-route-name">${esc(row.routeName || "-")}</div></td><td>${esc(row.region || "-")}</td><td>${esc(row.routeAttribute || "-")}</td><td>${esc(row.routeType || "-")}</td><td><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${esc(row.attendanceType || "-")}</span></td><td><div class="plain-time"><strong>${shortDateTime(plan)}</strong></div></td><td>${actualHtml}</td><td><div class="load-work-card"><strong>${esc(workStatus)}</strong>${loadDetail}<small>${q.done ? "เสร็จแล้ว · เก็บในประวัติ" : q.expired ? "ตัดจากคิวเกิน 12 ชม." : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></td><td><div class="driver-party"><strong>${esc(row.supplier || "ไม่พบผู้รับเหมา")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${state.auth?.role === "admin" && row.driverPhone ? `<small>${esc(row.driverPhone)}</small>` : ""}</div></td></tr>`;
+    actual = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt,
+    timingText = p.diff === null ? "ยังไม่มีเวลาจริง" : `${p.label} · ${p.diff > 0 ? "ช้า" : "ก่อนแผน"} ${nf.format(Math.abs(p.diff))} นาที`,
+    queueText = q.done ? "เสร็จแล้ว · เก็บในประวัติ" : q.expired ? "ตัดจากคิวเกิน 12 ชม." : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว",
+    wait = isDestination(row) ? waitInfo(row) : null,
+    durationHtml = isDestination(row)
+      ? wait.minutes === null
+        ? '<span class="row-muted">รถยังไม่มาถึง</span>'
+        : `<div class="duration-line ${wait.over ? "is-late" : "is-ok"}"><strong>${nf.format(wait.minutes)} นาที</strong><span>ตั้งแต่รถถึง · มาตรฐาน ${nf.format(wait.standard)} นาที</span></div>`
+      : p.diff === null
+        ? '<span class="row-muted">รอเวลาออกจริง</span>'
+        : `<div class="duration-line ${p.diff > 0 ? "is-late" : "is-ok"}"><strong>${nf.format(Math.abs(p.diff))} นาที</strong><span>${p.diff > 0 ? "ปล่อยช้ากว่าแผน" : "ปล่อยก่อนแผน"}</span></div>`;
+  return `<tr><td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td><td><div class="route-meta"><span><b>ภูมิภาค</b> ${esc(row.region || "-")}</span><span><b>ลักษณะ</b> ${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b> ${esc(row.routeType || "-")}</span></div></td><td><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${esc(row.attendanceType || "-")}</span><div class="row-muted">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</div></td><td><div class="time-pair"><div><span>${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "มาถึงจริง" : "ออกจริง"}</span><strong>${shortDateTime(actual)}</strong></div><small class="${p.diff > 0 ? "text-late" : "text-ok"}">${esc(timingText)}</small></div></td><td><div class="work-summary"><div class="work-head"><span class="status-dot" style="--dot:${q.expired ? "#697177" : status.color}"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small>${esc(queueText)}</small></div></td><td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${state.auth?.role === "admin" && row.driverPhone ? `<small>${esc(row.driverPhone)}</small>` : ""}</div></td></tr>`;
 }
 
 function card(row) {

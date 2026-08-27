@@ -1759,3 +1759,81 @@ tbody tr.is-unloading:hover {
   .ms-page #desktop-table { display: none !important; }
   .ms-page #mobile-cards:not(.hidden) { display: grid; }
 }
+
+/* Compact grouped MS table */
+.ms-page .ms-table th:nth-child(1) { width: 25% !important; }
+.ms-page .ms-table th:nth-child(2) { width: 13% !important; }
+.ms-page .ms-table th:nth-child(3) { width: 9% !important; }
+.ms-page .ms-table th:nth-child(4) { width: 20% !important; }
+.ms-page .ms-table th:nth-child(5) { width: 20% !important; }
+.ms-page .ms-table th:nth-child(6) { width: 13% !important; }
+.ms-page .ms-table td {
+  padding: 15px 12px;
+  line-height: 1.4;
+}
+.route-summary,
+.route-meta,
+.time-pair,
+.work-summary,
+.people-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.route-code {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.route-code strong { font-size: 15px; }
+.route-code span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #3f4850;
+  background: #edf0f2;
+  font-weight: 800;
+}
+.route-title {
+  color: #171a1d;
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.route-plate,
+.row-muted,
+.work-summary small,
+.people-summary small {
+  color: #70767b;
+  font-size: 10px;
+}
+.route-meta { gap: 7px; }
+.route-meta span { display: block; }
+.route-meta b {
+  display: block;
+  color: #747a80;
+  font-size: 9px;
+  font-weight: 700;
+}
+.time-pair { gap: 8px; }
+.time-pair > div { display: flex; flex-direction: column; gap: 1px; }
+.time-pair > div + div { padding-top: 7px; border-top: 1px solid #e1e3e4; }
+.time-pair span { color: #70767b; font-size: 9px; }
+.time-pair strong { font-size: 12px; }
+.time-pair small { font-size: 10px; font-weight: 800; }
+.text-ok { color: #08734b; }
+.text-late { color: #b1261e; }
+.work-summary { gap: 7px; }
+.work-head { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot); }
+.duration-line { display: flex; flex-direction: column; gap: 1px; }
+.duration-line strong { font-size: 17px; }
+.duration-line span { font-size: 10px; }
+.duration-line.is-ok { color: #08734b; }
+.duration-line.is-late { color: #b1261e; }
+.people-summary strong { color: #343b42; font-size: 11px; }
+.people-summary span { font-weight: 800; }
+.ms-page .ms-table tbody tr:hover {
+  background: #fffbed;
+}

@@ -1674,3 +1674,88 @@ tbody tr.is-unloading:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* MS table aligned with the source screen, without horizontal scrolling */
+.ms-page .table-scroll {
+  overflow-x: visible;
+}
+.ms-page .ms-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+.ms-page .ms-table th,
+.ms-page .ms-table td {
+  width: auto !important;
+  padding: 12px 7px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ms-page .ms-table th:nth-child(1) { width: 10% !important; }
+.ms-page .ms-table th:nth-child(2) { width: 17% !important; }
+.ms-page .ms-table th:nth-child(3) { width: 6% !important; }
+.ms-page .ms-table th:nth-child(4) { width: 8% !important; }
+.ms-page .ms-table th:nth-child(5) { width: 7% !important; }
+.ms-page .ms-table th:nth-child(6) { width: 8% !important; }
+.ms-page .ms-table th:nth-child(7),
+.ms-page .ms-table th:nth-child(8) { width: 11% !important; }
+.ms-page .ms-table th:nth-child(9) { width: 13% !important; }
+.ms-page .ms-table th:nth-child(10) { width: 9% !important; }
+.vehicle-identity,
+.plain-time,
+.load-work-card,
+.driver-party {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.vehicle-identity strong { font-size: 14px; }
+.vehicle-identity span {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #2f3740;
+  background: #eef1f3;
+  font-weight: 800;
+}
+.vehicle-identity small,
+.driver-party small,
+.load-work-card small,
+.mini-card small { color: #747a80; font-size: 10px; }
+.driver-party {
+  min-height: 72px;
+  padding: 8px;
+  border: 1px solid #dde1e4;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff, #f7f8f8);
+}
+.driver-party strong { color: #303840; font-size: 11px; }
+.driver-party span { font-weight: 800; }
+.load-work-card {
+  min-height: 84px;
+  padding: 8px;
+  border: 1px solid #dfe3e5;
+  border-radius: 10px;
+  background: #fbfcfc;
+}
+.load-work-card > strong { font-size: 11px; }
+.load-work-card .operation-cards { width: 100%; }
+.load-work-card .mini-card { min-height: 52px; padding: 6px; border-radius: 8px; }
+.load-work-card .mini-card strong { font-size: 14px; }
+.timing-note {
+  display: inline-flex;
+  justify-content: center;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.timing-note.ontime { color: #08734b; background: #e7f6ef; }
+.timing-note.late { color: #b1261e; background: #fff0ef; }
+.ms-range-btn { min-height: 39px; align-self: end; }
+
+@media (max-width: 900px) {
+  .ms-page #desktop-table { display: none !important; }
+  .ms-page #mobile-cards:not(.hidden) { display: grid; }
+}

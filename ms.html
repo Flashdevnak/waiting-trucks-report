@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#151515" />
     <title>ติดตามเส้นทาง MS</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="style.css?v=20260827-08" />
-    <script src="ms.js?v=20260827-08" defer></script>
+    <link rel="stylesheet" href="style.css?v=20260828-01" />
+    <script src="ms.js?v=20260828-01" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -123,8 +123,12 @@
             </select></label
           >
           <label
-            ><span>วันที่รถมาถึง</span><input id="date-filter" type="date"
+            ><span>วันที่เริ่มต้น</span><input id="date-from" type="date"
           /></label>
+          <label
+            ><span>วันที่สิ้นสุด</span><input id="date-to" type="date"
+          /></label>
+          <button id="range-search-btn" class="btn btn-accent ms-range-btn" type="button">ค้นหาย้อนหลัง</button>
           <label
             ><span>ค้นหา</span
             ><input
@@ -187,14 +191,16 @@
           <table class="ms-table">
             <thead>
               <tr>
-                <th>รถและเส้นทาง</th>
-                <th>ประเภทรถ / ผู้รับเหมา</th>
-                <th>เวลาแผน</th>
-                <th>เวลาจริง</th>
-                <th>ตรงเวลาหรือไม่</th>
-                <th>เวลาลงงาน / ปล่อยรถ</th>
-                <th>คนขับรถ</th>
-                <th>สถานะการทำงาน</th>
+                <th>บาร์โค้ดประจำตัวรถ</th>
+                <th>ชื่อเส้นทาง</th>
+                <th>ภูมิภาค</th>
+                <th>คุณลักษณะเส้นทางเดินรถ</th>
+                <th>ประเภทเส้นทาง</th>
+                <th>ประเภท Attendance</th>
+                <th>เวลาที่คาดว่าจะถึง</th>
+                <th>เวลาที่ถึงจริง</th>
+                <th>สถานะการโหลดพัสดุ</th>
+                <th>ผู้รับเหมา / คนขับรถ</th>
               </tr>
             </thead>
             <tbody id="table-body"></tbody>

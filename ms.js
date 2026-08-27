@@ -1,8 +1,8 @@
 const CONFIG = {
   apiUrl:
     "https://script.google.com/macros/s/AKfycbxE2-_8h6EzOQQ3FeDwFxNIAn4U40pacvRnp3XeOGevXDzhw15bgDi74LVgtozfjgiHXQ/exec",
-  pollMs: 15000,
-  staleMs: 45000,
+  pollMs: 4000,
+  staleMs: 15000,
 };
 
 CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report.alert-squid-6738.chatgpt.site" : window.location.origin}/api`;
@@ -24,6 +24,7 @@ const state = {
   queue: "queue",
   standards: {},
   loading: false,
+  archiveLoaded: false,
 };
 const el = (id) => document.getElementById(id);
 const nf = new Intl.NumberFormat("th-TH");
@@ -52,7 +53,8 @@ document.addEventListener("DOMContentLoaded", () => {
     state.branch = event.target.value;
     loadData();
   };
-  el("range-search-btn").onclick = loadRange;
+  el("date-from").onchange = autoLoadRange;
+  el("date-to").onchange = autoLoadRange;
   el("attribute-filter").onchange = (event) => {
     state.attribute = event.target.value;
     render();
@@ -77,6 +79,14 @@ document.addEventListener("DOMContentLoaded", () => {
     state.queue = event.target.value;
     render();
   };
+  document.querySelectorAll("[data-metric]").forEach((card) => {
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.onclick = () => applyMetricFilter(card.dataset.metric);
+    card.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") card.click();
+    };
+  });
   setInterval(clock, 1000);
   setInterval(() => state.auth && loadData(true), CONFIG.pollMs);
   setInterval(renderFreshness, 10000);
@@ -187,9 +197,16 @@ async function loadData(silent = false) {
   if (!silent) el("loading-state").classList.remove("hidden");
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
-    const archive = await apiGet("msArchive", { branch: state.branch });
+    const archive = !silent || !state.archiveLoaded
+      ? await apiGet("msArchive", { branch: state.branch })
+      : null;
     state.currentRows = Array.isArray(result?.rows) ? result.rows : [];
-    state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+    if (archive) {
+      state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+      state.archiveLoaded = true;
+    } else {
+      state.archiveRows = mergeLatest(state.archiveRows, state.currentRows);
+    }
     state.rows = state.archiveRows;
     state.branch = result?.branch || state.branch;
     state.standards = Object.fromEntries(
@@ -208,7 +225,7 @@ async function loadData(silent = false) {
     );
     if (state.syncError) toast(state.syncError, true);
     el("last-refresh").textContent =
-      `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ดึงข้อมูลใหม่ทุก 15 วินาที`;
+      `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
     render();
   } catch (error) {
     connection(false);
@@ -216,6 +233,12 @@ async function loadData(silent = false) {
   } finally {
     state.loading = false;
   }
+}
+
+function mergeLatest(archive, current) {
+  const latest = new Map((archive || []).map((row) => [row.id || row.proofId, row]));
+  for (const row of current || []) latest.set(row.id || row.proofId, row);
+  return [...latest.values()];
 }
 
 function fillFilters() {
@@ -357,7 +380,7 @@ function queueInfo(row, now = new Date()) {
       ? unloadingState === 2
       : Boolean(row.actualDepartureAt),
     started = isDestination(row) && (unloadingState === 1 || unloadingState === 2),
-    active = Boolean(arrival) && !done && !started && ageHours <= 12;
+    active = Boolean(arrival) && !done && ageHours <= 12;
   return {
     active,
     done,
@@ -385,7 +408,9 @@ function filteredRows() {
       const statusMatch =
         state.status === "all" ||
         status.key === state.status ||
+        (state.status === "arrival-ontime" && isDestination(row) && punctuality(row).key === "ontime") ||
         (state.status === "arrival-late" && status.arrivalLate) ||
+        (state.status === "departure-ontime" && isOrigin(row) && punctuality(row).key === "ontime") ||
         (state.status === "departure-late" && status.departureLate);
       const arrivalDate = localDateValue(
         row.actualArrivalAt || row.estimatedArrivalAt,
@@ -420,21 +445,27 @@ async function loadRange() {
     end = el("date-to").value;
   if (!start || !end) return toast("กรุณาเลือกวันที่เริ่มต้นและสิ้นสุด", true);
   try {
-    el("range-search-btn").disabled = true;
-    el("range-search-btn").textContent = "กำลังดึงข้อมูล…";
     const result = await apiGet("msRange", { branch: state.branch, start, end });
     state.dateFrom = start;
     state.dateTo = end;
     state.queue = "all";
     el("queue-filter").value = "all";
-    await loadData(true);
+    state.archiveLoaded = false;
+    await loadData(false);
     toast(`ดึงข้อมูลย้อนหลัง ${nf.format(result.total)} รายการแล้ว`);
   } catch (error) {
     toast(error.message, true);
-  } finally {
-    el("range-search-btn").disabled = false;
-    el("range-search-btn").textContent = "ค้นหาย้อนหลัง";
-  }
+  } finally {}
+}
+
+let rangeTimer;
+function autoLoadRange() {
+  state.dateFrom = el("date-from").value;
+  state.dateTo = el("date-to").value;
+  render();
+  clearTimeout(rangeTimer);
+  if (state.dateFrom && state.dateTo)
+    rangeTimer = setTimeout(loadRange, 250);
 }
 
 function render() {
@@ -442,6 +473,7 @@ function render() {
   metrics();
   renderFreshness();
   const rows = filteredRows();
+  renderFilterSummary(rows);
   if (!rows.length) {
     empty(
       state.rows.length
@@ -455,6 +487,54 @@ function render() {
   el("mobile-cards").classList.remove("hidden");
   el("table-body").innerHTML = rows.map(tableRow).join("");
   el("mobile-cards").innerHTML = rows.map(card).join("");
+}
+
+function renderFilterSummary(rows) {
+  const counts = { arrived: 0, unloading: 0, completed: 0, origin: 0 };
+  for (const row of rows) {
+    const key = routeState(row).key;
+    if (key === "arrived") counts.arrived++;
+    if (key === "unloading") counts.unloading++;
+    if (key === "completed") counts.completed++;
+    if (isOrigin(row)) counts.origin++;
+  }
+  el("filter-summary").innerHTML = `
+    <button type="button" data-summary-status="all"><span>ผลตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
+    <button type="button" data-summary-status="arrived"><span>ยังไม่เริ่มลง</span><strong>${nf.format(counts.arrived)}</strong></button>
+    <button type="button" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
+    <button type="button" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
+    <button type="button" data-summary-status="origin"><span>รถต้นทาง</span><strong>${nf.format(counts.origin)}</strong></button>`;
+  el("filter-summary").querySelectorAll("button").forEach((button) => {
+    button.onclick = () => {
+      const value = button.dataset.summaryStatus;
+      if (value === "origin") {
+        state.attendance = "ต้นทาง";
+        el("attendance-filter").value = "ต้นทาง";
+        state.status = "all";
+      } else {
+        state.status = value;
+        el("status-filter").value = value;
+      }
+      render();
+    };
+  });
+}
+
+function applyMetricFilter(metric) {
+  state.status = "all";
+  state.attendance = "all";
+  if (metric === "all") state.queue = "all";
+  if (metric === "queue") state.queue = "queue";
+  if (metric === "unloading") { state.queue = "queue"; state.status = "unloading"; }
+  if (metric === "completed") { state.queue = "completed"; state.status = "completed"; }
+  if (metric === "arrival-ontime") { state.queue = "all"; state.attendance = "ปลายทาง"; state.status = "arrival-ontime"; }
+  if (metric === "arrival-late") { state.queue = "all"; state.attendance = "ปลายทาง"; state.status = "arrival-late"; }
+  if (metric === "departure-ontime") { state.queue = "all"; state.attendance = "ต้นทาง"; state.status = "departure-ontime"; }
+  if (metric === "departure-late") { state.queue = "all"; state.attendance = "ต้นทาง"; state.status = "departure-late"; }
+  el("queue-filter").value = state.queue;
+  el("status-filter").value = state.status;
+  el("attendance-filter").value = state.attendance;
+  render();
 }
 
 function metrics() {
@@ -554,10 +634,10 @@ function card(row) {
     q = queueInfo(row);
   const phone =
     state.auth?.role === "admin" && row.driverPhone
-      ? ` · ${esc(row.driverPhone)}`
+      ? `<span>เบอร์โทร</span><strong><small class="phone-chip">${esc(row.driverPhone)}</small></strong>`
       : "";
   const workStatus = isDestination(row) ? (row.loadStatus || status.label) : (row.vehicleStatus || status.label);
-  return `<article class="truck-card ms-card" style="--card-accent:${q.expired ? "#697177" : isDestination(row) && wait.over ? "#b3261e" : status.color}"><div class="truck-card-head"><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</span><div class="truck-route"><div class="primary">${esc(row.routeName || "-")}</div><div class="secondary">${esc(row.proofId || "-")} / ${esc(row.vehicleType || "-")} · ${esc(row.plate || "ไม่พบทะเบียน")}</div></div></div><div class="mobile-status-cards"><div>${planCell(row)}</div><div>${actualCell(row)}</div><div>${p.diff === null ? '<span class="empty-chip">รอข้อมูลจริง</span>' : `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.label}</span><strong>${p.diff > 0 ? "ช้า " : "ก่อนแผน "}${nf.format(Math.abs(p.diff))} นาที</strong></div>`}</div><div>${workCell(row)}</div></div><div class="mobile-party"><span>ผู้รับเหมา</span><strong>${esc(row.supplier || "ไม่พบชื่อผู้รับเหมา")}</strong><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}${phone}</strong></div><div class="status-card mobile-work-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดออกจากคิวเกิน 12 ชม." : status.label}</span><strong>${esc(workStatus)}</strong><small>${q.done ? "เก็บในประวัติแล้ว" : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></article>`;
+  return `<article class="truck-card ms-card" style="--card-accent:${q.expired ? "#697177" : isDestination(row) && wait.over ? "#b3261e" : status.color}"><div class="truck-card-head"><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</span><div class="truck-route"><div class="primary">${esc(row.routeName || "-")}</div><div class="secondary">${esc(row.proofId || "-")} / ${esc(row.vehicleType || "-")} · ${esc(row.plate || "ไม่พบทะเบียน")}</div></div></div><div class="mobile-status-cards"><div>${planCell(row)}</div><div>${actualCell(row)}</div><div>${p.diff === null ? '<span class="empty-chip">รอข้อมูลจริง</span>' : `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.label}</span><strong>${p.diff > 0 ? "ช้า " : "ก่อนแผน "}${nf.format(Math.abs(p.diff))} นาที</strong></div>`}</div><div>${workCell(row)}</div></div><div class="mobile-party"><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong>${phone}</div><div class="status-card mobile-work-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดออกจากคิวเกิน 12 ชม." : status.label}</span><strong>${esc(workStatus)}</strong><small>${q.done ? "เก็บในประวัติแล้ว" : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></article>`;
 }
 
 function normalizeVehicle(value) {
@@ -643,7 +723,7 @@ function empty(message) {
   el("mobile-cards").classList.add("hidden");
   el("empty-state").classList.remove("hidden");
   el("empty-state").innerHTML =
-    `<strong>${esc(message)}</strong><span>ระบบจะดึงข้อมูล MS ใหม่ทุก 15 วินาทีขณะมีผู้เปิดดู</span>`;
+    `<strong>${esc(message)}</strong><span>ระบบจะตรวจสถานะ MS ใหม่ทุก 4 วินาทีขณะมีผู้เปิดดู</span>`;
 }
 
 async function apiGet(action, params = {}) {
@@ -715,40 +795,40 @@ async function saveMsConnection(event) {
 }
 
 function exportCurrent() {
+  if (!state.dateFrom || !state.dateTo)
+    return toast("เลือกวันที่เริ่มต้นและสิ้นสุดก่อน Export", true);
   downloadRows(
-    `MS_ปัจจุบัน_${state.branch}_${localDateValue(new Date())}.csv`,
-    filteredRows().map(exportRow),
+    `MS_รายวัน_${state.branch}_${state.dateFrom}_${state.dateTo}.csv`,
+    dedupeRoutes(filteredRows()).map(exportRow),
   );
 }
 async function exportHistory() {
   try {
-    const rows = [];
-    let offset = 0,
-      hasMore = true;
-    while (hasMore) {
-      const page = await apiGet("msHistory", { branch: state.branch, offset });
-      rows.push(...(page.rows || []));
-      hasMore = Boolean(page.hasMore);
-      offset = page.nextOffset || rows.length;
+    if (!state.archiveLoaded) {
+      const archive = await apiGet("msArchive", { branch: state.branch });
+      state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+      state.archiveLoaded = true;
     }
+    const rows = dedupeRoutes(state.archiveRows);
     downloadRows(
       `MS_ประวัติ_${state.branch}_${localDateValue(new Date())}.csv`,
-      rows.map((item) => {
-        let row = {};
-        try {
-          row = JSON.parse(item.payloadJson || "{}");
-        } catch {}
-        return {
-          eventType: item.eventType,
-          snapshotAt: item.snapshotAt,
-          ...exportRow(row),
-        };
-      }),
+      rows.map(exportRow),
     );
-    toast(`Export ประวัติ ${nf.format(rows.length)} รายการแล้ว`);
+    toast(`Export ทั้งหมด ${nf.format(rows.length)} เที่ยวแล้ว`);
   } catch (error) {
     toast(error.message, true);
   }
+}
+function dedupeRoutes(rows) {
+  const latest = new Map();
+  for (const row of rows || []) {
+    const key = row.id || [row.hub, row.proofId, row.routeName, row.estimatedArrivalAt, row.estimatedDepartureAt].join("|");
+    const previous = latest.get(key);
+    const time = parseDate(row.sourceUpdatedAt || row.syncedAt || row.archivedAt)?.getTime() || 0;
+    const previousTime = parseDate(previous?.sourceUpdatedAt || previous?.syncedAt || previous?.archivedAt)?.getTime() || 0;
+    if (!previous || time >= previousTime) latest.set(key, row);
+  }
+  return [...latest.values()];
 }
 function exportRow(row) {
   const wait = waitInfo(row),
@@ -756,6 +836,7 @@ function exportRow(row) {
     p = punctuality(row),
     q = queueInfo(row);
   return {
+    snapshotAt: exportThaiDate(row.archivedAt || row.snapshotAt || row.syncedAt),
     hub: row.hub || state.branch,
     proofId: excelText(row.proofId),
     routeName: row.routeName || "",

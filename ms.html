@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#151515" />
     <title>ติดตามเส้นทาง MS</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="style.css?v=20260828-04" />
-    <script src="ms.js?v=20260828-04" defer></script>
+    <link rel="stylesheet" href="style.css?v=20260828-06" />
+    <script src="ms.js?v=20260828-06" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -72,35 +72,35 @@
       </section>
 
       <section class="metric-grid ms-metrics">
-        <article class="metric-card metric-dark">
+        <article class="metric-card metric-dark metric-action" data-metric="all">
           <span>รายการสะสม</span><strong id="metric-archive">0</strong
           ><small>รายการที่ระบบบันทึกไว้</small>
         </article>
-        <article class="metric-card">
+        <article class="metric-card metric-action" data-metric="queue">
           <span>รถอยู่ในคิว</span><strong id="metric-total">0</strong
           ><small>รถเข้าและรถออกที่ยังไม่เสร็จ</small>
         </article>
-        <article class="metric-card">
+        <article class="metric-card metric-action" data-metric="unloading">
           <span>กำลังลงรถ</span><strong id="metric-unloading">0</strong
           ><small>รถที่เริ่มลงงานแล้ว</small>
         </article>
-        <article class="metric-card">
+        <article class="metric-card metric-action" data-metric="completed">
           <span>ลงรถเสร็จ</span><strong id="metric-completed">0</strong
           ><small>รายการที่จบแล้ว</small>
         </article>
-        <article class="metric-card">
+        <article class="metric-card metric-action" data-metric="arrival-ontime">
           <span>รถเข้าตรงเวลา</span><strong id="metric-not-arrived">0</strong
           ><small>มาถึงจริงไม่เกิน ETA</small>
         </article>
-        <article class="metric-card metric-danger">
+        <article class="metric-card metric-danger metric-action" data-metric="arrival-late">
           <span>รถเข้าช้า</span><strong id="metric-arrived">0</strong
           ><small>มาถึงจริงเกิน ETA</small>
         </article>
-        <article class="metric-card">
+        <article class="metric-card metric-action" data-metric="departure-ontime">
           <span>ปล่อยตรงเวลา</span><strong id="metric-departed">0</strong
           ><small>ออกจริงไม่เกิน ETD</small>
         </article>
-        <article class="metric-card metric-warning">
+        <article class="metric-card metric-warning metric-action" data-metric="departure-late">
           <span>ปล่อยรถช้า</span><strong id="metric-within-standard">0</strong
           ><small>ออกจริงเกิน ETD</small>
         </article>
@@ -128,7 +128,6 @@
           <label
             ><span>วันที่สิ้นสุด</span><input id="date-to" type="date"
           /></label>
-          <button id="range-search-btn" class="btn btn-accent ms-range-btn" type="button">ค้นหาย้อนหลัง</button>
           <label
             ><span>ค้นหา</span
             ><input
@@ -169,20 +168,24 @@
               <option value="departed">ออกจากสาขาแล้ว</option>
               <option value="unloading">กำลังลงรถ</option>
               <option value="completed">โหลดเสร็จสิ้น</option>
+              <option value="arrival-ontime">รถเข้าตรงเวลา</option>
               <option value="arrival-late">มาถึงล่าช้า</option>
+              <option value="departure-ontime">ปล่อยตรงเวลา</option>
               <option value="departure-late">รอออกล่าช้า</option>
             </select></label
           >
         </div>
         <div class="history-actions ms-export-actions">
           <button id="export-current-btn" class="btn btn-header" type="button">
-            Export หน้าปัจจุบัน</button
+            Export รายวันที่เลือก</button
           ><button id="export-history-btn" class="btn btn-header" type="button">
-            Export ประวัติทั้งหมด
+            Export ทั้งหมด
           </button>
         </div>
         <p id="last-refresh" class="sync-text">ยังไม่ได้โหลดข้อมูล</p>
       </section>
+
+      <section id="filter-summary" class="filter-summary" aria-live="polite"></section>
 
       <section class="panel table-panel">
         <div id="loading-state" class="empty-state">กำลังโหลดข้อมูล…</div>
@@ -196,7 +199,7 @@
                 <th>ประเภทงาน</th>
                 <th>เวลาแผน / เวลาจริง</th>
                 <th>สถานะและระยะเวลาดำเนินการ</th>
-                <th>ผู้รับเหมา / คนขับรถ</th>
+                <th>บริษัทซัพ / คนขับรถ</th>
               </tr>
             </thead>
             <tbody id="table-body"></tbody>

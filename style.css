@@ -623,6 +623,11 @@ dialog::backdrop {
 .connector-setup-card {
   max-width: 720px;
 }
+.connector-dialog {
+  width: min(94vw, 760px);
+  max-height: 92vh;
+  overflow: auto;
+}
 .setup-steps {
   display: grid;
   gap: 13px;
@@ -631,6 +636,10 @@ dialog::backdrop {
 }
 .setup-steps li {
   padding-left: 5px;
+}
+.setup-steps li::marker {
+  color: #9b7900;
+  font-weight: 900;
 }
 .setup-steps strong,
 .setup-steps span {
@@ -651,6 +660,11 @@ dialog::backdrop {
   font-size: 14px;
   line-height: 1.5;
 }
+.setup-link {
+  display: inline-flex;
+  margin-top: 9px;
+  text-decoration: none;
+}
 .connector-actions {
   display: flex;
   flex-wrap: wrap;
@@ -662,6 +676,16 @@ dialog::backdrop {
   align-items: center;
   justify-content: center;
   text-decoration: none;
+}
+
+@media (max-width: 700px) {
+  .connector-dialog {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+  }
+  .connector-dialog .dialog-card { padding: 18px 15px; }
+  .setup-steps { padding-left: 22px; }
+  .setup-link { width: 100%; justify-content: center; text-align: center; }
 }
 #settings-dialog {
   width: min(96vw, 1320px);

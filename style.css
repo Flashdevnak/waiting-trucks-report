@@ -972,6 +972,60 @@ dialog::backdrop {
   }
 }
 
+/* Final MS layout overrides */
+.ms-page .app-shell { max-width: 1900px; }
+.ms-page .ms-metrics { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+@media (max-width: 1300px) {
+  .ms-page .ms-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .ms-page .ms-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* MS operations board: compact, field-friendly grouping */
+.ms-page .app-shell { max-width: 1900px; }
+.ms-metrics { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.ms-table { min-width: 1500px; table-layout: fixed; }
+.ms-table th:nth-child(1) { width: 18%; }
+.ms-table th:nth-child(2) { width: 12%; }
+.ms-table th:nth-child(3), .ms-table th:nth-child(4) { width: 12%; }
+.ms-table th:nth-child(5), .ms-table th:nth-child(6) { width: 12%; }
+.ms-table th:nth-child(7) { width: 10%; }
+.ms-table th:nth-child(8) { width: 12%; }
+.ms-table td { vertical-align: middle; text-align: center; padding: 14px 10px; }
+.route-vehicle, .driver-card, .status-card, .time-card, .mini-card { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ms-route-name { margin-top: 7px; line-height: 1.35; overflow-wrap: anywhere; }
+.supplier-name { margin-top: 8px; }
+.type-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 10px; border-radius: 999px; font-weight: 800; font-size: 12px; }
+.type-badge.inbound { color: #075f3b; background: #e5f5ec; border: 1px solid #a9d8bf; }
+.type-badge.outbound { color: #174ea6; background: #e9f0ff; border: 1px solid #b7c9ee; }
+.time-card, .mini-card, .status-card, .driver-card { min-height: 64px; justify-content: center; padding: 9px 10px; border: 1px solid #d8d9d6; border-radius: 8px; background: #fafaf8; }
+.time-card span, .mini-card span, .status-card small, .driver-card span { color: #666b70; font-size: 11px; }
+.time-card strong, .mini-card strong, .status-card strong, .driver-card strong { line-height: 1.35; }
+.time-card.actual { background: #fff9d9; border-color: #e2c34b; }
+.mini-card.success { background: #edf8f1; border-color: #aed4bd; color: #075f3b; }
+.mini-card.danger { background: #fff0ef; border-color: #e1b3af; color: #a51d16; }
+.mini-card.neutral { background: #f2f3f3; border-color: #d0d3d4; color: #333; }
+.operation-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.empty-chip { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 6px 10px; color: #61666b; background: #f2f3f3; border: 1px solid #d2d5d6; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.status-card .status-pill { margin-bottom: 3px; }
+.mobile-status-cards, .mobile-party, .mobile-work-status { display: none; }
+
+@media (max-width: 1300px) {
+  .ms-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .ms-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ms-card .truck-card-head { display: flex; flex-direction: column; gap: 9px; }
+  .mobile-status-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .mobile-status-cards > div { min-width: 0; }
+  .mobile-party { display: grid; grid-template-columns: 90px 1fr; gap: 7px 10px; margin-top: 10px; padding: 12px; border: 1px solid #d8d9d6; border-radius: 8px; background: #fff; text-align: left; }
+  .mobile-party span { color: #666b70; font-size: 11px; }
+  .mobile-party strong { font-size: 13px; overflow-wrap: anywhere; }
+  .mobile-work-status { display: flex; margin-top: 10px; }
+  .operation-cards { grid-template-columns: 1fr; }
+}
+
 /* MS route monitor */
 .ms-page .app-shell {
   max-width: 1600px;
@@ -1600,5 +1654,23 @@ tbody tr.is-unloading:hover {
   }
   .truck-card {
     padding: 14px;
+  }
+}
+
+/* Final MS layout overrides */
+.ms-page .app-shell {
+  max-width: 1900px;
+}
+.ms-page .ms-metrics {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+@media (max-width: 1300px) {
+  .ms-page .ms-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .ms-page .ms-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

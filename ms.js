@@ -9,6 +9,8 @@ CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://wai
 const AUTH_KEY = "bnak_operator_auth_v2";
 const state = {
   rows: [],
+  currentRows: [],
+  archiveRows: [],
   auth: loadAuth(),
   query: "",
   branch: "NE1",
@@ -187,7 +189,10 @@ async function loadData(silent = false) {
   if (!silent) el("loading-state").classList.remove("hidden");
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
-    state.rows = Array.isArray(result?.rows) ? result.rows : [];
+    const archive = await apiGet("msArchive", { branch: state.branch });
+    state.currentRows = Array.isArray(result?.rows) ? result.rows : [];
+    state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+    state.rows = state.archiveRows;
     state.branch = result?.branch || state.branch;
     state.standards = Object.fromEntries(
       (result?.standards || []).map((item) => [
@@ -362,7 +367,8 @@ function queueInfo(row, now = new Date()) {
 }
 
 function filteredRows() {
-  return state.rows
+  const source = state.queue === "queue" ? state.currentRows : state.archiveRows;
+  return source
     .filter((row) => {
       const status = routeState(row);
       const text = [
@@ -428,13 +434,17 @@ function render() {
 }
 
 function metrics() {
-  const active = state.rows.filter((row) => queueInfo(row).active),
-    destinations = state.rows.filter(isDestination),
-    origins = state.rows.filter(isOrigin),
+  const active = state.currentRows.filter((row) => queueInfo(row).active),
+    destinations = state.archiveRows.filter(isDestination),
+    origins = state.archiveRows.filter(isOrigin),
     arrivals = destinations.map((row) => punctuality(row)),
     releases = origins.map((row) => punctuality(row)),
     waits = destinations.map(waitInfo).filter((item) => item.minutes !== null);
-  setMetric("metric-total", active.length);
+  const waiting = active.filter((row) => Number(row.unloadingState) !== 1);
+  setMetric("metric-archive", state.archiveRows.length);
+  setMetric("metric-total", waiting.length);
+  setMetric("metric-unloading", active.filter((row) => Number(row.unloadingState) === 1).length);
+  setMetric("metric-completed", destinations.filter((row) => Number(row.unloadingState) === 2).length);
   setMetric(
     "metric-not-arrived",
     arrivals.filter((item) => item.key === "ontime").length,
@@ -451,18 +461,18 @@ function metrics() {
     "metric-within-standard",
     releases.filter((item) => item.key === "late").length,
   );
-  setMetric("metric-over-standard", waits.filter((item) => item.over).length);
 }
 
 function setMetric(id, value) {
   el(id).textContent = nf.format(value);
 }
 
-function scheduleCell(row) {
-  const incoming = isDestination(row),
-    plan = incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt,
-    actual = incoming ? row.actualArrivalAt : row.actualDepartureAt;
-  return `<div class="ms-time-stack"><span>${incoming ? "ETA รถเข้า" : "ETD ปล่อยรถ"} ${shortDateTime(plan)}</span><strong>${incoming ? "มาถึงจริง" : "ออกจริง"} ${shortDateTime(actual)}</strong></div>`;
+function planCell(row) {
+  return `<div class="time-card"><span>${isDestination(row) ? "กำหนดรถเข้า (ETA)" : "กำหนดปล่อยรถ (ETD)"}</span><strong>${shortDateTime(isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt)}</strong></div>`;
+}
+function actualCell(row) {
+  const value = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt;
+  return value ? `<div class="time-card actual"><span>${isDestination(row) ? "รถมาถึงจริง" : "ปล่อยรถจริง"}</span><strong>${shortDateTime(value)}</strong></div>` : '<span class="empty-chip">ยังไม่มีเวลาจริง</span>';
 }
 function operationInfo(row) {
   if (!isDestination(row)) {
@@ -470,7 +480,7 @@ function operationInfo(row) {
     return {
       html: `<div class="wait-time" style="color:${p.color}">${p.diff === null ? "-" : `${Math.abs(p.diff)} นาที`}</div><div class="secondary">${p.diff === null ? "รอเวลาออกจริง" : p.diff > 0 ? "ช้ากว่าแผน" : "ก่อน/ตรงตามแผน"}</div>`,
       text: p.diff === null ? "" : Math.abs(p.diff),
-      standard: "ไม่ใช้",
+      standard: "",
     };
   }
   const wait = waitInfo(row);
@@ -481,12 +491,25 @@ function operationInfo(row) {
   };
 }
 
+function workCell(row) {
+  const p = punctuality(row), operation = operationInfo(row);
+  if (!isDestination(row)) {
+    if (p.diff === null) return '<span class="empty-chip">รอเวลาออกจริง</span>';
+    return `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.diff > 0 ? "ปล่อยช้ากว่าแผน" : "ปล่อยก่อนแผน"}</span><strong>${nf.format(Math.abs(p.diff))} นาที</strong></div>`;
+  }
+  const wait = waitInfo(row);
+  if (wait.minutes === null) return '<span class="empty-chip">รถยังไม่มาถึง</span>';
+  return `<div class="operation-cards"><div class="mini-card ${wait.over ? "danger" : "success"}"><span>ใช้เวลาลงงาน</span><strong>${nf.format(wait.minutes)} นาที</strong></div><div class="mini-card neutral"><span>มาตรฐาน ${esc(row.vehicleType || "รถ")}</span><strong>${nf.format(wait.standard)} นาที</strong></div></div>`;
+}
+
 function tableRow(row) {
   const status = routeState(row);
   const p = punctuality(row),
     operation = operationInfo(row),
     q = queueInfo(row);
-  return `<tr><td><div class="vehicle-line"><strong>${esc(row.proofId || "-")}</strong><strong class="vehicle-type">${esc(row.vehicleType || "-")}</strong></div><div class="secondary">${esc(row.plate || "-")}</div></td><td><div class="primary ms-route-name">${esc(row.routeName || "-")}</div><div class="secondary">${esc([row.routeAttribute, row.routeType, row.region].filter(Boolean).join(" · ") || "-")}</div></td><td><div class="primary">${esc(row.attendanceType || "-")}</div><div class="secondary">${esc(row.supplier || "-")}</div></td><td>${scheduleCell(row)}</td><td><span class="status-pill" style="--status-color:${p.color}">${p.label}</span><div class="secondary">${p.diff === null ? "-" : `${Math.abs(p.diff)} นาที ${p.diff > 0 ? "ช้า" : "ก่อน/ตรงเวลา"}`}</div></td><td>${operation.html}<div class="secondary">มาตรฐาน ${esc(operation.standard)}</div></td><td><div class="primary">${esc(row.driverName || "-")}</div><div class="secondary">${state.auth?.role === "admin" ? esc(row.driverPhone || "-") : "ซ่อนเบอร์โทร"}</div></td><td><div class="ms-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดคิวเกิน 12 ชม." : status.label}</span><small>${esc(isDestination(row) ? row.loadStatus || "ยังไม่เริ่ม" : row.vehicleStatus || "-")}</small></div></td></tr>`;
+  const timing = p.diff === null ? '<span class="empty-chip">รอข้อมูลจริง</span>' : `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.label}</span><strong>${p.diff > 0 ? "ช้า " : "ก่อนแผน "}${nf.format(Math.abs(p.diff))} นาที</strong></div>`;
+  const workStatus = isDestination(row) ? (row.loadStatus || status.label) : (row.vehicleStatus || status.label);
+  return `<tr><td><div class="route-vehicle"><div class="vehicle-line"><strong>${esc(row.proofId || "-")}</strong><strong class="vehicle-type">${esc(row.vehicleType || "-")}</strong></div><div class="primary ms-route-name">${esc(row.routeName || "-")}</div><div class="secondary">${esc(row.plate || "ไม่พบทะเบียน")}</div></div></td><td><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</span><div class="primary supplier-name">${esc(row.supplier || "ไม่พบชื่อผู้รับเหมา")}</div><div class="secondary">${esc([row.routeAttribute, row.routeType, row.region].filter(Boolean).join(" · "))}</div></td><td>${planCell(row)}</td><td>${actualCell(row)}</td><td>${timing}</td><td>${workCell(row)}</td><td><div class="driver-card"><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong>${state.auth?.role === "admin" && row.driverPhone ? `<span>${esc(row.driverPhone)}</span>` : ""}</div></td><td><div class="status-card"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดออกจากคิวเกิน 12 ชม." : status.label}</span><strong>${esc(workStatus)}</strong><small>${q.done ? "เก็บในประวัติแล้ว" : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></td></tr>`;
 }
 
 function card(row) {
@@ -499,7 +522,8 @@ function card(row) {
     state.auth?.role === "admin" && row.driverPhone
       ? ` · ${esc(row.driverPhone)}`
       : "";
-  return `<article class="truck-card ms-card" style="--card-accent:${q.expired ? "#697177" : isDestination(row) && wait.over ? "#b3261e" : status.color}"><div class="truck-card-head"><div class="truck-route"><div class="primary">${esc(row.routeName || "-")}</div><div class="secondary">${esc([row.routeAttribute, row.routeType, row.attendanceType].filter(Boolean).join(" · ") || "-")}</div></div><div class="truck-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดคิวเกิน 12 ชม." : status.label}</span></div></div><div class="ms-card-grid"><div><span>บาร์โค้ด / ประเภทรถ</span><strong>${esc(row.proofId || "-")} / ${esc(row.vehicleType || "-")}</strong></div><div><span>ทะเบียนรถ</span><strong>${esc(row.plate || "-")}</strong></div><div><span>${isDestination(row) ? "ETA / มาถึงจริง" : "ETD / ออกจริง"}</span><strong>${shortDateTime(isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt)} / ${shortDateTime(isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt)}</strong></div><div><span>สถานะตรงเวลา</span><strong style="color:${p.color}">${p.label}</strong></div><div><span>${isDestination(row) ? "เวลาลงจริง / มาตรฐาน" : "ผลต่างเวลาปล่อยรถ"}</span><strong>${operation.text === "" ? "-" : `${operation.text} นาที`}${isDestination(row) ? ` / ${operation.standard}` : ""}</strong></div><div><span>ผู้รับเหมา</span><strong>${esc(row.supplier || "-")}</strong></div><div><span>พนักงานขับรถ</span><strong>${esc(row.driverName || "-")}${phone}</strong></div></div></article>`;
+  const workStatus = isDestination(row) ? (row.loadStatus || status.label) : (row.vehicleStatus || status.label);
+  return `<article class="truck-card ms-card" style="--card-accent:${q.expired ? "#697177" : isDestination(row) && wait.over ? "#b3261e" : status.color}"><div class="truck-card-head"><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</span><div class="truck-route"><div class="primary">${esc(row.routeName || "-")}</div><div class="secondary">${esc(row.proofId || "-")} / ${esc(row.vehicleType || "-")} · ${esc(row.plate || "ไม่พบทะเบียน")}</div></div></div><div class="mobile-status-cards"><div>${planCell(row)}</div><div>${actualCell(row)}</div><div>${p.diff === null ? '<span class="empty-chip">รอข้อมูลจริง</span>' : `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.label}</span><strong>${p.diff > 0 ? "ช้า " : "ก่อนแผน "}${nf.format(Math.abs(p.diff))} นาที</strong></div>`}</div><div>${workCell(row)}</div></div><div class="mobile-party"><span>ผู้รับเหมา</span><strong>${esc(row.supplier || "ไม่พบชื่อผู้รับเหมา")}</strong><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}${phone}</strong></div><div class="status-card mobile-work-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดออกจากคิวเกิน 12 ชม." : status.label}</span><strong>${esc(workStatus)}</strong><small>${q.done ? "เก็บในประวัติแล้ว" : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></article>`;
 }
 
 function normalizeVehicle(value) {

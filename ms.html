@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#151515" />
     <title>ติดตามเส้นทาง MS</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="style.css?v=20260827-07" />
-    <script src="ms.js?v=20260827-07" defer></script>
+    <link rel="stylesheet" href="style.css?v=20260827-08" />
+    <script src="ms.js?v=20260827-08" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -73,29 +73,36 @@
 
       <section class="metric-grid ms-metrics">
         <article class="metric-card metric-dark">
-          <span>งานปัจจุบัน</span><strong id="metric-total">0</strong
-          ><small>ตัดรายการค้างเกิน 12 ชม.</small>
+          <span>ข้อมูลที่เก็บไว้ทั้งหมด</span><strong id="metric-archive">0</strong
+          ><small>รายการเก่าไม่ถูกลบ</small>
+        </article>
+        <article class="metric-card">
+          <span>คิวเริ่มต้น</span><strong id="metric-total">0</strong
+          ><small>รถมาถึงแล้ว รอเริ่มลงงาน</small>
+        </article>
+        <article class="metric-card">
+          <span>กำลังลงงาน</span><strong id="metric-unloading">0</strong
+          ><small>MS แสดงว่ากำลังโหลดพัสดุลงรถ</small>
+        </article>
+        <article class="metric-card">
+          <span>โหลดเสร็จแล้ว</span><strong id="metric-completed">0</strong
+          ><small>เก็บไว้ในประวัติ</small>
         </article>
         <article class="metric-card">
           <span>รถเข้าตรงเวลา</span><strong id="metric-not-arrived">0</strong
           ><small>มาถึงจริงไม่เกิน ETA</small>
         </article>
-        <article class="metric-card">
+        <article class="metric-card metric-danger">
           <span>รถเข้าตกเวลา</span><strong id="metric-arrived">0</strong
           ><small>มาถึงจริงเกิน ETA</small>
         </article>
         <article class="metric-card">
           <span>ปล่อยตรงเวลา</span><strong id="metric-departed">0</strong
-          ><small>เวลาออกจริงไม่เกิน ETD</small>
+          ><small>ออกจริงไม่เกิน ETD</small>
         </article>
         <article class="metric-card metric-warning">
           <span>ปล่อยตกเวลา</span><strong id="metric-within-standard">0</strong
-          ><small>เวลาออกจริงเกิน ETD</small>
-        </article>
-        <article class="metric-card metric-danger">
-          <span>ลงรถเกินมาตรฐาน</span
-          ><strong id="metric-over-standard">0</strong
-          ><small>เฉพาะ Attendance ปลายทาง</small>
+          ><small>ออกจริงเกิน ETD</small>
         </article>
       </section>
 
@@ -104,9 +111,9 @@
           <label
             ><span>มุมมอง</span
             ><select id="queue-filter">
-              <option value="queue">งานปัจจุบัน</option>
-              <option value="completed">ดำเนินการแล้ว</option>
-              <option value="all">ข้อมูล MS ทั้งหมด</option>
+              <option value="queue">คิวปัจจุบัน</option>
+              <option value="completed">งานที่จบแล้ว / ตัดออกจากคิว</option>
+              <option value="all">ข้อมูลที่เก็บไว้ทั้งหมด</option>
             </select></label
           >
           <label
@@ -180,14 +187,14 @@
           <table class="ms-table">
             <thead>
               <tr>
-                <th>บาร์โค้ด / รถ</th>
-                <th>ชื่อเส้นทาง</th>
-                <th>ประเภท / ผู้รับเหมา</th>
-                <th>เวลาแผน / เวลาจริง</th>
-                <th>ตรงเวลา</th>
-                <th>ระยะเวลาดำเนินการ / มาตรฐาน</th>
-                <th>พนักงานขับรถ</th>
-                <th>สถานะคิว</th>
+                <th>รถและเส้นทาง</th>
+                <th>ประเภทรถ / ผู้รับเหมา</th>
+                <th>เวลาแผน</th>
+                <th>เวลาจริง</th>
+                <th>ตรงเวลาหรือไม่</th>
+                <th>เวลาลงงาน / ปล่อยรถ</th>
+                <th>คนขับรถ</th>
+                <th>สถานะการทำงาน</th>
               </tr>
             </thead>
             <tbody id="table-body"></tbody>

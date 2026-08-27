@@ -352,13 +352,16 @@ function punctuality(row) {
 function queueInfo(row, now = new Date()) {
   const arrival = parseDate(row.actualArrivalAt),
     ageHours = arrival ? (now - arrival) / 36e5 : 0;
-  const done = isDestination(row)
-    ? Number(row.unloadingState) === 2
-    : Boolean(row.actualDepartureAt);
-  const active = Boolean(arrival) && !done && ageHours <= 12;
+  const unloadingState = Number(row.unloadingState),
+    done = isDestination(row)
+      ? unloadingState === 2
+      : Boolean(row.actualDepartureAt),
+    started = isDestination(row) && (unloadingState === 1 || unloadingState === 2),
+    active = Boolean(arrival) && !done && !started && ageHours <= 12;
   return {
     active,
     done,
+    started,
     expired: Boolean(arrival) && !done && ageHours > 12,
     ageHours,
   };
@@ -754,14 +757,14 @@ function exportRow(row) {
     q = queueInfo(row);
   return {
     hub: row.hub || state.branch,
-    proofId: row.proofId || "",
+    proofId: excelText(row.proofId),
     routeName: row.routeName || "",
     routeAttribute: row.routeAttribute || "",
     routeType: row.routeType || "",
     region: row.region || "",
     attendanceType: row.attendanceType || "",
     vehicleType: row.vehicleType || "",
-    plate: row.plate || "",
+    plate: excelText(row.plate),
     estimatedArrivalAt: exportThaiDate(row.estimatedArrivalAt),
     actualArrivalAt: exportThaiDate(row.actualArrivalAt),
     arrivalPunctuality: isDestination(row) ? p.label : "",
@@ -793,7 +796,8 @@ function exportRow(row) {
     loadStatus: row.loadStatus || "",
     supplier: row.supplier || "",
     driverName: row.driverName || "",
-    driverPhone: state.auth?.role === "admin" ? row.driverPhone || "" : "",
+    driverPhone:
+      state.auth?.role === "admin" ? excelText(row.driverPhone) : "",
     syncedAt: exportThaiDate(row.syncedAt),
   };
 }
@@ -809,7 +813,7 @@ function exportThaiDate(value) {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-      hour12: false,
+      hourCycle: "h23",
     })
       .formatToParts(date)
       .filter((part) => part.type !== "literal")
@@ -838,8 +842,14 @@ function downloadRows(filename, rows) {
 }
 function csvCell(value) {
   let text = String(value ?? "");
-  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  if (/^[=+\-@]/.test(text) && !/^="[^"]*"$/.test(text)) text = `'${text}`;
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function excelText(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return `="${text.replace(/"/g, '""')}"`;
 }
 
 async function apiPost(action, payload = {}, withAuth = true) {

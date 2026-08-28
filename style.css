@@ -1564,6 +1564,109 @@ dialog::backdrop {
   }
 }
 
+/* Flash operations theme — solid black/yellow/white/gray; status colors stay semantic. */
+.ms-page .ms-table tbody tr:nth-child(even) { background: #f2f2ef; }
+.ms-page .ms-table tbody tr:hover { background: #fff3ad; }
+.ms-page .route-code span,
+.ms-page .meta-chip,
+.ms-page .route-meta span:nth-child(2) .meta-chip,
+.ms-page .route-meta span:nth-child(3) .meta-chip {
+  border-color: #d0aa00;
+  background: #ffd84d;
+  color: #171717;
+  font-weight: 900;
+}
+.ms-page .type-badge.inbound,
+.ms-page .type-badge.drop {
+  border-color: #caa400;
+  background: #ffd84d;
+  color: #171717;
+}
+.ms-page .type-badge.outbound {
+  border-color: #151515;
+  background: #151515;
+  color: #fff;
+}
+.ms-page .timing-chip.neutral,
+.ms-page .empty-chip,
+.ms-page .work-badge:not(.unloading):not(.completed):not(.departed),
+.ms-page .phone-chip {
+  border-color: #9ca19c;
+  background: #dfe2df;
+  color: #171717;
+}
+.ms-page .phone-chip { font-weight: 900; text-decoration: underline; }
+.ms-page .ms-export-actions .btn-accent {
+  border-color: #caa400;
+  background: #ffd400;
+  color: #111;
+}
+.drop-progress {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  width: 100%;
+}
+.drop-stage {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid #aeb2ae;
+  border-radius: 5px;
+  background: #e4e6e3;
+  color: #1b1b1b;
+}
+.drop-stage:first-child { border-color: #d0aa00; background: #ffe47a; }
+.drop-stage.is-done { border-color: #14764c; background: #e1f3e9; }
+.drop-stage span,
+.drop-stage strong,
+.drop-stage small { display: block; line-height: 1.35; }
+.drop-stage span { font-size: 10px; font-weight: 800; }
+.drop-stage strong { margin-top: 3px; font-size: 12px; }
+.drop-stage small { margin-top: 2px; color: #515651; font-size: 10px; }
+.capture-stage {
+  position: fixed;
+  left: -100000px;
+  top: 0;
+  z-index: -1;
+  padding: 22px;
+  background: #fff;
+  color: #151515;
+}
+.capture-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 14px 18px;
+  border-bottom: 5px solid #ffd400;
+  background: #151515;
+  color: #fff;
+  font-size: 17px;
+}
+.capture-summary .filter-summary { margin-bottom: 12px; }
+.capture-stage .ms-table { width: 100%; table-layout: fixed; }
+
+@media (max-width: 900px) {
+  .ms-page .compact-card { border-color: #aaa; border-top-color: #151515; }
+  .ms-page .compact-meta { background: #ffd84d; }
+  .ms-page .compact-meta span,
+  .ms-page .compact-meta b { color: #171717; }
+  .ms-page .compact-meta span + span { border-left-color: #b89500; }
+  .compact-card-tags .vehicle-chip { border-color: #8f938f; background: #dfe2df; color: #171717; }
+  .compact-card-tags .type-badge.inbound,
+  .compact-card-tags .type-badge.drop { border-color: #caa400; background: #ffd84d; color: #151515; }
+  .compact-times { background: #fff; }
+  .compact-party { background: #ededeb; }
+  .compact-phone { border-color: #151515; background: #151515; color: #fff; }
+  .compact-phone span { color: #ffd84d; }
+  .ms-page .ms-export-actions { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 520px) {
+  .ms-page .ms-export-actions { grid-template-columns: 1fr; }
+  .drop-progress { grid-template-columns: 1fr; }
+}
+
 /* Final visual contract: black/yellow/white/gray; semantic color only for status. */
 .ms-page .metric-card,
 .ms-page .filter-summary button,
@@ -3125,4 +3228,38 @@ tbody tr.is-unloading:hover {
   .compact-operation > div { padding: 11px; }
   .compact-party { grid-template-columns: 1fr 1fr; padding: 11px; }
   .compact-phone { grid-column: 1 / -1; width: 100%; min-height: 38px; flex-direction: row; gap: 7px; }
+}
+
+/* Final palette contract: these rules intentionally win over legacy report styles. */
+.ms-page .ms-table tbody tr:nth-child(even) { background: #f2f2ef; }
+.ms-page .ms-table tbody tr:hover { background: #fff3ad; }
+.ms-page .route-code span,
+.ms-page .meta-chip,
+.ms-page .route-meta span:nth-child(2) .meta-chip,
+.ms-page .route-meta span:nth-child(3) .meta-chip,
+.ms-page .type-badge.inbound,
+.ms-page .type-badge.drop {
+  border-color: #c7a100;
+  background: #ffd84d;
+  color: #171717;
+}
+.ms-page .type-badge.outbound { border-color: #151515; background: #151515; color: #fff; }
+.ms-page .timing-chip.neutral,
+.ms-page .empty-chip,
+.ms-page .work-badge:not(.unloading):not(.completed):not(.departed),
+.ms-page .phone-chip { border-color: #989d98; background: #dfe2df; color: #171717; }
+.ms-page .ms-export-actions .btn-accent { border-color: #c7a100; background: #ffd400; color: #111; }
+
+@media (max-width: 900px) {
+  .ms-page .compact-meta { background: #ffd84d; }
+  .ms-page .compact-meta span,
+  .ms-page .compact-meta b { color: #171717; }
+  .ms-page .compact-meta span + span { border-left-color: #ae8d00; }
+  .compact-card-tags .vehicle-chip { border-color: #8f938f; background: #dfe2df; color: #171717; }
+  .compact-card-tags .type-badge.inbound,
+  .compact-card-tags .type-badge.drop { border-color: #c7a100; background: #ffd84d; color: #151515; }
+  .compact-card-tags .type-badge.outbound { border-color: #151515; background: #151515; color: #fff; }
+  .compact-party { background: #ededeb; }
+  .compact-phone { border-color: #151515; background: #151515; color: #fff; }
+  .compact-phone span { color: #ffd84d; }
 }

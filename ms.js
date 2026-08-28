@@ -198,9 +198,10 @@ async function loadData(silent = false) {
   if (!silent) el("loading-state").classList.remove("hidden");
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
-    const archive = !silent || !state.archiveLoaded
-      ? await apiGet("msArchive", { branch: state.branch })
-      : null;
+    const archive =
+      !silent || !state.archiveLoaded
+        ? await apiGet("msArchive", { branch: state.branch })
+        : null;
     state.currentRows = Array.isArray(result?.rows) ? result.rows : [];
     if (archive) {
       state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
@@ -237,7 +238,9 @@ async function loadData(silent = false) {
 }
 
 function mergeLatest(archive, current) {
-  const latest = new Map((archive || []).map((row) => [row.id || row.proofId, row]));
+  const latest = new Map(
+    (archive || []).map((row) => [row.id || row.proofId, row]),
+  );
   for (const row of current || []) latest.set(row.id || row.proofId, row);
   return [...latest.values()];
 }
@@ -345,6 +348,14 @@ function isDestination(row) {
 function isOrigin(row) {
   return String(row.attendanceType || "").trim() === "ต้นทาง";
 }
+function isDrop(row) {
+  return String(row.attendanceType || "").trim() === "จุดดรอป";
+}
+function attendanceLabel(row) {
+  if (isDestination(row)) return "รถเข้าฮับ";
+  if (isDrop(row)) return "รถแวะส่งแล้วไปต่อ";
+  return "รถออกจากฮับ";
+}
 function punctuality(row) {
   const incoming = isDestination(row),
     plan = parseDate(
@@ -380,7 +391,8 @@ function queueInfo(row, now = new Date()) {
     done = isDestination(row)
       ? unloadingState === 2
       : Boolean(row.actualDepartureAt),
-    started = isDestination(row) && (unloadingState === 1 || unloadingState === 2),
+    started =
+      isDestination(row) && (unloadingState === 1 || unloadingState === 2),
     active = Boolean(arrival) && !done && ageHours <= 12;
   return {
     active,
@@ -392,7 +404,8 @@ function queueInfo(row, now = new Date()) {
 }
 
 function filteredRows() {
-  const source = state.queue === "queue" ? state.currentRows : state.archiveRows;
+  const source =
+    state.queue === "queue" ? state.currentRows : state.archiveRows;
   return source
     .filter((row) => {
       const status = routeState(row);
@@ -409,9 +422,13 @@ function filteredRows() {
       const statusMatch =
         state.status === "all" ||
         status.key === state.status ||
-        (state.status === "arrival-ontime" && isDestination(row) && punctuality(row).key === "ontime") ||
+        (state.status === "arrival-ontime" &&
+          isDestination(row) &&
+          punctuality(row).key === "ontime") ||
         (state.status === "arrival-late" && status.arrivalLate) ||
-        (state.status === "departure-ontime" && isOrigin(row) && punctuality(row).key === "ontime") ||
+        (state.status === "departure-ontime" &&
+          isOrigin(row) &&
+          punctuality(row).key === "ontime") ||
         (state.status === "departure-late" && status.departureLate);
       const arrivalDate = localDateValue(
         row.actualArrivalAt || row.estimatedArrivalAt,
@@ -446,7 +463,11 @@ async function loadRange() {
     end = el("date-to").value;
   if (!start || !end) return toast("กรุณาเลือกวันที่เริ่มต้นและสิ้นสุด", true);
   try {
-    const result = await apiGet("msRange", { branch: state.branch, start, end });
+    const result = await apiGet("msRange", {
+      branch: state.branch,
+      start,
+      end,
+    });
     state.dateFrom = start;
     state.dateTo = end;
     state.queue = "all";
@@ -456,7 +477,8 @@ async function loadRange() {
     toast(`ดึงข้อมูลย้อนหลัง ${nf.format(result.total)} รายการแล้ว`);
   } catch (error) {
     toast(error.message, true);
-  } finally {}
+  } finally {
+  }
 }
 
 let rangeTimer;
@@ -465,8 +487,7 @@ function autoLoadRange() {
   state.dateTo = el("date-to").value;
   render();
   clearTimeout(rangeTimer);
-  if (state.dateFrom && state.dateTo)
-    rangeTimer = setTimeout(loadRange, 250);
+  if (state.dateFrom && state.dateTo) rangeTimer = setTimeout(loadRange, 250);
 }
 
 function render() {
@@ -491,34 +512,53 @@ function render() {
 }
 
 function renderFilterSummary(rows) {
-  const counts = { arrived: 0, unloading: 0, completed: 0, origin: 0 };
+  const counts = { waiting: 0, unloading: 0, completed: 0, origin: 0, drop: 0 };
   for (const row of rows) {
     const key = routeState(row).key;
-    if (key === "arrived") counts.arrived++;
-    if (key === "unloading") counts.unloading++;
-    if (key === "completed") counts.completed++;
-    if (isOrigin(row)) counts.origin++;
+    const queue = queueInfo(row);
+    if (isDestination(row) && key === "arrived") counts.waiting++;
+    if (isDestination(row) && key === "unloading") counts.unloading++;
+    if (isDestination(row) && key === "completed") counts.completed++;
+    if (isOrigin(row) && !queue.done) counts.origin++;
+    if (isDrop(row) && !queue.done) counts.drop++;
   }
   el("filter-summary").innerHTML = `
-    <button type="button" data-summary-status="all"><span>ผลตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
-    <button type="button" data-summary-status="arrived"><span>ยังไม่เริ่มลง</span><strong>${nf.format(counts.arrived)}</strong></button>
-    <button type="button" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
-    <button type="button" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
-    <button type="button" data-summary-status="origin"><span>รถต้นทาง</span><strong>${nf.format(counts.origin)}</strong></button>`;
-  el("filter-summary").querySelectorAll("button").forEach((button) => {
-    button.onclick = () => {
+    <button type="button" class="summary-all" data-summary-status="all"><span>ผลตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
+    <button type="button" class="summary-wait" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
+    <button type="button" class="summary-work" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
+    <button type="button" class="summary-done" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
+    <button type="button" class="summary-origin" data-summary-status="origin"><span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
+    <button type="button" class="summary-drop" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>`;
+  el("filter-summary")
+    .querySelectorAll("button")
+    .forEach((button) => {
+      button.onclick = () => {
       const value = button.dataset.summaryStatus;
-      if (value === "origin") {
-        state.attendance = "ต้นทาง";
-        el("attendance-filter").value = "ต้นทาง";
+      if (value === "all") {
+        state.attendance = "all";
         state.status = "all";
-      } else {
-        state.status = value;
-        el("status-filter").value = value;
-      }
-      render();
-    };
-  });
+        el("attendance-filter").value = "all";
+        el("status-filter").value = "all";
+      } else if (value === "origin") {
+          state.attendance = "ต้นทาง";
+          el("attendance-filter").value = "ต้นทาง";
+          state.status = "all";
+        } else if (value === "drop") {
+          state.attendance = "จุดดรอป";
+          el("attendance-filter").value = "จุดดรอป";
+          state.status = "all";
+        } else if (value === "waiting") {
+          state.attendance = "ปลายทาง";
+          el("attendance-filter").value = "ปลายทาง";
+          state.status = "arrived";
+          el("status-filter").value = "arrived";
+        } else {
+          state.status = value;
+          el("status-filter").value = value;
+        }
+        render();
+      };
+    });
 }
 
 function applyMetricFilter(metric) {
@@ -526,12 +566,34 @@ function applyMetricFilter(metric) {
   state.attendance = "all";
   if (metric === "all") state.queue = "all";
   if (metric === "queue") state.queue = "queue";
-  if (metric === "unloading") { state.queue = "queue"; state.status = "unloading"; }
-  if (metric === "completed") { state.queue = "completed"; state.status = "completed"; }
-  if (metric === "arrival-ontime") { state.queue = "all"; state.attendance = "ปลายทาง"; state.status = "arrival-ontime"; }
-  if (metric === "arrival-late") { state.queue = "all"; state.attendance = "ปลายทาง"; state.status = "arrival-late"; }
-  if (metric === "departure-ontime") { state.queue = "all"; state.attendance = "ต้นทาง"; state.status = "departure-ontime"; }
-  if (metric === "departure-late") { state.queue = "all"; state.attendance = "ต้นทาง"; state.status = "departure-late"; }
+  if (metric === "unloading") {
+    state.queue = "queue";
+    state.status = "unloading";
+  }
+  if (metric === "completed") {
+    state.queue = "completed";
+    state.status = "completed";
+  }
+  if (metric === "arrival-ontime") {
+    state.queue = "all";
+    state.attendance = "ปลายทาง";
+    state.status = "arrival-ontime";
+  }
+  if (metric === "arrival-late") {
+    state.queue = "all";
+    state.attendance = "ปลายทาง";
+    state.status = "arrival-late";
+  }
+  if (metric === "departure-ontime") {
+    state.queue = "all";
+    state.attendance = "ต้นทาง";
+    state.status = "departure-ontime";
+  }
+  if (metric === "departure-late") {
+    state.queue = "all";
+    state.attendance = "ต้นทาง";
+    state.status = "departure-late";
+  }
   el("queue-filter").value = state.queue;
   el("status-filter").value = state.status;
   el("attendance-filter").value = state.attendance;
@@ -547,8 +609,14 @@ function metrics() {
     waits = destinations.map(waitInfo).filter((item) => item.minutes !== null);
   setMetric("metric-archive", state.archiveRows.length);
   setMetric("metric-total", active.length);
-  setMetric("metric-unloading", active.filter((row) => Number(row.unloadingState) === 1).length);
-  setMetric("metric-completed", destinations.filter((row) => Number(row.unloadingState) === 2).length);
+  setMetric(
+    "metric-unloading",
+    active.filter((row) => Number(row.unloadingState) === 1).length,
+  );
+  setMetric(
+    "metric-completed",
+    destinations.filter((row) => Number(row.unloadingState) === 2).length,
+  );
   setMetric(
     "metric-not-arrived",
     arrivals.filter((item) => item.key === "ontime").length,
@@ -575,8 +643,12 @@ function planCell(row) {
   return `<div class="time-card"><span>${isDestination(row) ? "กำหนดรถเข้า (ETA)" : "กำหนดปล่อยรถ (ETD)"}</span><strong>${shortDateTime(isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt)}</strong></div>`;
 }
 function actualCell(row) {
-  const value = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt;
-  return value ? `<div class="time-card actual"><span>${isDestination(row) ? "รถมาถึงจริง" : "ปล่อยรถจริง"}</span><strong>${shortDateTime(value)}</strong></div>` : '<span class="empty-chip">ยังไม่มีเวลาจริง</span>';
+  const value = isDestination(row)
+    ? row.actualArrivalAt
+    : row.actualDepartureAt;
+  return value
+    ? `<div class="time-card actual"><span>${isDestination(row) ? "รถมาถึงจริง" : "ปล่อยรถจริง"}</span><strong>${shortDateTime(value)}</strong></div>`
+    : '<span class="empty-chip">ยังไม่มีเวลาจริง</span>';
 }
 function operationInfo(row) {
   if (!isDestination(row)) {
@@ -596,13 +668,15 @@ function operationInfo(row) {
 }
 
 function workCell(row) {
-  const p = punctuality(row), operation = operationInfo(row);
+  const p = punctuality(row),
+    operation = operationInfo(row);
   if (!isDestination(row)) {
     if (p.diff === null) return '<span class="empty-chip">รอเวลาออกจริง</span>';
     return `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.diff > 0 ? "ปล่อยช้ากว่าแผน" : "ปล่อยก่อนแผน"}</span><strong>${nf.format(Math.abs(p.diff))} นาที</strong></div>`;
   }
   const wait = waitInfo(row);
-  if (wait.minutes === null) return '<span class="empty-chip">รถยังไม่มาถึง</span>';
+  if (wait.minutes === null)
+    return '<span class="empty-chip">รถยังไม่มาถึง</span>';
   return `<div class="operation-cards"><div class="mini-card ${wait.over ? "danger" : "success"}"><span>เวลารวมตั้งแต่รถถึง</span><strong>${nf.format(wait.minutes)} นาที</strong><small>รวมรอเริ่มลง + ลงงาน</small></div><div class="mini-card neutral"><span>มาตรฐาน ${esc(row.vehicleType || "รถ")}</span><strong>${nf.format(wait.standard)} นาที</strong></div></div>`;
 }
 
@@ -611,11 +685,24 @@ function tableRow(row) {
   const p = punctuality(row),
     operation = operationInfo(row),
     q = queueInfo(row);
-  const workStatus = isDestination(row) ? (row.loadStatus || status.label) : (row.vehicleStatus || status.label);
-  const plan = isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt,
+  const workStatus = isDestination(row)
+    ? row.loadStatus || status.label
+    : row.vehicleStatus || status.label;
+  const plan = isDestination(row)
+      ? row.estimatedArrivalAt
+      : row.estimatedDepartureAt,
     actual = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt,
-    timingText = p.diff === null ? "ยังไม่มีเวลาจริง" : `${p.label} · ${p.diff > 0 ? "ช้า" : "ก่อนแผน"} ${nf.format(Math.abs(p.diff))} นาที`,
-    queueText = q.done ? "เสร็จแล้ว" : q.expired ? "ตัดจากคิวเกิน 12 ชม." : q.active ? "อยู่ในคิว" : "ยังไม่เริ่ม",
+    timingText =
+      p.diff === null
+        ? "ยังไม่มีเวลาจริง"
+        : `${p.label} · ${p.diff > 0 ? "ช้า" : "ก่อนแผน"} ${nf.format(Math.abs(p.diff))} นาที`,
+    queueText = q.done
+      ? "เสร็จแล้ว"
+      : q.expired
+        ? "ตัดจากคิวเกิน 12 ชม."
+        : q.active
+          ? "อยู่ในคิว"
+          : "ยังไม่เริ่ม",
     wait = isDestination(row) ? waitInfo(row) : null,
     durationHtml = isDestination(row)
       ? wait.minutes === null
@@ -624,7 +711,8 @@ function tableRow(row) {
       : p.diff === null
         ? '<span class="row-muted">รอเวลาออกจริง</span>'
         : `<div class="duration-line ${p.diff > 0 ? "is-late" : "is-ok"}"><strong>${nf.format(Math.abs(p.diff))} นาที</strong><span>${p.diff > 0 ? "ปล่อยช้ากว่าแผน" : "ปล่อยก่อนแผน"}</span></div>`;
-  return `<tr><td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td><td><div class="route-meta"><span><b>ภูมิภาค</b> ${esc(row.region || "-")}</span><span><b>ลักษณะ</b> ${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b> ${esc(row.routeType || "-")}</span></div></td><td><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${esc(row.attendanceType || "-")}</span><div class="row-muted">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</div></td><td><div class="time-pair"><div><span>${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "มาถึงจริง" : "ออกจริง"}</span><strong>${shortDateTime(actual)}</strong></div><small class="timing-chip ${p.diff === null ? "neutral" : p.diff > 0 ? "late" : "ontime"}">${esc(timingText)}</small></div></td><td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small>${esc(queueText)}</small></div></td><td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${state.auth?.role === "admin" && row.driverPhone ? `<small>${esc(row.driverPhone)}</small>` : ""}</div></td></tr>`;
+  const attendanceClass = isDestination(row) ? "inbound" : isDrop(row) ? "drop" : "outbound";
+  return `<tr><td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td><td><div class="route-meta"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b> ${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td><td><span class="type-badge ${attendanceClass}">${esc(row.attendanceType || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></td><td><div class="time-pair"><div><span>${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "มาถึงจริง" : "ออกจริง"}</span><strong>${shortDateTime(actual)}</strong></div><small class="timing-chip ${p.diff === null ? "neutral" : p.diff > 0 ? "late" : "ontime"}">${esc(timingText)}</small></div></td><td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small>${esc(queueText)}</small></div></td><td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${state.auth?.role === "admin" && row.driverPhone ? `<small>${esc(row.driverPhone)}</small>` : ""}</div></td></tr>`;
 }
 
 function card(row) {
@@ -637,7 +725,9 @@ function card(row) {
     state.auth?.role === "admin" && row.driverPhone
       ? `<span>เบอร์โทร</span><strong><small class="phone-chip">${esc(row.driverPhone)}</small></strong>`
       : "";
-  const workStatus = isDestination(row) ? (row.loadStatus || status.label) : (row.vehicleStatus || status.label);
+  const workStatus = isDestination(row)
+    ? row.loadStatus || status.label
+    : row.vehicleStatus || status.label;
   return `<article class="truck-card ms-card" style="--card-accent:${q.expired ? "#697177" : isDestination(row) && wait.over ? "#b3261e" : status.color}"><div class="truck-card-head"><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</span><div class="truck-route"><div class="primary">${esc(row.routeName || "-")}</div><div class="secondary">${esc(row.proofId || "-")} / ${esc(row.vehicleType || "-")} · ${esc(row.plate || "ไม่พบทะเบียน")}</div></div></div><div class="mobile-status-cards"><div>${planCell(row)}</div><div>${actualCell(row)}</div><div>${p.diff === null ? '<span class="empty-chip">รอข้อมูลจริง</span>' : `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.label}</span><strong>${p.diff > 0 ? "ช้า " : "ก่อนแผน "}${nf.format(Math.abs(p.diff))} นาที</strong></div>`}</div><div>${workCell(row)}</div></div><div class="mobile-party"><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong>${phone}</div><div class="status-card mobile-work-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดออกจากคิวเกิน 12 ชม." : status.label}</span><strong>${esc(workStatus)}</strong><small>${q.done ? "เก็บในประวัติแล้ว" : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></article>`;
 }
 
@@ -749,24 +839,33 @@ function openMsConnection() {
   el("ms-har-hub").value = state.branch || state.auth?.branches?.[0] || "NE1";
   el("ms-har-file").value = "";
   el("ms-connection-error").classList.add("hidden");
-  el("ms-qr-status").textContent = "ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว";
+  el("ms-qr-status").textContent =
+    "ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว";
   el("ms-connection-dialog").showModal();
 }
 
 async function startQrConnection() {
-  const hub = el("ms-har-hub").value.trim().toUpperCase(), status = el("ms-qr-status"), button = el("ms-qr-connect");
+  const hub = el("ms-har-hub").value.trim().toUpperCase(),
+    status = el("ms-qr-status"),
+    button = el("ms-qr-connect");
   if (!hub) return toast("กรุณาระบุ HUB", true);
   try {
     button.disabled = true;
     status.textContent = "กำลังสร้างหน้าสแกน QR...";
     const result = await apiPost("createMsPairing", { hub });
     const popup = window.open(result.browserUrl, "ms-cloud-browser");
-    if (!popup) throw new Error("เบราว์เซอร์บล็อกหน้าต่างใหม่ กรุณาอนุญาต Pop-up แล้วลองอีกครั้ง");
-    status.textContent = "เปิดหน้า MS แล้ว กรุณาสแกน QR และกด “ตรวจหลังสแกน” ในหน้าที่เปิดใหม่";
+    if (!popup)
+      throw new Error(
+        "เบราว์เซอร์บล็อกหน้าต่างใหม่ กรุณาอนุญาต Pop-up แล้วลองอีกครั้ง",
+      );
+    status.textContent =
+      "เปิดหน้า MS แล้ว กรุณาสแกน QR และกด “ตรวจหลังสแกน” ในหน้าที่เปิดใหม่";
     const deadline = Date.parse(result.expiresAt);
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
-      const check = await apiGet("msPairingStatus", { pairing: result.pairing });
+      const check = await apiGet("msPairingStatus", {
+        pairing: result.pairing,
+      });
       if (check.status === "COMPLETED") {
         state.branch = hub;
         status.textContent = `เชื่อมต่อ ${hub} สำเร็จ ระบบบันทึก Session แล้ว`;
@@ -774,7 +873,8 @@ async function startQrConnection() {
         await loadData();
         return;
       }
-      if (check.status === "EXPIRED") throw new Error("ลิงก์หมดอายุ กรุณากดเชื่อมต่อใหม่");
+      if (check.status === "EXPIRED")
+        throw new Error("ลิงก์หมดอายุ กรุณากดเชื่อมต่อใหม่");
     }
     throw new Error("หมดเวลารอการสแกน กรุณากดเชื่อมต่อใหม่");
   } catch (error) {
@@ -856,10 +956,24 @@ async function exportHistory() {
 function dedupeRoutes(rows) {
   const latest = new Map();
   for (const row of rows || []) {
-    const key = row.id || [row.hub, row.proofId, row.routeName, row.estimatedArrivalAt, row.estimatedDepartureAt].join("|");
+    const key =
+      row.id ||
+      [
+        row.hub,
+        row.proofId,
+        row.routeName,
+        row.estimatedArrivalAt,
+        row.estimatedDepartureAt,
+      ].join("|");
     const previous = latest.get(key);
-    const time = parseDate(row.sourceUpdatedAt || row.syncedAt || row.archivedAt)?.getTime() || 0;
-    const previousTime = parseDate(previous?.sourceUpdatedAt || previous?.syncedAt || previous?.archivedAt)?.getTime() || 0;
+    const time =
+      parseDate(
+        row.sourceUpdatedAt || row.syncedAt || row.archivedAt,
+      )?.getTime() || 0;
+    const previousTime =
+      parseDate(
+        previous?.sourceUpdatedAt || previous?.syncedAt || previous?.archivedAt,
+      )?.getTime() || 0;
     if (!previous || time >= previousTime) latest.set(key, row);
   }
   return [...latest.values()];
@@ -870,7 +984,9 @@ function exportRow(row) {
     p = punctuality(row),
     q = queueInfo(row);
   return {
-    snapshotAt: exportThaiDate(row.archivedAt || row.snapshotAt || row.syncedAt),
+    snapshotAt: exportThaiDate(
+      row.archivedAt || row.snapshotAt || row.syncedAt,
+    ),
     hub: row.hub || state.branch,
     proofId: excelText(row.proofId),
     routeName: row.routeName || "",
@@ -911,8 +1027,7 @@ function exportRow(row) {
     loadStatus: row.loadStatus || "",
     supplier: row.supplier || "",
     driverName: row.driverName || "",
-    driverPhone:
-      state.auth?.role === "admin" ? excelText(row.driverPhone) : "",
+    driverPhone: state.auth?.role === "admin" ? excelText(row.driverPhone) : "",
     syncedAt: exportThaiDate(row.syncedAt),
   };
 }

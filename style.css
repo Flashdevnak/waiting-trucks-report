@@ -687,6 +687,182 @@ dialog::backdrop {
   .setup-steps { padding-left: 22px; }
   .setup-link { width: 100%; justify-content: center; text-align: center; }
 }
+
+/* MS header, badges and table rhythm */
+.ms-page .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 3px solid #ffd400;
+  background: #171819;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .18);
+}
+.ms-page .site-header-inner {
+  min-height: 76px;
+  gap: 22px;
+  padding: 11px 22px;
+}
+.ms-page .header-brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+.ms-page .brand-mark {
+  min-width: 76px;
+  height: 48px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.3);
+}
+.ms-page .brand-copy { gap: 4px; min-width: 0; }
+.ms-page .brand-copy strong { font-size: 19px; line-height: 1.2; white-space: nowrap; }
+.ms-page .brand-copy span { color: #e3e5e6; font-size: 12px; }
+.ms-page .topbar-actions {
+  gap: 8px;
+  padding: 5px;
+  border: 1px solid #3c3f42;
+  border-radius: 9px;
+  background: #202224;
+}
+.ms-page .topbar-actions .btn,
+.ms-page .topbar-actions .badge {
+  min-height: 38px;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.ms-page .topbar-actions .btn-header {
+  background: #2b2e31;
+  border-color: #484c50;
+}
+.ms-page .topbar-actions .btn-header:hover { background: #3a3e42; border-color: #666b70; }
+.ms-page .topbar-actions .btn-accent { border-color: #ffd400; }
+.ms-page .topbar-actions .badge-online {
+  color: #075b37;
+  background: #dff5e8;
+  border-color: #91d5ad;
+}
+.ms-page .topbar-actions .badge-offline {
+  color: #9e241d;
+  background: #ffe8e5;
+  border-color: #efaaa4;
+}
+
+.ms-page .type-badge,
+.ms-page .meta-chip,
+.ms-page .timing-chip,
+.ms-page .work-badge,
+.ms-page .phone-chip,
+.ms-page .route-code span,
+.ms-page .empty-chip {
+  border-width: 1px;
+  border-style: solid;
+  box-shadow: 0 1px 2px rgba(22, 30, 38, .06);
+}
+.ms-page .route-code span {
+  color: #314554;
+  background: #e7f1f7;
+  border-color: #b7d2e2;
+}
+.ms-page .meta-chip {
+  padding: 3px 9px;
+  color: #304d61;
+  background: #e5f2fa;
+  border-color: #afd4e8;
+}
+.ms-page .route-meta span:nth-child(2) .meta-chip {
+  color: #5c4387;
+  background: #f0e9fb;
+  border-color: #cdb8ec;
+}
+.ms-page .route-meta span:nth-child(3) .meta-chip {
+  color: #77530b;
+  background: #fff2cc;
+  border-color: #e7c86b;
+}
+.ms-page .type-badge.inbound { color: #08623e; background: #dff5e8; border-color: #91d5ad; }
+.ms-page .type-badge.outbound { color: #1553a0; background: #e3efff; border-color: #9fc2ee; }
+.ms-page .type-badge.drop { color: #805604; background: #fff0bf; border-color: #e5c04b; }
+.ms-page .timing-chip.ontime { color: #07633d; background: #dcf4e6; border-color: #91d5ad; }
+.ms-page .timing-chip.late { color: #a72720; background: #ffe4e1; border-color: #eca49e; }
+.ms-page .timing-chip.neutral,
+.ms-page .empty-chip { color: #45525c; background: #e9eef1; border-color: #c2cdd3; }
+.ms-page .work-badge { color: #3f4e59; background: #e8eef2; border-color: #bdcbd3; }
+.ms-page .work-badge.arrived { color: #1357a6; background: #e1edff; border-color: #9fc2ee; }
+.ms-page .work-badge.unloading { color: #805604; background: #fff0bf; border-color: #e5c04b; }
+.ms-page .work-badge.completed,
+.ms-page .work-badge.departed { color: #07633d; background: #dcf4e6; border-color: #91d5ad; }
+.ms-page .work-badge.expired { color: #7c352f; background: #f5e7e5; border-color: #d8aaa6; }
+.ms-page .people-summary .phone-chip,
+.ms-page .mobile-party .phone-chip {
+  color: #174f72;
+  background: #e2f2fb;
+  border-color: #9ccbe3;
+}
+.ms-page .work-summary > small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 9px;
+  border: 1px solid #c7d0d6;
+  border-radius: 999px;
+  color: #41515d;
+  background: #edf1f4;
+  font-weight: 800;
+}
+
+.ms-page .ms-table td {
+  padding-top: 20px;
+  padding-bottom: 20px;
+  line-height: 1.55;
+}
+.ms-page .route-summary,
+.ms-page .route-meta,
+.ms-page .time-pair,
+.ms-page .work-summary,
+.ms-page .people-summary { gap: 8px; }
+.ms-page .route-code { gap: 9px; }
+.ms-page .route-title { line-height: 1.5; }
+.ms-page .route-plate,
+.ms-page .row-muted,
+.ms-page .work-summary > small { line-height: 1.45; }
+.ms-page .time-pair > div { gap: 4px; }
+.ms-page .time-pair > div + div { margin-top: 2px; padding-top: 9px; }
+.ms-page .duration-line { gap: 4px; }
+.ms-page .people-summary strong,
+.ms-page .people-summary span { line-height: 1.45; }
+
+@media (max-width: 900px) {
+  .ms-page .site-header { position: relative; }
+  .ms-page .site-header-inner { align-items: stretch; gap: 10px; padding: 10px 14px 12px; }
+  .ms-page .header-brand { justify-content: center; }
+  .ms-page .topbar-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    padding: 7px;
+  }
+  .ms-page .topbar-actions > * { width: 100%; min-width: 0; }
+  .ms-page .truck-card { line-height: 1.55; }
+  .ms-page .truck-card-head,
+  .ms-page .mobile-status-cards,
+  .ms-page .mobile-party,
+  .ms-page .mobile-work-status { margin-top: 12px; }
+}
+
+@media (max-width: 560px) {
+  .ms-page .site-header-inner { padding-inline: 10px; }
+  .ms-page .header-brand { justify-content: flex-start; }
+  .ms-page .brand-mark { min-width: 68px; height: 44px; }
+  .ms-page .brand-copy strong { font-size: 16px; white-space: normal; }
+  .ms-page .brand-copy span { font-size: 11px; }
+  .ms-page .topbar-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ms-page .topbar-actions .badge { grid-column: 1 / -1; }
+  .ms-page .topbar-actions .btn,
+  .ms-page .topbar-actions .badge { min-height: 42px; font-size: 12px; }
+  .ms-page .mobile-route-meta { gap: 8px; }
+}
 #settings-dialog {
   width: min(96vw, 1320px);
   max-width: none;

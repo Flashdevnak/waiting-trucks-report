@@ -3384,11 +3384,11 @@ tbody tr.is-unloading:hover {
 
 /* Desktop width contract tuned for a notebook at 100% zoom. */
 @media (min-width: 901px) {
-  .ms-page .ms-table col.col-route { width: 18%; }
-  .ms-page .ms-table col.col-meta { width: 10%; }
-  .ms-page .ms-table col.col-work { width: 9%; }
-  .ms-page .ms-table col.col-schedule { width: 40%; }
-  .ms-page .ms-table col.col-status { width: 14%; }
+  .ms-page .ms-table col.col-route { width: 17%; }
+  .ms-page .ms-table col.col-meta { width: 7%; }
+  .ms-page .ms-table col.col-work { width: 7%; }
+  .ms-page .ms-table col.col-schedule { width: 42%; }
+  .ms-page .ms-table col.col-status { width: 18%; }
   .ms-page .ms-table col.col-company { width: 9%; }
   .ms-page .ms-table th:nth-child(1),
   .ms-page .ms-table th:nth-child(2),
@@ -3405,8 +3405,58 @@ tbody tr.is-unloading:hover {
   .ms-page .attendance-cell .type-badge {
     max-width: 100%;
     white-space: normal;
-    line-height: 1.35;
+    line-height: 1.25;
+    font-size: 10px;
+    padding: 5px 6px;
   }
   .ms-page .people-summary strong,
   .ms-page .route-title { overflow-wrap: anywhere; }
+}
+
+.arrival-sources,
+.parcel-progress {
+  width: 100%;
+  margin-top: 7px;
+  border: 1px solid #c9ceca;
+  border-radius: 6px;
+  background: #fff;
+  color: #222;
+}
+.arrival-sources > span,
+.parcel-progress-group > span {
+  display: block;
+  padding: 5px 7px;
+  border-bottom: 1px solid #d7dad7;
+  background: #eceeeb;
+  font-size: 10px;
+  font-weight: 900;
+}
+.arrival-sources > div,
+.parcel-progress-group > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.parcel-progress-group:first-child > div { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.arrival-sources b,
+.parcel-progress-group b {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 3px;
+  font-size: 9px;
+  font-weight: 700;
+}
+.arrival-sources b + b,
+.parcel-progress-group b + b { border-left: 1px solid #d7dad7; }
+.arrival-sources strong,
+.parcel-progress-group strong { font-size: 13px; color: #111; }
+.arrival-sources small { display: block; padding: 4px 6px; border-top: 1px solid #d7dad7; font-weight: 800; }
+.parcel-progress-group + .parcel-progress-group { border-top: 1px solid #b9bdb9; }
+
+@media (max-width: 900px) {
+  .arrival-sources,
+  .parcel-progress { margin: 12px 14px 0; width: calc(100% - 28px); }
+  .arrival-sources strong,
+  .parcel-progress-group strong { font-size: 15px; }
+  .compact-drop-progress { margin: 12px 14px 0; width: calc(100% - 28px); }
 }

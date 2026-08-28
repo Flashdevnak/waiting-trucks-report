@@ -21,6 +21,7 @@ const state = {
   region: "all",
   route: "all",
   status: "all",
+  summary: "all",
   queue: "queue",
   standards: {},
   loading: false,
@@ -52,32 +53,39 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   el("branch-filter").onchange = (event) => {
     state.branch = event.target.value;
+    state.summary = "all";
     loadData();
   };
   setupDateInput("date-from");
   setupDateInput("date-to");
   el("attribute-filter").onchange = (event) => {
     state.attribute = event.target.value;
+    state.summary = "all";
     render();
   };
   el("region-filter").onchange = (event) => {
     state.region = event.target.value;
+    state.summary = "all";
     render();
   };
   el("attendance-filter").onchange = (event) => {
     state.attendance = event.target.value;
+    state.summary = "all";
     render();
   };
   el("route-filter").onchange = (event) => {
     state.route = event.target.value;
+    state.summary = "all";
     render();
   };
   el("status-filter").onchange = (event) => {
     state.status = event.target.value;
+    state.summary = "all";
     render();
   };
   el("queue-filter").onchange = (event) => {
     state.queue = event.target.value;
+    state.summary = "all";
     render();
   };
   document.querySelectorAll("[data-metric]").forEach((card) => {
@@ -410,7 +418,7 @@ function queueInfo(row, now = new Date()) {
   };
 }
 
-function filteredRows() {
+function filteredRows(ignoreSummary = false) {
   const source =
     state.queue === "queue" ? state.currentRows : state.archiveRows;
   return source
@@ -441,6 +449,14 @@ function filteredRows() {
         row.actualArrivalAt || row.estimatedArrivalAt,
       );
       const queue = queueInfo(row);
+      const summaryMatch =
+        ignoreSummary ||
+        state.summary === "all" ||
+        (state.summary === "waiting" && isDestination(row) && status.key === "arrived") ||
+        (state.summary === "unloading" && isDestination(row) && status.key === "unloading") ||
+        (state.summary === "completed" && isDestination(row) && status.key === "completed") ||
+        (state.summary === "origin" && isOrigin(row) && !queue.done) ||
+        (state.summary === "drop" && isDrop(row) && !queue.done);
       const queueMatch =
         state.queue === "all" ||
         (state.queue === "completed" && (queue.done || queue.expired)) ||
@@ -455,7 +471,8 @@ function filteredRows() {
         (state.attribute === "all" || row.routeAttribute === state.attribute) &&
         (state.region === "all" || row.region === state.region) &&
         (state.route === "all" || row.routeType === state.route) &&
-        statusMatch
+        statusMatch &&
+        summaryMatch
       );
     })
     .sort((a, b) => {
@@ -501,8 +518,9 @@ function render() {
   el("loading-state").classList.add("hidden");
   metrics();
   renderFreshness();
+  const summaryRows = filteredRows(true);
   const rows = filteredRows();
-  renderFilterSummary(rows);
+  renderFilterSummary(summaryRows);
   if (!rows.length) {
     empty(
       state.rows.length
@@ -530,45 +548,25 @@ function renderFilterSummary(rows) {
     if (isDrop(row) && !queue.done) counts.drop++;
   }
   el("filter-summary").innerHTML = `
-    <button type="button" class="summary-all" data-summary-status="all"><span>ผลตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
-    <button type="button" class="summary-wait" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
-    <button type="button" class="summary-work" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
-    <button type="button" class="summary-done" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
-    <button type="button" class="summary-origin" data-summary-status="origin"><span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
-    <button type="button" class="summary-drop" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>`;
+    <button type="button" class="summary-all ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all"><span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
+    <button type="button" class="summary-wait ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
+    <button type="button" class="summary-work ${state.summary === "unloading" ? "is-active" : ""}" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
+    <button type="button" class="summary-done ${state.summary === "completed" ? "is-active" : ""}" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
+    <button type="button" class="summary-origin ${state.summary === "origin" ? "is-active" : ""}" data-summary-status="origin"><span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
+    <button type="button" class="summary-drop ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>`;
   el("filter-summary")
     .querySelectorAll("button")
     .forEach((button) => {
       button.onclick = () => {
       const value = button.dataset.summaryStatus;
-      if (value === "all") {
-        state.attendance = "all";
-        state.status = "all";
-        el("attendance-filter").value = "all";
-        el("status-filter").value = "all";
-      } else if (value === "origin") {
-          state.attendance = "ต้นทาง";
-          el("attendance-filter").value = "ต้นทาง";
-          state.status = "all";
-        } else if (value === "drop") {
-          state.attendance = "จุดดรอป";
-          el("attendance-filter").value = "จุดดรอป";
-          state.status = "all";
-        } else if (value === "waiting") {
-          state.attendance = "ปลายทาง";
-          el("attendance-filter").value = "ปลายทาง";
-          state.status = "arrived";
-          el("status-filter").value = "arrived";
-        } else {
-          state.status = value;
-          el("status-filter").value = value;
-        }
+        state.summary = value;
         render();
       };
     });
 }
 
 function applyMetricFilter(metric) {
+  state.summary = "all";
   state.status = "all";
   state.attendance = "all";
   if (metric === "all") state.queue = "all";

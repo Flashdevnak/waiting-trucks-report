@@ -688,6 +688,217 @@ dialog::backdrop {
   .setup-link { width: 100%; justify-content: center; text-align: center; }
 }
 
+/* Unified Flash report theme: one visual language for header, summary and data. */
+.ms-page {
+  --flash-black: #151515;
+  --flash-ink: #242424;
+  --flash-gold: #ffd400;
+  --flash-gold-soft: #fff7d1;
+  --flash-gold-line: #e3b900;
+  --flash-paper: #ffffff;
+  --flash-canvas: #f5f6f3;
+  --flash-line: #d9dcd8;
+  --flash-muted: #606761;
+  --flash-green: #087448;
+  --flash-green-soft: #e6f5ed;
+  --flash-red: #b3261e;
+  --flash-red-soft: #fdebea;
+  background: var(--flash-canvas);
+  color: var(--flash-ink);
+}
+
+.ms-page .filter-summary {
+  gap: 10px;
+}
+.ms-page .filter-summary button {
+  min-height: 62px;
+  border: 1px solid #cfd3cf;
+  border-radius: 7px;
+  background: var(--flash-paper);
+  color: var(--flash-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+}
+.ms-page .filter-summary button:hover {
+  border-color: var(--flash-gold-line);
+  background: #fffdf3;
+}
+.ms-page .filter-summary button.is-active {
+  border-color: var(--flash-gold-line);
+  outline: none;
+  background: linear-gradient(135deg, #fffdf3 0%, var(--flash-gold-soft) 100%);
+  box-shadow: inset 0 -3px 0 var(--flash-gold), 0 2px 6px rgba(91, 72, 0, .08);
+}
+.ms-page .filter-summary span {
+  color: #30332f;
+  font-size: 13px;
+  font-weight: 800;
+}
+.ms-page .filter-summary strong {
+  color: var(--flash-black);
+  font-size: 24px;
+}
+
+.ms-page .table-panel {
+  border-color: #cfd2ce;
+  border-radius: 7px;
+  background: var(--flash-paper);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .05);
+  overflow: hidden;
+}
+.ms-page .ms-table thead th {
+  padding: 13px 10px;
+  border-color: #333;
+  background: var(--flash-black);
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: .01em;
+}
+.ms-page .ms-table tbody tr,
+.ms-page .ms-table tbody tr.is-unloading {
+  background: var(--flash-paper);
+}
+.ms-page .ms-table tbody tr:nth-child(even),
+.ms-page .ms-table tbody tr.is-unloading:nth-child(even) {
+  background: #fcfcfa;
+}
+.ms-page .ms-table tbody tr:hover,
+.ms-page .ms-table tbody tr.is-unloading:hover {
+  background: #fffbea;
+  box-shadow: inset 4px 0 0 var(--flash-gold);
+}
+.ms-page .ms-table td {
+  padding: 20px 14px;
+  border-color: var(--flash-line);
+  color: var(--flash-ink);
+  line-height: 1.55;
+}
+.ms-page .route-summary,
+.ms-page .route-meta,
+.ms-page .time-pair,
+.ms-page .work-summary,
+.ms-page .people-summary {
+  gap: 8px;
+}
+.ms-page .route-code strong,
+.ms-page .route-title,
+.ms-page .time-pair strong,
+.ms-page .people-summary strong {
+  color: var(--flash-black);
+}
+.ms-page .route-code strong { font-size: 16px; }
+.ms-page .route-title { font-size: 14px; line-height: 1.45; }
+.ms-page .route-plate,
+.ms-page .row-muted,
+.ms-page .work-summary > small,
+.ms-page .people-summary small {
+  color: var(--flash-muted);
+  font-size: 12px;
+}
+
+/* Gold chips describe data; green/red are reserved for operational results. */
+.ms-page .route-code span,
+.ms-page .meta-chip,
+.ms-page .type-badge.inbound,
+.ms-page .type-badge.outbound,
+.ms-page .type-badge.drop {
+  border: 1px solid #e3ca72;
+  background: #fff8dc;
+  color: #5c4700;
+  box-shadow: none;
+}
+.ms-page .type-badge {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 12px;
+}
+.ms-page .type-badge.inbound::before { content: "เข้า · "; }
+.ms-page .type-badge.outbound::before { content: "ออก · "; }
+.ms-page .type-badge.drop::before { content: "ผ่าน · "; }
+.ms-page .route-meta b,
+.ms-page .time-pair span {
+  color: #686d68;
+  font-size: 11px;
+}
+.ms-page .route-meta span { font-size: 13px; }
+
+.ms-page .timing-chip.neutral,
+.ms-page .empty-chip,
+.ms-page .work-badge,
+.ms-page .work-badge.arrived,
+.ms-page .work-badge.expired,
+.ms-page .people-summary .phone-chip,
+.ms-page .mobile-party .phone-chip,
+.ms-page .phone-chip {
+  border: 1px solid #cbd0cc;
+  background: #f0f2ef;
+  color: #343a35;
+}
+.ms-page .work-badge.arrived .status-dot,
+.ms-page .work-badge.expired .status-dot,
+.ms-page .work-badge .status-dot { background: #5d655f; }
+.ms-page .work-badge.unloading {
+  border: 1px solid #dec05b;
+  background: #fff3bd;
+  color: #684d00;
+}
+.ms-page .work-badge.unloading .status-dot { background: #b88900; }
+.ms-page .work-badge.completed,
+.ms-page .work-badge.departed,
+.ms-page .timing-chip.ontime {
+  border: 1px solid #a4d4bb;
+  background: var(--flash-green-soft);
+  color: var(--flash-green);
+}
+.ms-page .work-badge.completed .status-dot,
+.ms-page .work-badge.departed .status-dot { background: var(--flash-green); }
+.ms-page .timing-chip.late {
+  border: 1px solid #e8aaa5;
+  background: var(--flash-red-soft);
+  color: var(--flash-red);
+}
+.ms-page .people-summary .phone-chip,
+.ms-page .mobile-party .phone-chip,
+.ms-page .phone-chip {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 12px;
+  text-decoration: none;
+}
+.ms-page .people-summary .phone-chip:hover,
+.ms-page .mobile-party .phone-chip:hover {
+  border-color: var(--flash-gold-line);
+  background: var(--flash-gold-soft);
+  color: var(--flash-black);
+}
+
+@media (max-width: 900px) {
+  .ms-page .truck-card.ms-card {
+    border: 1px solid #d1d4d0;
+    border-top: 4px solid var(--flash-gold);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, .05);
+  }
+  .ms-page .truck-card-head {
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e2e3df;
+  }
+  .ms-page .mobile-route-meta {
+    gap: 8px;
+    padding: 10px 0;
+  }
+  .ms-page .mobile-status-cards > div,
+  .ms-page .mobile-party {
+    border-color: #d9dcd8;
+    background: #fbfcfa;
+  }
+  .ms-page .mobile-work-status {
+    border-color: #d9dcd8;
+    background: #fffdf3;
+  }
+}
+
 /* MS header, badges and table rhythm */
 .ms-page .site-header {
   position: sticky;
@@ -1351,6 +1562,95 @@ dialog::backdrop {
   .metric-card small {
     font-size: 10px;
   }
+}
+
+/* Final visual contract: black/yellow/white/gray; semantic color only for status. */
+.ms-page .metric-card,
+.ms-page .filter-summary button,
+.ms-page .panel,
+.ms-page .ms-table tbody tr { background: #fff; color: #1d1d1d; }
+.ms-page .metric-card.metric-dark { background: #202020; color: #fff; }
+.ms-page .metric-card.metric-dark span,
+.ms-page .metric-card.metric-dark strong,
+.ms-page .metric-card.metric-dark small { color: #fff; }
+.ms-page .metric-card:not(.metric-danger):not(.metric-warning) { border-bottom-color: #777; }
+.ms-page .filter-summary button.is-active {
+  border-color: #d5ad00;
+  background: #fff4b5;
+  box-shadow: inset 0 -3px 0 #ffd400;
+}
+.ms-page .route-code span,
+.ms-page .meta-chip,
+.ms-page .route-meta span:nth-child(2) .meta-chip,
+.ms-page .route-meta span:nth-child(3) .meta-chip,
+.ms-page .type-badge.inbound,
+.ms-page .type-badge.drop {
+  border-color: #d8bd57;
+  background: #fff6cb;
+  color: #4c3a00;
+}
+.ms-page .type-badge.outbound {
+  border-color: #222;
+  background: #222;
+  color: #fff;
+}
+.ms-page .timing-chip.neutral,
+.ms-page .empty-chip,
+.ms-page .work-badge:not(.unloading):not(.completed):not(.departed),
+.ms-page .phone-chip {
+  border-color: #c9ceca;
+  background: #eef0ed;
+  color: #303530;
+}
+
+@media (max-width: 900px) {
+  .ms-page .compact-card { text-align: center; }
+  .ms-page .compact-card-head {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 16px 14px;
+    text-align: center;
+  }
+  .ms-page .compact-card-tags {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    min-width: 0;
+  }
+  .ms-page .compact-card-head h2 {
+    width: 100%;
+    max-width: 540px;
+    font-size: 17px;
+    text-align: center;
+  }
+  .ms-page .compact-card-head p { text-align: center; }
+  .ms-page .compact-meta span,
+  .ms-page .compact-times > div,
+  .ms-page .compact-operation > div,
+  .ms-page .compact-party > div { text-align: center; }
+  .ms-page .compact-timing { justify-content: center; flex-direction: column; gap: 2px; }
+  .ms-page .compact-party {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 10px;
+  }
+  .ms-page .compact-party > div { width: 100%; }
+  .ms-page .compact-phone { width: min(100%, 240px); }
+}
+
+@media (max-width: 420px) {
+  .ms-page .compact-times,
+  .ms-page .compact-operation { grid-template-columns: 1fr; }
+  .ms-page .compact-times > div,
+  .ms-page .compact-operation > div { padding: 9px 6px; }
+  .ms-page .compact-operation > div + div {
+    border-left: 0;
+    border-top: 1px solid #e3e4e0;
+  }
+  .ms-page .compact-meta span { padding: 9px 3px; font-size: 11px; }
 }
 
 /* Final MS layout overrides */
@@ -2370,7 +2670,7 @@ tbody tr.is-unloading:hover {
   .mobile-party { grid-template-columns: 92px minmax(0, 1fr); }
   .mobile-party span { font-size: 12px; font-weight: 700; }
 .mobile-party strong { font-size: 14px; }
-  .phone-chip {
+.phone-chip {
     display: inline-flex;
     padding: 4px 9px;
     border-radius: 999px;
@@ -2379,4 +2679,450 @@ tbody tr.is-unloading:hover {
     font-size: 12px;
     font-weight: 800;
   }
+}
+
+/* Final cascade lock: keep the table on the same Flash black/gold theme. */
+.ms-page .filter-summary button {
+  border: 1px solid #cfd3cf;
+  border-radius: 7px;
+  background: #fff;
+  color: #242424;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04);
+}
+.ms-page .filter-summary button:hover { border-color: #e3b900; background: #fffdf3; }
+.ms-page .filter-summary button.is-active {
+  border-color: #e3b900;
+  outline: 0;
+  background: linear-gradient(135deg,#fffdf3,#fff7d1);
+  box-shadow: inset 0 -3px 0 #ffd400,0 2px 6px rgba(91,72,0,.08);
+}
+.ms-page .filter-summary span { color: #30332f; font-size: 13px; font-weight: 800; }
+.ms-page .filter-summary strong { color: #151515; font-size: 24px; }
+.ms-page .table-panel {
+  border-color: #cfd2ce;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  overflow: hidden;
+}
+.ms-page .ms-table thead th {
+  padding: 13px 10px;
+  border-color: #333;
+  background: #151515;
+  color: #fff;
+  font-size: 13px;
+}
+.ms-page .ms-table tbody tr,
+.ms-page .ms-table tbody tr.is-unloading { background: #fff; }
+.ms-page .ms-table tbody tr:nth-child(even),
+.ms-page .ms-table tbody tr.is-unloading:nth-child(even) { background: #fcfcfa; }
+.ms-page .ms-table tbody tr:hover,
+.ms-page .ms-table tbody tr.is-unloading:hover {
+  background: #fffbea;
+  box-shadow: inset 4px 0 0 #ffd400;
+}
+.ms-page .ms-table td { padding: 20px 14px; border-color: #d9dcd8; color: #242424; line-height: 1.55; }
+.ms-page .route-summary,
+.ms-page .route-meta,
+.ms-page .time-pair,
+.ms-page .work-summary,
+.ms-page .people-summary { gap: 8px; }
+.ms-page .route-code strong { color: #151515; font-size: 16px; }
+.ms-page .route-title { color: #151515; font-size: 14px; line-height: 1.45; }
+.ms-page .route-plate,
+.ms-page .row-muted,
+.ms-page .work-summary > small,
+.ms-page .people-summary small { color: #606761; font-size: 12px; }
+.ms-page .route-code span,
+.ms-page .meta-chip,
+.ms-page .route-meta span:nth-child(2) .meta-chip,
+.ms-page .route-meta span:nth-child(3) .meta-chip,
+.ms-page .type-badge.inbound,
+.ms-page .type-badge.outbound,
+.ms-page .type-badge.drop {
+  border: 1px solid #e3ca72;
+  background: #fff8dc;
+  color: #5c4700;
+  box-shadow: none;
+}
+.ms-page .timing-chip.neutral,
+.ms-page .empty-chip,
+.ms-page .work-badge,
+.ms-page .work-badge.arrived,
+.ms-page .work-badge.expired,
+.ms-page .people-summary .phone-chip,
+.ms-page .mobile-party .phone-chip,
+.ms-page .phone-chip {
+  border: 1px solid #cbd0cc;
+  background: #f0f2ef;
+  color: #343a35;
+}
+.ms-page .work-badge .status-dot,
+.ms-page .work-badge.arrived .status-dot,
+.ms-page .work-badge.expired .status-dot { background: #5d655f; }
+.ms-page .work-badge.unloading {
+  border: 1px solid #dec05b;
+  background: #fff3bd;
+  color: #684d00;
+}
+.ms-page .work-badge.unloading .status-dot { background: #b88900; }
+.ms-page .work-badge.completed,
+.ms-page .work-badge.departed,
+.ms-page .timing-chip.ontime {
+  border: 1px solid #a4d4bb;
+  background: #e6f5ed;
+  color: #087448;
+}
+.ms-page .work-badge.completed .status-dot,
+.ms-page .work-badge.departed .status-dot { background: #087448; }
+.ms-page .timing-chip.late { border: 1px solid #e8aaa5; background: #fdebea; color: #b3261e; }
+.ms-page .people-summary strong { color: #151515; font-size: 14px; line-height: 1.45; }
+.ms-page .people-summary .phone-chip,
+.ms-page .mobile-party .phone-chip { min-height: 28px; padding: 4px 10px; font-size: 12px; }
+
+@media (max-width:900px) {
+  .ms-page .truck-card.ms-card {
+    border: 1px solid #d1d4d0;
+    border-top: 4px solid #ffd400;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 2px 7px rgba(0,0,0,.05);
+  }
+  .ms-page .truck-card-head { gap: 12px; padding-bottom: 12px; border-bottom: 1px solid #e2e3df; }
+  .ms-page .mobile-status-cards > div,
+  .ms-page .mobile-party { border-color: #d9dcd8; background: #fbfcfa; }
+  .ms-page .mobile-work-status { border-color: #d9dcd8; background: #fffdf3; }
+}
+
+/* Mobile report cards — compact Flash report style, not the old admin cards. */
+@media (max-width: 900px) {
+  .ms-page .mobile-cards { gap: 12px; }
+  .ms-page .truck-card.ms-card {
+    padding: 0;
+    border: 1px solid #d6d8d4;
+    border-top: 5px solid #151515;
+    border-radius: 7px;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,.06);
+    overflow: hidden;
+  }
+  .ms-page .truck-card-head {
+    display: grid;
+    grid-template-columns: auto minmax(0,1fr);
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    padding: 16px;
+    border-bottom: 1px solid #e2e3df;
+    background: #fff;
+    text-align: left;
+  }
+  .ms-page .truck-card-head .type-badge {
+    min-width: 70px;
+    min-height: 34px;
+    padding: 6px 10px;
+    border-radius: 3px;
+    box-shadow: none;
+    font-size: 13px;
+  }
+  .ms-page .truck-card-head .type-badge.inbound {
+    border-color: #ffd400;
+    background: #ffd400;
+    color: #151515;
+  }
+  .ms-page .truck-card-head .type-badge.outbound {
+    border-color: #242424;
+    background: #242424;
+    color: #fff;
+  }
+  .ms-page .truck-card-head .type-badge.drop {
+    border-color: #d6ae00;
+    background: #fff7cf;
+    color: #4f3c00;
+  }
+  .ms-page .truck-route .primary {
+    color: #181818;
+    font-size: 17px;
+    line-height: 1.45;
+    text-align: left;
+  }
+  .ms-page .truck-route .secondary {
+    margin-top: 5px;
+    color: #626862;
+    font-size: 13px;
+    line-height: 1.45;
+    text-align: left;
+  }
+  .ms-page .mobile-route-meta {
+    justify-content: flex-start;
+    gap: 8px 14px;
+    margin: 0;
+    padding: 13px 16px;
+    border-bottom: 1px solid #e2e3df;
+    background: #fafbf8;
+  }
+  .ms-page .mobile-route-meta > span { color: #5b615c; font-size: 12px; }
+  .ms-page .mobile-route-meta .meta-chip {
+    min-height: 26px;
+    padding: 3px 9px;
+    border-radius: 4px;
+    border-color: #dfc568;
+    background: #fff8dc;
+    color: #4f3d00;
+  }
+  .ms-page .mobile-status-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin: 0;
+    border-bottom: 1px solid #e2e3df;
+    background: #fff;
+  }
+  .ms-page .mobile-status-cards > div {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+    padding: 11px;
+    border: 0;
+    border-right: 1px solid #e5e6e2;
+    border-bottom: 1px solid #e5e6e2;
+    background: #fff;
+  }
+  .ms-page .mobile-status-cards > div:nth-child(even) { border-right: 0; }
+  .ms-page .time-card,
+  .ms-page .mini-card,
+  .ms-page .operation-cards,
+  .ms-page .mobile-status-cards .empty-chip {
+    width: 100%;
+    min-height: 76px;
+    padding: 9px;
+    border: 0;
+    border-radius: 5px;
+    background: #f6f7f4;
+    box-shadow: none;
+  }
+  .ms-page .time-card.actual { background: #fff8d7; }
+  .ms-page .mini-card.success { background: #e9f6ef; }
+  .ms-page .mini-card.danger { background: #fdeceb; }
+  .ms-page .time-card span,
+  .ms-page .mini-card span { color: #626862; font-size: 12px; }
+  .ms-page .time-card strong,
+  .ms-page .mini-card strong { color: #1d1d1d; font-size: 15px; line-height: 1.45; }
+  .ms-page .mobile-party {
+    grid-template-columns: 88px minmax(0,1fr);
+    gap: 9px 12px;
+    margin: 0;
+    padding: 15px 16px;
+    border: 0;
+    border-bottom: 1px solid #e2e3df;
+    border-radius: 0;
+    background: #fff;
+    text-align: left;
+  }
+  .ms-page .mobile-party span { color: #666b66; font-size: 12px; font-weight: 700; }
+  .ms-page .mobile-party strong { color: #1d1d1d; font-size: 14px; line-height: 1.5; }
+  .ms-page .mobile-party .phone-chip {
+    border-color: #dfc568;
+    border-radius: 4px;
+    background: #fff8dc;
+    color: #3e330b;
+  }
+  .ms-page .mobile-work-status {
+    display: grid;
+    grid-template-columns: auto minmax(0,1fr);
+    align-items: center;
+    gap: 5px 12px;
+    min-height: 0;
+    margin: 0;
+    padding: 14px 16px;
+    border: 0;
+    border-radius: 0;
+    background: #fafbf8;
+    text-align: left;
+  }
+  .ms-page .mobile-work-status .status-pill {
+    grid-row: 1 / span 2;
+    margin: 0;
+    padding: 6px 10px;
+    border: 1px solid #d8b945;
+    border-radius: 4px;
+    background: #fff3bd;
+    color: #594300;
+    font-size: 12px;
+    font-weight: 800;
+  }
+  .ms-page .mobile-work-status strong { color: #1c1c1c; font-size: 15px; line-height: 1.4; }
+  .ms-page .mobile-work-status small { color: #646a65; font-size: 12px; }
+}
+
+@media (max-width: 480px) {
+  .ms-page .truck-card-head { padding: 14px 13px; }
+  .ms-page .truck-card-head .type-badge { min-width: 62px; }
+  .ms-page .mobile-route-meta,
+  .ms-page .mobile-party,
+  .ms-page .mobile-work-status { padding-left: 13px; padding-right: 13px; }
+  .ms-page .mobile-status-cards > div { padding: 8px; }
+}
+
+/* Report layout v2 — denser desktop rows and genuinely compact mobile cards. */
+.ms-page .ms-table td { padding: 16px 12px; }
+.ms-page .route-code strong { font-size: 15px; }
+.ms-page .route-title { max-width: 390px; font-size: 13px; }
+.ms-page .route-summary,
+.ms-page .route-meta,
+.ms-page .time-pair,
+.ms-page .work-summary,
+.ms-page .people-summary { gap: 6px; }
+.ms-page .route-meta { flex-direction: row; justify-content: center; flex-wrap: wrap; }
+.ms-page .route-meta span { min-width: 56px; }
+.ms-page .route-meta b { margin-bottom: 3px; font-size: 10px; }
+.ms-page .route-meta .meta-chip { min-height: 25px; padding: 3px 8px; border-radius: 4px; }
+.ms-page .time-pair > div + div { padding-top: 5px; }
+.ms-page .work-badge,
+.ms-page .timing-chip { border-radius: 4px; }
+
+.compact-card { display: none; }
+
+@media (max-width: 900px) {
+  .ms-page .mobile-cards { gap: 10px; }
+  .ms-page .compact-card {
+    display: block;
+    padding: 0;
+    border: 1px solid #d8dad6;
+    border-top: 4px solid #151515;
+    border-radius: 7px;
+    background: #fff;
+    box-shadow: 0 2px 7px rgba(0,0,0,.055);
+    overflow: hidden;
+  }
+  .compact-card-head {
+    display: grid;
+    grid-template-columns: auto minmax(0,1fr);
+    column-gap: 12px;
+    row-gap: 3px;
+    align-items: center;
+    padding: 14px;
+    border-bottom: 1px solid #e3e4e0;
+  }
+  .compact-card-tags {
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+    min-width: 62px;
+  }
+  .compact-card-tags .type-badge,
+  .compact-card-tags .vehicle-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 900;
+  }
+  .compact-card-tags .type-badge.inbound { border-color: #ffd400; background: #ffd400; color: #151515; }
+  .compact-card-tags .type-badge.outbound { border-color: #242424; background: #242424; color: #fff; }
+  .compact-card-tags .type-badge.drop { border-color: #d9b000; background: #fff5c2; color: #4e3b00; }
+  .compact-card-tags .vehicle-chip { border: 1px solid #d5d8d3; background: #f1f3f0; color: #343934; }
+  .compact-card-head h2 {
+    margin: 0;
+    color: #171717;
+    font-size: 16px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  .compact-card-head p { margin: 0; color: #656b65; font-size: 12px; line-height: 1.4; }
+  .compact-meta {
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    border-bottom: 1px solid #e3e4e0;
+    background: #fafbf8;
+  }
+  .compact-meta span {
+    padding: 9px 6px;
+    color: #302f29;
+    font-size: 12px;
+    font-weight: 800;
+    text-align: center;
+  }
+  .compact-meta span + span { border-left: 1px solid #e3e4e0; }
+  .compact-meta b { display: block; margin-bottom: 2px; color: #777b75; font-size: 9px; font-weight: 700; }
+  .compact-times {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 11px 13px;
+    gap: 9px;
+    border-bottom: 1px solid #e3e4e0;
+  }
+  .compact-times > div { min-width: 0; }
+  .compact-times span,
+  .compact-operation span,
+  .compact-party span { display: block; color: #70756f; font-size: 10px; font-weight: 700; }
+  .compact-times strong { display: block; margin-top: 3px; color: #1d1d1d; font-size: 13px; line-height: 1.35; }
+  .compact-timing {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 9px;
+    border-radius: 4px;
+    background: #f1f3f0;
+  }
+  .compact-timing strong { margin: 0; font-size: 12px; }
+  .compact-timing.ontime { background: #e8f5ee; }
+  .compact-timing.ontime strong { color: #087448; }
+  .compact-timing.late { background: #fdeceb; }
+  .compact-timing.late strong { color: #b3261e; }
+  .compact-operation {
+    display: grid;
+    grid-template-columns: 1fr 1.25fr;
+    border-bottom: 1px solid #e3e4e0;
+    background: #fff;
+  }
+  .compact-operation > div { padding: 12px 13px; }
+  .compact-operation > div + div { border-left: 1px solid #e3e4e0; }
+  .compact-operation strong { display: block; margin-top: 3px; color: #151515; font-size: 15px; line-height: 1.35; }
+  .compact-operation small { display: block; margin-top: 2px; color: #656b65; font-size: 10px; line-height: 1.35; }
+  .compact-operation.late > div:first-child { background: #fff4f2; }
+  .compact-operation.late > div:first-child strong { color: #b3261e; }
+  .compact-party {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 13px;
+    background: #fafbf8;
+  }
+  .compact-party > div { min-width: 0; }
+  .compact-party strong { display: block; margin-top: 2px; color: #222; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+  .compact-phone {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 88px;
+    min-height: 42px;
+    padding: 5px 8px;
+    border: 1px solid #ddbd46;
+    border-radius: 4px;
+    background: #fff4bd;
+    color: #292306;
+    font-size: 12px;
+    font-weight: 900;
+    text-decoration: none;
+  }
+  .compact-phone span { color: #71611f; font-size: 9px; }
+}
+
+@media (max-width: 420px) {
+  .compact-card-head { padding: 12px; column-gap: 10px; }
+  .compact-card-head h2 { font-size: 15px; }
+  .compact-times { padding: 10px 11px; }
+  .compact-operation > div { padding: 11px; }
+  .compact-party { grid-template-columns: 1fr 1fr; padding: 11px; }
+  .compact-phone { grid-column: 1 / -1; width: 100%; min-height: 38px; flex-direction: row; gap: 7px; }
 }

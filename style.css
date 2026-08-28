@@ -3331,12 +3331,12 @@ tbody tr.is-unloading:hover {
 .queue-label { padding: 4px 9px; border: 1px solid #bfc4bf; border-radius: 4px; background: #e5e7e4; color: #303530; font-weight: 800; }
 
 @media (min-width: 901px) {
-  .ms-page .ms-table th:nth-child(1) { width: 22%; }
-  .ms-page .ms-table th:nth-child(2) { width: 13%; }
-  .ms-page .ms-table th:nth-child(3) { width: 10%; }
-  .ms-page .ms-table th:nth-child(4) { width: 27%; }
+  .ms-page .ms-table th:nth-child(1) { width: 20%; }
+  .ms-page .ms-table th:nth-child(2) { width: 11%; }
+  .ms-page .ms-table th:nth-child(3) { width: 9%; }
+  .ms-page .ms-table th:nth-child(4) { width: 34%; }
   .ms-page .ms-table th:nth-child(5) { width: 17%; }
-  .ms-page .ms-table th:nth-child(6) { width: 11%; }
+  .ms-page .ms-table th:nth-child(6) { width: 9%; }
   .ms-page .route-meta-grid { display: grid; grid-template-columns: 1fr; gap: 7px; }
   .ms-page .route-meta-grid > span {
     display: grid;
@@ -3351,4 +3351,33 @@ tbody tr.is-unloading:hover {
   .ms-page .route-meta-grid .meta-chip { width: 100%; }
   .ms-page .work-summary { min-height: 112px; justify-content: center; }
   .ms-page .people-summary { min-height: 112px; justify-content: center; }
+}
+
+/* Final table layout: white rows, gray hover, and side-by-side schedule blocks. */
+.ms-page .ms-table tbody tr,
+.ms-page .ms-table tbody tr:nth-child(even),
+.ms-page .ms-table tbody tr.is-unloading,
+.ms-page .ms-table tbody tr.is-unloading:nth-child(even) {
+  background: #fff !important;
+}
+.ms-page .ms-table tbody tr:hover,
+.ms-page .ms-table tbody tr:nth-child(even):hover,
+.ms-page .ms-table tbody tr.is-unloading:hover,
+.ms-page .ms-table tbody tr[class]:hover {
+  background: #e9ebe8 !important;
+  box-shadow: inset 4px 0 0 #8e948f !important;
+}
+@media (min-width: 901px) {
+  .ms-page .schedule-stack.dual {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 8px;
+  }
+  .ms-page .schedule-stack.dual .schedule-section + .schedule-section { margin-top: 0; }
+  .ms-page .schedule-stack.dual .schedule-section { height: 100%; }
+  .ms-page .schedule-section { padding: 9px 8px; }
+  .ms-page .schedule-heading { margin: -9px -8px 8px; }
+  .ms-page .schedule-values > span { padding: 1px 5px; }
+  .ms-page .schedule-values strong { font-size: 12px; }
 }

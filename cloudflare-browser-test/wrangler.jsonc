@@ -6,9 +6,11 @@
   "workers_dev": true,
   "keep_vars": true,
   "browser": {
-    "binding": "BROWSER"
+    "binding": "BROWSER",
   },
+  "kv_namespaces": [{ "binding": "STATE" }],
+  "triggers": { "crons": ["* * * * *"] },
   "observability": {
-    "enabled": true
-  }
+    "enabled": true,
+  },
 }

@@ -425,7 +425,7 @@ function scheduleSection(row, mode) {
   const detail = timing.diff === null
     ? timing.label
     : `${timing.label} · ${nf.format(Math.abs(timing.diff))} นาที`;
-  return `<div class="schedule-section ${incoming ? "arrival" : "departure"}"><div class="schedule-heading">${incoming ? "เข้าสแตนด์บาย" : "ปล่อยรถ"}</div><div class="schedule-values"><span><b>${incoming ? "คาดว่าจะถึง" : "กำหนดออก"}</b><strong>${shortDateTime(plan)}</strong></span><span><b>${incoming ? "ถึงจริง" : "ออกจริง"}</b><strong>${shortDateTime(actual)}</strong></span></div><small class="timing-chip ${timing.key}">${esc(detail)}</small></div>`;
+  return `<div class="schedule-section ${incoming ? "arrival" : "departure"}"><div class="schedule-heading">${incoming ? "รถมาถึงคลัง" : "ปล่อยรถ"}</div><div class="schedule-values"><span><b>${incoming ? "คาดว่าจะถึง" : "กำหนดออก"}</b><strong>${shortDateTime(plan)}</strong></span><span><b>${incoming ? "ถึงจริง" : "ออกจริง"}</b><strong>${shortDateTime(actual)}</strong></span></div><small class="timing-chip ${timing.key}">${esc(detail)}</small></div>`;
 }
 function queueInfo(row, now = new Date()) {
   const arrival = parseDate(row.actualArrivalAt),
@@ -783,7 +783,7 @@ function tableRow(row) {
     <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td>
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
     <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
-    <td><div class="schedule-stack">${scheduleHtml}</div></td>
+    <td><div class="schedule-stack ${isDestination(row) ? "single" : "dual"}">${scheduleHtml}</div></td>
     <td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small class="queue-label">${esc(queueText)}</small></div></td>
     <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}</div></td>
   </tr>`;

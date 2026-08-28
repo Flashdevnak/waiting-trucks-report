@@ -1,14 +1,14 @@
 # ทดลองเชื่อมต่อ MS ผ่าน Cloudflare Browser Run
 
-โค้ดชุดนี้อยู่ใน branch `cloudflare-browser-test` และไม่แตะระบบจริงหรือ HAR เดิม
+โค้ดชุดนี้อยู่ในโฟลเดอร์ `cloudflare-browser-test` บน branch `main` และไม่แตะระบบจริงหรือ HAR เดิม
 
 ## นำขึ้นระบบทดสอบ
 
 1. Cloudflare Dashboard > Workers & Pages > Create application
 2. เลือก Import a repository
 3. เลือก GitHub repository `Flashdevnak/waiting-trucks-report`
-4. เลือก Production branch: `cloudflare-browser-test`
-5. Root directory: `cloudflare-browser-test`
+4. Project name: `waiting-trucks-ms-browser-test`
+5. Root directory: `/cloudflare-browser-test`
 6. Deploy command: `npx wrangler deploy`
 7. กด Save and Deploy
 8. เปิด Worker > Settings > Variables & Secrets

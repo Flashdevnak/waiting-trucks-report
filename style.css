@@ -1566,7 +1566,7 @@ dialog::backdrop {
 
 /* Flash operations theme — solid black/yellow/white/gray; status colors stay semantic. */
 .ms-page .ms-table tbody tr:nth-child(even) { background: #f2f2ef; }
-.ms-page .ms-table tbody tr:hover { background: #fff3ad; }
+.ms-page .ms-table tbody tr:hover { background: #eceeeb; }
 .ms-page .route-code span,
 .ms-page .meta-chip,
 .ms-page .route-meta span:nth-child(2) .meta-chip,
@@ -3262,4 +3262,29 @@ tbody tr.is-unloading:hover {
   .compact-party { background: #ededeb; }
   .compact-phone { border-color: #151515; background: #151515; color: #fff; }
   .compact-phone span { color: #ffd84d; }
+  .compact-operation > div:first-child strong { color: #087448; }
+  .compact-operation.late > div:first-child strong { color: #b3261e; }
+}
+
+/* Desktop table reading rhythm and column separation. */
+@media (min-width: 901px) {
+  .ms-page .ms-table { table-layout: fixed; }
+  .ms-page .ms-table th:nth-child(1) { width: 25%; }
+  .ms-page .ms-table th:nth-child(2) { width: 13%; }
+  .ms-page .ms-table th:nth-child(3) { width: 12%; }
+  .ms-page .ms-table th:nth-child(4) { width: 19%; }
+  .ms-page .ms-table th:nth-child(5) { width: 18%; }
+  .ms-page .ms-table th:nth-child(6) { width: 13%; }
+  .ms-page .ms-table th + th,
+  .ms-page .ms-table td + td { border-left: 1px solid #d5d8d4; }
+  .ms-page .ms-table th { padding: 15px 12px; letter-spacing: .01em; }
+  .ms-page .ms-table td { padding: 19px 15px; vertical-align: middle; }
+  .ms-page .route-summary,
+  .ms-page .route-meta,
+  .ms-page .time-pair,
+  .ms-page .work-summary,
+  .ms-page .people-summary { gap: 9px; }
+  .ms-page .time-pair > div + div { margin-top: 3px; padding-top: 8px; }
+  .ms-page .route-title { max-width: none; font-size: 14px; line-height: 1.5; }
+  .ms-page .work-summary { padding: 2px 6px; }
 }

@@ -6,21 +6,23 @@
     <meta name="theme-color" content="#151515" />
     <title>ติดตามเส้นทาง MS</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="style.css?v=20260828-08" />
-    <script src="ms.js?v=20260828-08" defer></script>
+    <link rel="stylesheet" href="style.css?v=20260828-09" />
+    <script src="ms.js?v=20260828-09" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
       <div class="site-header-inner">
-        <div class="brand-mark">
-          <span class="brand-truck" aria-hidden="true"></span
-          ><span id="site-code">HUB</span>
+        <div class="header-brand">
+          <div class="brand-mark">
+            <span class="brand-truck" aria-hidden="true"></span
+            ><span id="site-code">HUB</span>
+          </div>
+          <div class="brand-copy">
+            <strong id="site-title">ติดตามเส้นทาง MS</strong
+            ><span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span>
+          </div>
         </div>
-        <div class="brand-copy">
-          <strong id="site-title">ติดตามเส้นทาง MS</strong
-          ><span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span>
-        </div>
-        <div class="topbar-actions">
+        <nav class="topbar-actions" aria-label="เมนูหลัก">
           <span id="connection-badge" class="badge badge-neutral"
             >กำลังเชื่อมต่อ</span
           >
@@ -55,7 +57,7 @@
           <button id="logout-btn" class="btn btn-header hidden" type="button">
             ออกจากระบบ
           </button>
-        </div>
+        </nav>
       </div>
     </header>
 

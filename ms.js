@@ -54,8 +54,8 @@ document.addEventListener("DOMContentLoaded", () => {
     state.branch = event.target.value;
     loadData();
   };
-  el("date-from").onchange = autoLoadRange;
-  el("date-to").onchange = autoLoadRange;
+  setupDateInput("date-from");
+  setupDateInput("date-to");
   el("attribute-filter").onchange = (event) => {
     state.attribute = event.target.value;
     render();
@@ -248,7 +248,7 @@ function mergeLatest(archive, current) {
 function fillFilters() {
   state.attendance = setOptions(
     "attendance-filter",
-    state.rows.map((row) => row.attendanceType),
+    state.rows.map((row) => normalizeAttendance(row.attendanceType)),
     state.attendance,
   );
   state.attribute = setOptions(
@@ -342,14 +342,21 @@ function routeState(row, now = new Date()) {
   };
 }
 
+function normalizeAttendance(value) {
+  const text = String(value || "").trim();
+  if (text.includes("จุดดร")) return "จุดดรอป";
+  if (text.includes("ปลายทาง")) return "ปลายทาง";
+  if (text.includes("ต้นทาง")) return "ต้นทาง";
+  return text;
+}
 function isDestination(row) {
-  return String(row.attendanceType || "").trim() === "ปลายทาง";
+  return normalizeAttendance(row.attendanceType) === "ปลายทาง";
 }
 function isOrigin(row) {
-  return String(row.attendanceType || "").trim() === "ต้นทาง";
+  return normalizeAttendance(row.attendanceType) === "ต้นทาง";
 }
 function isDrop(row) {
-  return String(row.attendanceType || "").trim() === "จุดดรอป";
+  return normalizeAttendance(row.attendanceType) === "จุดดรอป";
 }
 function attendanceLabel(row) {
   if (isDestination(row)) return "รถเข้าฮับ";
@@ -444,23 +451,23 @@ function filteredRows() {
         (!state.dateFrom || arrivalDate >= state.dateFrom) &&
         (!state.dateTo || arrivalDate <= state.dateTo) &&
         (state.attendance === "all" ||
-          row.attendanceType === state.attendance) &&
+          normalizeAttendance(row.attendanceType) === state.attendance) &&
         (state.attribute === "all" || row.routeAttribute === state.attribute) &&
         (state.region === "all" || row.region === state.region) &&
         (state.route === "all" || row.routeType === state.route) &&
         statusMatch
       );
     })
-    .sort(
-      (a, b) =>
-        (parseDate(a.actualArrivalAt || a.estimatedArrivalAt)?.getTime() || 0) -
-        (parseDate(b.actualArrivalAt || b.estimatedArrivalAt)?.getTime() || 0),
-    );
+    .sort((a, b) => {
+      const aTime = parseDate(a.actualArrivalAt || a.estimatedArrivalAt)?.getTime() || 0;
+      const bTime = parseDate(b.actualArrivalAt || b.estimatedArrivalAt)?.getTime() || 0;
+      return state.queue === "queue" ? aTime - bTime : bTime - aTime;
+    });
 }
 
 async function loadRange() {
-  const start = el("date-from").value,
-    end = el("date-to").value;
+  const start = displayDateToIso(el("date-from").value),
+    end = displayDateToIso(el("date-to").value);
   if (!start || !end) return toast("กรุณาเลือกวันที่เริ่มต้นและสิ้นสุด", true);
   try {
     const result = await apiGet("msRange", {
@@ -483,8 +490,8 @@ async function loadRange() {
 
 let rangeTimer;
 function autoLoadRange() {
-  state.dateFrom = el("date-from").value;
-  state.dateTo = el("date-to").value;
+  state.dateFrom = displayDateToIso(el("date-from").value);
+  state.dateTo = displayDateToIso(el("date-to").value);
   render();
   clearTimeout(rangeTimer);
   if (state.dateFrom && state.dateTo) rangeTimer = setTimeout(loadRange, 250);
@@ -712,7 +719,7 @@ function tableRow(row) {
         ? '<span class="row-muted">รอเวลาออกจริง</span>'
         : `<div class="duration-line ${p.diff > 0 ? "is-late" : "is-ok"}"><strong>${nf.format(Math.abs(p.diff))} นาที</strong><span>${p.diff > 0 ? "ปล่อยช้ากว่าแผน" : "ปล่อยก่อนแผน"}</span></div>`;
   const attendanceClass = isDestination(row) ? "inbound" : isDrop(row) ? "drop" : "outbound";
-  return `<tr><td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td><td><div class="route-meta"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b> ${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td><td><span class="type-badge ${attendanceClass}">${esc(row.attendanceType || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></td><td><div class="time-pair"><div><span>${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "มาถึงจริง" : "ออกจริง"}</span><strong>${shortDateTime(actual)}</strong></div><small class="timing-chip ${p.diff === null ? "neutral" : p.diff > 0 ? "late" : "ontime"}">${esc(timingText)}</small></div></td><td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small>${esc(queueText)}</small></div></td><td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${state.auth?.role === "admin" && row.driverPhone ? `<small>${esc(row.driverPhone)}</small>` : ""}</div></td></tr>`;
+  return `<tr><td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td><td><div class="route-meta"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td><td><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></td><td><div class="time-pair"><div><span>${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "มาถึงจริง" : "ออกจริง"}</span><strong>${shortDateTime(actual)}</strong></div><small class="timing-chip ${p.diff === null ? "neutral" : p.diff > 0 ? "late" : "ontime"}">${esc(timingText)}</small></div></td><td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small>${esc(queueText)}</small></div></td><td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}</div></td></tr>`;
 }
 
 function card(row) {
@@ -722,13 +729,14 @@ function card(row) {
     operation = operationInfo(row),
     q = queueInfo(row);
   const phone =
-    state.auth?.role === "admin" && row.driverPhone
-      ? `<span>เบอร์โทร</span><strong><small class="phone-chip">${esc(row.driverPhone)}</small></strong>`
+    row.driverPhone
+      ? `<span>เบอร์โทร</span><strong><a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a></strong>`
       : "";
   const workStatus = isDestination(row)
     ? row.loadStatus || status.label
     : row.vehicleStatus || status.label;
-  return `<article class="truck-card ms-card" style="--card-accent:${q.expired ? "#697177" : isDestination(row) && wait.over ? "#b3261e" : status.color}"><div class="truck-card-head"><span class="type-badge ${isDestination(row) ? "inbound" : "outbound"}">${isDestination(row) ? "รถเข้าฮับ" : "รถออกจากฮับ"}</span><div class="truck-route"><div class="primary">${esc(row.routeName || "-")}</div><div class="secondary">${esc(row.proofId || "-")} / ${esc(row.vehicleType || "-")} · ${esc(row.plate || "ไม่พบทะเบียน")}</div></div></div><div class="mobile-status-cards"><div>${planCell(row)}</div><div>${actualCell(row)}</div><div>${p.diff === null ? '<span class="empty-chip">รอข้อมูลจริง</span>' : `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.label}</span><strong>${p.diff > 0 ? "ช้า " : "ก่อนแผน "}${nf.format(Math.abs(p.diff))} นาที</strong></div>`}</div><div>${workCell(row)}</div></div><div class="mobile-party"><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong>${phone}</div><div class="status-card mobile-work-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดออกจากคิวเกิน 12 ชม." : status.label}</span><strong>${esc(workStatus)}</strong><small>${q.done ? "เก็บในประวัติแล้ว" : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></article>`;
+  const attendanceClass = isDestination(row) ? "inbound" : isDrop(row) ? "drop" : "outbound";
+  return `<article class="truck-card ms-card" style="--card-accent:${q.expired ? "#697177" : isDestination(row) && wait.over ? "#b3261e" : status.color}"><div class="truck-card-head"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="truck-route"><div class="primary">${esc(row.routeName || "-")}</div><div class="secondary">${esc(row.proofId || "-")} / ${esc(row.vehicleType || "-")} · ทะเบียน ${esc(row.plate || "-")}</div></div></div><div class="mobile-route-meta"><span>ภูมิภาค <b class="meta-chip">${esc(row.region || "-")}</b></span><span>ลักษณะ <b class="meta-chip">${esc(row.routeAttribute || "-")}</b></span><span>เส้นทาง <b class="meta-chip">${esc(row.routeType || "-")}</b></span></div><div class="mobile-status-cards"><div>${planCell(row)}</div><div>${actualCell(row)}</div><div>${p.diff === null ? '<span class="empty-chip">รอข้อมูลจริง</span>' : `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.label}</span><strong>${p.diff > 0 ? "ช้า " : "ก่อนแผน "}${nf.format(Math.abs(p.diff))} นาที</strong></div>`}</div><div>${workCell(row)}</div></div><div class="mobile-party"><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong>${phone}</div><div class="status-card mobile-work-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดออกจากคิวเกิน 12 ชม." : status.label}</span><strong>${esc(workStatus)}</strong><small>${q.done ? "เก็บในประวัติแล้ว" : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></article>`;
 }
 
 function normalizeVehicle(value) {
@@ -789,6 +797,33 @@ function localDateValue(value) {
     m = String(d.getMonth() + 1).padStart(2, "0"),
     day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function displayDateToIso(value) {
+  const match = String(value || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return "";
+  const [, day, month, year] = match;
+  const date = new Date(`${year}-${month}-${day}T00:00:00`);
+  if (
+    isNaN(date) ||
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() + 1 !== Number(month) ||
+    date.getDate() !== Number(day)
+  ) return "";
+  return `${year}-${month}-${day}`;
+}
+
+function setupDateInput(id) {
+  const input = el(id);
+  input.oninput = () => {
+    const digits = input.value.replace(/\D/g, "").slice(0, 8);
+    input.value = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)]
+      .filter(Boolean)
+      .join("/");
+    state[id === "date-from" ? "dateFrom" : "dateTo"] = displayDateToIso(input.value);
+    render();
+  };
+  input.onchange = autoLoadRange;
 }
 
 function renderFreshness() {
@@ -1027,7 +1062,7 @@ function exportRow(row) {
     loadStatus: row.loadStatus || "",
     supplier: row.supplier || "",
     driverName: row.driverName || "",
-    driverPhone: state.auth?.role === "admin" ? excelText(row.driverPhone) : "",
+    driverPhone: excelText(row.driverPhone),
     syncedAt: exportThaiDate(row.syncedAt),
   };
 }

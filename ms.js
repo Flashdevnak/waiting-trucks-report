@@ -39,7 +39,10 @@ document.addEventListener("DOMContentLoaded", () => {
   el("refresh-btn").onclick = () => loadData();
   el("ms-connection-btn").onclick = openMsConnection;
   el("ms-connection-close").onclick = () => el("ms-connection-dialog").close();
-  el("ms-connection-form").onsubmit = saveMsConnection;
+  el("ms-connection-form").onsubmit = (event) => event.preventDefault();
+  document.querySelectorAll("[data-har-save]").forEach((button) => {
+    button.onclick = () => saveMsConnection(button.dataset.harSave, button);
+  });
   el("ms-qr-connect").onclick = startQrConnection;
   el("export-current-btn").onclick = exportCurrent;
   el("export-history-btn").onclick = exportHistory;
@@ -1013,11 +1016,34 @@ function openMsConnection() {
   hubInput.title = hubInput.readOnly
     ? "บัญชีนี้เชื่อมต่อได้เฉพาะ HUB ที่ได้รับสิทธิ์"
     : "ADMIN สามารถเลือก HUB ที่ต้องการตรวจสอบได้";
-  el("ms-har-file").value = "";
+  ["ms-har-routes", "ms-har-preentry", "ms-har-bustime"].forEach((id) => { el(id).value = ""; });
   el("ms-connection-error").classList.add("hidden");
   el("ms-qr-status").textContent =
     "ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว";
   el("ms-connection-dialog").showModal();
+  loadMsConnectionStatus();
+}
+
+async function loadMsConnectionStatus() {
+  const hub = el("ms-har-hub").value.trim().toUpperCase();
+  try {
+    const status = await apiGet("msConnectionStatus", { branch: hub });
+    for (const key of ["routes", "preEntry", "busTime"]) {
+      const node = document.querySelector(`[data-source-status="${key}"] span`);
+      const item = status[key];
+      if (!node) continue;
+      node.className = item?.configured ? (item.lastError ? "source-error" : "source-ok") : "source-missing";
+      node.textContent = !item?.configured
+        ? "ยังไม่ได้อัปโหลด"
+        : item.lastError
+          ? `เชื่อมต่อมีปัญหา · ${item.lastError}`
+          : `พร้อมใช้งาน · อัปเดตล่าสุด ${shortDateTime(item.lastSuccessAt || item.updatedAt)}`;
+    }
+  } catch (error) {
+    const box = el("ms-connection-error");
+    box.textContent = error.message;
+    box.classList.remove("hidden");
+  }
 }
 
 async function startQrConnection() {
@@ -1061,12 +1087,13 @@ async function startQrConnection() {
   }
 }
 
-async function saveMsConnection(event) {
-  event.preventDefault();
+async function saveMsConnection(source, button) {
   const errorEl = el("ms-connection-error"),
-    file = el("ms-har-file").files[0],
+    inputId = source === "routes" ? "ms-har-routes" : source === "preEntry" ? "ms-har-preentry" : "ms-har-bustime",
+    file = el(inputId).files[0],
     hub = el("ms-har-hub").value.trim().toUpperCase();
   try {
+    button.disabled = true;
     if (!file || file.size > 60 * 1024 * 1024)
       throw new Error("กรุณาเลือกไฟล์ HAR ขนาดไม่เกิน 60 MB");
     const har = JSON.parse(await file.text());
@@ -1093,28 +1120,31 @@ async function saveMsConnection(event) {
     });
     if (!entry && !preEntry && !busEntry)
       throw new Error("ไม่พบข้อมูลเส้นทาง พัสดุเข้าคลัง หรือการจัดการตารางเวลาในไฟล์ HAR");
-    if (preEntry && !entry) {
+    if (source === "routes" && !entry) throw new Error("ไฟล์นี้ไม่มีข้อมูลบันทึกสถานะเส้นทางเดินรถ");
+    if (source === "preEntry" && !preEntry) throw new Error("ไฟล์นี้ไม่มีข้อมูลพัสดุที่คาดว่าจะเข้าคลัง");
+    if (source === "busTime" && !busEntry) throw new Error("ไฟล์นี้ไม่มีข้อมูลการจัดการตารางเวลา KIT/TBR");
+    if (source === "preEntry") {
       const url = new URL(preEntry.request.url);
       const credentials = {};
       for (const key of ["lang", "auth", "fbid", "time", "_from", "nonce", "referer", "iv", "next_store_id"])
         credentials[key] = url.searchParams.get(key) || "";
       const result = await apiPost("saveMsPreEntryConnection", { hub, credentials });
       errorEl.classList.add("hidden");
-      el("ms-connection-dialog").close();
       toast(`เชื่อมข้อมูลพัสดุเข้าคลัง ${hub} สำเร็จ · พบ ${nf.format(result.total)} เที่ยว`);
       await loadData();
+      await loadMsConnectionStatus();
       return;
     }
-    if (busEntry && !entry) {
+    if (source === "busTime") {
       const url = new URL(busEntry.request.url);
       const credentials = {};
       for (const key of ["auth", "lang", "fbid", "time", "_from"])
         credentials[key] = url.searchParams.get(key) || "";
       const result = await apiPost("saveMsBusConnection", { hub, credentials });
       errorEl.classList.add("hidden");
-      el("ms-connection-dialog").close();
       toast(`เชื่อมข้อมูลการจัดการตารางเวลา ${hub} สำเร็จ · พบ ${nf.format(result.total)} รายการ`);
       await loadData();
+      await loadMsConnectionStatus();
       return;
     }
     const header = (name) =>
@@ -1130,13 +1160,15 @@ async function saveMsConnection(event) {
       deviceId,
     });
     errorEl.classList.add("hidden");
-    el("ms-connection-dialog").close();
     state.branch = hub;
     toast(`เชื่อมต่อ ${hub} สำเร็จ · พบ ${nf.format(result.total)} รายการ`);
     await loadData();
+    await loadMsConnectionStatus();
   } catch (error) {
     errorEl.textContent = error.message;
     errorEl.classList.remove("hidden");
+  } finally {
+    button.disabled = false;
   }
 }
 

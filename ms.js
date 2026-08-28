@@ -137,7 +137,7 @@ function authUi() {
   el("connect-ms-btn").classList.toggle("hidden", !on);
   el("ms-connection-btn").classList.toggle(
     "hidden",
-    !on || state.auth?.role !== "admin",
+    !on,
   );
   el("central-settings-btn").classList.toggle(
     "hidden",
@@ -724,17 +724,43 @@ function card(row) {
   const status = routeState(row);
   const wait = waitInfo(row),
     p = punctuality(row),
-    operation = operationInfo(row),
     q = queueInfo(row);
-  const phone =
-    row.driverPhone
-      ? `<span>เบอร์โทร</span><strong><a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a></strong>`
-      : "";
   const workStatus = isDestination(row)
     ? row.loadStatus || status.label
     : row.vehicleStatus || status.label;
-  const attendanceClass = isDestination(row) ? "inbound" : isDrop(row) ? "drop" : "outbound";
-  return `<article class="truck-card ms-card" style="--card-accent:${q.expired ? "#697177" : isDestination(row) && wait.over ? "#b3261e" : status.color}"><div class="truck-card-head"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="truck-route"><div class="primary">${esc(row.routeName || "-")}</div><div class="secondary">${esc(row.proofId || "-")} / ${esc(row.vehicleType || "-")} · ทะเบียน ${esc(row.plate || "-")}</div></div></div><div class="mobile-route-meta"><span>ภูมิภาค <b class="meta-chip">${esc(row.region || "-")}</b></span><span>ลักษณะ <b class="meta-chip">${esc(row.routeAttribute || "-")}</b></span><span>เส้นทาง <b class="meta-chip">${esc(row.routeType || "-")}</b></span></div><div class="mobile-status-cards"><div>${planCell(row)}</div><div>${actualCell(row)}</div><div>${p.diff === null ? '<span class="empty-chip">รอข้อมูลจริง</span>' : `<div class="mini-card ${p.diff > 0 ? "danger" : "success"}"><span>${p.label}</span><strong>${p.diff > 0 ? "ช้า " : "ก่อนแผน "}${nf.format(Math.abs(p.diff))} นาที</strong></div>`}</div><div>${workCell(row)}</div></div><div class="mobile-party"><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong>${phone}</div><div class="status-card mobile-work-status"><span class="status-pill" style="--status-color:${q.expired ? "#697177" : status.color}">${q.expired ? "ตัดออกจากคิวเกิน 12 ชม." : status.label}</span><strong>${esc(workStatus)}</strong><small>${q.done ? "เก็บในประวัติแล้ว" : q.active ? "อยู่ในคิวปัจจุบัน" : "ยังไม่เข้าคิว"}</small></div></article>`;
+  const attendanceClass = isDestination(row)
+      ? "inbound"
+      : isDrop(row)
+        ? "drop"
+        : "outbound",
+    plan = isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt,
+    actual = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt,
+    timingClass = p.diff === null ? "neutral" : p.diff > 0 ? "late" : "ontime",
+    timingText = p.diff === null
+      ? "รอเวลาจริง"
+      : `${p.diff > 0 ? "ช้ากว่าแผน" : "ก่อนแผน"} ${nf.format(Math.abs(p.diff))} นาที`,
+    durationText = isDestination(row)
+      ? wait.minutes === null
+        ? "ยังไม่เริ่มจับเวลา"
+        : `${nf.format(wait.minutes)} นาที`
+      : p.diff === null
+        ? "รอเวลาออกจริง"
+        : `${nf.format(Math.abs(p.diff))} นาที`,
+    durationNote = isDestination(row)
+      ? `มาตรฐาน ${nf.format(wait.standard)} นาที`
+      : p.diff === null
+        ? ""
+        : p.diff > 0
+          ? "ปล่อยช้ากว่าแผน"
+          : "ปล่อยก่อนแผน",
+    queueText = q.done
+      ? "เก็บในประวัติแล้ว"
+      : q.expired
+        ? "ตัดออกจากคิวเกิน 12 ชม."
+        : q.active
+          ? "อยู่ในคิวปัจจุบัน"
+          : "ยังไม่เข้าคิว";
+  return `<article class="truck-card ms-card compact-card"><header class="compact-card-head"><div class="compact-card-tags"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.routeName || "-")}</h2><p>${esc(row.proofId || "-")} · ทะเบียน ${esc(row.plate || "-")}</p></header><div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div><div class="compact-times"><div><span>${isDestination(row) ? "กำหนดรถเข้า" : "กำหนดปล่อยรถ"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "รถมาถึงจริง" : "ปล่อยรถจริง"}</span><strong>${shortDateTime(actual)}</strong></div><div class="compact-timing ${timingClass}"><span>เทียบกับแผน</span><strong>${esc(timingText)}</strong></div></div><div class="compact-operation ${isDestination(row) && wait.over ? "late" : ""}"><div><span>${isDestination(row) ? "เวลารอ + ลงงาน" : "เวลาเทียบแผน"}</span><strong>${esc(durationText)}</strong><small>${esc(durationNote)}</small></div><div><span>สถานะล่าสุด</span><strong>${esc(workStatus)}</strong><small>${esc(queueText)}</small></div></div><div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}</div></article>`;
 }
 
 function normalizeVehicle(value) {
@@ -869,7 +895,12 @@ async function apiGet(action, params = {}) {
 }
 
 function openMsConnection() {
-  el("ms-har-hub").value = state.branch || state.auth?.branches?.[0] || "NE1";
+  const hubInput = el("ms-har-hub");
+  hubInput.value = state.branch || state.auth?.branches?.[0] || "NE1";
+  hubInput.readOnly = state.auth?.role !== "admin";
+  hubInput.title = hubInput.readOnly
+    ? "บัญชีนี้เชื่อมต่อได้เฉพาะ HUB ที่ได้รับสิทธิ์"
+    : "ADMIN สามารถเลือก HUB ที่ต้องการตรวจสอบได้";
   el("ms-har-file").value = "";
   el("ms-connection-error").classList.add("hidden");
   el("ms-qr-status").textContent =

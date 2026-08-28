@@ -72,7 +72,10 @@
       </section>
 
       <section class="metric-grid ms-metrics">
-        <article class="metric-card metric-dark metric-action" data-metric="all">
+        <article
+          class="metric-card metric-dark metric-action"
+          data-metric="all"
+        >
           <span>รายการสะสม</span><strong id="metric-archive">0</strong
           ><small>รายการที่ระบบบันทึกไว้</small>
         </article>
@@ -92,15 +95,24 @@
           <span>รถเข้าตรงเวลา</span><strong id="metric-not-arrived">0</strong
           ><small>มาถึงจริงไม่เกิน ETA</small>
         </article>
-        <article class="metric-card metric-danger metric-action" data-metric="arrival-late">
+        <article
+          class="metric-card metric-danger metric-action"
+          data-metric="arrival-late"
+        >
           <span>รถเข้าช้า</span><strong id="metric-arrived">0</strong
           ><small>มาถึงจริงเกิน ETA</small>
         </article>
-        <article class="metric-card metric-action" data-metric="departure-ontime">
+        <article
+          class="metric-card metric-action"
+          data-metric="departure-ontime"
+        >
           <span>ปล่อยตรงเวลา</span><strong id="metric-departed">0</strong
           ><small>ออกจริงไม่เกิน ETD</small>
         </article>
-        <article class="metric-card metric-warning metric-action" data-metric="departure-late">
+        <article
+          class="metric-card metric-warning metric-action"
+          data-metric="departure-late"
+        >
           <span>ปล่อยรถช้า</span><strong id="metric-within-standard">0</strong
           ><small>ออกจริงเกิน ETD</small>
         </article>
@@ -123,10 +135,20 @@
             </select></label
           >
           <label
-            ><span>วันที่เริ่มต้น</span><input id="date-from" type="date"
+            ><span>วันที่เริ่มต้น (DD/MM/YYYY)</span
+            ><input
+              id="date-from"
+              type="date"
+              lang="en-GB"
+              aria-label="Start date DD/MM/YYYY"
           /></label>
           <label
-            ><span>วันที่สิ้นสุด</span><input id="date-to" type="date"
+            ><span>วันที่สิ้นสุด (DD/MM/YYYY)</span
+            ><input
+              id="date-to"
+              type="date"
+              lang="en-GB"
+              aria-label="End date DD/MM/YYYY"
           /></label>
           <label
             ><span>ค้นหา</span
@@ -185,7 +207,11 @@
         <p id="last-refresh" class="sync-text">ยังไม่ได้โหลดข้อมูล</p>
       </section>
 
-      <section id="filter-summary" class="filter-summary" aria-live="polite"></section>
+      <section
+        id="filter-summary"
+        class="filter-summary"
+        aria-live="polite"
+      ></section>
 
       <section class="panel table-panel">
         <div id="loading-state" class="empty-state">กำลังโหลดข้อมูล…</div>
@@ -263,52 +289,90 @@
           สำหรับ ADMIN · อัปเดตได้เองเมื่อ MS หมดอายุ
         </div>
         <h2>อัปเดตการเชื่อมต่อ MS</h2>
-        <p class="muted">เลือก HUB แล้วกดเชื่อมต่อด้วย QR ระบบจะบันทึก Session ให้อัตโนมัติ</p>
+        <p class="muted">
+          เลือก HUB แล้วกดเชื่อมต่อด้วย QR ระบบจะบันทึก Session ให้อัตโนมัติ
+        </p>
 
-        <label><span>HUB</span><input id="ms-har-hub" type="text" placeholder="เช่น NE1" required /></label>
-        <button id="ms-qr-connect" class="btn btn-accent btn-full" type="button">เชื่อมต่อ MS ด้วย QR</button>
-        <p id="ms-qr-status" class="muted">ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว</p>
+        <label
+          ><span>HUB</span
+          ><input id="ms-har-hub" type="text" placeholder="เช่น NE1" required
+        /></label>
+        <button
+          id="ms-qr-connect"
+          class="btn btn-accent btn-full"
+          type="button"
+        >
+          เชื่อมต่อ MS ด้วย QR
+        </button>
+        <p id="ms-qr-status" class="muted">
+          ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว
+        </p>
 
         <details class="setup-fallback">
           <summary>วิธีสำรอง: อัปโหลด HAR</summary>
 
-        <ol class="setup-steps">
-          <li>
-            <strong>เปิด MS และเข้าสู่ระบบ</strong>
-            <span>สแกน QR แล้วรอจนเห็นตารางข้อมูล หากล็อกอินแล้วกลับไปหน้าแรก ให้กดเข้าเมนู “บันทึกสถานะเส้นทางเดินรถ”</span>
-            <a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance" target="_blank" rel="noopener">เปิดหน้าบันทึกสถานะเส้นทางเดินรถ</a>
-          </li>
-          <li>
-            <strong>เปิดเครื่องมือนักพัฒนา</strong>
-            <span>กด F12 แล้วเลือก Network หากไม่เห็นแท็บ Network ให้กดเครื่องหมาย + แล้วเลือก Network</span>
-          </li>
-          <li>
-            <strong>เลือก Fetch/XHR แล้วรีเฟรช</strong>
-            <span>กด Fetch/XHR จากนั้นกดรีเฟรชหน้า MS หนึ่งครั้ง และรอให้รายการข้อมูลใน Network โหลดขึ้นมา</span>
-          </li>
-          <li>
-            <strong>บันทึกไฟล์ HAR</strong>
-            <span>กดปุ่มลูกศรชี้ลงในแถบ Network เพื่อ “Export HAR” หรือคลิกขวาในรายการแล้วเลือก “Save all as HAR with content”</span>
-          </li>
-          <li>
-            <strong>กลับมาอัปโหลดในหน้านี้</strong>
-            <span>เลือก HUB ให้ถูกต้อง เลือกไฟล์ .har แล้วกด “ทดสอบและบันทึกเซสชัน”</span>
-          </li>
-        </ol>
+          <ol class="setup-steps">
+            <li>
+              <strong>เปิด MS และเข้าสู่ระบบ</strong>
+              <span
+                >สแกน QR แล้วรอจนเห็นตารางข้อมูล หากล็อกอินแล้วกลับไปหน้าแรก
+                ให้กดเข้าเมนู “บันทึกสถานะเส้นทางเดินรถ”</span
+              >
+              <a
+                class="btn btn-header setup-link"
+                href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance"
+                target="_blank"
+                rel="noopener"
+                >เปิดหน้าบันทึกสถานะเส้นทางเดินรถ</a
+              >
+            </li>
+            <li>
+              <strong>เปิดเครื่องมือนักพัฒนา</strong>
+              <span
+                >กด F12 แล้วเลือก Network หากไม่เห็นแท็บ Network
+                ให้กดเครื่องหมาย + แล้วเลือก Network</span
+              >
+            </li>
+            <li>
+              <strong>เลือก Fetch/XHR แล้วรีเฟรช</strong>
+              <span
+                >กด Fetch/XHR จากนั้นกดรีเฟรชหน้า MS หนึ่งครั้ง
+                และรอให้รายการข้อมูลใน Network โหลดขึ้นมา</span
+              >
+            </li>
+            <li>
+              <strong>บันทึกไฟล์ HAR</strong>
+              <span
+                >กดปุ่มลูกศรชี้ลงในแถบ Network เพื่อ “Export HAR”
+                หรือคลิกขวาในรายการแล้วเลือก “Save all as HAR with
+                content”</span
+              >
+            </li>
+            <li>
+              <strong>กลับมาอัปโหลดในหน้านี้</strong>
+              <span
+                >เลือก HUB ให้ถูกต้อง เลือกไฟล์ .har แล้วกด
+                “ทดสอบและบันทึกเซสชัน”</span
+              >
+            </li>
+          </ol>
 
-        <div class="setup-warning">การสร้าง HAR ต้องทำบนคอมพิวเตอร์ แต่หลังเชื่อมต่อแล้วสามารถเปิดดูข้อมูลจากมือถือได้ตามปกติ</div>
-        <label
-          ><span>ไฟล์ HAR</span
-          ><input
-            id="ms-har-file"
-            type="file"
-            accept=".har,application/json"
-            required
-        /></label>
-        <p id="ms-connection-error" class="form-error hidden"></p>
-        <button class="btn btn-accent btn-full" type="submit">
-          ทดสอบและบันทึกเซสชัน
-        </button>
+          <div class="setup-warning">
+            การสร้าง HAR ต้องทำบนคอมพิวเตอร์
+            แต่หลังเชื่อมต่อแล้วสามารถเปิดดูข้อมูลจากมือถือได้ตามปกติ
+          </div>
+          <label
+            ><span>ไฟล์ HAR</span
+            ><input
+              id="ms-har-file"
+              type="file"
+              accept=".har,application/json"
+              required
+          /></label>
+          <p id="ms-connection-error" class="form-error hidden"></p>
+          <button class="btn btn-accent btn-full" type="submit">
+            ทดสอบและบันทึกเซสชัน
+          </button>
         </details>
       </form>
     </dialog>

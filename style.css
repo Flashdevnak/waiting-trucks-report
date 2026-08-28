@@ -863,6 +863,90 @@ dialog::backdrop {
   .ms-page .topbar-actions .badge { min-height: 42px; font-size: 12px; }
   .ms-page .mobile-route-meta { gap: 8px; }
 }
+
+/* Calm Flash palette: black, warm gold, slate blue, semantic green/red only. */
+.ms-page .site-header-inner {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding-left: 18px;
+  padding-right: 18px;
+}
+.ms-page .route-code span {
+  color: #334652;
+  background: #edf2f4;
+  border-color: #c7d2d8;
+}
+.ms-page .meta-chip,
+.ms-page .route-meta span:nth-child(2) .meta-chip,
+.ms-page .route-meta span:nth-child(3) .meta-chip {
+  color: #594a23;
+  background: #f7f1df;
+  border-color: #dccc9d;
+}
+.ms-page .type-badge.inbound {
+  color: #17603f;
+  background: #e5f3eb;
+  border-color: #a9cfba;
+}
+.ms-page .type-badge.outbound {
+  color: #31546d;
+  background: #e9f0f4;
+  border-color: #b8cbd6;
+}
+.ms-page .type-badge.drop {
+  color: #72540b;
+  background: #fff3ca;
+  border-color: #dec26d;
+}
+.ms-page .work-badge,
+.ms-page .work-badge.arrived,
+.ms-page .timing-chip.neutral,
+.ms-page .empty-chip,
+.ms-page .work-summary > small {
+  color: #405666;
+  background: #eaf0f3;
+  border-color: #bdcbd2;
+}
+.ms-page .work-badge.unloading {
+  color: #72540b;
+  background: #fff3ca;
+  border-color: #dec26d;
+}
+.ms-page .work-badge.completed,
+.ms-page .work-badge.departed,
+.ms-page .timing-chip.ontime {
+  color: #17603f;
+  background: #e5f3eb;
+  border-color: #a9cfba;
+}
+.ms-page .timing-chip.late,
+.ms-page .work-badge.expired {
+  color: #8f352f;
+  background: #f8e9e7;
+  border-color: #dbb0ac;
+}
+.ms-page .people-summary .phone-chip,
+.ms-page .mobile-party .phone-chip {
+  color: #31546d;
+  background: #e9f0f4;
+  border-color: #b8cbd6;
+}
+.ms-page .filter-summary button.is-active {
+  color: #171717;
+  background: #fff3bd;
+  border-color: #c9a900;
+  outline: 2px solid #ffd400;
+  box-shadow: 0 2px 8px rgba(74, 60, 0, .12);
+}
+.ms-page .filter-summary button:not(.is-active):hover {
+  background: #faf8f0;
+  border-color: #b9b3a2;
+}
+
+@media (max-width: 560px) {
+  .ms-page .site-header-inner { padding-left: 10px; padding-right: 10px; }
+}
 #settings-dialog {
   width: min(96vw, 1320px);
   max-width: none;

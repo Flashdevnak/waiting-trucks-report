@@ -660,6 +660,23 @@ dialog::backdrop {
   font-size: 14px;
   line-height: 1.5;
 }
+
+.connection-source-status { display: grid; gap: 8px; margin: 14px 0; }
+.connection-source-status > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid #d8d8d4; border-left: 4px solid #aaa; border-radius: 8px; background: #fff; }
+.connection-source-status span { text-align: right; font-size: 13px; }
+.connection-source-status .source-ok { color: #087443; font-weight: 700; }
+.connection-source-status .source-error { color: #b42318; font-weight: 700; }
+.connection-source-status .source-missing { color: #6b6b66; }
+.setup-source-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.har-source-list { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; align-items: end; margin-top: 14px; }
+.har-source-list label { margin: 0; }
+.har-source-list .btn { min-height: 44px; }
+@media (max-width: 680px) {
+  .connection-source-status > div { align-items: flex-start; flex-direction: column; }
+  .connection-source-status span { text-align: left; }
+  .har-source-list { grid-template-columns: 1fr; }
+  .har-source-list .btn { width: 100%; margin-bottom: 8px; }
+}
 .setup-link {
   display: inline-flex;
   margin-top: 9px;

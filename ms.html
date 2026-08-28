@@ -321,23 +321,27 @@
           ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว
         </p>
 
-        <details class="setup-fallback">
-          <summary>วิธีสำรอง: อัปโหลด HAR</summary>
+        <details class="setup-fallback" open>
+          <summary>อัปโหลด HAR ทั้ง 3 แหล่ง</summary>
+
+          <div class="connection-source-status" id="connection-source-status">
+            <div data-source-status="routes"><b>1. สถานะเส้นทางเดินรถ</b><span>กำลังตรวจสอบ…</span></div>
+            <div data-source-status="preEntry"><b>2. พัสดุที่คาดว่าจะเข้าคลัง</b><span>กำลังตรวจสอบ…</span></div>
+            <div data-source-status="busTime"><b>3. การจัดการตารางเวลา (KIT/TBR)</b><span>กำลังตรวจสอบ…</span></div>
+          </div>
 
           <ol class="setup-steps">
             <li>
               <strong>เปิด MS และเข้าสู่ระบบ</strong>
               <span
                 >สแกน QR แล้วรอจนเห็นตารางข้อมูล หากล็อกอินแล้วกลับไปหน้าแรก
-                ให้กดเข้าเมนู “บันทึกสถานะเส้นทางเดินรถ”</span
+                ให้เปิดและบันทึก HAR จากทั้ง 3 หน้าด้านล่าง โดยไม่ต้องล็อกอินใหม่</span
               >
-              <a
-                class="btn btn-header setup-link"
-                href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance"
-                target="_blank"
-                rel="noopener"
-                >เปิดหน้าบันทึกสถานะเส้นทางเดินรถ</a
-              >
+              <div class="setup-source-links">
+                <a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance" target="_blank" rel="noopener">1. บันทึกสถานะเส้นทางเดินรถ</a>
+                <a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/sendoutlets/preEntry" target="_blank" rel="noopener">2. พัสดุที่คาดว่าจะเข้าคลัง</a>
+                <a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/store/busTimeManagement" target="_blank" rel="noopener">3. การจัดการตารางเวลา</a>
+              </div>
             </li>
             <li>
               <strong>เปิดเครื่องมือนักพัฒนา</strong>
@@ -374,18 +378,15 @@
             การสร้าง HAR ต้องทำบนคอมพิวเตอร์
             แต่หลังเชื่อมต่อแล้วสามารถเปิดดูข้อมูลจากมือถือได้ตามปกติ
           </div>
-          <label
-            ><span>ไฟล์ HAR</span
-            ><input
-              id="ms-har-file"
-              type="file"
-              accept=".har,application/json"
-              required
-          /></label>
+          <div class="har-source-list">
+            <label><span>1. HAR บันทึกสถานะเส้นทางเดินรถ</span><input id="ms-har-routes" type="file" accept=".har,application/json" /></label>
+            <button class="btn btn-accent" type="button" data-har-save="routes">ทดสอบและบันทึก</button>
+            <label><span>2. HAR พัสดุที่คาดว่าจะเข้าคลัง</span><input id="ms-har-preentry" type="file" accept=".har,application/json" /></label>
+            <button class="btn btn-accent" type="button" data-har-save="preEntry">ทดสอบและบันทึก</button>
+            <label><span>3. HAR การจัดการตารางเวลา (KIT/TBR)</span><input id="ms-har-bustime" type="file" accept=".har,application/json" /></label>
+            <button class="btn btn-accent" type="button" data-har-save="busTime">ทดสอบและบันทึก</button>
+          </div>
           <p id="ms-connection-error" class="form-error hidden"></p>
-          <button class="btn btn-accent btn-full" type="submit">
-            ทดสอบและบันทึกเซสชัน
-          </button>
         </details>
       </form>
     </dialog>

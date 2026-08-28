@@ -3382,21 +3382,31 @@ tbody tr.is-unloading:hover {
   .ms-page .schedule-values strong { font-size: 12px; }
 }
 
-/* Desktop width contract: reserve the largest share for operational times. */
+/* Desktop width contract tuned for a notebook at 100% zoom. */
 @media (min-width: 901px) {
   .ms-page .ms-table col.col-route { width: 18%; }
   .ms-page .ms-table col.col-meta { width: 10%; }
-  .ms-page .ms-table col.col-work { width: 8%; }
+  .ms-page .ms-table col.col-work { width: 9%; }
   .ms-page .ms-table col.col-schedule { width: 40%; }
-  .ms-page .ms-table col.col-status { width: 16%; }
-  .ms-page .ms-table col.col-company { width: 8%; }
+  .ms-page .ms-table col.col-status { width: 14%; }
+  .ms-page .ms-table col.col-company { width: 9%; }
   .ms-page .ms-table th:nth-child(1),
   .ms-page .ms-table th:nth-child(2),
   .ms-page .ms-table th:nth-child(3),
   .ms-page .ms-table th:nth-child(4),
   .ms-page .ms-table th:nth-child(5),
   .ms-page .ms-table th:nth-child(6) { width: auto; }
-  .ms-page .schedule-values strong { white-space: nowrap; }
+  .ms-page .schedule-values strong {
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: normal;
+    line-height: 1.45;
+  }
+  .ms-page .attendance-cell .type-badge {
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.35;
+  }
   .ms-page .people-summary strong,
   .ms-page .route-title { overflow-wrap: anywhere; }
 }

@@ -7,6 +7,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/") return page();
+    if (url.pathname === "/api/config") return reply({ ok: true, pinConfigured: Boolean(env.TEST_PIN) });
     if (!url.pathname.startsWith("/api/")) return reply({ ok: false, message: "Not found" }, 404);
     if (!env.TEST_PIN) return reply({ ok: false, code: "PIN_NOT_CONFIGURED", message: "กรุณาตั้ง Secret ชื่อ TEST_PIN ใน Cloudflare ก่อน" }, 503);
     if ((request.headers.get("x-test-pin") || "") !== env.TEST_PIN) return reply({ ok: false, code: "INVALID_PIN", message: "รหัสทดสอบไม่ถูกต้อง" }, 401);

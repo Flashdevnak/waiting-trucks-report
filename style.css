@@ -3288,3 +3288,67 @@ tbody tr.is-unloading:hover {
   .ms-page .route-title { max-width: none; font-size: 14px; line-height: 1.5; }
   .ms-page .work-summary { padding: 2px 6px; }
 }
+
+@media (max-width: 900px) {
+  .compact-schedule { display: block; padding: 11px 12px; }
+  .compact-schedule .schedule-section + .schedule-section { margin-top: 9px; }
+  .compact-schedule .schedule-values strong { font-size: 12px; }
+}
+
+/* Professional MS table composition. */
+.ms-page .ms-table tbody tr:hover,
+.ms-page .ms-table tbody tr.is-unloading:hover,
+.ms-page .ms-table tbody tr[class]:hover {
+  background: #e9ebe8 !important;
+  box-shadow: inset 4px 0 0 #8e948f !important;
+}
+.attendance-cell,
+.schedule-stack { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.attendance-cell { align-items: center; }
+.schedule-section {
+  padding: 9px 10px;
+  border: 1px solid #d2d5d1;
+  border-radius: 6px;
+  background: #fafbf9;
+}
+.schedule-section + .schedule-section { margin-top: 2px; }
+.schedule-heading {
+  margin: -9px -10px 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #d2d5d1;
+  background: #e7e9e6;
+  color: #252925;
+  font-size: 11px;
+  font-weight: 900;
+}
+.schedule-section.departure .schedule-heading { background: #242424; color: #fff; }
+.schedule-values { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.schedule-values > span { min-width: 0; padding: 1px 8px; text-align: center; }
+.schedule-values > span + span { border-left: 1px solid #cfd2ce; }
+.schedule-values b { display: block; margin-bottom: 3px; color: #686e68; font-size: 10px; font-weight: 700; }
+.schedule-values strong { display: block; color: #171717; font-size: 13px; line-height: 1.4; }
+.schedule-section .timing-chip { display: block; width: fit-content; margin: 8px auto 0; }
+.queue-label { padding: 4px 9px; border: 1px solid #bfc4bf; border-radius: 4px; background: #e5e7e4; color: #303530; font-weight: 800; }
+
+@media (min-width: 901px) {
+  .ms-page .ms-table th:nth-child(1) { width: 22%; }
+  .ms-page .ms-table th:nth-child(2) { width: 13%; }
+  .ms-page .ms-table th:nth-child(3) { width: 10%; }
+  .ms-page .ms-table th:nth-child(4) { width: 27%; }
+  .ms-page .ms-table th:nth-child(5) { width: 17%; }
+  .ms-page .ms-table th:nth-child(6) { width: 11%; }
+  .ms-page .route-meta-grid { display: grid; grid-template-columns: 1fr; gap: 7px; }
+  .ms-page .route-meta-grid > span {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    align-items: center;
+    min-width: 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #d7dad6;
+  }
+  .ms-page .route-meta-grid > span:last-child { padding-bottom: 0; border-bottom: 0; }
+  .ms-page .route-meta-grid b { margin: 0; text-align: left; }
+  .ms-page .route-meta-grid .meta-chip { width: 100%; }
+  .ms-page .work-summary { min-height: 112px; justify-content: center; }
+  .ms-page .people-summary { min-height: 112px; justify-content: center; }
+}

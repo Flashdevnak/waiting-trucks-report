@@ -62,8 +62,8 @@
     <main class="app-shell">
       <section class="ms-heading">
         <div>
-          <h1>ควบคุมรถเข้า–ออกรายเที่ยว</h1>
-          <p>รถเข้าใช้เวลาลงงาน · รถออกใช้เวลาปล่อยรถเทียบแผน</p>
+          <h1>ติดตามรถเข้า–ออก</h1>
+          <p>ดูคิวรถเข้า เวลาลงงาน และเวลาปล่อยรถ</p>
         </div>
         <div class="ms-live-note">
           <span id="live-dot" class="ms-live-dot stale"></span
@@ -135,20 +135,24 @@
             </select></label
           >
           <label
-            ><span>วันที่เริ่มต้น (DD/MM/YYYY)</span
+            ><span>วันที่เริ่มต้น</span
             ><input
               id="date-from"
-              type="date"
-              lang="en-GB"
-              aria-label="Start date DD/MM/YYYY"
+              type="text"
+              inputmode="numeric"
+              maxlength="10"
+              placeholder="DD/MM/YYYY"
+              aria-label="Start date"
           /></label>
           <label
-            ><span>วันที่สิ้นสุด (DD/MM/YYYY)</span
+            ><span>วันที่สิ้นสุด</span
             ><input
               id="date-to"
-              type="date"
-              lang="en-GB"
-              aria-label="End date DD/MM/YYYY"
+              type="text"
+              inputmode="numeric"
+              maxlength="10"
+              placeholder="DD/MM/YYYY"
+              aria-label="End date"
           /></label>
           <label
             ><span>ค้นหา</span
@@ -234,8 +238,8 @@
         <div id="mobile-cards" class="mobile-cards hidden"></div>
       </section>
       <p class="privacy-note">
-        เบอร์โทรคนขับจะแสดงเฉพาะบัญชีผู้ดูแลระบบ
-        ข้อมูลหน้านี้เป็นโหมดอ่านอย่างเดียวและไม่แก้สถานะใน MS
+        เบอร์โทรคนขับแสดงเฉพาะผู้ที่เข้าสู่ระบบ
+        หน้านี้ใช้สำหรับดูข้อมูลและไม่แก้สถานะใน MS
       </p>
     </main>
 

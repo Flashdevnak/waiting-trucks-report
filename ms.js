@@ -401,6 +401,32 @@ function punctuality(row) {
     diff,
   };
 }
+
+function schedulePunctuality(row, mode) {
+  const incoming = mode === "arrival";
+  const plan = parseDate(incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt);
+  const actual = parseDate(incoming ? row.actualArrivalAt : row.actualDepartureAt);
+  if (!plan || !actual) return { key: "pending", diff: null, label: "ยังไม่มีเวลาจริง" };
+  const diff = Math.round((actual - plan) / 60000);
+  return {
+    key: diff > 0 ? "late" : "ontime",
+    diff,
+    label: incoming
+      ? diff > 0 ? "รถเข้าช้า" : "รถเข้าตรงเวลา"
+      : diff > 0 ? "ปล่อยรถช้า" : "ปล่อยตรงเวลา",
+  };
+}
+
+function scheduleSection(row, mode) {
+  const incoming = mode === "arrival";
+  const plan = incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt;
+  const actual = incoming ? row.actualArrivalAt : row.actualDepartureAt;
+  const timing = schedulePunctuality(row, mode);
+  const detail = timing.diff === null
+    ? timing.label
+    : `${timing.label} · ${nf.format(Math.abs(timing.diff))} นาที`;
+  return `<div class="schedule-section ${incoming ? "arrival" : "departure"}"><div class="schedule-heading">${incoming ? "เข้าสแตนด์บาย" : "ปล่อยรถ"}</div><div class="schedule-values"><span><b>${incoming ? "คาดว่าจะถึง" : "กำหนดออก"}</b><strong>${shortDateTime(plan)}</strong></span><span><b>${incoming ? "ถึงจริง" : "ออกจริง"}</b><strong>${shortDateTime(actual)}</strong></span></div><small class="timing-chip ${timing.key}">${esc(detail)}</small></div>`;
+}
 function queueInfo(row, now = new Date()) {
   const arrival = parseDate(row.actualArrivalAt),
     ageHours = arrival ? (now - arrival) / 36e5 : 0;
@@ -724,34 +750,25 @@ function workCell(row) {
 
 function tableRow(row) {
   const status = routeState(row);
-  const p = punctuality(row),
-    operation = operationInfo(row),
-    q = queueInfo(row);
+  const p = punctuality(row);
+  const q = queueInfo(row);
   const drop = isDrop(row) ? dropOperation(row) : null;
   const workStatus = isDestination(row)
     ? row.loadStatus || status.label
     : isDrop(row)
       ? drop.unloadingLabel
-    : row.vehicleStatus || status.label;
-  const plan = isDestination(row)
-      ? row.estimatedArrivalAt
-      : row.estimatedDepartureAt,
-    actual = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt,
-    timingText =
-      p.diff === null
-        ? "ยังไม่มีเวลาจริง"
-        : `${p.label} · ${p.diff > 0 ? "ช้า" : "ก่อนแผน"} ${nf.format(Math.abs(p.diff))} นาที`,
-    queueText = q.done
-      ? "เสร็จแล้ว"
-      : q.expired
-        ? "ตัดจากคิวเกิน 12 ชม."
-        : q.active
-          ? "อยู่ในคิว"
-          : "ยังไม่เริ่ม",
-    wait = isDestination(row) ? waitInfo(row) : null,
-    durationHtml = isDrop(row)
-      ? `<div class="drop-progress"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${drop.unloadingMinutes === null ? "รอเวลาถึงจริง" : `${nf.format(drop.unloadingMinutes)} นาที`}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ขึ้นงานและไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${drop.onwardMinutes === null ? "รอขั้นตอนลงของ" : `${nf.format(drop.onwardMinutes)} นาที`}</small></div></div>`
-      : isDestination(row)
+      : row.vehicleStatus || status.label;
+  const queueText = q.done
+    ? "เสร็จแล้ว"
+    : q.expired
+      ? "ตัดจากคิวเกิน 12 ชม."
+      : q.active
+        ? "อยู่ในคิว"
+        : "ยังไม่เริ่ม";
+  const wait = isDestination(row) ? waitInfo(row) : null;
+  const durationHtml = isDrop(row)
+    ? `<div class="drop-progress"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${drop.unloadingMinutes === null ? "รอเวลาถึงจริง" : `${nf.format(drop.unloadingMinutes)} นาที`}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ขึ้นงานและไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${drop.onwardMinutes === null ? "รอขั้นตอนลงของ" : `${nf.format(drop.onwardMinutes)} นาที`}</small></div></div>`
+    : isDestination(row)
       ? wait.minutes === null
         ? '<span class="row-muted">รถยังไม่มาถึง</span>'
         : `<div class="duration-line ${wait.over ? "is-late" : "is-ok"}"><strong>${nf.format(wait.minutes)} นาที</strong><span>ตั้งแต่รถถึง · มาตรฐาน ${nf.format(wait.standard)} นาที</span></div>`
@@ -759,7 +776,17 @@ function tableRow(row) {
         ? '<span class="row-muted">รอเวลาออกจริง</span>'
         : `<div class="duration-line ${p.diff > 0 ? "is-late" : "is-ok"}"><strong>${nf.format(Math.abs(p.diff))} นาที</strong><span>${p.diff > 0 ? "ปล่อยช้ากว่าแผน" : "ปล่อยก่อนแผน"}</span></div>`;
   const attendanceClass = isDestination(row) ? "inbound" : isDrop(row) ? "drop" : "outbound";
-  return `<tr><td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td><td><div class="route-meta"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td><td><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></td><td><div class="time-pair"><div><span>${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "มาถึงจริง" : "ออกจริง"}</span><strong>${shortDateTime(actual)}</strong></div><small class="timing-chip ${p.diff === null ? "neutral" : p.diff > 0 ? "late" : "ontime"}">${esc(timingText)}</small></div></td><td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small>${esc(queueText)}</small></div></td><td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}</div></td></tr>`;
+  const scheduleHtml = isDestination(row)
+    ? scheduleSection(row, "arrival")
+    : `${scheduleSection(row, "arrival")}${scheduleSection(row, "departure")}`;
+  return `<tr>
+    <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td>
+    <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
+    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
+    <td><div class="schedule-stack">${scheduleHtml}</div></td>
+    <td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small class="queue-label">${esc(queueText)}</small></div></td>
+    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}</div></td>
+  </tr>`;
 }
 
 function card(row) {
@@ -815,7 +842,16 @@ function card(row) {
         : q.active
           ? "อยู่ในคิวปัจจุบัน"
           : "ยังไม่เข้าคิว";
-  return `<article class="truck-card ms-card compact-card"><header class="compact-card-head"><div class="compact-card-tags"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.routeName || "-")}</h2><p>${esc(row.proofId || "-")} · ทะเบียน ${esc(row.plate || "-")}</p></header><div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div><div class="compact-times"><div><span>${isDestination(row) ? "กำหนดรถเข้า" : "กำหนดปล่อยรถ"}</span><strong>${shortDateTime(plan)}</strong></div><div><span>${isDestination(row) ? "รถมาถึงจริง" : "ปล่อยรถจริง"}</span><strong>${shortDateTime(actual)}</strong></div><div class="compact-timing ${timingClass}"><span>เทียบกับแผน</span><strong>${esc(timingText)}</strong></div></div><div class="compact-operation ${isDestination(row) && wait.over ? "late" : ""}"><div><span>${isDestination(row) ? "เวลารอ + ลงงาน" : "เวลาเทียบแผน"}</span><strong>${esc(durationText)}</strong><small>${esc(durationNote)}</small></div><div><span>สถานะล่าสุด</span><strong>${esc(workStatus)}</strong><small>${esc(queueText)}</small></div></div><div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}</div></article>`;
+  const compactSchedule = isDestination(row)
+    ? scheduleSection(row, "arrival")
+    : `${scheduleSection(row, "arrival")}${scheduleSection(row, "departure")}`;
+  return `<article class="truck-card ms-card compact-card">
+    <header class="compact-card-head"><div class="compact-card-tags"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.routeName || "-")}</h2><p>${esc(row.proofId || "-")} · ทะเบียน ${esc(row.plate || "-")}</p></header>
+    <div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div>
+    <div class="compact-times compact-schedule">${compactSchedule}</div>
+    <div class="compact-operation ${isDestination(row) && wait.over ? "late" : ""}"><div><span>${isDestination(row) ? "เวลารอ + ลงงาน" : "เวลาเทียบแผน"}</span><strong>${esc(durationText)}</strong><small>${esc(durationNote)}</small></div><div><span>สถานะล่าสุด</span><strong>${esc(workStatus)}</strong><small>${esc(queueText)}</small></div></div>
+    <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}</div>
+  </article>`;
 }
 
 function normalizeVehicle(value) {
@@ -1145,13 +1181,21 @@ async function captureVisibleTable() {
         { text: normalizeAttendance(row.attendanceType) || "-", bold: true, size: 19 },
         { text: attendanceLabel(row), color: "#565c56", size: 14 },
       ], (columns[2] + columns[3]) / 2, centerY);
-      const plan = isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt;
-      const actual = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt;
-      drawLines([
-        { text: `${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"} ${shortDateTime(plan)}`, bold: true },
-        { text: `${isDestination(row) ? "มาถึงจริง" : "ออกจริง"} ${shortDateTime(actual)}`, bold: true },
-        { text: p.diff === null ? "ยังไม่มีเวลาจริง" : `${p.label} ${Math.abs(p.diff)} นาที`, color: p.diff > 0 ? "#b3261e" : "#087448", size: 14 },
-      ], (columns[3] + columns[4]) / 2, centerY);
+      const arrivalTiming = schedulePunctuality(row, "arrival");
+      const departureTiming = schedulePunctuality(row, "departure");
+      const captureTimes = isDestination(row)
+        ? [
+            { text: `คาดว่าจะถึง ${shortDateTime(row.estimatedArrivalAt)}`, bold: true },
+            { text: `ถึงจริง ${shortDateTime(row.actualArrivalAt)}`, bold: true },
+            { text: arrivalTiming.diff === null ? "ยังไม่มีเวลาจริง" : `${arrivalTiming.label} ${Math.abs(arrivalTiming.diff)} นาที`, color: arrivalTiming.diff > 0 ? "#b3261e" : "#087448", size: 14 },
+          ]
+        : [
+            { text: `สแตนด์บาย: คาดถึง ${shortDateTime(row.estimatedArrivalAt)} / ถึงจริง ${shortDateTime(row.actualArrivalAt)}`, bold: true, size: 15 },
+            { text: arrivalTiming.diff === null ? "ยังไม่มีเวลาถึงจริง" : `${arrivalTiming.label} ${Math.abs(arrivalTiming.diff)} นาที`, color: arrivalTiming.diff > 0 ? "#b3261e" : "#087448", size: 13 },
+            { text: `ปล่อยรถ: กำหนด ${shortDateTime(row.estimatedDepartureAt)} / ออกจริง ${shortDateTime(row.actualDepartureAt)}`, bold: true, size: 15 },
+            { text: departureTiming.diff === null ? "ยังไม่มีเวลาออกจริง" : `${departureTiming.label} ${Math.abs(departureTiming.diff)} นาที`, color: departureTiming.diff > 0 ? "#b3261e" : "#087448", size: 13 },
+          ];
+      drawLines(captureTimes, (columns[3] + columns[4]) / 2, centerY, { gap: 25 });
       const operationLines = drop
         ? [
             { text: `ลงของ: ${drop.unloadingLabel}`, bold: true, color: drop.unloadingDone ? "#087448" : "#171717" },

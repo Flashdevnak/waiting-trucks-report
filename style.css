@@ -1023,6 +1023,7 @@ dialog::backdrop {
 .type-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 10px; border-radius: 999px; font-weight: 800; font-size: 12px; }
 .type-badge.inbound { color: #075f3b; background: #e5f5ec; border: 1px solid #a9d8bf; }
 .type-badge.outbound { color: #174ea6; background: #e9f0ff; border: 1px solid #b7c9ee; }
+.type-badge.drop { color: #7a4c00; background: #fff4cf; border: 1px solid #e7c76e; }
 .time-card, .mini-card, .status-card, .driver-card { min-height: 64px; justify-content: center; padding: 9px 10px; border: 1px solid #d8d9d6; border-radius: 8px; background: #fafaf8; }
 .time-card span, .mini-card span, .status-card small, .driver-card span { color: #666b70; font-size: 11px; }
 .time-card strong, .mini-card strong, .status-card strong, .driver-card strong { line-height: 1.35; }
@@ -1834,6 +1835,20 @@ tbody tr.is-unloading:hover {
 }
 .route-meta { gap: 7px; }
 .route-meta span { display: block; }
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  margin-top: 2px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #eef2f4;
+  color: #35414a;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
 .route-meta b {
   display: block;
   color: #747a80;
@@ -1911,7 +1926,7 @@ tbody tr.is-unloading:hover {
 .row-muted, .work-summary > small { font-size: 11px; font-weight: 700; }
 .filter-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   margin: 14px 0 0;
 }
@@ -1931,6 +1946,11 @@ tbody tr.is-unloading:hover {
 .filter-summary button:hover { border-color: #9da3a7; background: #fffbed; }
 .filter-summary span { font-size: 12px; font-weight: 700; }
 .filter-summary strong { font-size: 22px; }
+.filter-summary .summary-wait { border-bottom: 3px solid #2874dc; }
+.filter-summary .summary-work { border-bottom: 3px solid #c88700; }
+.filter-summary .summary-done { border-bottom: 3px solid #14905e; }
+.filter-summary .summary-origin { border-bottom: 3px solid #5d67b1; }
+.filter-summary .summary-drop { border-bottom: 3px solid #d89a17; }
 
 @media (max-width: 900px) {
   .filter-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }

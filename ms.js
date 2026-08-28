@@ -1071,39 +1071,111 @@ async function captureVisibleTable() {
   const originalText = button.textContent;
   button.disabled = true;
   button.textContent = "กำลังสร้างภาพ…";
-  const stage = document.createElement("section");
-  stage.className = "capture-stage ms-page";
-  stage.innerHTML = `<header class="capture-title"><strong>ติดตามเส้นทาง MS · ${esc(state.branch)}</strong><span>${esc(new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date()))}</span></header><div class="capture-summary">${el("filter-summary").innerHTML}</div><table class="ms-table"><thead>${document.querySelector("#desktop-table thead").innerHTML}</thead><tbody>${rows.map(tableRow).join("")}</tbody></table>`;
-  document.body.appendChild(stage);
   try {
     const width = 1800;
-    stage.style.width = `${width}px`;
-    const height = Math.ceil(stage.scrollHeight + 4);
-    const css = [...document.styleSheets]
-      .map((sheet) => {
-        try { return [...sheet.cssRules].map((rule) => rule.cssText).join("\n"); }
-        catch { return ""; }
-      })
-      .join("\n");
-    const markup = new XMLSerializer().serializeToString(stage);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${css}</style>${markup}</div></foreignObject></svg>`;
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const image = new Image();
-    await new Promise((resolve, reject) => {
-      image.onload = resolve;
-      image.onerror = reject;
-      image.src = url;
-    });
+    const titleHeight = 78;
+    const headerHeight = 58;
+    const rowHeight = 170;
+    const sourceHeight = titleHeight + headerHeight + rows.length * rowHeight;
+    const scale = Math.min(1, 30000 / sourceHeight);
     const canvas = document.createElement("canvas");
-    const scale = Math.min(1, 30000 / height);
     canvas.width = Math.round(width * scale);
-    canvas.height = Math.round(height * scale);
+    canvas.height = Math.round(sourceHeight * scale);
     const context = canvas.getContext("2d");
+    if (!context) throw new Error("ไม่สามารถสร้าง Canvas ได้");
+    context.scale(scale, scale);
     context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    URL.revokeObjectURL(url);
+    context.fillRect(0, 0, width, sourceHeight);
+    context.fillStyle = "#151515";
+    context.fillRect(0, 0, width, titleHeight);
+    context.fillStyle = "#ffd400";
+    context.fillRect(0, titleHeight - 6, width, 6);
+    context.fillStyle = "#ffffff";
+    context.font = "700 27px Arial, sans-serif";
+    context.textBaseline = "middle";
+    context.fillText(`ติดตามเส้นทาง MS · ${state.branch}`, 28, 34);
+    context.font = "17px Arial, sans-serif";
+    context.textAlign = "right";
+    context.fillText(new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date()), width - 28, 34);
+    context.textAlign = "center";
+    const columns = [0, 430, 650, 880, 1190, 1500, 1800];
+    const headings = ["รถและชื่อเส้นทาง", "ข้อมูลเส้นทาง", "ประเภทงาน", "เวลาแผน / เวลาจริง", "สถานะและระยะเวลาดำเนินการ", "บริษัทซัพ / คนขับรถ"];
+    context.fillStyle = "#242424";
+    context.fillRect(0, titleHeight, width, headerHeight);
+    context.fillStyle = "#ffffff";
+    context.font = "700 18px Arial, sans-serif";
+    headings.forEach((heading, index) => context.fillText(heading, (columns[index] + columns[index + 1]) / 2, titleHeight + headerHeight / 2));
+    const drawLines = (lines, x, centerY, options = {}) => {
+      const gap = options.gap || 26;
+      const start = centerY - ((lines.length - 1) * gap) / 2;
+      lines.forEach((line, index) => {
+        context.font = `${line.bold ? "700" : "400"} ${line.size || 17}px Arial, sans-serif`;
+        context.fillStyle = line.color || "#242424";
+        context.fillText(String(line.text ?? "-"), x, start + index * gap);
+      });
+    };
+    rows.forEach((row, rowIndex) => {
+      const y = titleHeight + headerHeight + rowIndex * rowHeight;
+      context.fillStyle = rowIndex % 2 ? "#f2f2ef" : "#ffffff";
+      context.fillRect(0, y, width, rowHeight);
+      context.strokeStyle = "#cfd2ce";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(0, y + rowHeight);
+      context.lineTo(width, y + rowHeight);
+      columns.slice(1, -1).forEach((x) => { context.moveTo(x, y); context.lineTo(x, y + rowHeight); });
+      context.stroke();
+      const centerY = y + rowHeight / 2;
+      const status = routeState(row);
+      const p = punctuality(row);
+      const q = queueInfo(row);
+      const drop = isDrop(row) ? dropOperation(row) : null;
+      const wait = isDestination(row) ? waitInfo(row) : null;
+      drawLines([
+        { text: `${row.proofId || "-"}  /  ${row.vehicleType || "-"}`, bold: true, size: 20 },
+        { text: row.routeName || "-", bold: true, size: 17 },
+        { text: `ทะเบียน ${row.plate || "-"}`, color: "#5d625d", size: 14 },
+      ], (columns[0] + columns[1]) / 2, centerY);
+      drawLines([
+        { text: `ภูมิภาค ${row.region || "-"}`, bold: true },
+        { text: `ลักษณะ ${row.routeAttribute || "-"}` },
+        { text: `เส้นทาง ${row.routeType || "-"}` },
+      ], (columns[1] + columns[2]) / 2, centerY);
+      drawLines([
+        { text: normalizeAttendance(row.attendanceType) || "-", bold: true, size: 19 },
+        { text: attendanceLabel(row), color: "#565c56", size: 14 },
+      ], (columns[2] + columns[3]) / 2, centerY);
+      const plan = isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt;
+      const actual = isDestination(row) ? row.actualArrivalAt : row.actualDepartureAt;
+      drawLines([
+        { text: `${isDestination(row) ? "กำหนดถึง" : "กำหนดออก"} ${shortDateTime(plan)}`, bold: true },
+        { text: `${isDestination(row) ? "มาถึงจริง" : "ออกจริง"} ${shortDateTime(actual)}`, bold: true },
+        { text: p.diff === null ? "ยังไม่มีเวลาจริง" : `${p.label} ${Math.abs(p.diff)} นาที`, color: p.diff > 0 ? "#b3261e" : "#087448", size: 14 },
+      ], (columns[3] + columns[4]) / 2, centerY);
+      const operationLines = drop
+        ? [
+            { text: `ลงของ: ${drop.unloadingLabel}`, bold: true, color: drop.unloadingDone ? "#087448" : "#171717" },
+            { text: drop.unloadingMinutes === null ? "ยังไม่มีเวลา" : `${drop.unloadingMinutes} นาที`, size: 14 },
+            { text: `ไปต่อ: ${drop.onwardLabel}`, bold: true, color: drop.onwardDone ? "#087448" : "#171717" },
+            { text: drop.onwardMinutes === null ? "รอขั้นตอนก่อนหน้า" : `${drop.onwardMinutes} นาที`, size: 14 },
+          ]
+        : isDestination(row)
+          ? [
+              { text: row.loadStatus || status.label, bold: true },
+              { text: wait.minutes === null ? "ยังไม่เริ่มจับเวลา" : `${wait.minutes} นาที`, bold: true, size: 21, color: wait.over ? "#b3261e" : "#087448" },
+              { text: `มาตรฐาน ${wait.standard} นาที · ${q.active ? "อยู่ในคิว" : q.done ? "เสร็จแล้ว" : "รอดำเนินการ"}`, size: 14 },
+            ]
+          : [
+              { text: row.vehicleStatus || status.label, bold: true },
+              { text: p.diff === null ? "รอเวลาออกจริง" : `${Math.abs(p.diff)} นาที`, bold: true, size: 21, color: p.diff > 0 ? "#b3261e" : "#087448" },
+            ];
+      drawLines(operationLines, (columns[4] + columns[5]) / 2, centerY, { gap: 25 });
+      drawLines([
+        { text: row.supplier || "-", bold: true, size: 18 },
+        { text: row.driverName || "ไม่พบชื่อคนขับ", bold: true, size: 16 },
+        { text: row.driverPhone || "-", size: 16 },
+      ], (columns[5] + columns[6]) / 2, centerY);
+    });
     const png = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
     if (!png) throw new Error("สร้างไฟล์ภาพไม่สำเร็จ");
     const pngUrl = URL.createObjectURL(png);
@@ -1114,9 +1186,8 @@ async function captureVisibleTable() {
     setTimeout(() => URL.revokeObjectURL(pngUrl), 1500);
     toast(`บันทึกภาพตาราง ${nf.format(rows.length)} เที่ยวแล้ว`);
   } catch (error) {
-    toast("แคปตารางไม่สำเร็จ กรุณาลองด้วย Chrome หรือ Edge", true);
+    toast(`แคปตารางไม่สำเร็จ: ${error.message}`, true);
   } finally {
-    stage.remove();
     button.disabled = false;
     button.textContent = originalText;
   }

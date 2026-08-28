@@ -748,6 +748,27 @@ function workCell(row) {
   return `<div class="operation-cards"><div class="mini-card ${wait.over ? "danger" : "success"}"><span>เวลารวมตั้งแต่รถถึง</span><strong>${nf.format(wait.minutes)} นาที</strong><small>รวมรอเริ่มลง + ลงงาน</small></div><div class="mini-card neutral"><span>มาตรฐาน ${esc(row.vehicleType || "รถ")}</span><strong>${nf.format(wait.standard)} นาที</strong></div></div>`;
 }
 
+function parcelProgress(row) {
+  if (!isDestination(row)) return "";
+  const hasExpected = [row.expectedParcels, row.enteredParcels, row.pendingParcels]
+    .some((value) => value !== null && value !== undefined && value !== "");
+  const hasArrived = [row.arrivedParcels, row.arrivedBags]
+    .some((value) => value !== null && value !== undefined && value !== "");
+  if (!hasExpected && !hasArrived) return "";
+  const value = (number) => number === null || number === undefined || number === "" ? "-" : nf.format(Number(number));
+  return `<div class="parcel-progress">
+    ${hasExpected ? `<div class="parcel-progress-group"><span>พัสดุเข้าคลัง</span><div><b>ควรเข้า <strong>${value(row.expectedParcels)}</strong></b><b>เข้าแล้ว <strong>${value(row.enteredParcels)}</strong></b><b>ยังไม่เข้า <strong>${value(row.pendingParcels)}</strong></b></div></div>` : ""}
+    ${hasArrived ? `<div class="parcel-progress-group arrived-counts"><span>ถึงคลังแล้ว</span><div><b>พัสดุ <strong>${value(row.arrivedParcels)}</strong></b><b>ถุง BG <strong>${value(row.arrivedBags)}</strong></b></div></div>` : ""}
+  </div>`;
+}
+
+function arrivalSources(row) {
+  if (!isDestination(row) || (!row.scheduleKitArrivalAt && !row.scheduleTbrArrivalAt)) return "";
+  const earliest = [row.scheduleKitArrivalAt, row.scheduleTbrArrivalAt]
+    .map(parseDate).filter(Boolean).sort((a, b) => a - b)[0];
+  return `<div class="arrival-sources"><span>เวลาถึงจากระบบ</span><div><b>KIT <strong>${shortDateTime(row.scheduleKitArrivalAt)}</strong></b><b>TBR <strong>${shortDateTime(row.scheduleTbrArrivalAt)}</strong></b></div>${earliest ? `<small>ใช้เวลาที่มาก่อน · ${shortDateTime(earliest)}</small>` : ""}</div>`;
+}
+
 function tableRow(row) {
   const status = routeState(row);
   const p = punctuality(row);
@@ -784,7 +805,7 @@ function tableRow(row) {
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
     <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
     <td><div class="schedule-stack ${isDestination(row) ? "single" : "dual"}">${scheduleHtml}</div></td>
-    <td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small class="queue-label">${esc(queueText)}</small></div></td>
+    <td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small class="queue-label">${esc(queueText)}</small>${arrivalSources(row)}${parcelProgress(row)}</div></td>
     <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}</div></td>
   </tr>`;
 }
@@ -850,6 +871,8 @@ function card(row) {
     <div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div>
     <div class="compact-times compact-schedule">${compactSchedule}</div>
     <div class="compact-operation ${isDestination(row) && wait.over ? "late" : ""}"><div><span>${isDestination(row) ? "เวลารอ + ลงงาน" : "เวลาเทียบแผน"}</span><strong>${esc(durationText)}</strong><small>${esc(durationNote)}</small></div><div><span>สถานะล่าสุด</span><strong>${esc(workStatus)}</strong><small>${esc(queueText)}</small></div></div>
+    ${isDrop(row) ? `<div class="drop-progress compact-drop-progress"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${drop.unloadingMinutes === null ? "รอเวลาถึงจริง" : `${nf.format(drop.unloadingMinutes)} นาที`}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ขึ้นงานและไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${drop.onwardMinutes === null ? "รอขั้นตอนลงของ" : `${nf.format(drop.onwardMinutes)} นาที`}</small></div></div>` : ""}
+    ${arrivalSources(row)}${parcelProgress(row)}
     <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}</div>
   </article>`;
 }
@@ -915,6 +938,7 @@ function localDateValue(value) {
 }
 
 function displayDateToIso(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return String(value);
   const match = String(value || "").trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (!match) return "";
   const [, day, month, year] = match;
@@ -931,13 +955,10 @@ function displayDateToIso(value) {
 function setupDateInput(id) {
   const input = el(id);
   input.oninput = () => {
-    const digits = input.value.replace(/\D/g, "").slice(0, 8);
-    input.value = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 8)]
-      .filter(Boolean)
-      .join("/");
     state[id === "date-from" ? "dateFrom" : "dateTo"] = displayDateToIso(input.value);
     render();
   };
+  input.onclick = () => input.showPicker?.();
   input.onchange = autoLoadRange;
 }
 
@@ -1046,10 +1067,11 @@ async function saveMsConnection(event) {
     file = el("ms-har-file").files[0],
     hub = el("ms-har-hub").value.trim().toUpperCase();
   try {
-    if (!file || file.size > 30 * 1024 * 1024)
-      throw new Error("กรุณาเลือกไฟล์ HAR ขนาดไม่เกิน 30 MB");
+    if (!file || file.size > 60 * 1024 * 1024)
+      throw new Error("กรุณาเลือกไฟล์ HAR ขนาดไม่เกิน 60 MB");
     const har = JSON.parse(await file.text());
-    const entry = (har.log?.entries || []).find((item) => {
+    const entries = har.log?.entries || [];
+    const entry = entries.find((item) => {
       try {
         return (
           new URL(item.request?.url).pathname ===
@@ -1059,7 +1081,42 @@ async function saveMsConnection(event) {
         return false;
       }
     });
-    if (!entry) throw new Error("ไม่พบคำขอ StoreLineAttendance ในไฟล์ HAR");
+    const preEntry = entries.find((item) => {
+      try {
+        return new URL(item.request?.url).pathname.includes("/api/route/route_followstart") && item.response?.status === 200;
+      } catch { return false; }
+    });
+    const busEntry = entries.find((item) => {
+      try {
+        return new URL(item.request?.url).pathname === "/api/fleet_time/getList" && item.response?.status === 200;
+      } catch { return false; }
+    });
+    if (!entry && !preEntry && !busEntry)
+      throw new Error("ไม่พบข้อมูลเส้นทาง พัสดุเข้าคลัง หรือการจัดการตารางเวลาในไฟล์ HAR");
+    if (preEntry && !entry) {
+      const url = new URL(preEntry.request.url);
+      const credentials = {};
+      for (const key of ["lang", "auth", "fbid", "time", "_from", "nonce", "referer", "iv", "next_store_id"])
+        credentials[key] = url.searchParams.get(key) || "";
+      const result = await apiPost("saveMsPreEntryConnection", { hub, credentials });
+      errorEl.classList.add("hidden");
+      el("ms-connection-dialog").close();
+      toast(`เชื่อมข้อมูลพัสดุเข้าคลัง ${hub} สำเร็จ · พบ ${nf.format(result.total)} เที่ยว`);
+      await loadData();
+      return;
+    }
+    if (busEntry && !entry) {
+      const url = new URL(busEntry.request.url);
+      const credentials = {};
+      for (const key of ["auth", "lang", "fbid", "time", "_from"])
+        credentials[key] = url.searchParams.get(key) || "";
+      const result = await apiPost("saveMsBusConnection", { hub, credentials });
+      errorEl.classList.add("hidden");
+      el("ms-connection-dialog").close();
+      toast(`เชื่อมข้อมูลการจัดการตารางเวลา ${hub} สำเร็จ · พบ ${nf.format(result.total)} รายการ`);
+      await loadData();
+      return;
+    }
     const header = (name) =>
       entry.request.headers?.find((item) => item.name?.toLowerCase() === name)
         ?.value || "";
@@ -1088,7 +1145,10 @@ function exportCurrent() {
     return toast("เลือกวันที่เริ่มต้นและสิ้นสุดก่อน Export", true);
   downloadRows(
     `MS_รายวัน_${state.branch}_${state.dateFrom}_${state.dateTo}.csv`,
-    dedupeRoutes(filteredRows()).map(exportRow),
+    dedupeRoutes(state.rows.filter((row) => {
+      const day = localDateValue(row.actualArrivalAt || row.estimatedArrivalAt);
+      return day >= state.dateFrom && day <= state.dateTo;
+    })).map(exportRow),
   );
 }
 function exportVisible() {
@@ -1107,119 +1167,45 @@ async function captureVisibleTable() {
   const originalText = button.textContent;
   button.disabled = true;
   button.textContent = "กำลังสร้างภาพ…";
+  let stage;
+  let svgUrl;
   try {
     const width = 1800;
-    const titleHeight = 78;
-    const headerHeight = 58;
-    const rowHeight = 170;
-    const sourceHeight = titleHeight + headerHeight + rows.length * rowHeight;
-    const scale = Math.min(1, 30000 / sourceHeight);
+    stage = document.createElement("section");
+    stage.className = "capture-stage ms-page";
+    stage.style.width = `${width}px`;
+    stage.style.position = "static";
+    stage.style.left = "auto";
+    stage.style.top = "auto";
+    stage.innerHTML = `<header class="capture-title"><strong>ติดตามเส้นทาง MS · ${esc(state.branch)}</strong><span>${esc(new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date()))}</span></header>`;
+    const table = document.querySelector("#desktop-table .ms-table")?.cloneNode(true);
+    if (!table) throw new Error("ไม่พบตารางที่จะแคป");
+    stage.append(table);
+    document.body.append(stage);
+    await document.fonts?.ready;
+    const height = Math.ceil(stage.scrollHeight);
+    const css = [...document.styleSheets].map((sheet) => {
+      try { return [...sheet.cssRules].map((rule) => rule.cssText).join("\n"); }
+      catch { return ""; }
+    }).join("\n");
+    const xhtml = new XMLSerializer().serializeToString(stage);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${css}</style>${xhtml}</div></foreignObject></svg>`;
+    svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("เบราว์เซอร์ไม่สามารถสร้างภาพจากตารางได้"));
+      image.src = svgUrl;
+    });
+    const scale = Math.min(1, 30000 / height);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(width * scale);
-    canvas.height = Math.round(sourceHeight * scale);
+    canvas.height = Math.round(height * scale);
     const context = canvas.getContext("2d");
     if (!context) throw new Error("ไม่สามารถสร้าง Canvas ได้");
-    context.scale(scale, scale);
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, width, sourceHeight);
-    context.fillStyle = "#151515";
-    context.fillRect(0, 0, width, titleHeight);
-    context.fillStyle = "#ffd400";
-    context.fillRect(0, titleHeight - 6, width, 6);
-    context.fillStyle = "#ffffff";
-    context.font = "700 27px Arial, sans-serif";
-    context.textBaseline = "middle";
-    context.fillText(`ติดตามเส้นทาง MS · ${state.branch}`, 28, 34);
-    context.font = "17px Arial, sans-serif";
-    context.textAlign = "right";
-    context.fillText(new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date()), width - 28, 34);
-    context.textAlign = "center";
-    const columns = [0, 430, 650, 880, 1190, 1500, 1800];
-    const headings = ["รถและชื่อเส้นทาง", "ข้อมูลเส้นทาง", "ประเภทงาน", "เวลาแผน / เวลาจริง", "สถานะและระยะเวลาดำเนินการ", "บริษัทซัพ / คนขับรถ"];
-    context.fillStyle = "#242424";
-    context.fillRect(0, titleHeight, width, headerHeight);
-    context.fillStyle = "#ffffff";
-    context.font = "700 18px Arial, sans-serif";
-    headings.forEach((heading, index) => context.fillText(heading, (columns[index] + columns[index + 1]) / 2, titleHeight + headerHeight / 2));
-    const drawLines = (lines, x, centerY, options = {}) => {
-      const gap = options.gap || 26;
-      const start = centerY - ((lines.length - 1) * gap) / 2;
-      lines.forEach((line, index) => {
-        context.font = `${line.bold ? "700" : "400"} ${line.size || 17}px Arial, sans-serif`;
-        context.fillStyle = line.color || "#242424";
-        context.fillText(String(line.text ?? "-"), x, start + index * gap);
-      });
-    };
-    rows.forEach((row, rowIndex) => {
-      const y = titleHeight + headerHeight + rowIndex * rowHeight;
-      context.fillStyle = rowIndex % 2 ? "#f2f2ef" : "#ffffff";
-      context.fillRect(0, y, width, rowHeight);
-      context.strokeStyle = "#cfd2ce";
-      context.lineWidth = 1;
-      context.beginPath();
-      context.moveTo(0, y + rowHeight);
-      context.lineTo(width, y + rowHeight);
-      columns.slice(1, -1).forEach((x) => { context.moveTo(x, y); context.lineTo(x, y + rowHeight); });
-      context.stroke();
-      const centerY = y + rowHeight / 2;
-      const status = routeState(row);
-      const p = punctuality(row);
-      const q = queueInfo(row);
-      const drop = isDrop(row) ? dropOperation(row) : null;
-      const wait = isDestination(row) ? waitInfo(row) : null;
-      drawLines([
-        { text: `${row.proofId || "-"}  /  ${row.vehicleType || "-"}`, bold: true, size: 20 },
-        { text: row.routeName || "-", bold: true, size: 17 },
-        { text: `ทะเบียน ${row.plate || "-"}`, color: "#5d625d", size: 14 },
-      ], (columns[0] + columns[1]) / 2, centerY);
-      drawLines([
-        { text: `ภูมิภาค ${row.region || "-"}`, bold: true },
-        { text: `ลักษณะ ${row.routeAttribute || "-"}` },
-        { text: `เส้นทาง ${row.routeType || "-"}` },
-      ], (columns[1] + columns[2]) / 2, centerY);
-      drawLines([
-        { text: normalizeAttendance(row.attendanceType) || "-", bold: true, size: 19 },
-        { text: attendanceLabel(row), color: "#565c56", size: 14 },
-      ], (columns[2] + columns[3]) / 2, centerY);
-      const arrivalTiming = schedulePunctuality(row, "arrival");
-      const departureTiming = schedulePunctuality(row, "departure");
-      const captureTimes = isDestination(row)
-        ? [
-            { text: `คาดว่าจะถึง ${shortDateTime(row.estimatedArrivalAt)}`, bold: true },
-            { text: `ถึงจริง ${shortDateTime(row.actualArrivalAt)}`, bold: true },
-            { text: arrivalTiming.diff === null ? "ยังไม่มีเวลาจริง" : `${arrivalTiming.label} ${Math.abs(arrivalTiming.diff)} นาที`, color: arrivalTiming.diff > 0 ? "#b3261e" : "#087448", size: 14 },
-          ]
-        : [
-            { text: `สแตนด์บาย: คาดถึง ${shortDateTime(row.estimatedArrivalAt)} / ถึงจริง ${shortDateTime(row.actualArrivalAt)}`, bold: true, size: 15 },
-            { text: arrivalTiming.diff === null ? "ยังไม่มีเวลาถึงจริง" : `${arrivalTiming.label} ${Math.abs(arrivalTiming.diff)} นาที`, color: arrivalTiming.diff > 0 ? "#b3261e" : "#087448", size: 13 },
-            { text: `ปล่อยรถ: กำหนด ${shortDateTime(row.estimatedDepartureAt)} / ออกจริง ${shortDateTime(row.actualDepartureAt)}`, bold: true, size: 15 },
-            { text: departureTiming.diff === null ? "ยังไม่มีเวลาออกจริง" : `${departureTiming.label} ${Math.abs(departureTiming.diff)} นาที`, color: departureTiming.diff > 0 ? "#b3261e" : "#087448", size: 13 },
-          ];
-      drawLines(captureTimes, (columns[3] + columns[4]) / 2, centerY, { gap: 25 });
-      const operationLines = drop
-        ? [
-            { text: `ลงของ: ${drop.unloadingLabel}`, bold: true, color: drop.unloadingDone ? "#087448" : "#171717" },
-            { text: drop.unloadingMinutes === null ? "ยังไม่มีเวลา" : `${drop.unloadingMinutes} นาที`, size: 14 },
-            { text: `ไปต่อ: ${drop.onwardLabel}`, bold: true, color: drop.onwardDone ? "#087448" : "#171717" },
-            { text: drop.onwardMinutes === null ? "รอขั้นตอนก่อนหน้า" : `${drop.onwardMinutes} นาที`, size: 14 },
-          ]
-        : isDestination(row)
-          ? [
-              { text: row.loadStatus || status.label, bold: true },
-              { text: wait.minutes === null ? "ยังไม่เริ่มจับเวลา" : `${wait.minutes} นาที`, bold: true, size: 21, color: wait.over ? "#b3261e" : "#087448" },
-              { text: `มาตรฐาน ${wait.standard} นาที · ${q.active ? "อยู่ในคิว" : q.done ? "เสร็จแล้ว" : "รอดำเนินการ"}`, size: 14 },
-            ]
-          : [
-              { text: row.vehicleStatus || status.label, bold: true },
-              { text: p.diff === null ? "รอเวลาออกจริง" : `${Math.abs(p.diff)} นาที`, bold: true, size: 21, color: p.diff > 0 ? "#b3261e" : "#087448" },
-            ];
-      drawLines(operationLines, (columns[4] + columns[5]) / 2, centerY, { gap: 25 });
-      drawLines([
-        { text: row.supplier || "-", bold: true, size: 18 },
-        { text: row.driverName || "ไม่พบชื่อคนขับ", bold: true, size: 16 },
-        { text: row.driverPhone || "-", size: 16 },
-      ], (columns[5] + columns[6]) / 2, centerY);
-    });
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
     const png = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
     if (!png) throw new Error("สร้างไฟล์ภาพไม่สำเร็จ");
     const pngUrl = URL.createObjectURL(png);
@@ -1232,6 +1218,8 @@ async function captureVisibleTable() {
   } catch (error) {
     toast(`แคปตารางไม่สำเร็จ: ${error.message}`, true);
   } finally {
+    stage?.remove();
+    if (svgUrl) URL.revokeObjectURL(svgUrl);
     button.disabled = false;
     button.textContent = originalText;
   }
@@ -1333,6 +1321,13 @@ function exportRow(row) {
     supplier: row.supplier || "",
     driverName: row.driverName || "",
     driverPhone: excelText(row.driverPhone),
+    kitArrivalAt: exportThaiDate(row.scheduleKitArrivalAt),
+    tbrArrivalAt: exportThaiDate(row.scheduleTbrArrivalAt),
+    expectedParcels: isDestination(row) ? (row.expectedParcels ?? "") : "",
+    enteredParcels: isDestination(row) ? (row.enteredParcels ?? "") : "",
+    pendingParcels: isDestination(row) ? (row.pendingParcels ?? "") : "",
+    arrivedParcels: isDestination(row) ? (row.arrivedParcels ?? "") : "",
+    arrivedBags: isDestination(row) ? (row.arrivedBags ?? "") : "",
     syncedAt: exportThaiDate(row.syncedAt),
   };
 }

@@ -947,6 +947,103 @@ dialog::backdrop {
 @media (max-width: 560px) {
   .ms-page .site-header-inner { padding-left: 10px; padding-right: 10px; }
 }
+
+/* Flash-style header */
+.ms-page .site-header {
+  background: #151515;
+  border-bottom: 3px solid #ffd400;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .14);
+}
+.ms-page .site-header-inner {
+  min-height: 66px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.ms-page .header-brand { gap: 10px; }
+.ms-page .brand-mark {
+  min-width: 42px;
+  width: 42px;
+  height: 40px;
+  padding: 0;
+  border-radius: 0;
+  background: #ffd400;
+  clip-path: polygon(12% 0, 100% 0, 88% 100%, 0 100%);
+  box-shadow: none;
+}
+.ms-page .brand-truck {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: none;
+  color: #111;
+  font-size: 0;
+  font-weight: 900;
+}
+.ms-page .brand-truck::before {
+  content: "F";
+  font-size: 23px;
+  line-height: 1;
+  font-weight: 950;
+}
+.ms-page .brand-mark #site-code { display: none; }
+.ms-page .brand-copy strong {
+  display: flex;
+  align-items: center;
+  font-size: 17px;
+  letter-spacing: .01em;
+}
+.ms-page .brand-copy strong::before {
+  content: "/";
+  margin-right: 8px;
+  color: #ffd400;
+  font-size: 20px;
+  font-weight: 900;
+}
+.ms-page .brand-copy span { color: #c9ccce; font-size: 11px; }
+.ms-page .topbar-actions {
+  padding: 0;
+  gap: 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.ms-page .topbar-actions .btn,
+.ms-page .topbar-actions .badge {
+  min-height: 36px;
+  border-radius: 5px;
+  padding: 7px 11px;
+}
+.ms-page .topbar-actions .btn-header {
+  color: #f6f6f6;
+  background: #222;
+  border-color: #434343;
+}
+.ms-page .topbar-actions .btn-header:hover {
+  color: #fff;
+  background: #303030;
+  border-color: #666;
+}
+.ms-page .topbar-actions .btn-accent {
+  background: #ffd400;
+  border-color: #ffd400;
+  color: #141414;
+}
+
+@media (max-width: 900px) {
+  .ms-page .site-header-inner { padding-top: 9px; padding-bottom: 10px; }
+  .ms-page .topbar-actions {
+    padding-top: 8px;
+    border-top: 1px solid #343434;
+  }
+}
+
+@media (max-width: 560px) {
+  .ms-page .brand-mark { min-width: 38px; width: 38px; height: 37px; }
+  .ms-page .brand-truck::before { font-size: 21px; }
+  .ms-page .brand-copy strong { font-size: 15px; }
+  .ms-page .brand-copy strong::before { margin-right: 6px; font-size: 18px; }
+}
 #settings-dialog {
   width: min(96vw, 1320px);
   max-width: none;

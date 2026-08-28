@@ -263,7 +263,14 @@
           สำหรับ ADMIN · อัปเดตได้เองเมื่อ MS หมดอายุ
         </div>
         <h2>อัปเดตการเชื่อมต่อ MS</h2>
-        <p class="muted">ทำตามลำดับบน Chrome หรือ Edge ในคอมพิวเตอร์</p>
+        <p class="muted">เลือก HUB แล้วกดเชื่อมต่อด้วย QR ระบบจะบันทึก Session ให้อัตโนมัติ</p>
+
+        <label><span>HUB</span><input id="ms-har-hub" type="text" placeholder="เช่น NE1" required /></label>
+        <button id="ms-qr-connect" class="btn btn-accent btn-full" type="button">เชื่อมต่อ MS ด้วย QR</button>
+        <p id="ms-qr-status" class="muted">ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว</p>
+
+        <details class="setup-fallback">
+          <summary>วิธีสำรอง: อัปโหลด HAR</summary>
 
         <ol class="setup-steps">
           <li>
@@ -291,10 +298,6 @@
 
         <div class="setup-warning">การสร้าง HAR ต้องทำบนคอมพิวเตอร์ แต่หลังเชื่อมต่อแล้วสามารถเปิดดูข้อมูลจากมือถือได้ตามปกติ</div>
         <label
-          ><span>HUB</span
-          ><input id="ms-har-hub" type="text" placeholder="เช่น NE1" required
-        /></label>
-        <label
           ><span>ไฟล์ HAR</span
           ><input
             id="ms-har-file"
@@ -306,6 +309,7 @@
         <button class="btn btn-accent btn-full" type="submit">
           ทดสอบและบันทึกเซสชัน
         </button>
+        </details>
       </form>
     </dialog>
 

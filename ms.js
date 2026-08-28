@@ -39,6 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
   el("ms-connection-btn").onclick = openMsConnection;
   el("ms-connection-close").onclick = () => el("ms-connection-dialog").close();
   el("ms-connection-form").onsubmit = saveMsConnection;
+  el("ms-qr-connect").onclick = startQrConnection;
   el("export-current-btn").onclick = exportCurrent;
   el("export-history-btn").onclick = exportHistory;
   el("login-btn").onclick = () => el("login-dialog").showModal();
@@ -748,7 +749,40 @@ function openMsConnection() {
   el("ms-har-hub").value = state.branch || state.auth?.branches?.[0] || "NE1";
   el("ms-har-file").value = "";
   el("ms-connection-error").classList.add("hidden");
+  el("ms-qr-status").textContent = "ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว";
   el("ms-connection-dialog").showModal();
+}
+
+async function startQrConnection() {
+  const hub = el("ms-har-hub").value.trim().toUpperCase(), status = el("ms-qr-status"), button = el("ms-qr-connect");
+  if (!hub) return toast("กรุณาระบุ HUB", true);
+  try {
+    button.disabled = true;
+    status.textContent = "กำลังสร้างหน้าสแกน QR...";
+    const result = await apiPost("createMsPairing", { hub });
+    const popup = window.open(result.browserUrl, "ms-cloud-browser");
+    if (!popup) throw new Error("เบราว์เซอร์บล็อกหน้าต่างใหม่ กรุณาอนุญาต Pop-up แล้วลองอีกครั้ง");
+    status.textContent = "เปิดหน้า MS แล้ว กรุณาสแกน QR และกด “ตรวจหลังสแกน” ในหน้าที่เปิดใหม่";
+    const deadline = Date.parse(result.expiresAt);
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const check = await apiGet("msPairingStatus", { pairing: result.pairing });
+      if (check.status === "COMPLETED") {
+        state.branch = hub;
+        status.textContent = `เชื่อมต่อ ${hub} สำเร็จ ระบบบันทึก Session แล้ว`;
+        toast(`เชื่อมต่อ ${hub} สำเร็จ`);
+        await loadData();
+        return;
+      }
+      if (check.status === "EXPIRED") throw new Error("ลิงก์หมดอายุ กรุณากดเชื่อมต่อใหม่");
+    }
+    throw new Error("หมดเวลารอการสแกน กรุณากดเชื่อมต่อใหม่");
+  } catch (error) {
+    status.textContent = error.message;
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function saveMsConnection(event) {

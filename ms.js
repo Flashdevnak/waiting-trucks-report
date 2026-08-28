@@ -43,6 +43,8 @@ document.addEventListener("DOMContentLoaded", () => {
   el("ms-qr-connect").onclick = startQrConnection;
   el("export-current-btn").onclick = exportCurrent;
   el("export-history-btn").onclick = exportHistory;
+  el("export-visible-btn").onclick = exportVisible;
+  el("capture-table-btn").onclick = captureVisibleTable;
   el("login-btn").onclick = () => el("login-dialog").showModal();
   el("login-close").onclick = () => closeLogin();
   el("login-form").onsubmit = login;
@@ -405,9 +407,12 @@ function queueInfo(row, now = new Date()) {
   const unloadingState = Number(row.unloadingState),
     done = isDestination(row)
       ? unloadingState === 2
-      : Boolean(row.actualDepartureAt),
+      : isDrop(row)
+        ? unloadingState === 2 && Boolean(row.actualDepartureAt)
+        : Boolean(row.actualDepartureAt),
     started =
-      isDestination(row) && (unloadingState === 1 || unloadingState === 2),
+      (isDestination(row) || isDrop(row)) &&
+      (unloadingState === 1 || unloadingState === 2),
     active = Boolean(arrival) && !done && ageHours <= 12;
   return {
     active,
@@ -415,6 +420,38 @@ function queueInfo(row, now = new Date()) {
     started,
     expired: Boolean(arrival) && !done && ageHours > 12,
     ageHours,
+  };
+}
+
+function dropOperation(row) {
+  const unloadingState = Number(row.unloadingState);
+  const arrival = parseDate(row.actualArrivalAt);
+  const unloadingEnd = parseDate(row.unloadingCompletedAt);
+  const departure = parseDate(row.actualDepartureAt);
+  const unloadingMinutes = arrival
+    ? Math.max(0, Math.floor(((unloadingEnd || new Date()) - arrival) / 60000))
+    : null;
+  const onwardMinutes = unloadingEnd
+    ? Math.max(0, Math.floor(((departure || new Date()) - unloadingEnd) / 60000))
+    : null;
+  return {
+    unloadingLabel:
+      unloadingState === 2
+        ? "ลงของเสร็จแล้ว"
+        : unloadingState === 1
+          ? "กำลังลงของ"
+          : arrival
+            ? "รอเริ่มลงของ"
+            : "ยังไม่ถึงจุดดรอป",
+    onwardLabel: departure
+      ? "ออกไปต่อแล้ว"
+      : unloadingState === 2
+        ? "รอขึ้นงานและออกไปต่อ"
+        : "รอลงของให้เสร็จ",
+    unloadingMinutes,
+    onwardMinutes,
+    unloadingDone: unloadingState === 2,
+    onwardDone: Boolean(departure),
   };
 }
 
@@ -690,8 +727,11 @@ function tableRow(row) {
   const p = punctuality(row),
     operation = operationInfo(row),
     q = queueInfo(row);
+  const drop = isDrop(row) ? dropOperation(row) : null;
   const workStatus = isDestination(row)
     ? row.loadStatus || status.label
+    : isDrop(row)
+      ? drop.unloadingLabel
     : row.vehicleStatus || status.label;
   const plan = isDestination(row)
       ? row.estimatedArrivalAt
@@ -709,7 +749,9 @@ function tableRow(row) {
           ? "อยู่ในคิว"
           : "ยังไม่เริ่ม",
     wait = isDestination(row) ? waitInfo(row) : null,
-    durationHtml = isDestination(row)
+    durationHtml = isDrop(row)
+      ? `<div class="drop-progress"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${drop.unloadingMinutes === null ? "รอเวลาถึงจริง" : `${nf.format(drop.unloadingMinutes)} นาที`}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ขึ้นงานและไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${drop.onwardMinutes === null ? "รอขั้นตอนลงของ" : `${nf.format(drop.onwardMinutes)} นาที`}</small></div></div>`
+      : isDestination(row)
       ? wait.minutes === null
         ? '<span class="row-muted">รถยังไม่มาถึง</span>'
         : `<div class="duration-line ${wait.over ? "is-late" : "is-ok"}"><strong>${nf.format(wait.minutes)} นาที</strong><span>ตั้งแต่รถถึง · มาตรฐาน ${nf.format(wait.standard)} นาที</span></div>`
@@ -725,8 +767,11 @@ function card(row) {
   const wait = waitInfo(row),
     p = punctuality(row),
     q = queueInfo(row);
+  const drop = isDrop(row) ? dropOperation(row) : null;
   const workStatus = isDestination(row)
     ? row.loadStatus || status.label
+    : isDrop(row)
+      ? drop.onwardLabel
     : row.vehicleStatus || status.label;
   const attendanceClass = isDestination(row)
       ? "inbound"
@@ -739,21 +784,31 @@ function card(row) {
     timingText = p.diff === null
       ? "รอเวลาจริง"
       : `${p.diff > 0 ? "ช้ากว่าแผน" : "ก่อนแผน"} ${nf.format(Math.abs(p.diff))} นาที`,
-    durationText = isDestination(row)
+    durationText = isDrop(row)
+      ? drop.unloadingLabel
+      : isDestination(row)
       ? wait.minutes === null
         ? "ยังไม่เริ่มจับเวลา"
         : `${nf.format(wait.minutes)} นาที`
       : p.diff === null
         ? "รอเวลาออกจริง"
         : `${nf.format(Math.abs(p.diff))} นาที`,
-    durationNote = isDestination(row)
+    durationNote = isDrop(row)
+      ? drop.unloadingMinutes === null
+        ? "รอเวลาถึงจริง"
+        : `ลงของ ${nf.format(drop.unloadingMinutes)} นาที`
+      : isDestination(row)
       ? `มาตรฐาน ${nf.format(wait.standard)} นาที`
       : p.diff === null
         ? ""
         : p.diff > 0
           ? "ปล่อยช้ากว่าแผน"
           : "ปล่อยก่อนแผน",
-    queueText = q.done
+    queueText = isDrop(row)
+      ? drop.onwardMinutes === null
+        ? "รอขั้นตอนลงของ"
+        : `ขึ้นงาน/รอออก ${nf.format(drop.onwardMinutes)} นาที`
+      : q.done
       ? "เก็บในประวัติแล้ว"
       : q.expired
         ? "ตัดออกจากคิวเกิน 12 ชม."
@@ -1000,6 +1055,72 @@ function exportCurrent() {
     dedupeRoutes(filteredRows()).map(exportRow),
   );
 }
+function exportVisible() {
+  const rows = dedupeRoutes(filteredRows());
+  downloadRows(
+    `MS_ตารางปัจจุบัน_${state.branch}_${localDateValue(new Date())}.csv`,
+    rows.map(exportRow),
+  );
+  if (rows.length) toast(`Export ตารางที่แสดง ${nf.format(rows.length)} เที่ยวแล้ว`);
+}
+
+async function captureVisibleTable() {
+  const rows = dedupeRoutes(filteredRows());
+  if (!rows.length) return toast("ไม่มีข้อมูลในตารางสำหรับแคป", true);
+  const button = el("capture-table-btn");
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "กำลังสร้างภาพ…";
+  const stage = document.createElement("section");
+  stage.className = "capture-stage ms-page";
+  stage.innerHTML = `<header class="capture-title"><strong>ติดตามเส้นทาง MS · ${esc(state.branch)}</strong><span>${esc(new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date()))}</span></header><div class="capture-summary">${el("filter-summary").innerHTML}</div><table class="ms-table"><thead>${document.querySelector("#desktop-table thead").innerHTML}</thead><tbody>${rows.map(tableRow).join("")}</tbody></table>`;
+  document.body.appendChild(stage);
+  try {
+    const width = 1800;
+    stage.style.width = `${width}px`;
+    const height = Math.ceil(stage.scrollHeight + 4);
+    const css = [...document.styleSheets]
+      .map((sheet) => {
+        try { return [...sheet.cssRules].map((rule) => rule.cssText).join("\n"); }
+        catch { return ""; }
+      })
+      .join("\n");
+    const markup = new XMLSerializer().serializeToString(stage);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml"><style>${css}</style>${markup}</div></foreignObject></svg>`;
+    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+      image.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, 30000 / height);
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(url);
+    const png = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 1));
+    if (!png) throw new Error("สร้างไฟล์ภาพไม่สำเร็จ");
+    const pngUrl = URL.createObjectURL(png);
+    const link = document.createElement("a");
+    link.href = pngUrl;
+    link.download = `MS_ตาราง_${state.branch}_${localDateValue(new Date())}.png`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(pngUrl), 1500);
+    toast(`บันทึกภาพตาราง ${nf.format(rows.length)} เที่ยวแล้ว`);
+  } catch (error) {
+    toast("แคปตารางไม่สำเร็จ กรุณาลองด้วย Chrome หรือ Edge", true);
+  } finally {
+    stage.remove();
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
 async function exportHistory() {
   try {
     if (!state.archiveLoaded) {
@@ -1047,6 +1168,7 @@ function exportRow(row) {
     status = routeState(row),
     p = punctuality(row),
     q = queueInfo(row);
+  const drop = isDrop(row) ? dropOperation(row) : null;
   return {
     snapshotAt: exportThaiDate(
       row.archivedAt || row.snapshotAt || row.syncedAt,
@@ -1065,6 +1187,10 @@ function exportRow(row) {
     arrivalPunctuality: isDestination(row) ? p.label : "",
     unloadingCompletedAt: exportThaiDate(row.unloadingCompletedAt),
     unloadingState: row.unloadingState ?? "",
+    dropUnloadStatus: drop?.unloadingLabel || "",
+    dropUnloadMinutes: drop?.unloadingMinutes ?? "",
+    dropOnwardStatus: drop?.onwardLabel || "",
+    dropOnwardMinutes: drop?.onwardMinutes ?? "",
     estimatedDepartureAt: exportThaiDate(row.estimatedDepartureAt),
     actualDepartureAt: exportThaiDate(row.actualDepartureAt),
     departurePunctuality: isOrigin(row) ? p.label : "",

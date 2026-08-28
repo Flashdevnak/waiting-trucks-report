@@ -29,13 +29,18 @@ export default {
       }
       return reply({ ok: false, message: "Not found" }, 404);
     } catch (error) {
+      const limited =
+        Number(error?.status) === 429 ||
+        /429|rate limit|time limit/i.test(String(error?.message || ""));
       return reply(
         {
           ok: false,
-          code: "BROWSER_TEST_FAILED",
-          message: error?.message || "ทดสอบไม่สำเร็จ",
+          code: limited ? "BROWSER_DAILY_LIMIT" : "BROWSER_TEST_FAILED",
+          message: limited
+            ? "โควตา Cloud Browser ฟรีวันนี้ครบแล้ว เปิดได้อีกครั้งหลัง 07:00 น. ระบบจะไม่กินโควตาค้างเหมือนเดิมแล้ว"
+            : error?.message || "ทดสอบไม่สำเร็จ",
         },
-        500,
+        limited ? 429 : 500,
       );
     }
   },
@@ -45,9 +50,29 @@ export default {
 };
 
 async function start(env, body) {
-  requirePairing(body);
-  const browser = await puppeteer.launch(env.BROWSER, { keep_alive: 600000 });
+  const { pairing } = requirePairing(body);
+  const remembered = await env.STATE.get(`browser:${pairing}`);
+  if (remembered) {
+    try {
+      const active = await puppeteer.connect(env.BROWSER, remembered);
+      const pages = await active.pages(),
+        tab = pages[0];
+      const result = tab ? await inspect(tab, null) : null;
+      active.disconnect();
+      if (result)
+        return {
+          ok: true,
+          sessionId: remembered,
+          ...result,
+          message: "ใช้หน้าสแกน MS รอบเดิม",
+        };
+    } catch (_) {
+      await env.STATE.delete(`browser:${pairing}`);
+    }
+  }
+  const browser = await puppeteer.launch(env.BROWSER, { keep_alive: 120000 });
   const sessionId = browser.sessionId();
+  await env.STATE.put(`browser:${pairing}`, sessionId, { expirationTtl: 180 });
   const pages = await browser.pages();
   const tab = pages[0] || (await browser.newPage());
   await tab.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
@@ -88,6 +113,9 @@ async function status(env, sessionId, body) {
     await rememberConnector(env, hub, saved.connectorToken);
     result.savedToMain = true;
     result.apiMessage = `บันทึก Session ของ ${hub} เข้าระบบจริงแล้ว`;
+    await env.STATE.delete(`browser:${pairing}`);
+    await browser.close();
+    return { ok: true, sessionId, ...result };
   }
   browser.disconnect();
   return { ok: true, sessionId, ...result };
@@ -244,12 +272,27 @@ function page(url) {
   const pairing = url.searchParams.get("pairing") || "",
     hub = url.searchParams.get("hub") || "";
   return new Response(
-    HTML.replace('let sid="";', `let sid="";const pairing=${JSON.stringify(pairing)},hub=${JSON.stringify(hub)};`)
+    HTML.replace(
+      'let sid="";',
+      `let sid="";const pairing=${JSON.stringify(pairing)},hub=${JSON.stringify(hub)};`,
+    )
       .replace('call("/api/start")', 'call("/api/start",{pairing,hub})')
-      .replace('call("/api/status",{sessionId:sid})', 'call("/api/status",{sessionId:sid,pairing,hub})')
-      .replace('ทดลอง Cloud Browser เชื่อมต่อ MS', 'เชื่อมต่อ MS กับระบบรถรอลงงาน')
-      .replace('ระบบทดสอบแยก — ไม่กระทบเว็บจริง', `กำลังเชื่อมต่อ HUB ${hub || "-"}`)
-      .replace('เชื่อมต่อสำเร็จ ดึงข้อมูลจริงได้ ', 'เชื่อมต่อระบบจริงสำเร็จ ดึงข้อมูลได้ '),
+      .replace(
+        'call("/api/status",{sessionId:sid})',
+        'call("/api/status",{sessionId:sid,pairing,hub})',
+      )
+      .replace(
+        "ทดลอง Cloud Browser เชื่อมต่อ MS",
+        "เชื่อมต่อ MS กับระบบรถรอลงงาน",
+      )
+      .replace(
+        "ระบบทดสอบแยก — ไม่กระทบเว็บจริง",
+        `กำลังเชื่อมต่อ HUB ${hub || "-"}`,
+      )
+      .replace(
+        "เชื่อมต่อสำเร็จ ดึงข้อมูลจริงได้ ",
+        "เชื่อมต่อระบบจริงสำเร็จ ดึงข้อมูลได้ ",
+      ),
     {
       headers: {
         "content-type": "text/html; charset=utf-8",

@@ -3469,6 +3469,20 @@ tbody tr.is-unloading:hover {
 .parcel-progress-group strong { font-size: 13px; color: #111; }
 .arrival-sources small { display: block; padding: 4px 6px; border-top: 1px solid #d7dad7; font-weight: 800; }
 .parcel-progress-group + .parcel-progress-group { border-top: 1px solid #b9bdb9; }
+.source-empty {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  margin-top: 7px;
+  padding: 7px 9px;
+  border: 1px dashed #9da29e;
+  border-radius: 6px;
+  background: #fafafa;
+  color: #555;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.source-empty b { color: #222; font-size: 11px; }
 
 @media (max-width: 900px) {
   .arrival-sources,
@@ -3476,4 +3490,5 @@ tbody tr.is-unloading:hover {
   .arrival-sources strong,
   .parcel-progress-group strong { font-size: 15px; }
   .compact-drop-progress { margin: 12px 14px 0; width: calc(100% - 28px); }
+  .source-empty { margin: 12px 14px 0; width: calc(100% - 28px); font-size: 12px; }
 }

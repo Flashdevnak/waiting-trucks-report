@@ -757,7 +757,8 @@ function parcelProgress(row) {
     .some((value) => value !== null && value !== undefined && value !== "");
   const hasArrived = [row.arrivedParcels, row.arrivedBags]
     .some((value) => value !== null && value !== undefined && value !== "");
-  if (!hasExpected && !hasArrived) return "";
+  if (!hasExpected && !hasArrived)
+    return '<div class="source-empty"><b>ข้อมูลพัสดุเข้าคลัง</b><span>ยังไม่พบรายการที่ตรงกับรถคันนี้</span></div>';
   const value = (number) => number === null || number === undefined || number === "" ? "-" : nf.format(Number(number));
   return `<div class="parcel-progress">
     ${hasExpected ? `<div class="parcel-progress-group"><span>พัสดุเข้าคลัง</span><div><b>ควรเข้า <strong>${value(row.expectedParcels)}</strong></b><b>เข้าแล้ว <strong>${value(row.enteredParcels)}</strong></b><b>ยังไม่เข้า <strong>${value(row.pendingParcels)}</strong></b></div></div>` : ""}
@@ -766,7 +767,9 @@ function parcelProgress(row) {
 }
 
 function arrivalSources(row) {
-  if (!isDestination(row) || (!row.scheduleKitArrivalAt && !row.scheduleTbrArrivalAt)) return "";
+  if (!isDestination(row)) return "";
+  if (!row.scheduleKitArrivalAt && !row.scheduleTbrArrivalAt)
+    return '<div class="source-empty"><b>เวลา KIT / TBR</b><span>ยังไม่พบรายการที่ตรงกับรถคันนี้</span></div>';
   const earliest = [row.scheduleKitArrivalAt, row.scheduleTbrArrivalAt]
     .map(parseDate).filter(Boolean).sort((a, b) => a - b)[0];
   return `<div class="arrival-sources"><span>เวลาถึงจากระบบ</span><div><b>KIT <strong>${shortDateTime(row.scheduleKitArrivalAt)}</strong></b><b>TBR <strong>${shortDateTime(row.scheduleTbrArrivalAt)}</strong></b></div>${earliest ? `<small>ใช้เวลาที่มาก่อน · ${shortDateTime(earliest)}</small>` : ""}</div>`;

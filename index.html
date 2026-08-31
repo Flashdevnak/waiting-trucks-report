@@ -5,22 +5,19 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#151515" />
     <title>ระบบรถรอลงงาน</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="style.css?v=20260831-05" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260831-06" />
+    <link rel="stylesheet" href="style.css?v=20260831-06" />
     <script>fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(x=>{if(x.version&&!location.search.includes('v='+x.version))location.replace(location.pathname+'?v='+x.version+location.hash)}).catch(()=>{});</script>
     <script
       src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
       defer
     ></script>
-    <script src="main.js?v=20260831-05" defer></script>
+    <script src="main.js?v=20260831-06" defer></script>
   </head>
   <body>
     <header class="site-header">
       <div class="site-header-inner">
-        <div class="brand-mark">
-          <span class="brand-truck" aria-hidden="true">🚛</span
-          ><span id="site-code">HUB</span>
-        </div>
+        <div class="brand-mark brand-f" aria-label="Flash"><span>F</span></div>
         <div class="brand-copy">
           <strong id="site-title">ระบบรถรอลงงาน</strong
           ><span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span>
@@ -28,7 +25,7 @@
         <div class="topbar-actions">
           <span id="connection-badge" class="badge badge-neutral"
             >กำลังเชื่อมต่อ</span
-          ><details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>รถรอลงงาน</small></summary><div class="app-nav-menu"><a href="ms.html?v=20260831-05"><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href="index.html?v=20260831-05" class="is-current"><span>⏱</span><b>รถรอลงงาน</b><small>จัดการคิวและเวลารอลงงาน</small></a><a href="ms-report.html?v=20260831-05"><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a><a href="warehouse.html?v=20260831-05"><span>▣</span><b>พัสดุเข้าคลัง</b><small>ยอดพัสดุและรายการที่ยังไม่เข้า</small></a></div></details><button id="refresh-btn" class="btn btn-header">รีเฟรช</button
+          ><details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>รถรอลงงาน</small></summary><div class="app-nav-menu"><a href="ms.html?v=20260831-06"><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href="index.html?v=20260831-06" class="is-current"><span>⏱</span><b>รถรอลงงาน</b><small>จัดการคิวและเวลารอลงงาน</small></a><a href="ms-report.html?v=20260831-06"><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a><a href="warehouse.html?v=20260831-06"><span>▣</span><b>พัสดุเข้าคลัง</b><small>ยอดพัสดุและรายการที่ยังไม่เข้า</small></a></div></details><button id="refresh-btn" class="btn btn-header">รีเฟรช</button
           ><button id="unlock-btn" class="btn btn-header">เข้าสู่ระบบ</button
           ><button id="password-btn" class="btn btn-header hidden">
             เปลี่ยนรหัสผ่าน</button

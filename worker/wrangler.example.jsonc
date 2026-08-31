@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "waiting-trucks-report-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-31",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "REPLACE_WITH_VERIFIED_EXISTING_PRODUCTION_D1_NAME",
+      "database_id": "REPLACE_WITH_VERIFIED_EXISTING_PRODUCTION_D1_ID",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

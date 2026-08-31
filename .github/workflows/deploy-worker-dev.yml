@@ -30,6 +30,8 @@ jobs:
       - run: npm run check
       - name: Apply additive migrations to DEV D1
         run: npx wrangler d1 migrations apply DB --remote --config wrangler.dev.jsonc
+      - name: Validate DEV schema and row counts
+        run: npx wrangler d1 execute DB --remote --config wrangler.dev.jsonc --file scripts/production-preflight.sql
       - name: Deploy DEV shadow Worker
         run: npx wrangler deploy --config wrangler.dev.jsonc
     env:

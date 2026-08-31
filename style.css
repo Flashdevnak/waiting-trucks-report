@@ -3611,3 +3611,46 @@ tbody tr.is-unloading:hover {
   .pending-parcels-list > div { grid-template-columns: 34px minmax(0, 1fr); }
   .pending-parcels-list small { grid-column: 2; }
 }
+
+/* Mobile width contract: every MS card stays inside the phone viewport. */
+@media (max-width: 900px) {
+  .ms-page .app-shell { width: 100%; padding-left: 10px; padding-right: 10px; }
+  .ms-page .mobile-cards,
+  .ms-page .compact-card,
+  .ms-page .compact-card > *,
+  .ms-page .compact-schedule,
+  .ms-page .compact-operation,
+  .ms-page .compact-party { width: 100%; min-width: 0; max-width: 100%; }
+  .ms-page .compact-card > .arrival-sources,
+  .ms-page .compact-card > .parcel-progress,
+  .ms-page .compact-card > .source-empty,
+  .ms-page .compact-card > .compact-drop-progress {
+    width: calc(100% - 24px);
+    max-width: calc(100% - 24px);
+    margin: 12px 12px 0;
+  }
+  .ms-page .parcel-progress { overflow: hidden; }
+  .ms-page .parcel-progress-group > div { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .ms-page .parcel-progress-group b {
+    min-width: 0;
+    padding: 8px 2px;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+  .ms-page .parcel-progress-group strong,
+  .ms-page .pending-parcel-button { font-size: 15px; }
+  .ms-page .pending-parcel-button { width: 100%; min-width: 0; padding: 4px 2px; }
+  .ms-page .compact-card-head h2,
+  .ms-page .compact-card-head p,
+  .ms-page .schedule-values strong,
+  .ms-page .compact-party strong { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
+}
+@media (max-width: 380px) {
+  .ms-page .app-shell { padding-left: 6px; padding-right: 6px; }
+  .ms-page .compact-card-head { padding: 11px 9px; column-gap: 8px; }
+  .ms-page .compact-card-tags { min-width: 56px; }
+  .ms-page .compact-card-head h2 { font-size: 14px; }
+  .ms-page .compact-meta span { padding-left: 3px; padding-right: 3px; font-size: 11px; }
+  .ms-page .compact-operation > div { padding: 9px 7px; }
+  .ms-page .compact-operation strong { font-size: 13px; }
+}

@@ -762,9 +762,17 @@ function workCell(row) {
 
 function parcelProgress(row) {
   if (!isDestination(row)) return "";
+  const hasExpected = [row.expectedParcels, row.enteredParcels, row.pendingParcels]
+    .some((value) => value !== null && value !== undefined && value !== "");
+  if (!hasExpected)
+    return '<div class="source-empty parcel-empty"><b>พัสดุที่คาดว่าจะเข้าคลัง</b><span>ยังไม่พบรายการที่ตรงกับรถคันนี้</span></div>';
+  const value = (number) => number === null || number === undefined || number === ""
+    ? "-" : nf.format(Number(number));
   const pending = Number(row.pendingParcels);
-  if (!Number.isFinite(pending) || pending <= 0 || !row.proofId) return "";
-  return `<button class="pending-only-card" type="button" data-pending-proof="${esc(row.proofId)}" data-pending-day="${esc(localDateValue(row.estimatedArrivalAt || row.actualArrivalAt))}"><span>พัสดุยังไม่เข้าคลัง</span><strong>${nf.format(pending)}</strong><small>กดดูรายการ</small></button>`;
+  const pendingValue = Number.isFinite(pending) && pending > 0 && row.proofId
+    ? `<button class="pending-parcel-button" type="button" data-pending-proof="${esc(row.proofId)}" data-pending-day="${esc(localDateValue(row.estimatedArrivalAt || row.actualArrivalAt))}" title="กดดูเลขพัสดุที่ยังไม่เข้าคลัง">${value(row.pendingParcels)}</button>`
+    : `<strong>${value(row.pendingParcels)}</strong>`;
+  return `<div class="parcel-progress"><div class="parcel-progress-group"><span>พัสดุที่คาดว่าจะเข้าคลัง</span><div><b>ควรเข้า<strong>${value(row.expectedParcels)}</strong></b><b>เข้าแล้ว<strong>${value(row.enteredParcels)}</strong></b><b>ยังไม่เข้า${pendingValue}</b></div></div></div>`;
 }
 
 let pendingParcelRows = [];

@@ -1,88 +1,13 @@
-const API = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report.alert-squid-6738.chatgpt.site" : window.location.origin}/api`;
-const AUTH_KEY = "bnak_operator_auth_v2";
-const $ = (id) => document.getElementById(id);
-const nf = new Intl.NumberFormat("th-TH");
-
-document.addEventListener("DOMContentLoaded", () => {
-  const today = new Date();
-  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  $("report-from").value = iso(today);
-  $("report-to").value = iso(today);
-  $("report-load").onclick = loadReport;
-  document.querySelectorAll(".report-checks input").forEach((input) => input.onchange = renderReport);
-});
-
-let rows = [];
-async function apiGet(action, params = {}) {
-  const auth = JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
-  if (!auth?.token) throw new Error("กรุณาเข้าสู่ระบบจากหน้าติดตาม MS ก่อน");
-  const url = new URL(API);
-  url.searchParams.set("action", action);
-  url.searchParams.set("token", auth.token);
-  Object.entries(params).forEach(([key,value]) => url.searchParams.set(key, value));
-  const response = await fetch(url, { cache: "no-store" });
-  const json = await response.json();
-  if (!response.ok || !json.ok) throw new Error(json.message || "โหลดข้อมูลไม่สำเร็จ");
-  return json.data;
-}
-
-async function loadReport() {
-  const start = $("report-from").value, end = $("report-to").value, branch = $("report-hub").value.trim().toUpperCase();
-  if (!start || !end || end < start) return note("กรุณาเลือกช่วงวันที่ให้ถูกต้อง", true);
-  note("กำลังดึงและสรุปข้อมูล…");
-  try {
-    await apiGet("msRange", { branch, start, end });
-    const result = await apiGet("msArchive", { branch });
-    rows = (result.rows || []).filter((row) => {
-      const value = finishAt(row);
-      const day = value ? localDay(value) : "";
-      return day >= start && day <= end;
-    });
-    renderReport();
-  } catch (error) { note(error.message, true); }
-}
-
-function finishAt(row) {
-  if (String(row.attendanceType || "").includes("ปลายทาง")) return row.unloadingCompletedAt || row.actualDepartureAt || "";
-  return row.actualDepartureAt || row.unloadingCompletedAt || "";
-}
-function localDay(value) {
-  const d = new Date(value); if (isNaN(d)) return "";
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-}
-function selectedTypes() { return new Set([...document.querySelectorAll(".report-checks input:checked")].map((x) => x.value)); }
-function attendance(row) {
-  const value = String(row.attendanceType || "");
-  return value.includes("จุดดร") ? "จุดดรอป" : value.includes("ปลายทาง") ? "ปลายทาง" : value.includes("ต้นทาง") ? "ต้นทาง" : value;
-}
-function vehicle(row) { return String(row.vehicleType || "ไม่ระบุ").trim().toUpperCase() || "ไม่ระบุ"; }
-
-function renderReport() {
-  const types = selectedTypes();
-  const filtered = rows.filter((row) => types.has(attendance(row)) && finishAt(row));
-  const days = [...new Set(filtered.map((row) => localDay(finishAt(row))))].sort();
-  const vehicles = [...new Set(filtered.map(vehicle))].sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
-  const hours = Array.from({length:24}, (_,i) => i);
-  const counts = new Map();
-  filtered.forEach((row) => {
-    const d = new Date(finishAt(row));
-    const key = `${localDay(d)}|${vehicle(row)}|${attendance(row)}|${d.getHours()}`;
-    counts.set(key, (counts.get(key) || 0) + 1);
-  });
-  if (!filtered.length) {
-    $("report-empty").textContent = "ไม่พบรถที่จบงานตามวันที่และประเภทที่เลือก";
-    $("report-empty").classList.remove("hidden"); $("report-table-wrap").classList.add("hidden");
-    return note("ไม่พบข้อมูลที่จบงาน");
-  }
-  $("report-head").innerHTML = `<tr><th>วันที่</th><th>ขนาดรถ</th><th>ประเภทงาน</th>${hours.map((h)=>`<th>${h}</th>`).join("")}<th>รวม</th></tr>`;
-  const body = [];
-  days.forEach((day) => vehicles.forEach((car) => [...types].forEach((type) => {
-    const values = hours.map((hour) => counts.get(`${day}|${car}|${type}|${hour}`) || 0);
-    const total = values.reduce((a,b)=>a+b,0); if (!total) return;
-    body.push(`<tr><th>${day.split("-").reverse().join("/")}</th><th>${car}</th><th>${type}</th>${values.map((n)=>`<td>${n || "-"}</td>`).join("")}<th>${total}</th></tr>`);
-  })));
-  $("report-body").innerHTML = body.join("");
-  $("report-empty").classList.add("hidden"); $("report-table-wrap").classList.remove("hidden");
-  note(`สรุปรถจบงาน ${nf.format(filtered.length)} เที่ยว · เวลาจบใช้เวลาลงเสร็จสำหรับปลายทาง และเวลาออกจริงสำหรับต้นทาง/จุดดรอป`);
-}
-function note(message, error=false) { $("report-note").textContent = message; $("report-note").classList.toggle("form-error", error); }
+const API=`${location.hostname.endsWith("github.io")?"https://waiting-trucks-report.alert-squid-6738.chatgpt.site":location.origin}/api`,AUTH_KEY="bnak_operator_auth_v2",$=id=>document.getElementById(id),nf=new Intl.NumberFormat("th-TH");let sourceRows=[],filtersReady=false;
+const defs=[["attendance","ประเภทงาน",r=>attendance(r),["ปลายทาง","ต้นทาง","จุดดรอป"]],["vehicle","ขนาดรถ",r=>val(r.vehicleType)],["region","ภูมิภาค",r=>val(r.region)],["route","ประเภทเส้นทาง",r=>val(r.routeType||r.routeCategory)],["character","ลักษณะเส้นทาง",r=>val(r.routeCharacteristic||r.characteristic)],["supplier","บริษัทซัพ",r=>val(r.supplierName||r.subcontractorName)]];
+document.addEventListener("DOMContentLoaded",()=>{const n=new Date(),s=new Date(n),e=new Date(n);s.setHours(0,0,0,0);e.setHours(23,59,0,0);$("report-from").value=inputDate(s);$("report-to").value=inputDate(e);$("report-load").onclick=load;buildFilters([])});
+const pad=n=>String(n).padStart(2,"0"),inputDate=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,day=d=>{d=new Date(d);return isNaN(d)?"":`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`},val=v=>String(v||"ไม่ระบุ").trim()||"ไม่ระบุ",esc=v=>String(v??"").replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
+async function api(action,params={}){const a=JSON.parse(localStorage.getItem(AUTH_KEY)||"null");if(!a?.token)throw Error("กรุณาเข้าสู่ระบบจากหน้าติดตาม MS ก่อน");const u=new URL(API);u.searchParams.set("action",action);u.searchParams.set("token",a.token);Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));const r=await fetch(u,{cache:"no-store"}),j=await r.json();if(!r.ok||!j.ok)throw Error(j.message||"โหลดข้อมูลไม่สำเร็จ");return j.data}
+function attendance(r){const v=String(r.attendanceType||"");return v.includes("จุดดร")?"จุดดรอป":v.includes("ปลายทาง")?"ปลายทาง":v.includes("ต้นทาง")?"ต้นทาง":v||"ไม่ระบุ"}function finish(r){return attendance(r)==="ปลายทาง"?(r.unloadingCompletedAt||r.actualDepartureAt||""):(r.actualDepartureAt||r.unloadingCompletedAt||"")}const vehicle=r=>val(r.vehicleType).toUpperCase();
+function buildFilters(rows){const old=Object.fromEntries(defs.map(([k])=>[k,new Set([...document.querySelectorAll(`[data-filter-key="${k}"] [data-option]:checked`)].map(x=>x.value))]));$("report-filters").innerHTML=defs.map(([k,label,get,defaults])=>{let opts=defaults||[...new Set(rows.map(get).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"th",{numeric:true}));if(!opts.length)opts=["ไม่ระบุ"];const selected=filtersReady?old[k]:new Set(opts);return `<details class="multi-filter" data-filter-key="${k}"><summary><span>${esc(label)}</span><strong>ทั้งหมด</strong></summary><div class="multi-menu"><label class="select-all"><input type="checkbox" data-all checked> เลือกทั้งหมด</label>${opts.map(o=>`<label><input type="checkbox" data-option value="${esc(o)}" ${selected.has(o)?"checked":""}> ${esc(o)}</label>`).join("")}</div></details>`}).join("");document.querySelectorAll(".multi-filter").forEach(bind);filtersReady=true}
+function bind(box){const all=box.querySelector("[data-all]"),opts=[...box.querySelectorAll("[data-option]")],label=box.querySelector("summary strong"),update=()=>{const n=opts.filter(x=>x.checked).length;all.checked=n===opts.length;all.indeterminate=n>0&&n<opts.length;label.textContent=n===opts.length?"ทั้งหมด":n?`เลือก ${n}`:"ไม่ได้เลือก"};all.onchange=()=>{opts.forEach(x=>x.checked=all.checked);update();render()};opts.forEach(x=>x.onchange=()=>{update();render()});update()}
+const selected=k=>new Set([...document.querySelectorAll(`[data-filter-key="${k}"] [data-option]:checked`)].map(x=>x.value)),passes=r=>defs.every(([k,,get])=>selected(k).has(get(r)));
+async function load(){const from=new Date($("report-from").value),to=new Date($("report-to").value),branch=$("report-hub").value.trim().toUpperCase();if(isNaN(from)||isNaN(to)||to<from)return note("กรุณาเลือกวันและเวลาเริ่มต้น–สิ้นสุดให้ถูกต้อง",true);note("กำลังดึงข้อมูลและแยกเปรียบเทียบรายวัน…");try{await api("msRange",{branch,start:day(from),end:day(to)});const result=await api("msArchive",{branch});sourceRows=(result.rows||[]).filter(r=>{const t=new Date(finish(r));return !isNaN(t)&&t>=from&&t<=to});buildFilters(sourceRows);render()}catch(e){note(e.message,true)}}
+function render(){const rows=sourceRows.filter(r=>finish(r)&&passes(r));if(!rows.length){$("report-results").innerHTML='<div class="panel empty-state">ไม่พบรถที่จบงานตามช่วงเวลาและตัวกรองที่เลือก</div>';return note("ไม่พบข้อมูลที่ตรงเงื่อนไข")}const map=new Map;rows.forEach(r=>{const d=day(finish(r));if(!map.has(d))map.set(d,[]);map.get(d).push(r)});$("report-results").innerHTML=[...map.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([d,x])=>renderDay(d,x)).join("");note(`พบ ${nf.format(rows.length)} เที่ยว · แสดงแยก ${nf.format(map.size)} วัน · ไม่รวมยอดข้ามวัน`)}
+function renderDay(d,rows){const from=new Date($("report-from").value),to=new Date($("report-to").value),date=new Date(`${d}T00:00:00`),start=day(from)===d?from.getHours():0,end=day(to)===d?to.getHours():23,hours=[];for(let h=start;h<=end;h++)hours.push(h);const groups=new Map;rows.forEach(r=>{const k=`${vehicle(r)}|${attendance(r)}`;if(!groups.has(k))groups.set(k,{car:vehicle(r),type:attendance(r),n:new Map});const h=new Date(finish(r)).getHours(),g=groups.get(k);g.n.set(h,(g.n.get(h)||0)+1)});const body=[...groups.values()].sort((a,b)=>`${a.car}|${a.type}`.localeCompare(`${b.car}|${b.type}`,"th",{numeric:true})).map(g=>{const nums=hours.map(h=>g.n.get(h)||0),total=nums.reduce((a,b)=>a+b,0);return `<tr><th>${esc(g.car)}</th><th>${esc(g.type)}</th>${nums.map(n=>`<td>${n||"-"}</td>`).join("")}<th>${nf.format(total)}</th></tr>`}).join("");return `<section class="panel report-day"><header><div><span>📅 วันที่</span><h2>${date.toLocaleDateString("th-TH")}</h2></div><div><span>ช่วงเวลาที่เลือก</span><strong>${pad(start)}:00–${pad(end)}:59 น.</strong></div><div><span>รถจบงาน</span><strong>${nf.format(rows.length)} เที่ยว</strong></div></header><div class="table-scroll"><table class="daily-report-table"><thead><tr><th>ขนาดรถ</th><th>ประเภทงาน</th>${hours.map(h=>`<th>${pad(h)}:00</th>`).join("")}<th>รวม</th></tr></thead><tbody>${body}</tbody></table></div></section>`}
+function note(m,e=false){$("report-note").textContent=m;$("report-note").classList.toggle("form-error",e)}

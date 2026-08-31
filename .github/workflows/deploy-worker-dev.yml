@@ -1,5 +1,7 @@
 name: Deploy Worker DEV
 
+# DEV-only pipeline. Production remains on the legacy API until parity passes.
+
 on:
   workflow_dispatch:
   push:

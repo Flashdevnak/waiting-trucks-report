@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/index.js && node --check tests/parity.mjs",
+    "check": "node --check src/index.js && node --check tests/parity.mjs && node --check scripts/import-sites-dev.mjs",
     "parity": "node tests/parity.mjs",
     "dev": "wrangler dev --config wrangler.jsonc",
     "deploy": "wrangler deploy --config wrangler.jsonc",

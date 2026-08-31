@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#151515" />
     <title>ติดตามเส้นทาง MS</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="style.css?v=20260829-01" />
-    <script src="ms.js?v=20260829-01" defer></script>
+    <link rel="stylesheet" href="style.css?v=20260831-01" />
+    <script src="ms.js?v=20260831-01" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -27,6 +27,8 @@
             >กำลังเชื่อมต่อ</span
           >
           <a class="btn btn-header header-link" href="index.html">รถรอลงงาน</a>
+          <a class="btn btn-header header-link" href="ms-report.html">สรุปรายวัน</a>
+          <a class="btn btn-header header-link" href="scan.html">สแกนเข้าคลัง</a>
           <a
             id="central-settings-btn"
             class="btn btn-header header-link hidden"
@@ -196,6 +198,7 @@
               <option value="departure-late">รอออกล่าช้า</option>
             </select></label
           >
+          <button id="search-range-btn" class="btn btn-accent ms-search-btn" type="button">ค้นหา</button>
         </div>
         <div class="history-actions ms-export-actions">
           <button id="export-visible-btn" class="btn btn-header" type="button">
@@ -212,11 +215,7 @@
         <p id="last-refresh" class="sync-text">ยังไม่ได้โหลดข้อมูล</p>
       </section>
 
-      <section
-        id="filter-summary"
-        class="filter-summary"
-        aria-live="polite"
-      ></section>
+      <section id="filter-summary" class="filter-summary hidden" aria-live="polite"></section>
 
       <section class="panel table-panel">
         <div id="loading-state" class="empty-state">กำลังโหลดข้อมูล…</div>
@@ -389,6 +388,21 @@
           <p id="ms-connection-error" class="form-error hidden"></p>
         </details>
       </form>
+    </dialog>
+
+    <dialog id="pending-parcels-dialog" class="parcel-list-dialog">
+      <div class="dialog-card parcel-list-card">
+        <button id="pending-parcels-close" class="dialog-close" type="button" aria-label="ปิด">×</button>
+        <div class="dialog-kicker">พัสดุที่คาดว่าจะเข้าคลัง</div>
+        <h2>เลขพัสดุที่ยังไม่เข้าคลัง</h2>
+        <p id="pending-parcels-trip" class="muted"></p>
+        <div class="parcel-list-toolbar">
+          <strong id="pending-parcels-total">กำลังโหลด…</strong>
+          <button id="copy-pending-parcels" class="btn btn-header" type="button">คัดลอกเลขพัสดุ</button>
+        </div>
+        <div id="pending-parcels-loading" class="empty-state">กำลังโหลดรายการจาก MS…</div>
+        <div id="pending-parcels-list" class="pending-parcels-list hidden"></div>
+      </div>
     </dialog>
 
     <div id="toast" class="toast hidden" role="status"></div>

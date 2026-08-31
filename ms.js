@@ -610,6 +610,7 @@ function render() {
 }
 
 function renderFilterSummary(rows) {
+  el("filter-summary").classList.remove("hidden");
   const counts = { waiting: 0, unloading: 0, completed: 0, origin: 0, drop: 0 };
   for (const row of rows) {
     const key = routeState(row).key;

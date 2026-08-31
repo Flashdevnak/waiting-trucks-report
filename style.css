@@ -3486,10 +3486,26 @@ tbody tr.is-unloading:hover {
 .parcel-progress-group b {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 2px;
   padding: 6px 3px;
+  text-align: center;
   font-size: 9px;
   font-weight: 700;
+}
+.parcel-progress-group b:nth-child(1) { background: #fff7d6; }
+.parcel-progress-group b:nth-child(2) { background: #eaf6ef; }
+.parcel-progress-group b:nth-child(3) { background: #fbeceb; }
+.parcel-progress-group b:nth-child(1) strong { color: #795d00; }
+.parcel-progress-group b:nth-child(2) strong { color: #146b43; }
+.parcel-progress-group b:nth-child(3) strong { color: #a32923; }
+.parcel-progress-group .pending-parcel-button {
+  width: auto;
+  min-width: 52px;
+  border-color: #dea5a1;
+  background: #fff;
+  color: #a32923;
 }
 .arrival-sources b + b,
 .parcel-progress-group b + b { border-left: 1px solid #d7dad7; }
@@ -3562,6 +3578,7 @@ tbody tr.is-unloading:hover {
 .multi-menu{position:absolute;z-index:30;top:calc(100% + 5px);left:0;width:max(100%,220px);max-height:280px;overflow:auto;padding:8px;background:#fff;border:1px solid #aaa;border-radius:9px;box-shadow:0 12px 28px #0003}
 .multi-menu label{display:flex;gap:8px;align-items:center;padding:8px;border-radius:6px;color:#111;font-weight:600;cursor:pointer}.multi-menu label:hover{background:#fff7cf}.multi-menu .select-all{border-bottom:1px solid #ddd;font-weight:900}
 .report-load{grid-column:1/-1;justify-self:start;min-height:44px}
+.report-actions{grid-column:1/-1;display:flex;gap:10px;align-items:center}.report-actions .report-load{grid-column:auto}.report-actions .btn:disabled{opacity:.45;cursor:not-allowed}
 .report-day{padding:0;margin:14px 0;overflow:hidden}.report-day>header{display:flex;gap:40px;align-items:center;padding:14px 18px;background:#fff8d8;border-bottom:2px solid #e3b900}.report-day header div{display:grid;gap:2px}.report-day header span{font-size:12px;color:#595959}.report-day header h2,.report-day header strong{margin:0;color:#111}
 .daily-report-table{width:max-content;min-width:100%;border-collapse:collapse;background:#fff}.daily-report-table th,.daily-report-table td{padding:10px 12px;border:1px solid #d4d7d4;text-align:center;white-space:nowrap;color:#111;background:#fff}.daily-report-table thead th{position:sticky;top:0;background:#151515;color:#fff;z-index:2}.daily-report-table tbody th{font-weight:800;background:#f6f7f5;color:#111}.daily-report-table tbody tr:hover th,.daily-report-table tbody tr:hover td{background:#fff7d0}
 @media(max-width:1100px){.report-filter-grid{grid-template-columns:repeat(3,minmax(150px,1fr))}}

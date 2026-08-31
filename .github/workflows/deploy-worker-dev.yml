@@ -2,6 +2,11 @@ name: Deploy Worker DEV
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/deploy-worker-dev.yml
 
 permissions:
   contents: read

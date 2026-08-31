@@ -8,7 +8,10 @@
     "dev": "wrangler dev --config wrangler.jsonc",
     "deploy": "wrangler deploy --config wrangler.jsonc",
     "d1:list": "wrangler d1 migrations list DB --remote --config wrangler.jsonc",
-    "d1:apply": "wrangler d1 migrations apply DB --remote --config wrangler.jsonc"
+    "d1:apply": "wrangler d1 migrations apply DB --remote --config wrangler.jsonc",
+    "dev:shadow": "wrangler dev --config wrangler.dev.jsonc",
+    "deploy:dev": "wrangler deploy --config wrangler.dev.jsonc",
+    "d1:apply:dev": "wrangler d1 migrations apply DB --remote --config wrangler.dev.jsonc"
   },
   "devDependencies": {"wrangler":"^4.0.0"},
   "displayName": "\u0e23\u0e30\u0e1a\u0e1a\u0e23\u0e16\u0e23\u0e2d\u0e25\u0e07\u0e07\u0e32\u0e19"

@@ -33,6 +33,8 @@ API เดิมที่ยังเป็น fallback ระหว่าง mi
 - D1 migrations: `worker/migrations/`
 - API parity test: `worker/tests/parity.mjs`
 - Production preflight SQL: `worker/scripts/production-preflight.sql`
+- DEV Worker config: `worker/wrangler.dev.jsonc`
+- Manual DEV deploy workflow: `.github/workflows/deploy-worker-dev.yml`
 
 Backend ใน `worker/src/index.js` ถูกนำมาจาก deployment เดิมโดยตรงเพื่อรักษา API
 contract และ business logic เดิม ไม่ได้ rewrite ระหว่าง migration
@@ -54,6 +56,10 @@ Environment variables/secrets ที่ backend ใช้:
 - `MS_DEVICE_ID`
 
 ห้าม deploy ด้วย database ID ที่เดา ห้ามสร้าง Production D1 ใหม่แทนของเดิม
+
+DEV shadow ใช้ฐาน `waiting-trucks-report-dev-db` เท่านั้น และ Worker ชื่อ
+`waiting-trucks-report-api-dev` การ deploy ถูกตั้งเป็น `workflow_dispatch` เพื่อไม่ให้
+commit ปกติแก้ DEV D1 หรือ deploy Worker โดยอัตโนมัติ
 
 ## Development
 

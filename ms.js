@@ -43,6 +43,7 @@ document.addEventListener("DOMContentLoaded", () => {
   el("ms-connection-form").onsubmit = (event) => event.preventDefault();
   el("pending-parcels-close").onclick = () => el("pending-parcels-dialog").close();
   el("copy-pending-parcels").onclick = copyPendingParcels;
+  el("export-pending-parcels").onclick = exportPendingParcels;
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-pending-proof]");
     if (button) openPendingParcels(button.dataset.pendingProof, button.dataset.pendingDay);
@@ -142,7 +143,7 @@ function authUi() {
       : branches.length === 1
         ? branches[0]
         : "MULTI";
-  el("site-code").textContent = code;
+  if (el("site-code")) el("site-code").textContent = code;
   el("site-title").textContent =
     `ติดตามเส้นทาง MS${branches.length === 1 ? ` · ${branches[0]}` : ""}`;
   el("login-btn").classList.toggle("hidden", on);
@@ -761,21 +762,9 @@ function workCell(row) {
 
 function parcelProgress(row) {
   if (!isDestination(row)) return "";
-  const hasExpected = [row.expectedParcels, row.enteredParcels, row.pendingParcels]
-    .some((value) => value !== null && value !== undefined && value !== "");
-  const hasArrived = [row.arrivedParcels, row.arrivedBags]
-    .some((value) => value !== null && value !== undefined && value !== "");
-  if (!hasExpected && !hasArrived)
-    return '<div class="source-empty"><b>ข้อมูลพัสดุเข้าคลัง</b><span>ยังไม่พบรายการที่ตรงกับรถคันนี้</span></div>';
-  const value = (number) => number === null || number === undefined || number === "" ? "-" : nf.format(Number(number));
   const pending = Number(row.pendingParcels);
-  const pendingValue = Number.isFinite(pending) && pending > 0 && row.proofId
-    ? `<button class="pending-parcel-button" type="button" data-pending-proof="${esc(row.proofId)}" data-pending-day="${esc(localDateValue(row.estimatedArrivalAt || row.actualArrivalAt))}" title="กดดูเลขพัสดุที่ยังไม่เข้าคลัง">${value(row.pendingParcels)}</button>`
-    : `<strong>${value(row.pendingParcels)}</strong>`;
-  return `<div class="parcel-progress">
-    ${hasExpected ? `<div class="parcel-progress-group"><span>พัสดุเข้าคลัง</span><div><b>ควรเข้า <strong>${value(row.expectedParcels)}</strong></b><b>เข้าแล้ว <strong>${value(row.enteredParcels)}</strong></b><b>ยังไม่เข้า ${pendingValue}</b></div></div>` : ""}
-    ${hasArrived ? `<div class="parcel-progress-group arrived-counts"><span>ถึงคลังแล้ว</span><div><b>พัสดุ <strong>${value(row.arrivedParcels)}</strong></b><b>ถุง BG <strong>${value(row.arrivedBags)}</strong></b></div></div>` : ""}
-  </div>`;
+  if (!Number.isFinite(pending) || pending <= 0 || !row.proofId) return "";
+  return `<button class="pending-only-card" type="button" data-pending-proof="${esc(row.proofId)}" data-pending-day="${esc(localDateValue(row.estimatedArrivalAt || row.actualArrivalAt))}"><span>พัสดุยังไม่เข้าคลัง</span><strong>${nf.format(pending)}</strong><small>กดดูรายการ</small></button>`;
 }
 
 let pendingParcelRows = [];
@@ -792,12 +781,13 @@ async function openPendingParcels(proofId, day) {
       branch: state.branch,
       proofId,
       day,
+      type: "no_entry",
     });
     pendingParcelRows = result.parcels || [];
     el("pending-parcels-total").textContent = `ทั้งหมด ${nf.format(result.total || pendingParcelRows.length)} ชิ้น`;
     el("pending-parcels-trip").textContent = `${result.proofId || proofId} · ${result.routeName || ""}`;
     el("pending-parcels-list").innerHTML = pendingParcelRows.length
-      ? pendingParcelRows.map((row, index) => `<div><span>${nf.format(index + 1)}</span><strong>${esc(row.pno)}</strong>${row.status ? `<small>${esc(row.status)}</small>` : ""}</div>`).join("")
+      ? `<table><thead><tr><th>ลำดับ</th><th>เลขพัสดุ / เลขแบ็กกิ้ง</th><th>การดำเนินการล่าสุด / เวลา</th><th>HUB / สาขาปลายทาง</th></tr></thead><tbody>${pendingParcelRows.map((row, index) => `<tr><td>${nf.format(index + 1)}</td><td><strong>${esc(row.pno)}</strong><small>แบ็กกิ้ง: ${esc(row.backingNo || "-")}</small></td><td><strong>${esc(row.lastAction || row.status || "-")}</strong><small>${esc(row.lastActionAt || "-")}</small></td><td><strong>${esc(row.targetHub || "-")}</strong><small>${esc(row.targetBranch || "-")}</small></td></tr>`).join("")}</tbody></table>`
       : '<div class="empty-state">ไม่พบเลขพัสดุที่ยังไม่เข้าคลัง</div>';
     el("pending-parcels-loading").classList.add("hidden");
     el("pending-parcels-list").classList.remove("hidden");
@@ -811,6 +801,22 @@ async function copyPendingParcels() {
   if (!pendingParcelRows.length) return toast("ยังไม่มีเลขพัสดุให้คัดลอก", true);
   await navigator.clipboard.writeText(pendingParcelRows.map((row) => row.pno).join("\n"));
   toast(`คัดลอกเลขพัสดุ ${nf.format(pendingParcelRows.length)} รายการแล้ว`);
+}
+
+function exportPendingParcels() {
+  if (!pendingParcelRows.length) return toast("ยังไม่มีข้อมูลสำหรับ Export", true);
+  const rows = pendingParcelRows.map((row, index) => ({
+    "ลำดับ": index + 1,
+    "เลขพัสดุ": row.pno,
+    "เลขแบ็กกิ้ง": row.backingNo || "",
+    "การดำเนินการล่าสุด": row.lastAction || row.status || "",
+    "เวลาที่ดำเนินการล่าสุด": row.lastActionAt || "",
+    "HUB ปลายทาง": row.targetHub || "",
+    "สาขาปลายทาง": row.targetBranch || "",
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows), wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "พัสดุยังไม่เข้า");
+  XLSX.writeFile(wb, `พัสดุยังไม่เข้าคลัง_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 function arrivalSources(row) {

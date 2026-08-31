@@ -916,6 +916,34 @@ dialog::backdrop {
   }
 }
 
+/* Final warehouse detail layout: one page-width table, no nested scrolling. */
+.parcel-list-dialog{width:min(1500px,calc(100vw - 24px))}
+.parcel-list-card{max-height:none;overflow:visible}
+.pending-parcels-list{max-height:none;overflow:visible;border:0;border-radius:0}
+.pending-parcels-list.parcel-data-table table,
+.parcel-detail-table{width:100%;min-width:0!important;table-layout:fixed}
+.pending-parcels-list.parcel-data-table th:first-child,
+.parcel-detail-table th:first-child{width:58px}
+.pending-parcels-list.parcel-data-table th:nth-child(2),
+.parcel-detail-table th:nth-child(2){width:27%}
+.pending-parcels-list.parcel-data-table th:nth-child(3),
+.parcel-detail-table th:nth-child(3){width:34%}
+.pending-parcels-list.parcel-data-table th:nth-child(4),
+.parcel-detail-table th:nth-child(4){width:auto}
+.parcel-detail-scroll{max-height:none;overflow:visible!important}
+.scan-toolbar{grid-template-columns:150px 180px minmax(220px,1fr) auto auto!important}
+@media(max-width:760px){
+  .scan-toolbar{grid-template-columns:1fr 1fr!important}
+  .scan-toolbar label:nth-child(3){grid-column:1/-1}
+  .scan-toolbar .btn{grid-column:auto}
+  .parcel-list-dialog{width:calc(100vw - 12px)}
+  .pending-parcels-list.parcel-data-table table,
+  .parcel-detail-table{font-size:10px}
+  .pending-parcels-list.parcel-data-table th,
+  .pending-parcels-list.parcel-data-table td,
+  .parcel-detail-table th,.parcel-detail-table td{padding:6px 4px;overflow-wrap:anywhere}
+}
+
 /* MS header, badges and table rhythm */
 .ms-page .site-header {
   position: sticky;
@@ -3508,6 +3536,18 @@ tbody tr.is-unloading:hover {
 .app-nav-menu{position:absolute;right:0;top:calc(100% + 8px);width:min(390px,calc(100vw - 28px));padding:8px;border:1px solid #3f4346;border-radius:12px;background:#181a1b;box-shadow:0 18px 45px #0007}
 .app-nav-menu a{display:grid;grid-template-columns:40px 1fr;grid-template-rows:auto auto;column-gap:11px;align-items:center;padding:11px 12px;border:1px solid transparent;border-radius:9px;color:#fff;text-decoration:none}.app-nav-menu a>span{grid-row:1/3;display:grid;place-items:center;width:38px;height:38px;border-radius:8px;background:#303335;color:#ffd400;font-size:20px}.app-nav-menu a b{font-size:14px}.app-nav-menu a small{color:#aeb4b7;font-size:11px}.app-nav-menu a:hover{background:#292c2e;border-color:#555}.app-nav-menu a.is-current{background:#332d0d;border-color:#e3ba00}.app-nav-menu a.is-current>span{background:#ffd400;color:#111}
 @media(max-width:700px){.app-nav{width:100%;min-width:0}.app-nav-menu{position:fixed;left:14px;right:14px;top:auto;width:auto}.app-nav>summary{width:100%}.ms-page .topbar-actions .app-nav{grid-column:1/-1}}
+
+@media(min-width:701px){
+  .site-header-inner{padding-right:270px!important}
+  .app-nav{position:fixed!important;right:20px;top:10px;width:238px;min-width:238px}
+  .app-nav-menu{position:absolute;right:0}
+}
+.pending-only-card{display:grid;grid-template-columns:1fr auto;align-items:center;gap:1px 12px;width:100%;padding:9px 11px;border:1px solid #aeb3af;border-radius:5px;background:#f6f7f5;color:#1d201d;text-align:left;cursor:pointer}.pending-only-card span{font-size:10px;font-weight:800}.pending-only-card strong{grid-row:1/3;grid-column:2;font-size:22px;color:#a02924}.pending-only-card small{color:#6c716d;font-size:9px}.pending-only-card:hover{border-color:#555;background:#eceeeb}
+.parcel-export-actions,.parcel-detail-actions{display:flex;align-items:center;justify-content:space-between;gap:8px}.parcel-detail-actions p{margin:0}
+.parcel-data-table{overflow:visible!important;max-height:none!important}.parcel-data-table table{width:100%;border-collapse:collapse;table-layout:fixed}.parcel-data-table th,.parcel-data-table td{padding:10px;border:1px solid #d5d8d5;text-align:left;vertical-align:top}.parcel-data-table th{background:#171717;color:#fff;text-align:center}.parcel-data-table th:first-child{width:58px}.parcel-data-table td:first-child{text-align:center}.parcel-data-table strong,.parcel-data-table small,.parcel-detail-table strong,.parcel-detail-table small{display:block}.parcel-data-table small,.parcel-detail-table small{margin-top:4px;color:#626862}
+.parcel-detail-table{min-width:0!important;table-layout:fixed}.parcel-detail-table th:first-child{width:64px}.parcel-detail-table th:nth-child(2){width:27%}.parcel-detail-table th:nth-child(3){width:34%}.parcel-detail-table th:nth-child(4){width:auto}.parcel-detail-scroll{overflow-x:hidden!important}
+.scan-toolbar{grid-template-columns:150px 180px minmax(220px,1fr) auto auto!important}.scan-count{border-radius:5px!important;background:#f5f6f4!important;border-color:#b8bcb8!important;color:#171717!important}.scan-count.no_entry{background:#f7eceb!important;border-color:#d7a8a5!important;color:#9c2722!important}.scan-count:disabled{background:#f5f5f3!important;color:#aaa!important}
+@media(max-width:760px){.scan-toolbar{grid-template-columns:1fr 1fr!important}.scan-toolbar .btn{grid-column:auto}.scan-toolbar label:nth-child(3){grid-column:1/-1}.parcel-detail-table{font-size:11px}.parcel-detail-table th,.parcel-detail-table td{padding:7px 5px}.parcel-data-table{font-size:11px}}
 
 /* Report / warehouse navigation refresh */
 .brand-mark.compact{width:76px;min-width:76px;overflow:hidden;justify-content:center;gap:6px;font-size:18px}

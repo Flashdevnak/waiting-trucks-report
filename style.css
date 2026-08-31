@@ -3483,6 +3483,53 @@ tbody tr.is-unloading:hover {
   line-height: 1.4;
 }
 .source-empty b { color: #222; font-size: 11px; }
+.pending-parcel-button {
+  min-width: 42px;
+  margin-top: 2px;
+  padding: 3px 7px;
+  border: 1px solid #151515;
+  border-radius: 4px;
+  background: #ffd400;
+  color: #151515;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+/* The old overview totals were calculated from mixed live/archive scopes and
+   caused operational confusion. Filters and the table are now the authority. */
+.ms-page .ms-metrics,
+.ms-page #filter-summary {
+  display: none !important;
+}
+
+.ms-search-btn {
+  align-self: end;
+  min-height: 45px;
+}
+
+.report-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; padding: 16px; }
+.report-toolbar > label { display: grid; gap: 6px; min-width: 180px; }
+.report-checks { display: flex; flex-wrap: wrap; gap: 12px; width: 100%; padding-top: 6px; }
+.report-checks label { display: flex; align-items: center; gap: 6px; font-weight: 800; }
+.daily-report-table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 12px; }
+.daily-report-table th, .daily-report-table td { border: 1px solid #d2d6d3; padding: 8px; text-align: center; white-space: nowrap; }
+.daily-report-table thead th { background: #151515; color: white; position: sticky; top: 0; }
+.daily-report-table tbody th { background: #f2f3f1; }
+.scan-panel { max-width: 820px; margin: 24px auto; padding: 28px; display: grid; gap: 18px; }
+.scan-panel .btn { width: fit-content; }
+.pending-parcel-button:hover { background: #e5e7e4; }
+.parcel-list-dialog { width: min(720px, calc(100vw - 24px)); }
+.parcel-list-card { width: 100%; max-width: none; max-height: min(820px, calc(100vh - 28px)); }
+.parcel-list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; }
+.pending-parcels-list { max-height: 560px; overflow: auto; border: 1px solid #d5d8d4; border-radius: 6px; }
+.pending-parcels-list > div { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 11px; background: #fff; }
+.pending-parcels-list > div + div { border-top: 1px solid #e2e4e1; }
+.pending-parcels-list > div:hover { background: #e9ebe8; }
+.pending-parcels-list span { color: #6b706b; font-size: 11px; }
+.pending-parcels-list strong { color: #161616; font-size: 13px; overflow-wrap: anywhere; }
+.pending-parcels-list small { color: #5c625d; font-size: 11px; }
 
 @media (max-width: 900px) {
   .arrival-sources,
@@ -3491,4 +3538,6 @@ tbody tr.is-unloading:hover {
   .parcel-progress-group strong { font-size: 15px; }
   .compact-drop-progress { margin: 12px 14px 0; width: calc(100% - 28px); }
   .source-empty { margin: 12px 14px 0; width: calc(100% - 28px); font-size: 12px; }
+  .pending-parcels-list > div { grid-template-columns: 34px minmax(0, 1fr); }
+  .pending-parcels-list small { grid-column: 2; }
 }

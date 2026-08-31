@@ -154,7 +154,7 @@ function updateSiteIdentity() {
             ? "หลายสาขา"
             : "";
   document.title = `${code} | ระบบรถรอลงงาน`;
-  el("site-code").textContent = code;
+  if (el("site-code")) el("site-code").textContent = code;
   el("site-title").textContent = branchLabel
     ? `ระบบรถรอลงงาน · ${branchLabel}`
     : "ระบบรถรอลงงาน";

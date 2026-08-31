@@ -3499,10 +3499,27 @@ tbody tr.is-unloading:hover {
 
 /* The old overview totals were calculated from mixed live/archive scopes and
    caused operational confusion. Filters and the table are now the authority. */
-.ms-page .ms-metrics,
 .ms-page #filter-summary {
   display: none !important;
 }
+
+/* Report / warehouse navigation refresh */
+.brand-mark.compact{width:76px;min-width:76px;overflow:hidden;justify-content:center;gap:6px;font-size:18px}
+.report-shell{max-width:none}
+.report-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) minmax(120px,.5fr);gap:14px;align-items:end;padding:20px}
+.report-toolbar>label{display:grid;gap:6px;font-weight:800}
+.report-toolbar input{min-height:44px;border:1px solid #b9bdb9;border-radius:8px;padding:8px 11px;background:#fff;color:#111;font:inherit}
+.report-filter-grid{grid-column:1/-1;display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:10px}
+.multi-filter{position:relative;min-width:0}
+.multi-filter summary{list-style:none;display:flex;justify-content:space-between;align-items:center;min-height:44px;padding:8px 12px;border:1px solid #aeb4b0;border-radius:8px;background:#fff;cursor:pointer;color:#111}
+.multi-filter summary::-webkit-details-marker{display:none}.multi-filter summary strong{color:#8c6d00;font-size:13px}
+.multi-menu{position:absolute;z-index:30;top:calc(100% + 5px);left:0;width:max(100%,220px);max-height:280px;overflow:auto;padding:8px;background:#fff;border:1px solid #aaa;border-radius:9px;box-shadow:0 12px 28px #0003}
+.multi-menu label{display:flex;gap:8px;align-items:center;padding:8px;border-radius:6px;color:#111;font-weight:600;cursor:pointer}.multi-menu label:hover{background:#fff7cf}.multi-menu .select-all{border-bottom:1px solid #ddd;font-weight:900}
+.report-load{grid-column:1/-1;justify-self:start;min-height:44px}
+.report-day{padding:0;margin:14px 0;overflow:hidden}.report-day>header{display:flex;gap:40px;align-items:center;padding:14px 18px;background:#fff8d8;border-bottom:2px solid #e3b900}.report-day header div{display:grid;gap:2px}.report-day header span{font-size:12px;color:#595959}.report-day header h2,.report-day header strong{margin:0;color:#111}
+.daily-report-table{width:max-content;min-width:100%;border-collapse:collapse;background:#fff}.daily-report-table th,.daily-report-table td{padding:10px 12px;border:1px solid #d4d7d4;text-align:center;white-space:nowrap;color:#111;background:#fff}.daily-report-table thead th{position:sticky;top:0;background:#151515;color:#fff;z-index:2}.daily-report-table tbody th{font-weight:800;background:#f6f7f5;color:#111}.daily-report-table tbody tr:hover th,.daily-report-table tbody tr:hover td{background:#fff7d0}
+@media(max-width:1100px){.report-filter-grid{grid-template-columns:repeat(3,minmax(150px,1fr))}}
+@media(max-width:700px){.report-toolbar{grid-template-columns:1fr}.report-filter-grid{grid-column:auto;grid-template-columns:1fr 1fr}.report-day>header{align-items:flex-start;gap:12px;flex-wrap:wrap}.brand-mark.compact{width:62px;min-width:62px}}
 
 .ms-search-btn {
   align-self: end;

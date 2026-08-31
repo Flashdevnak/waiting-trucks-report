@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#151515" />
     <title>ติดตามเส้นทาง MS</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260831-08" />
-    <link rel="stylesheet" href="style.css?v=20260831-08" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260831-09" />
+    <link rel="stylesheet" href="style.css?v=20260831-09" />
     <script>if(location.search)history.replaceState(null,'',location.pathname+location.hash);if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
-    <script src="ms.js?v=20260831-08" defer></script>
+    <script src="ms.js?v=20260831-09" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -379,7 +379,7 @@
             <button class="btn btn-accent" type="button" data-har-save="routes">ทดสอบและบันทึก</button>
             <label><span>2. HAR พัสดุที่คาดว่าจะเข้าคลัง</span><input id="ms-har-preentry" type="file" accept=".har,application/json" /></label>
             <button class="btn btn-accent" type="button" data-har-save="preEntry">ทดสอบและบันทึก</button>
-            <label><span>3. HAR การจัดการตารางเวลา (KIT/TBR)</span><input id="ms-har-bustime" type="file" accept=".har,application/json" /></label>
+            <label><span>3. HAR การจัดการตารางเวลา (KIT/TBR) · รองรับสูงสุด 250 MB</span><input id="ms-har-bustime" type="file" accept=".har,application/json" /></label>
             <button class="btn btn-accent" type="button" data-har-save="busTime">ทดสอบและบันทึก</button>
           </div>
           <p id="ms-connection-error" class="form-error hidden"></p>

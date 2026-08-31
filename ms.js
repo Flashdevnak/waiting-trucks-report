@@ -37,9 +37,16 @@ const dtf = new Intl.DateTimeFormat("th-TH", {
 
 document.addEventListener("DOMContentLoaded", () => {
   el("refresh-btn").onclick = () => loadData();
+  el("search-range-btn").onclick = loadRange;
   el("ms-connection-btn").onclick = openMsConnection;
   el("ms-connection-close").onclick = () => el("ms-connection-dialog").close();
   el("ms-connection-form").onsubmit = (event) => event.preventDefault();
+  el("pending-parcels-close").onclick = () => el("pending-parcels-dialog").close();
+  el("copy-pending-parcels").onclick = copyPendingParcels;
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-pending-proof]");
+    if (button) openPendingParcels(button.dataset.pendingProof, button.dataset.pendingDay);
+  });
   document.querySelectorAll("[data-har-save]").forEach((button) => {
     button.onclick = () => saveMsConnection(button.dataset.harSave, button);
   });
@@ -760,10 +767,49 @@ function parcelProgress(row) {
   if (!hasExpected && !hasArrived)
     return '<div class="source-empty"><b>ข้อมูลพัสดุเข้าคลัง</b><span>ยังไม่พบรายการที่ตรงกับรถคันนี้</span></div>';
   const value = (number) => number === null || number === undefined || number === "" ? "-" : nf.format(Number(number));
+  const pending = Number(row.pendingParcels);
+  const pendingValue = Number.isFinite(pending) && pending > 0 && row.proofId
+    ? `<button class="pending-parcel-button" type="button" data-pending-proof="${esc(row.proofId)}" data-pending-day="${esc(localDateValue(row.estimatedArrivalAt || row.actualArrivalAt))}" title="กดดูเลขพัสดุที่ยังไม่เข้าคลัง">${value(row.pendingParcels)}</button>`
+    : `<strong>${value(row.pendingParcels)}</strong>`;
   return `<div class="parcel-progress">
-    ${hasExpected ? `<div class="parcel-progress-group"><span>พัสดุเข้าคลัง</span><div><b>ควรเข้า <strong>${value(row.expectedParcels)}</strong></b><b>เข้าแล้ว <strong>${value(row.enteredParcels)}</strong></b><b>ยังไม่เข้า <strong>${value(row.pendingParcels)}</strong></b></div></div>` : ""}
+    ${hasExpected ? `<div class="parcel-progress-group"><span>พัสดุเข้าคลัง</span><div><b>ควรเข้า <strong>${value(row.expectedParcels)}</strong></b><b>เข้าแล้ว <strong>${value(row.enteredParcels)}</strong></b><b>ยังไม่เข้า ${pendingValue}</b></div></div>` : ""}
     ${hasArrived ? `<div class="parcel-progress-group arrived-counts"><span>ถึงคลังแล้ว</span><div><b>พัสดุ <strong>${value(row.arrivedParcels)}</strong></b><b>ถุง BG <strong>${value(row.arrivedBags)}</strong></b></div></div>` : ""}
   </div>`;
+}
+
+let pendingParcelRows = [];
+async function openPendingParcels(proofId, day) {
+  const dialog = el("pending-parcels-dialog");
+  pendingParcelRows = [];
+  el("pending-parcels-trip").textContent = `${proofId}${day ? ` · ${day}` : ""}`;
+  el("pending-parcels-total").textContent = "กำลังโหลด…";
+  el("pending-parcels-loading").classList.remove("hidden");
+  el("pending-parcels-list").classList.add("hidden");
+  dialog.showModal();
+  try {
+    const result = await apiGet("pendingParcels", {
+      branch: state.branch,
+      proofId,
+      day,
+    });
+    pendingParcelRows = result.parcels || [];
+    el("pending-parcels-total").textContent = `ทั้งหมด ${nf.format(result.total || pendingParcelRows.length)} ชิ้น`;
+    el("pending-parcels-trip").textContent = `${result.proofId || proofId} · ${result.routeName || ""}`;
+    el("pending-parcels-list").innerHTML = pendingParcelRows.length
+      ? pendingParcelRows.map((row, index) => `<div><span>${nf.format(index + 1)}</span><strong>${esc(row.pno)}</strong>${row.status ? `<small>${esc(row.status)}</small>` : ""}</div>`).join("")
+      : '<div class="empty-state">ไม่พบเลขพัสดุที่ยังไม่เข้าคลัง</div>';
+    el("pending-parcels-loading").classList.add("hidden");
+    el("pending-parcels-list").classList.remove("hidden");
+  } catch (error) {
+    el("pending-parcels-loading").innerHTML = `<strong>${esc(error.message)}</strong><span>ตรวจสอบเซสชันพัสดุเข้าคลังแล้วลองใหม่</span>`;
+    el("pending-parcels-total").textContent = "โหลดไม่สำเร็จ";
+  }
+}
+
+async function copyPendingParcels() {
+  if (!pendingParcelRows.length) return toast("ยังไม่มีเลขพัสดุให้คัดลอก", true);
+  await navigator.clipboard.writeText(pendingParcelRows.map((row) => row.pno).join("\n"));
+  toast(`คัดลอกเลขพัสดุ ${nf.format(pendingParcelRows.length)} รายการแล้ว`);
 }
 
 function arrivalSources(row) {
@@ -965,7 +1011,10 @@ function setupDateInput(id) {
     render();
   };
   input.onclick = () => input.showPicker?.();
-  input.onchange = autoLoadRange;
+  input.onchange = () => {
+    state[id === "date-from" ? "dateFrom" : "dateTo"] = displayDateToIso(input.value);
+    render();
+  };
 }
 
 function renderFreshness() {

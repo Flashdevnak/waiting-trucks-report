@@ -1,28 +1,3 @@
-<!doctype html>
-<html lang="th">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>สรุปรถจบงานรายวัน</title>
-  <link rel="stylesheet" href="style.css?v=20260831-01" />
-  <script src="ms-report.js?v=20260831-01" defer></script>
-</head>
-<body class="ms-page report-page">
-  <header class="site-header"><div class="site-header-inner"><div class="header-brand"><div class="brand-mark"><span class="brand-truck"></span><span>REPORT</span></div><div class="brand-copy"><strong>สรุปรถจบงานรายวัน</strong><span>เปรียบเทียบตามวันที่และชั่วโมง</span></div></div><nav class="topbar-actions"><a class="btn btn-header header-link" href="ms.html">กลับหน้าติดตาม MS</a><a class="btn btn-header header-link" href="scan.html">สแกนเข้าคลัง</a></nav></div></header>
-  <main class="app-shell">
-    <section class="panel report-toolbar">
-      <label><span>วันที่เริ่มต้น</span><input id="report-from" type="date" /></label>
-      <label><span>วันที่สิ้นสุด</span><input id="report-to" type="date" /></label>
-      <label><span>HUB</span><input id="report-hub" value="NE1" /></label>
-      <button id="report-load" class="btn btn-accent" type="button">ค้นหาและสรุป</button>
-      <div class="report-checks" aria-label="ประเภทงาน">
-        <label><input type="checkbox" value="ปลายทาง" checked /> ปลายทาง</label>
-        <label><input type="checkbox" value="ต้นทาง" checked /> ต้นทาง</label>
-        <label><input type="checkbox" value="จุดดรอป" checked /> จุดดรอป</label>
-      </div>
-    </section>
-    <p id="report-note" class="sync-text">เลือกวันที่แล้วกดค้นหา</p>
-    <section class="panel table-panel"><div id="report-empty" class="empty-state">ยังไม่มีข้อมูล</div><div id="report-table-wrap" class="table-scroll hidden"><table class="daily-report-table"><thead id="report-head"></thead><tbody id="report-body"></tbody></table></div></section>
-  </main>
-</body>
-</html>
+<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>สรุปรถจบงานรายวัน</title><link rel="stylesheet" href="style.css?v=20260831-04"><script src="ms-report.js?v=20260831-04" defer></script></head>
+<body class="ms-page report-page"><header class="site-header"><div class="site-header-inner"><div class="header-brand"><div class="brand-mark compact"><span class="brand-truck"></span><span>RPT</span></div><div class="brand-copy"><strong>สรุปรถจบงานรายวัน</strong><span>เปรียบเทียบแยกตามวันที่และช่วงเวลา</span></div></div><nav class="topbar-actions"><a class="btn btn-header" href="ms.html">ติดตามรถ MS</a><a class="btn btn-header" href="warehouse.html?v=20260831-04">พัสดุเข้าคลัง</a></nav></div></header>
+<main class="app-shell report-shell"><section class="panel report-toolbar"><label><span>วันที่ + เวลาเริ่มต้น</span><input id="report-from" type="datetime-local"></label><label><span>วันที่ + เวลาสิ้นสุด</span><input id="report-to" type="datetime-local"></label><label><span>HUB</span><input id="report-hub" value="NE1"></label><div id="report-filters" class="report-filter-grid"></div><button id="report-load" class="btn btn-accent report-load" type="button">🔎 ค้นหาและเปรียบเทียบ</button></section><p id="report-note" class="sync-text">เลือกช่วงวันที่และเวลา แล้วกดค้นหา</p><section id="report-results"><div class="panel empty-state">ยังไม่มีข้อมูล</div></section></main></body></html>

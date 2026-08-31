@@ -1161,8 +1161,9 @@ async function saveMsConnection(source, button) {
     hub = el("ms-har-hub").value.trim().toUpperCase();
   try {
     button.disabled = true;
-    if (!file || file.size > 60 * 1024 * 1024)
-      throw new Error("กรุณาเลือกไฟล์ HAR ขนาดไม่เกิน 60 MB");
+    const maxHarMb = source === "busTime" ? 250 : 60;
+    if (!file || file.size > maxHarMb * 1024 * 1024)
+      throw new Error(`กรุณาเลือกไฟล์ HAR ขนาดไม่เกิน ${maxHarMb} MB`);
     const har = JSON.parse(await file.text());
     const entries = har.log?.entries || [];
     const entry = entries.find((item) => {

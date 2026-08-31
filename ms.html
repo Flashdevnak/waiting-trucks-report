@@ -5,10 +5,11 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#151515" />
     <title>ติดตามเส้นทาง MS</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260831-06" />
-    <link rel="stylesheet" href="style.css?v=20260831-06" />
-    <script>fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(x=>{if(x.version&&!location.search.includes('v='+x.version))location.replace(location.pathname+'?v='+x.version+location.hash)}).catch(()=>{});</script>
-    <script src="ms.js?v=20260831-06" defer></script>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260831-07" />
+    <link rel="stylesheet" href="style.css?v=20260831-07" />
+    <script>if(location.search)history.replaceState(null,'',location.pathname+location.hash);if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});</script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+    <script src="ms.js?v=20260831-07" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -24,11 +25,11 @@
           <span id="connection-badge" class="badge badge-neutral"
             >กำลังเชื่อมต่อ</span
           >
-          <details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>หน้าติดตาม MS</small></summary><div class="app-nav-menu"><a href="ms.html?v=20260831-06" class="is-current"><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href="index.html?v=20260831-06"><span>⏱</span><b>รถรอลงงาน</b><small>จัดการคิวและเวลารอลงงาน</small></a><a href="ms-report.html?v=20260831-06"><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a><a href="warehouse.html?v=20260831-06"><span>▣</span><b>พัสดุเข้าคลัง</b><small>พัสดุที่ควรเข้า เข้าแล้ว และยังไม่เข้า</small></a></div></details>
+          <details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>หน้าติดตาม MS</small></summary><div class="app-nav-menu"><a href="ms.html" class="is-current"><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href="waiting.html"><span>⏱</span><b>รถรอลงงาน</b><small>จัดการคิวและเวลารอลงงาน</small></a><a href="ms-report.html"><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a><a href="warehouse.html"><span>▣</span><b>พัสดุเข้าคลัง</b><small>พัสดุที่ควรเข้า เข้าแล้ว และยังไม่เข้า</small></a></div></details>
           <a
             id="central-settings-btn"
             class="btn btn-header header-link hidden"
-            href="index.html#settings"
+            href="waiting.html#settings"
             >จัดการกลาง</a
           >
           <a
@@ -394,10 +395,10 @@
         <p id="pending-parcels-trip" class="muted"></p>
         <div class="parcel-list-toolbar">
           <strong id="pending-parcels-total">กำลังโหลด…</strong>
-          <button id="copy-pending-parcels" class="btn btn-header" type="button">คัดลอกเลขพัสดุ</button>
+          <div class="parcel-export-actions"><button id="copy-pending-parcels" class="btn btn-header" type="button">คัดลอกเลขพัสดุ</button><button id="export-pending-parcels" class="btn btn-header" type="button">⇩ Export Excel</button></div>
         </div>
         <div id="pending-parcels-loading" class="empty-state">กำลังโหลดรายการจาก MS…</div>
-        <div id="pending-parcels-list" class="pending-parcels-list hidden"></div>
+        <div id="pending-parcels-list" class="pending-parcels-list parcel-data-table hidden"></div>
       </div>
     </dialog>
 

@@ -1,5 +1,11 @@
+import { planMsChanges } from "./sync-policy.js";
+
 const SESSION_MS = 180 * 86400000;
 const MS_SYNC_TTL = 3000;
+const CONNECTION_HEARTBEAT_MS = 15 * 60 * 1000;
+const CONNECTOR_HEARTBEAT_MS = 60 * 60 * 1000;
+const recentMsSync = new Map();
+const activeMsSync = new Map();
 const PAUSES = [
   ["pause-1", "ช่วงไม่มีกะ 1", 0, 1],
   ["pause-2", "ช่วงไม่มีกะ 2", 7, 8],
@@ -130,7 +136,7 @@ async function get(url, env) {
           ? [...new Set([branch, ...(await knownMsBranches(env))])]
           : actor.branches.filter((x) => x !== "*"),
       standards: settings.msVehicleLimits,
-      lastSync: latest?.synced_at || "",
+      lastSync: live.syncedAt || latest?.synced_at || "",
       msStatus: live.status,
       syncError: live.error || "",
     });
@@ -884,11 +890,17 @@ async function syncMs(body, actor, env) {
     };
     prepared.push({ id, values, snapshot });
   }
-  const statements = [];
+  const plan = planMsChanges(
+      oldRows.map(output),
+      prepared.map((item) => item.snapshot),
+      Boolean(body.preserveMissing),
+    ),
+    changedIds = new Set(plan.changedIds),
+    removedIds = new Set(plan.removedIds),
+    statements = [];
   for (const item of prepared) {
-    const old = oldById.get(item.id),
-      changed = !old || !sameMsSnapshot(output(old), item.snapshot);
-    if (changed) {
+    const old = oldById.get(item.id);
+    if (changedIds.has(item.id)) {
       statements.push(
         env.DB.prepare(
           "INSERT OR REPLACE INTO ms_routes(id,hub,proof_id,route_name,region,route_attribute,route_type,attendance_type,estimated_arrival_at,actual_arrival_at,estimated_departure_at,actual_departure_at,supplier,vehicle_type,plate,driver_name,driver_phone,tracking_status,vehicle_status,load_status,unloading_state,unloading_completed_at,source_updated_at,expected_parcels,entered_parcels,pending_parcels,schedule_kit_arrival_at,schedule_tbr_arrival_at,arrived_parcels,arrived_bags,synced_at,synced_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -910,7 +922,7 @@ async function syncMs(body, actor, env) {
     }
   }
   for (const old of oldRows)
-    if (!body.preserveMissing && !seen.has(old.id))
+    if (removedIds.has(old.id))
       statements.push(
         env.DB.prepare(
           "INSERT INTO ms_route_history VALUES(?,?,?,?,?,?,?)",
@@ -926,74 +938,45 @@ async function syncMs(body, actor, env) {
         env.DB.prepare("DELETE FROM ms_routes WHERE id=?").bind(old.id),
       );
   if (statements.length) await batches(env, statements);
-  await audit(
-    env,
-    "SYNC_MS_ROUTES",
-    branch,
-    `${seen.size} current / ${statements.length} changes`,
-    actor.username,
-  );
-  return { branch, synced: seen.size, syncedAt: now };
-}
-function sameMsSnapshot(old, next) {
-  const keys = [
-    "id",
-    "hub",
-    "proofId",
-    "routeName",
-    "region",
-    "routeAttribute",
-    "routeType",
-    "attendanceType",
-    "estimatedArrivalAt",
-    "actualArrivalAt",
-    "estimatedDepartureAt",
-    "actualDepartureAt",
-    "supplier",
-    "vehicleType",
-    "plate",
-    "driverName",
-    "driverPhone",
-    "trackingStatus",
-    "vehicleStatus",
-    "loadStatus",
-    "unloadingState",
-    "unloadingCompletedAt",
-    "sourceUpdatedAt",
-    "expectedParcels",
-    "enteredParcels",
-    "pendingParcels",
-    "scheduleKitArrivalAt",
-    "scheduleTbrArrivalAt",
-    "arrivedParcels",
-    "arrivedBags",
-  ];
-  return keys.every(
-    (key) => String(old?.[key] ?? "") === String(next?.[key] ?? ""),
-  );
+  const businessChanges = plan.changedIds.length + plan.removedIds.length;
+  if (businessChanges) {
+    try {
+      await audit(
+        env,
+        "SYNC_MS_ROUTES",
+        branch,
+        `${seen.size} current / ${businessChanges} business changes`,
+        actor.username,
+      );
+    } catch (error) {
+      console.error(JSON.stringify({ event: "ms_sync_audit_error", branch, message: error.message }));
+    }
+  }
+  return { branch, synced: seen.size, syncedAt: now, changes: businessChanges };
 }
 
 async function refreshMsIfStale(env, actor, branch, force = false) {
   if (!access(branch, actor)) return { status: "forbidden" };
+  const nowMs = Date.now(), recent = recentMsSync.get(branch);
+  if (!force && recent?.until > nowMs) return recent.result;
+  if (activeMsSync.has(branch)) return activeMsSync.get(branch);
+  const task = runMsRefresh(env, branch).finally(() => activeMsSync.delete(branch));
+  activeMsSync.set(branch, task);
+  return task;
+}
+
+async function runMsRefresh(env, branch) {
   const credentials = await msCredentials(env, branch);
   if (!credentials)
     return {
       status: "not_configured",
       error: `HUB ${branch} ยังไม่ได้อัปเดตเซสชัน MS`,
     };
-  const latest = await env.DB.prepare(
-    "SELECT MAX(timestamp) AS synced_at FROM audit_log WHERE action='SYNC_MS_ROUTES' AND record_id=?",
-  )
-    .bind(branch)
-    .first();
-  const last = Date.parse(latest?.synced_at || "");
-  if (!force && Number.isFinite(last) && Date.now() - last < MS_SYNC_TTL)
-    return { status: "fresh" };
   try {
     const rows = await readMsRoutes(credentials);
     const parcelCounts = await readPreEntryCounts(env, branch);
     const busData = await readBusTimeData(env, branch);
-    await syncMs(
+    const sync = await syncMs(
       {
         branch,
         rows: rows.map((row) => enrichMsRow(mapMsRow(row), parcelCounts, busData)),
@@ -1001,16 +984,20 @@ async function refreshMsIfStale(env, actor, branch, force = false) {
       { username: "MS_AUTO", role: "admin", branches: ["*"] },
       env,
     );
-    await env.DB.prepare(
-      "UPDATE ms_connections SET last_success_at=?,last_error='' WHERE hub=?",
-    )
-      .bind(new Date().toISOString(), branch)
-      .run();
-    return { status: "synced" };
+    await safeStatusWrite(
+      markConnectionSuccess(env, "ms_connections", branch, sync.syncedAt),
+      "ms_connection_success_write_error",
+      branch,
+    );
+    const result = { status: "synced", syncedAt: sync.syncedAt, changes: sync.changes };
+    recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+    return result;
   } catch (error) {
-    await env.DB.prepare("UPDATE ms_connections SET last_error=? WHERE hub=?")
-      .bind(text(error.message, 500), branch)
-      .run();
+    await safeStatusWrite(
+      markConnectionError(env, "ms_connections", branch, error.message),
+      "ms_connection_error_write_error",
+      branch,
+    );
     console.error(
       JSON.stringify({
         event: "ms_sync_error",
@@ -1018,10 +1005,38 @@ async function refreshMsIfStale(env, actor, branch, force = false) {
         message: error.message,
       }),
     );
-    return {
+    const result = {
       status: "error",
       error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",
     };
+    recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+    return result;
+  }
+}
+
+async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {
+  if (!["ms_connections", "ms_preentry_connections", "ms_bus_connections"].includes(table))
+    throw new Error("Unsupported connection table");
+  const cutoff = new Date(Date.parse(now) - CONNECTION_HEARTBEAT_MS).toISOString();
+  return env.DB.prepare(
+    `UPDATE ${table} SET last_success_at=?,last_error='' WHERE hub=? AND (COALESCE(last_error,'')<>'' OR last_success_at IS NULL OR last_success_at='' OR last_success_at<?)`,
+  ).bind(now, hub, cutoff).run();
+}
+
+async function markConnectionError(env, table, hub, message) {
+  if (!["ms_connections", "ms_preentry_connections", "ms_bus_connections"].includes(table))
+    throw new Error("Unsupported connection table");
+  const value = text(message, 500);
+  return env.DB.prepare(
+    `UPDATE ${table} SET last_error=? WHERE hub=? AND COALESCE(last_error,'')<>?`,
+  ).bind(value, hub, value).run();
+}
+
+async function safeStatusWrite(promise, event, hub) {
+  try { return await promise; }
+  catch (error) {
+    console.error(JSON.stringify({ event, hub, message: error.message }));
+    return null;
   }
 }
 
@@ -1217,9 +1232,11 @@ async function readPreEntryCounts(env, hub, wantedDays = liveSourceDays()) {
         rest.forEach((result) => rows.push(...result.items));
       }
     }
-    await env.DB.prepare(
-      "UPDATE ms_preentry_connections SET last_success_at=?,last_error='' WHERE hub=?",
-    ).bind(new Date().toISOString(), hub).run();
+    await safeStatusWrite(
+      markConnectionSuccess(env, "ms_preentry_connections", hub),
+      "ms_preentry_success_write_error",
+      hub,
+    );
     const counts = new Map();
     for (const row of rows) {
       const key = normalizeProofId(row.proof_id);
@@ -1235,9 +1252,11 @@ async function readPreEntryCounts(env, hub, wantedDays = liveSourceDays()) {
     }
     return counts;
   } catch (error) {
-    await env.DB.prepare(
-      "UPDATE ms_preentry_connections SET last_error=? WHERE hub=?",
-    ).bind(text(error.message, 500), hub).run();
+    await safeStatusWrite(
+      markConnectionError(env, "ms_preentry_connections", hub, error.message),
+      "ms_preentry_error_write_error",
+      hub,
+    );
     console.error(JSON.stringify({ event: "ms_preentry_sync_error", hub, message: error.message }));
     return new Map();
   }
@@ -1318,9 +1337,11 @@ async function readBusTimeData(env, hub, wantedDays = liveSourceDays()) {
         rest.forEach((result) => rows.push(...result.items));
       }
     }
-    await env.DB.prepare(
-      "UPDATE ms_bus_connections SET last_success_at=?,last_error='' WHERE hub=?",
-    ).bind(new Date().toISOString(), hub).run();
+    await safeStatusWrite(
+      markConnectionSuccess(env, "ms_bus_connections", hub),
+      "ms_bus_success_write_error",
+      hub,
+    );
     const result = new Map();
     for (const item of rows) {
       const targetStore = String(nestedValue(item.next_store_info, 0) || "").toUpperCase();
@@ -1344,9 +1365,11 @@ async function readBusTimeData(env, hub, wantedDays = liveSourceDays()) {
     }
     return result;
   } catch (error) {
-    await env.DB.prepare(
-      "UPDATE ms_bus_connections SET last_error=? WHERE hub=?",
-    ).bind(text(error.message, 500), hub).run();
+    await safeStatusWrite(
+      markConnectionError(env, "ms_bus_connections", hub, error.message),
+      "ms_bus_error_write_error",
+      hub,
+    );
     console.error(JSON.stringify({ event: "ms_bus_sync_error", hub, message: error.message }));
     return new Map();
   }
@@ -1583,7 +1606,14 @@ async function connectorSync(body, env) {
   const row = await env.DB.prepare("SELECT hub FROM ms_connector_tokens WHERE hub=? AND token_hash=? AND active=1").bind(hub, tokenHash).first();
   if (!row) fail("ตัวเชื่อมต่อไม่ถูกต้อง", "INVALID_CONNECTOR", 401);
   const result = await refreshMsIfStale(env, { username: "MS_CRON", role: "admin", branches: ["*"] }, hub);
-  await env.DB.prepare("UPDATE ms_connector_tokens SET last_used_at=? WHERE hub=?").bind(new Date().toISOString(), hub).run();
+  const now = new Date().toISOString(), cutoff = new Date(Date.parse(now) - CONNECTOR_HEARTBEAT_MS).toISOString();
+  await safeStatusWrite(
+    env.DB.prepare(
+      "UPDATE ms_connector_tokens SET last_used_at=? WHERE hub=? AND (last_used_at IS NULL OR last_used_at='' OR last_used_at<?)",
+    ).bind(now, hub, cutoff).run(),
+    "ms_connector_heartbeat_write_error",
+    hub,
+  );
   return { hub, ...result };
 }
 

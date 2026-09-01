@@ -3,6 +3,8 @@ name: Copy Sites data to Worker DEV
 # Manual, DEV-only snapshot copy. This never targets the production D1 database.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: read

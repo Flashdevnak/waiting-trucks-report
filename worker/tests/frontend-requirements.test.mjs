@@ -17,7 +17,7 @@ const context = vm.createContext({
   window: { location: { hostname: "localhost", origin: "http://localhost" } },
   localStorage: { getItem() { return null; }, removeItem() {}, setItem() {} },
 });
-vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday};`, context);
+vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,punctuality,schedulePunctuality,waitInfo};`, context);
 const ui = context.uiTest;
 
 test("expected parcel badge distinguishes zero from missing", () => {
@@ -70,6 +70,21 @@ test("departure countdown covers pending, overdue, early, late, and on-time", ()
   assert.match(ui.departureCountdown({ ...base, actualDepartureAt: "2026-09-01T00:07:00.000Z" }).label, /ออกก่อนเวลา 53 นาที/);
   assert.match(ui.departureCountdown({ ...base, actualDepartureAt: "2026-09-01T01:08:00.000Z" }).label, /ออกช้า 8 นาที/);
   assert.equal(ui.departureCountdown({ ...base, actualDepartureAt: base.estimatedDepartureAt }).label, "ตรงเวลา");
+});
+
+test("Bangkok-normalized route times keep punctuality and waiting durations local", () => {
+  vm.runInContext(`state.standards={"6W":45}`, context);
+  const row = {
+    attendanceType: "ปลายทาง",
+    vehicleType: "6W7.2",
+    estimatedArrivalAt: "2026-09-01T19:30:00.000Z", // 02:30 Bangkok
+    actualArrivalAt: "2026-09-01T19:59:03.000Z", // 02:59 Bangkok
+    unloadingCompletedAt: "2026-09-01T20:29:03.000Z", // 03:29 Bangkok
+  };
+  assert.equal(ui.punctuality(row).diff, 29);
+  assert.equal(ui.schedulePunctuality(row, "arrival").diff, 29);
+  assert.equal(ui.waitInfo(row).minutes, 30);
+  assert.equal(ui.waitInfo(row).over, false);
 });
 
 test("warehouse page is removed from navigation and redirects without polling script", async () => {

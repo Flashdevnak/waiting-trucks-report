@@ -9,6 +9,12 @@ on:
       - main
     paths:
       - .github/workflows/deploy-worker-dev.yml
+      - worker/src/**
+      - worker/tests/**
+      - worker/package.json
+      - worker/package-lock.json
+      - worker/wrangler.dev.jsonc
+      - worker/migrations/**
 
 permissions:
   contents: read

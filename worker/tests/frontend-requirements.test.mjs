@@ -17,7 +17,7 @@ const context = vm.createContext({
   window: { location: { hostname: "localhost", origin: "http://localhost" } },
   localStorage: { getItem() { return null; }, removeItem() {}, setItem() {} },
 });
-vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,punctuality,schedulePunctuality,waitInfo};`, context);
+vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,effectiveArrival,punctuality,schedulePunctuality,routeState,queueInfo,waitInfo};`, context);
 const ui = context.uiTest;
 
 test("expected parcel badge distinguishes zero from missing", () => {
@@ -85,6 +85,73 @@ test("Bangkok-normalized route times keep punctuality and waiting durations loca
   assert.equal(ui.schedulePunctuality(row, "arrival").diff, 29);
   assert.equal(ui.waitInfo(row).minutes, 30);
   assert.equal(ui.waitInfo(row).over, false);
+});
+
+test("effective arrival selects the earliest valid Route, KIT, or TBR value", () => {
+  const at = (value) => `2026-09-01T${value}:00.000Z`;
+  const effective = (row) => ui.effectiveArrival(row)?.toISOString();
+  assert.equal(effective({ actualArrivalAt: at("03:00") }), at("03:00"));
+  assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleKitArrivalAt: at("03:00") }), at("03:00"));
+  assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleTbrArrivalAt: at("02:50") }), at("02:50"));
+  assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleKitArrivalAt: at("02:58"), scheduleTbrArrivalAt: at("02:50") }), at("02:50"));
+  assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleKitArrivalAt: at("02:58"), scheduleTbrArrivalAt: at("03:05") }), at("02:58"));
+});
+
+test("late TBR recomputes a completed unloading duration without changing raw fields", () => {
+  vm.runInContext(`state.standards={"6W":45}`, context);
+  const at = (value) => `2026-09-01T${value}:00.000Z`;
+  const row = {
+    attendanceType: "ปลายทาง",
+    vehicleType: "6W",
+    actualArrivalAt: at("03:00"),
+    scheduleKitArrivalAt: at("03:00"),
+    scheduleTbrArrivalAt: null,
+    unloadingCompletedAt: at("03:18"),
+    unloadingState: 2,
+  };
+  assert.equal(ui.waitInfo(row).minutes, 18);
+  row.scheduleTbrArrivalAt = at("02:50");
+  assert.equal(ui.waitInfo(row).minutes, 28);
+  assert.equal(row.actualArrivalAt, at("03:00"));
+  assert.equal(row.unloadingCompletedAt, at("03:18"));
+});
+
+test("KIT or TBR alone cannot confirm arrival or create queue membership", () => {
+  const row = {
+    attendanceType: "ปลายทาง",
+    scheduleKitArrivalAt: "2026-09-01T02:50:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-01T02:55:00.000Z",
+  };
+  assert.equal(ui.routeState(row, new Date("2026-09-01T04:00:00.000Z")).key, "not-arrived");
+  assert.equal(ui.queueInfo(row, new Date("2026-09-01T04:00:00.000Z")).active, false);
+  assert.equal(ui.waitInfo(row).minutes, null);
+});
+
+test("incoming calculations use effective arrival while departure stays Route-only", () => {
+  const row = {
+    attendanceType: "จุดดรอป",
+    estimatedArrivalAt: "2026-09-01T03:00:00.000Z",
+    actualArrivalAt: "2026-09-01T03:05:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-01T02:50:00.000Z",
+    estimatedDepartureAt: "2026-09-01T03:20:00.000Z",
+    actualDepartureAt: "2026-09-01T03:25:00.000Z",
+  };
+  assert.equal(ui.schedulePunctuality(row, "arrival").diff, -10);
+  assert.equal(ui.schedulePunctuality(row, "departure").diff, 5);
+  row.scheduleTbrArrivalAt = "2026-09-01T01:00:00.000Z";
+  assert.equal(ui.schedulePunctuality(row, "departure").diff, 5);
+});
+
+test("queue age uses effective arrival only after Route confirms arrival", () => {
+  const row = {
+    attendanceType: "ปลายทาง",
+    actualArrivalAt: "2026-09-01T03:00:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-01T02:50:00.000Z",
+    unloadingState: 0,
+  };
+  const queue = ui.queueInfo(row, new Date("2026-09-01T03:50:00.000Z"));
+  assert.equal(Math.round(queue.ageHours * 60), 60);
+  assert.equal(queue.active, true);
 });
 
 test("warehouse page is removed from navigation and redirects without polling script", async () => {

@@ -320,7 +320,8 @@ function setOptions(id, values, selected) {
 
 function routeState(row, now = new Date()) {
   const eta = parseDate(row.estimatedArrivalAt);
-  const arrival = parseDate(row.actualArrivalAt);
+  const routeArrival = parseDate(row.actualArrivalAt);
+  const arrival = routeArrival ? effectiveArrival(row) : null;
   const etd = parseDate(row.estimatedDepartureAt);
   const departure = parseDate(row.actualDepartureAt);
   const arrivalLate = Boolean(
@@ -351,7 +352,7 @@ function routeState(row, now = new Date()) {
       arrivalLate,
       departureLate: false,
     };
-  if (arrival)
+  if (routeArrival)
     return {
       key: "arrived",
       label: "มาถึงแล้ว",
@@ -384,17 +385,32 @@ function isOrigin(row) {
 function isDrop(row) {
   return normalizeAttendance(row.attendanceType) === "จุดดรอป";
 }
+function effectiveArrival(row) {
+  return [
+    row.actualArrivalAt,
+    row.scheduleKitArrivalAt,
+    row.scheduleTbrArrivalAt,
+  ]
+    .map(parseDate)
+    .filter(Boolean)
+    .sort((a, b) => a - b)[0] || null;
+}
+function confirmedEffectiveArrival(row) {
+  return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;
+}
 function attendanceLabel(row) {
   if (isDestination(row)) return "รถเข้าฮับ";
   if (isDrop(row)) return "รถแวะส่งแล้วไปต่อ";
   return "รถออกจากฮับ";
 }
 function punctuality(row) {
-  const incoming = isDestination(row),
+  const incoming = isDestination(row) || isDrop(row),
     plan = parseDate(
       incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt,
     ),
-    actual = parseDate(incoming ? row.actualArrivalAt : row.actualDepartureAt);
+    actual = incoming
+      ? confirmedEffectiveArrival(row)
+      : parseDate(row.actualDepartureAt);
   if (!plan || !actual)
     return {
       key: "pending",
@@ -421,7 +437,9 @@ function punctuality(row) {
 function schedulePunctuality(row, mode) {
   const incoming = mode === "arrival";
   const plan = parseDate(incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt);
-  const actual = parseDate(incoming ? row.actualArrivalAt : row.actualDepartureAt);
+  const actual = incoming
+    ? confirmedEffectiveArrival(row)
+    : parseDate(row.actualDepartureAt);
   if (!plan || !actual) return { key: "pending", diff: null, label: "ยังไม่มีเวลาจริง" };
   const diff = Math.round((actual - plan) / 60000);
   return {
@@ -444,7 +462,8 @@ function scheduleSection(row, mode) {
   return `<div class="schedule-section ${incoming ? "arrival" : "departure"}"><div class="schedule-heading">${incoming ? "รถมาถึงคลัง" : "ปล่อยรถ"}</div><div class="schedule-values"><span><b>${incoming ? "คาดว่าจะถึง" : "กำหนดออก"}</b><strong>${shortDateTime(plan)}</strong></span><span><b>${incoming ? "ถึงจริง" : "ออกจริง"}</b><strong>${shortDateTime(actual)}</strong></span></div><small class="timing-chip ${timing.key}">${esc(detail)}</small></div>`;
 }
 function queueInfo(row, now = new Date()) {
-  const arrival = parseDate(row.actualArrivalAt),
+  const routeArrival = parseDate(row.actualArrivalAt),
+    arrival = routeArrival ? effectiveArrival(row) : null,
     ageHours = arrival ? (now - arrival) / 36e5 : 0;
   const unloadingState = Number(row.unloadingState),
     done = isDestination(row)
@@ -455,12 +474,12 @@ function queueInfo(row, now = new Date()) {
     started =
       (isDestination(row) || isDrop(row)) &&
       (unloadingState === 1 || unloadingState === 2),
-    active = Boolean(arrival) && !done && ageHours <= 12;
+    active = Boolean(routeArrival) && !done && ageHours <= 12;
   return {
     active,
     done,
     started,
-    expired: Boolean(arrival) && !done && ageHours > 12,
+    expired: Boolean(routeArrival) && !done && ageHours > 12,
     ageHours,
   };
 }
@@ -621,8 +640,8 @@ function filteredRows(ignoreSummary = false) {
       );
     })
     .sort((a, b) => {
-      const aTime = parseDate(a.actualArrivalAt || a.estimatedArrivalAt)?.getTime() || 0;
-      const bTime = parseDate(b.actualArrivalAt || b.estimatedArrivalAt)?.getTime() || 0;
+      const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;
+      const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;
       return state.queue === "queue" ? aTime - bTime : bTime - aTime;
     });
 }
@@ -1017,7 +1036,7 @@ function normalizeVehicle(value) {
   );
 }
 function waitInfo(row) {
-  const start = parseDate(row.actualArrivalAt),
+  const start = confirmedEffectiveArrival(row),
     end = parseDate(row.unloadingCompletedAt) || new Date(),
     type = normalizeVehicle(row.vehicleType),
     standard = Number(state.standards[type]) || 120;

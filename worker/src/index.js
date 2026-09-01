@@ -1815,12 +1815,16 @@ function normalizeMsAttendance(value) {
   if (text.includes("ต้นทาง")) return "ต้นทาง";
   return text;
 }
-function msDate(value) {
+export function msDate(value) {
   if (value === null || value === undefined || value === "") return "";
-  const n = Number(value),
-    d = new Date(
-      Number.isFinite(n) ? (n < 100000000000 ? n * 1000 : n) : value,
-    );
+  const raw = String(value).trim();
+  const n = Number(raw);
+  let input = Number.isFinite(n) ? (n < 100000000000 ? n * 1000 : n) : raw;
+  // MS/FBI returns local Thailand wall-clock values without a timezone.
+  // Make the Bangkok offset explicit so Workers never interprets them as UTC.
+  if (!Number.isFinite(n) && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw))
+    input = `${raw.replace(" ", "T")}+07:00`;
+  const d = new Date(input);
   return isNaN(d) ? "" : d.toISOString();
 }
 

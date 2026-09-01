@@ -1,7 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { enrichMsRow } from "../src/index.js";
+import { enrichMsRow, msDate } from "../src/index.js";
+
+test("MS/FBI naive datetime is interpreted as Asia/Bangkok", () => {
+  assert.equal(msDate("2026-09-02 03:00:29"), "2026-09-01T20:00:29.000Z");
+});
+
+test("numeric Unix timestamps preserve their instant", () => {
+  assert.equal(msDate(1788292829), "2026-09-01T20:00:29.000Z");
+  assert.equal(msDate(1788292829000), "2026-09-01T20:00:29.000Z");
+});
+
+test("ISO timestamps with timezone preserve their instant", () => {
+  assert.equal(msDate("2026-09-01T20:00:29.000Z"), "2026-09-01T20:00:29.000Z");
+  assert.equal(msDate("2026-09-02T03:00:29+07:00"), "2026-09-01T20:00:29.000Z");
+});
 
 test("KIT/TBR enrichment preserves the route actual arrival for the same barcode", () => {
   const routeActualArrival = "2026-09-02T02:10:00.000Z";

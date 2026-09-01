@@ -92,6 +92,7 @@ test("effective arrival selects the earliest valid Route, KIT, or TBR value", ()
   const effective = (row) => ui.effectiveArrival(row)?.toISOString();
   assert.equal(effective({ actualArrivalAt: at("03:00") }), at("03:00"));
   assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleKitArrivalAt: at("03:00") }), at("03:00"));
+  assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleKitArrivalAt: at("02:58") }), at("02:58"));
   assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleTbrArrivalAt: at("02:50") }), at("02:50"));
   assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleKitArrivalAt: at("02:58"), scheduleTbrArrivalAt: at("02:50") }), at("02:50"));
   assert.equal(effective({ actualArrivalAt: at("03:00"), scheduleKitArrivalAt: at("02:58"), scheduleTbrArrivalAt: at("03:05") }), at("02:58"));

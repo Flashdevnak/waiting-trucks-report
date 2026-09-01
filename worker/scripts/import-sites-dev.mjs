@@ -84,11 +84,13 @@ function quoteIdentifier(value) {
   return `"${value}"`;
 }
 
-async function exportTable(table) {
+async function exportTable(table, maxRowId) {
   const rows = [];
   for (let offset = 0; ; offset += 500) {
-    const page = await sourceRequest("table", { table, offset, limit: 500 });
-    if (page.table !== table || !Array.isArray(page.rows)) throw new Error(`Invalid ${table} page`);
+    const page = await sourceRequest("table", { table, maxRowId, offset, limit: 500 });
+    if (page.table !== table || page.maxRowId !== maxRowId || !Array.isArray(page.rows)) {
+      throw new Error(`Invalid ${table} page`);
+    }
     rows.push(...page.rows);
     if (!page.hasMore) break;
   }
@@ -117,7 +119,10 @@ try {
   if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.tables)) {
     throw new Error("Unsupported source manifest");
   }
-  const expected = new Map(manifest.tables.map((entry) => [entry.table, Number(entry.rowCount)]));
+  const expected = new Map(manifest.tables.map((entry) => [entry.table, {
+    rowCount: Number(entry.rowCount),
+    maxRowId: Number(entry.maxRowId),
+  }]));
   if (TABLES.some((table) => !expected.has(table)) || expected.size !== TABLES.length) {
     throw new Error("Source table manifest does not match the approved whitelist");
   }
@@ -131,9 +136,10 @@ try {
   }
 
   for (const table of TABLES) {
-    const rows = await exportTable(table);
-    if (rows.length !== expected.get(table)) {
-      throw new Error(`${table}: exported ${rows.length}, expected ${expected.get(table)}`);
+    const snapshot = expected.get(table);
+    const rows = await exportTable(table, snapshot.maxRowId);
+    if (rows.length !== snapshot.rowCount) {
+      throw new Error(`${table}: exported ${rows.length}, expected ${snapshot.rowCount}`);
     }
     if (rows.length) {
       const statements = ["PRAGMA foreign_keys=OFF;"];
@@ -149,8 +155,8 @@ try {
       runWrangler(["d1", "execute", DATABASE, "--remote", "--config", CONFIG, "--file", sqlPath]);
     }
     const actual = remoteCount(table);
-    if (actual !== expected.get(table)) {
-      throw new Error(`${table}: DEV row count ${actual}, expected ${expected.get(table)}`);
+    if (actual !== snapshot.rowCount) {
+      throw new Error(`${table}: DEV row count ${actual}, expected ${snapshot.rowCount}`);
     }
     console.log(`${table}: ${actual} rows verified`);
   }

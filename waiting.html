@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#151515" />
     <title>ระบบรถรอลงงาน</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260831-10" />
-    <link rel="stylesheet" href="style.css?v=20260831-10" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260901-01" />
+    <link rel="stylesheet" href="style.css?v=20260901-01" />
     <script>if(location.search)history.replaceState(null,'',location.pathname+location.hash);if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
     <script
       src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
       defer
     ></script>
-    <script src="main.js?v=20260831-10" defer></script>
+    <script src="main.js?v=20260901-01" defer></script>
   </head>
   <body>
     <header class="site-header">
@@ -25,7 +25,7 @@
         <div class="topbar-actions">
           <span id="connection-badge" class="badge badge-neutral"
             >กำลังเชื่อมต่อ</span
-          ><details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>รถรอลงงาน</small></summary><div class="app-nav-menu"><a href="ms.html"><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href="waiting.html" class="is-current"><span>⏱</span><b>รถรอลงงาน</b><small>จัดการคิวและเวลารอลงงาน</small></a><a href="ms-report.html"><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a><a href="warehouse.html"><span>▣</span><b>พัสดุเข้าคลัง</b><small>ยอดพัสดุและรายการที่ยังไม่เข้า</small></a></div></details><button id="refresh-btn" class="btn btn-header">รีเฟรช</button
+          ><details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>รถรอลงงาน</small></summary><div class="app-nav-menu"><a href="ms.html"><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href="waiting.html" class="is-current"><span>⏱</span><b>รถรอลงงาน</b><small>จัดการคิวและเวลารอลงงาน</small></a><a href="ms-report.html"><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a></div></details><button id="refresh-btn" class="btn btn-header">รีเฟรช</button
           ><button id="unlock-btn" class="btn btn-header">เข้าสู่ระบบ</button
           ><button id="password-btn" class="btn btn-header hidden">
             เปลี่ยนรหัสผ่าน</button
@@ -307,4 +307,3 @@
     <div id="toast" class="toast hidden" role="status"></div>
   </body>
 </html>
-

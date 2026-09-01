@@ -11,6 +11,7 @@ const state = {
   rows: [],
   currentRows: [],
   archiveRows: [],
+  archiveTotal: 0,
   auth: loadAuth(),
   query: "",
   branch: "NE1",
@@ -226,9 +227,13 @@ async function loadData(silent = false) {
     state.currentRows = Array.isArray(result?.rows) ? result.rows : [];
     if (archive) {
       state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+      state.archiveTotal = Number.isFinite(Number(archive?.totalDistinct))
+        ? Number(archive.totalDistinct)
+        : state.archiveRows.length;
       state.archiveLoaded = true;
     } else {
       state.archiveRows = mergeLatest(state.archiveRows, state.currentRows);
+      state.archiveTotal = Math.max(state.archiveTotal, state.archiveRows.length);
     }
     state.rows = state.archiveRows;
     state.branch = result?.branch || state.branch;
@@ -465,9 +470,7 @@ function dropOperation(row) {
   const arrival = parseDate(row.actualArrivalAt);
   const unloadingEnd = parseDate(row.unloadingCompletedAt);
   const departure = parseDate(row.actualDepartureAt);
-  const unloadingMinutes = arrival
-    ? Math.max(0, Math.floor(((unloadingEnd || new Date()) - arrival) / 60000))
-    : null;
+  const unloading = waitInfo(row);
   const onwardMinutes = unloadingEnd
     ? Math.max(0, Math.floor(((departure || new Date()) - unloadingEnd) / 60000))
     : null;
@@ -479,17 +482,85 @@ function dropOperation(row) {
           ? "กำลังลงของ"
           : arrival
             ? "รอเริ่มลงของ"
-            : "ยังไม่ถึงจุดดรอป",
+            : "รอรถมาถึง",
     onwardLabel: departure
       ? "ออกไปต่อแล้ว"
       : unloadingState === 2
-        ? "รอขึ้นงานและออกไปต่อ"
+        ? "รอออกไปต่อ"
         : "รอลงของให้เสร็จ",
-    unloadingMinutes,
+    unloadingMinutes: unloading.minutes,
+    unloadingStandard: unloading.standard,
+    unloadingOver: unloading.over,
     onwardMinutes,
     unloadingDone: unloadingState === 2,
     onwardDone: Boolean(departure),
   };
+}
+
+function bangkokDateValue(value) {
+  const date = parseDate(value);
+  if (!date) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function isCompletedToday(row, now = new Date()) {
+  if ((!isDestination(row) && !isDrop(row)) || Number(row.unloadingState) !== 2)
+    return false;
+  if (!row.unloadingCompletedAt) return false;
+  if (row.completionObservedLive === false) return false;
+  return bangkokDateValue(row.unloadingCompletedAt) === bangkokDateValue(now);
+}
+
+function departureCountdown(row, now = new Date()) {
+  const plan = parseDate(row.estimatedDepartureAt);
+  if (!plan || (!isOrigin(row) && !isDrop(row))) return null;
+  const actual = parseDate(row.actualDepartureAt);
+  if (actual) {
+    const diff = Math.round((actual - plan) / 60000);
+    return {
+      key: diff > 0 ? "late" : "ontime",
+      minutes: Math.abs(diff),
+      label: diff > 0
+        ? `ออกช้า ${nf.format(diff)} นาที`
+        : diff < 0
+          ? `ออกก่อนเวลา ${nf.format(Math.abs(diff))} นาที`
+          : "ตรงเวลา",
+    };
+  }
+  const diff = Math.ceil((plan - now) / 60000);
+  return {
+    key: diff < 0 ? "late" : "pending",
+    minutes: Math.abs(diff),
+    label: diff < 0
+      ? `เกินกำหนด ${nf.format(Math.abs(diff))} นาที`
+      : `เหลือ ${nf.format(diff)} นาทีถึงกำหนดปล่อย`,
+  };
+}
+
+function departureCountdownHtml(row) {
+  const item = departureCountdown(row);
+  return item
+    ? `<div class="departure-countdown ${item.key}">${esc(item.label)}</div>`
+    : "";
+}
+
+function dropProgressHtml(drop, compact = false) {
+  const stageOneDetail = drop.unloadingMinutes === null
+    ? "รอรถมาถึง"
+    : drop.unloadingDone
+      ? `ใช้เวลา ${nf.format(drop.unloadingMinutes)} นาที · มาตรฐาน ${nf.format(drop.unloadingStandard)} นาที`
+      : `ใช้แล้ว ${nf.format(drop.unloadingMinutes)} นาที · มาตรฐาน ${nf.format(drop.unloadingStandard)} นาที · ${drop.unloadingOver ? `เกินมาตรฐาน ${nf.format(drop.unloadingMinutes - drop.unloadingStandard)} นาที` : `เหลืออีก ${nf.format(Math.max(0, drop.unloadingStandard - drop.unloadingMinutes))} นาที`}`;
+  const stageTwoDetail = drop.onwardMinutes === null
+    ? "รอขั้นตอนลงของ"
+    : drop.onwardDone
+      ? `ออกหลังลงของเสร็จ ${nf.format(drop.onwardMinutes)} นาที`
+      : `รอออกแล้ว ${nf.format(drop.onwardMinutes)} นาที`;
+  return `<div class="drop-progress${compact ? " compact-drop-progress" : ""}"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""} ${drop.unloadingOver ? "is-late" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${stageOneDetail}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${stageTwoDetail}</small></div></div>`;
 }
 
 function filteredRows(ignoreSummary = false) {
@@ -528,7 +599,7 @@ function filteredRows(ignoreSummary = false) {
         state.summary === "all" ||
         (state.summary === "waiting" && isDestination(row) && status.key === "arrived") ||
         (state.summary === "unloading" && isDestination(row) && status.key === "unloading") ||
-        (state.summary === "completed" && isDestination(row) && status.key === "completed") ||
+        (state.summary === "completed" && isCompletedToday(row)) ||
         (state.summary === "origin" && isOrigin(row) && !queue.done) ||
         (state.summary === "drop" && isDrop(row) && !queue.done);
       const queueMatch =
@@ -618,7 +689,7 @@ function renderFilterSummary(rows) {
     const queue = queueInfo(row);
     if (isDestination(row) && key === "arrived") counts.waiting++;
     if (isDestination(row) && key === "unloading") counts.unloading++;
-    if (isDestination(row) && key === "completed") counts.completed++;
+    if (isCompletedToday(row)) counts.completed++;
     if (isOrigin(row) && !queue.done) counts.origin++;
     if (isDrop(row) && !queue.done) counts.drop++;
   }
@@ -651,8 +722,8 @@ function applyMetricFilter(metric) {
     state.status = "unloading";
   }
   if (metric === "completed") {
-    state.queue = "completed";
-    state.status = "completed";
+    state.queue = "all";
+    state.summary = "completed";
   }
   if (metric === "arrival-ontime") {
     state.queue = "all";
@@ -687,7 +758,7 @@ function metrics() {
     arrivals = destinations.map((row) => punctuality(row)),
     releases = origins.map((row) => punctuality(row)),
     waits = destinations.map(waitInfo).filter((item) => item.minutes !== null);
-  setMetric("metric-archive", state.archiveRows.length);
+  setMetric("metric-archive", state.archiveTotal ?? state.archiveRows.length);
   setMetric("metric-total", active.length);
   setMetric(
     "metric-unloading",
@@ -695,7 +766,7 @@ function metrics() {
   );
   setMetric(
     "metric-completed",
-    destinations.filter((row) => Number(row.unloadingState) === 2).length,
+    state.archiveRows.filter((row) => isCompletedToday(row)).length,
   );
   setMetric(
     "metric-not-arrived",
@@ -760,19 +831,12 @@ function workCell(row) {
   return `<div class="operation-cards"><div class="mini-card ${wait.over ? "danger" : "success"}"><span>เวลารวมตั้งแต่รถถึง</span><strong>${nf.format(wait.minutes)} นาที</strong><small>รวมรอเริ่มลง + ลงงาน</small></div><div class="mini-card neutral"><span>มาตรฐาน ${esc(row.vehicleType || "รถ")}</span><strong>${nf.format(wait.standard)} นาที</strong></div></div>`;
 }
 
-function parcelProgress(row) {
-  if (!isDestination(row)) return "";
-  const hasExpected = [row.expectedParcels, row.enteredParcels, row.pendingParcels]
-    .some((value) => value !== null && value !== undefined && value !== "");
-  if (!hasExpected)
-    return '<div class="source-empty parcel-empty"><b>พัสดุที่คาดว่าจะเข้าคลัง</b><span>ยังไม่พบรายการที่ตรงกับรถคันนี้</span></div>';
-  const value = (number) => number === null || number === undefined || number === ""
-    ? "-" : nf.format(Number(number));
-  const pending = Number(row.pendingParcels);
-  const pendingValue = Number.isFinite(pending) && pending > 0 && row.proofId
-    ? `<button class="pending-parcel-button" type="button" data-pending-proof="${esc(row.proofId)}" data-pending-day="${esc(localDateValue(row.estimatedArrivalAt || row.actualArrivalAt))}" title="กดดูเลขพัสดุที่ยังไม่เข้าคลัง">${value(row.pendingParcels)}</button>`
-    : `<strong>${value(row.pendingParcels)}</strong>`;
-  return `<div class="parcel-progress"><div class="parcel-progress-group"><span>พัสดุที่คาดว่าจะเข้าคลัง</span><div><b>ควรเข้า<strong>${value(row.expectedParcels)}</strong></b><b>เข้าแล้ว<strong>${value(row.enteredParcels)}</strong></b><b>ยังไม่เข้า${pendingValue}</b></div></div></div>`;
+function expectedParcelsBadge(row) {
+  if (row.expectedParcels === null || row.expectedParcels === undefined || row.expectedParcels === "")
+    return "";
+  const number = Number(row.expectedParcels);
+  const display = Number.isFinite(number) ? nf.format(number) : esc(row.expectedParcels);
+  return `<span class="expected-parcels-badge">พัสดุทั้งหมด ${display}</span>`;
 }
 
 let pendingParcelRows = [];
@@ -855,7 +919,7 @@ function tableRow(row) {
         : "ยังไม่เริ่ม";
   const wait = isDestination(row) ? waitInfo(row) : null;
   const durationHtml = isDrop(row)
-    ? `<div class="drop-progress"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${drop.unloadingMinutes === null ? "รอเวลาถึงจริง" : `${nf.format(drop.unloadingMinutes)} นาที`}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ขึ้นงานและไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${drop.onwardMinutes === null ? "รอขั้นตอนลงของ" : `${nf.format(drop.onwardMinutes)} นาที`}</small></div></div>`
+    ? dropProgressHtml(drop)
     : isDestination(row)
       ? wait.minutes === null
         ? '<span class="row-muted">รถยังไม่มาถึง</span>'
@@ -868,11 +932,11 @@ function tableRow(row) {
     ? scheduleSection(row, "arrival")
     : `${scheduleSection(row, "arrival")}${scheduleSection(row, "departure")}`;
   return `<tr>
-    <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div></div></td>
+    <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div>${expectedParcelsBadge(row)}</div></td>
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
     <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
     <td><div class="schedule-stack ${isDestination(row) ? "single" : "dual"}">${scheduleHtml}</div></td>
-    <td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}<small class="queue-label">${esc(queueText)}</small>${arrivalSources(row)}${parcelProgress(row)}</div></td>
+    <td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}${departureCountdownHtml(row)}<small class="queue-label">${esc(queueText)}</small>${arrivalSources(row)}</div></td>
     <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}</div></td>
   </tr>`;
 }
@@ -934,12 +998,12 @@ function card(row) {
     ? scheduleSection(row, "arrival")
     : `${scheduleSection(row, "arrival")}${scheduleSection(row, "departure")}`;
   return `<article class="truck-card ms-card compact-card">
-    <header class="compact-card-head"><div class="compact-card-tags"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.routeName || "-")}</h2><p>${esc(row.proofId || "-")} · ทะเบียน ${esc(row.plate || "-")}</p></header>
+    <header class="compact-card-head"><div class="compact-card-tags"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.routeName || "-")}</h2><p>${esc(row.proofId || "-")} · ทะเบียน ${esc(row.plate || "-")}</p>${expectedParcelsBadge(row)}</header>
     <div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div>
     <div class="compact-times compact-schedule">${compactSchedule}</div>
     <div class="compact-operation ${isDestination(row) && wait.over ? "late" : ""}"><div><span>${isDestination(row) ? "เวลารอ + ลงงาน" : "เวลาเทียบแผน"}</span><strong>${esc(durationText)}</strong><small>${esc(durationNote)}</small></div><div><span>สถานะล่าสุด</span><strong>${esc(workStatus)}</strong><small>${esc(queueText)}</small></div></div>
-    ${isDrop(row) ? `<div class="drop-progress compact-drop-progress"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${drop.unloadingMinutes === null ? "รอเวลาถึงจริง" : `${nf.format(drop.unloadingMinutes)} นาที`}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ขึ้นงานและไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${drop.onwardMinutes === null ? "รอขั้นตอนลงของ" : `${nf.format(drop.onwardMinutes)} นาที`}</small></div></div>` : ""}
-    ${arrivalSources(row)}${parcelProgress(row)}
+    ${isDrop(row) ? dropProgressHtml(drop, true) : ""}${departureCountdownHtml(row)}
+    ${arrivalSources(row)}
     <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}</div>
   </article>`;
 }

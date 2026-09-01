@@ -3662,6 +3662,66 @@ tbody tr.is-unloading:hover {
   .ms-page .schedule-values strong,
   .ms-page .compact-party strong { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }
 }
+
+/* MS route presentation requirements 2026-09-01 */
+.expected-parcels-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 7px;
+  padding: 4px 9px;
+  border: 1px solid #c7a100;
+  border-radius: 8px;
+  background: #ffd84d;
+  color: #151515;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.departure-countdown {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border: 1px solid #e0b900;
+  border-radius: 8px;
+  background: #fff6c9;
+  color: #5b4500;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.departure-countdown.ontime {
+  border-color: #9dcdb5;
+  background: #e5f5ec;
+  color: #11633e;
+}
+.departure-countdown.late {
+  border-color: #e4aaa5;
+  background: #fff0ee;
+  color: #a5221a;
+}
+
+.drop-stage.is-late {
+  border-color: #d8584f;
+  background: #fff0ee;
+  color: #8f1d17;
+}
+
+@media (max-width: 720px) {
+  .compact-card-head .expected-parcels-badge {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  .departure-countdown {
+    margin: 10px 14px 0;
+    font-size: 12px;
+  }
+  .drop-stage small {
+    overflow-wrap: anywhere;
+  }
+}
 @media (max-width: 380px) {
   .ms-page .app-shell { padding-left: 6px; padding-right: 6px; }
   .ms-page .compact-card-head { padding: 11px 9px; column-gap: 8px; }

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/index.js && node --check src/sync-policy.js && node --check tests/parity.mjs && node --check tests/sync-policy.test.mjs && node --check scripts/import-sites-dev.mjs && node --test tests/sync-policy.test.mjs",
+    "check": "node --check src/index.js && node --check src/sync-policy.js && node --check tests/parity.mjs && node --check tests/sync-policy.test.mjs && node --check tests/frontend-requirements.test.mjs && node --check scripts/import-sites-dev.mjs && node --test tests/sync-policy.test.mjs tests/frontend-requirements.test.mjs",
     "parity": "node tests/parity.mjs",
     "dev": "wrangler dev --config wrangler.jsonc",
     "deploy": "wrangler deploy --config wrangler.jsonc",

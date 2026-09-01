@@ -1,0 +1,88 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import vm from "node:vm";
+
+const root = new URL("../../", import.meta.url);
+const source = await readFile(new URL("ms.js", root), "utf8");
+const context = vm.createContext({
+  console,
+  Date,
+  Intl,
+  URL,
+  setInterval() {},
+  setTimeout() {},
+  clearTimeout() {},
+  document: { addEventListener() {}, getElementById() { return null; } },
+  window: { location: { hostname: "localhost", origin: "http://localhost" } },
+  localStorage: { getItem() { return null; }, removeItem() {}, setItem() {} },
+});
+vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday};`, context);
+const ui = context.uiTest;
+
+test("expected parcel badge distinguishes zero from missing", () => {
+  assert.match(ui.expectedParcelsBadge({ expectedParcels: 1914 }), /พัสดุทั้งหมด 1,914/);
+  assert.match(ui.expectedParcelsBadge({ expectedParcels: 0 }), /พัสดุทั้งหมด 0/);
+  assert.equal(ui.expectedParcelsBadge({ expectedParcels: null }), "");
+});
+
+test("drop unloading time freezes and uses the existing vehicle standard", () => {
+  vm.runInContext(`state.standards={"6W":30}`, context);
+  const row = {
+    attendanceType: "จุดดรอป",
+    vehicleType: "6W7.2",
+    actualArrivalAt: "2026-09-01T00:00:00.000Z",
+    unloadingCompletedAt: "2026-09-01T00:24:00.000Z",
+    unloadingState: 2,
+  };
+  const drop = ui.dropOperation(row);
+  assert.equal(drop.unloadingMinutes, 24);
+  assert.equal(drop.unloadingStandard, 30);
+  assert.match(ui.dropProgressHtml(drop), /ใช้เวลา 24 นาที · มาตรฐาน 30 นาที/);
+  assert.match(ui.dropProgressHtml(drop), /2 · ไปต่อ/);
+});
+
+test("today completion uses Asia Bangkok and includes destination and drop", () => {
+  const now = new Date("2026-09-01T18:00:00.000Z"); // 2 Sep in Bangkok
+  for (const attendanceType of ["ปลายทาง", "จุดดรอป"])
+    assert.equal(ui.isCompletedToday({
+      attendanceType,
+      unloadingState: 2,
+      unloadingCompletedAt: "2026-09-01T17:30:00.000Z",
+    }, now), true);
+  assert.equal(ui.isCompletedToday({
+    attendanceType: "ปลายทาง",
+    unloadingState: 2,
+    unloadingCompletedAt: "2026-09-01T16:59:00.000Z",
+  }, now), false);
+  assert.equal(ui.isCompletedToday({
+    attendanceType: "ปลายทาง",
+    unloadingState: 2,
+    unloadingCompletedAt: "2026-09-01T17:30:00.000Z",
+    completionObservedLive: false,
+  }, now), false);
+});
+
+test("departure countdown covers pending, overdue, early, late, and on-time", () => {
+  const base = { attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-01T01:00:00.000Z" };
+  assert.match(ui.departureCountdown(base, new Date("2026-09-01T00:16:00.000Z")).label, /เหลือ 44 นาที/);
+  assert.match(ui.departureCountdown(base, new Date("2026-09-01T01:12:00.000Z")).label, /เกินกำหนด 12 นาที/);
+  assert.match(ui.departureCountdown({ ...base, actualDepartureAt: "2026-09-01T00:07:00.000Z" }).label, /ออกก่อนเวลา 53 นาที/);
+  assert.match(ui.departureCountdown({ ...base, actualDepartureAt: "2026-09-01T01:08:00.000Z" }).label, /ออกช้า 8 นาที/);
+  assert.equal(ui.departureCountdown({ ...base, actualDepartureAt: base.estimatedDepartureAt }).label, "ตรงเวลา");
+});
+
+test("warehouse page is removed from navigation and redirects without polling script", async () => {
+  for (const file of ["ms.html", "waiting.html", "ms-report.html"])
+    assert.doesNotMatch(await readFile(new URL(file, root), "utf8"), /warehouse\.html/);
+  assert.match(await readFile(new URL("warehouse.html", root), "utf8"), /location\.replace\("ms\.html"\)/);
+  assert.match(await readFile(new URL("scan.html", root), "utf8"), /location\.replace\("ms\.html"\)/);
+});
+
+test("realtime settings and read-only archive count remain intact", async () => {
+  assert.match(source, /pollMs:\s*4000/);
+  const cron = await readFile(new URL("cloudflare-browser-test/wrangler.jsonc", root), "utf8");
+  assert.match(cron, /"\* \* \* \* \*"/);
+  const worker = await readFile(new URL("worker/src/index.js", root), "utf8");
+  assert.match(worker, /COUNT\(DISTINCT route_id\) AS total_distinct/);
+});

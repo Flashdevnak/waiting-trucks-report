@@ -1694,13 +1694,19 @@ async function msHistory(env, actor, hub, offset) {
 
 async function msArchive(env, actor, hub) {
   if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
-  const history = (
-    await env.DB.prepare(
+  const [historyResult, distinctResult] = await Promise.all([
+    env.DB.prepare(
       "SELECT route_id,payload_json,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",
     )
       .bind(hub)
-      .all()
-  ).results;
+      .all(),
+    env.DB.prepare(
+      "SELECT COUNT(DISTINCT route_id) AS total_distinct FROM ms_route_history WHERE hub=?",
+    )
+      .bind(hub)
+      .first(),
+  ]);
+  const history = historyResult.results;
   // A completed row first discovered by a historical range import has no real
   // unloading-finish time. Mark only transitions observed by the live poller.
   const completionObserved = new Map();
@@ -1738,7 +1744,11 @@ async function msArchive(env, actor, hub) {
     latest.set(row.id, row);
   }
   const rows = [...latest.values()];
-  return { rows, total: rows.length, branch: hub };
+  const totalDistinct = Math.max(
+    Number(distinctResult?.total_distinct) || 0,
+    rows.length,
+  );
+  return { rows, total: rows.length, totalDistinct, branch: hub };
 }
 
 async function msCryptoKey(env) {

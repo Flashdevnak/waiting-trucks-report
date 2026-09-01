@@ -21,3 +21,14 @@ SELECT 'users' AS table_name, COUNT(*) AS row_count FROM users;
 SELECT MAX(synced_at) AS latest_ms_route_sync FROM ms_routes;
 SELECT MAX(snapshot_at) AS latest_ms_history_snapshot FROM ms_route_history;
 SELECT MAX(action_at) AS latest_truck_history_action FROM truck_history;
+SELECT 'NE1' AS hub, COUNT(*) AS total_history FROM ms_route_history WHERE hub='NE1';
+SELECT 'NE1' AS hub, COUNT(DISTINCT route_id) AS distinct_routes FROM ms_route_history WHERE hub='NE1';
+SELECT 'NE1' AS hub, COUNT(*) AS current_routes FROM ms_routes WHERE hub='NE1';
+SELECT hub, COUNT(*) AS total_history, COUNT(DISTINCT route_id) AS distinct_routes
+FROM ms_route_history
+GROUP BY hub
+ORDER BY hub;
+SELECT hub, COUNT(*) AS current_routes
+FROM ms_routes
+GROUP BY hub
+ORDER BY hub;

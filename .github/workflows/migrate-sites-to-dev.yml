@@ -1,15 +1,8 @@
 name: Copy Sites data to Worker DEV
 
-# DEV-only snapshot copy. The temporary schedule is removed immediately after one verified run.
+# Manual, DEV-only snapshot copy. This never targets the production D1 database.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/migrate-sites-to-dev.yml
 
 permissions:
   contents: read

@@ -17,7 +17,7 @@ const context = vm.createContext({
   window: { location: { hostname: "localhost", origin: "http://localhost" } },
   localStorage: { getItem() { return null; }, removeItem() {}, setItem() {} },
 });
-vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,effectiveArrival,punctuality,schedulePunctuality,routeState,queueInfo,waitInfo};`, context);
+vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,effectiveArrival,punctuality,schedulePunctuality,scheduleSection,actualCell,routeState,queueInfo,waitInfo,exportRow,exportThaiDate,shortDateTime};`, context);
 const ui = context.uiTest;
 
 test("expected parcel badge distinguishes zero from missing", () => {
@@ -153,6 +153,63 @@ test("queue age uses effective arrival only after Route confirms arrival", () =>
   const queue = ui.queueInfo(row, new Date("2026-09-01T03:50:00.000Z"));
   assert.equal(Math.round(queue.ageHours * 60), 60);
   assert.equal(queue.active, true);
+});
+
+test("arrival display follows confirmed effective arrival and updates with late TBR", () => {
+  const row = {
+    attendanceType: "ปลายทาง",
+    estimatedArrivalAt: "2026-09-01T02:40:00.000Z",
+    actualArrivalAt: "2026-09-01T03:00:00.000Z",
+    scheduleKitArrivalAt: "2026-09-01T03:00:00.000Z",
+  };
+  assert.ok(ui.actualCell(row).includes(ui.shortDateTime(row.actualArrivalAt)));
+  row.scheduleTbrArrivalAt = "2026-09-01T02:50:00.000Z";
+  const effectiveText = ui.shortDateTime(row.scheduleTbrArrivalAt);
+  assert.ok(ui.actualCell(row).includes(effectiveText));
+  assert.ok(ui.scheduleSection(row, "arrival").includes(effectiveText));
+  assert.equal(row.actualArrivalAt, "2026-09-01T03:00:00.000Z");
+});
+
+test("KIT and TBR cannot display arrival without Route confirmation", () => {
+  const row = {
+    attendanceType: "ปลายทาง",
+    scheduleKitArrivalAt: "2026-09-01T02:50:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-01T02:48:00.000Z",
+  };
+  assert.match(ui.actualCell(row), /ยังไม่มีเวลาจริง/);
+  assert.match(ui.scheduleSection(row, "arrival"), /ถึงจริง<\/b><strong>-<\/strong>/);
+  assert.equal(ui.routeState(row).key, "not-arrived");
+});
+
+test("departure display ignores KIT and TBR", () => {
+  const row = {
+    attendanceType: "ต้นทาง",
+    actualDepartureAt: "2026-09-01T04:00:00.000Z",
+    scheduleKitArrivalAt: "2026-09-01T02:50:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-01T02:48:00.000Z",
+  };
+  const departureText = ui.shortDateTime(row.actualDepartureAt);
+  assert.ok(ui.actualCell(row).includes(departureText));
+  assert.ok(ui.scheduleSection(row, "departure").includes(departureText));
+});
+
+test("export shows effective arrival while preserving Route, KIT, and TBR columns", () => {
+  vm.runInContext(`state.standards={"6W":45}`, context);
+  const row = {
+    attendanceType: "ปลายทาง",
+    vehicleType: "6W",
+    actualArrivalAt: "2026-09-01T03:00:00.000Z",
+    scheduleKitArrivalAt: "2026-09-01T03:00:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-01T02:50:00.000Z",
+    unloadingCompletedAt: "2026-09-01T03:18:00.000Z",
+    unloadingState: 2,
+  };
+  const exported = ui.exportRow(row);
+  assert.equal(exported.actualArrivalAt, ui.exportThaiDate(row.scheduleTbrArrivalAt));
+  assert.equal(exported.routeActualArrivalAt, ui.exportThaiDate(row.actualArrivalAt));
+  assert.equal(exported.scheduleKitArrivalAt, ui.exportThaiDate(row.scheduleKitArrivalAt));
+  assert.equal(exported.scheduleTbrArrivalAt, ui.exportThaiDate(row.scheduleTbrArrivalAt));
+  assert.equal(exported.operationMinutes, 28);
 });
 
 test("warehouse page is removed from navigation and redirects without polling script", async () => {

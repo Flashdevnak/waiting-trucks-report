@@ -454,7 +454,9 @@ function schedulePunctuality(row, mode) {
 function scheduleSection(row, mode) {
   const incoming = mode === "arrival";
   const plan = incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt;
-  const actual = incoming ? row.actualArrivalAt : row.actualDepartureAt;
+  const actual = incoming
+    ? confirmedEffectiveArrival(row)
+    : row.actualDepartureAt;
   const timing = schedulePunctuality(row, mode);
   const detail = timing.diff === null
     ? timing.label
@@ -813,11 +815,12 @@ function planCell(row) {
   return `<div class="time-card"><span>${isDestination(row) ? "กำหนดรถเข้า (ETA)" : "กำหนดปล่อยรถ (ETD)"}</span><strong>${shortDateTime(isDestination(row) ? row.estimatedArrivalAt : row.estimatedDepartureAt)}</strong></div>`;
 }
 function actualCell(row) {
-  const value = isDestination(row)
-    ? row.actualArrivalAt
+  const incoming = isDestination(row) || isDrop(row);
+  const value = incoming
+    ? confirmedEffectiveArrival(row)
     : row.actualDepartureAt;
   return value
-    ? `<div class="time-card actual"><span>${isDestination(row) ? "รถมาถึงจริง" : "ปล่อยรถจริง"}</span><strong>${shortDateTime(value)}</strong></div>`
+    ? `<div class="time-card actual"><span>${incoming ? "รถมาถึงจริง" : "ปล่อยรถจริง"}</span><strong>${shortDateTime(value)}</strong></div>`
     : '<span class="empty-chip">ยังไม่มีเวลาจริง</span>';
 }
 function operationInfo(row) {
@@ -1469,7 +1472,10 @@ function exportRow(row) {
     vehicleType: row.vehicleType || "",
     plate: excelText(row.plate),
     estimatedArrivalAt: exportThaiDate(row.estimatedArrivalAt),
-    actualArrivalAt: exportThaiDate(row.actualArrivalAt),
+    actualArrivalAt: exportThaiDate(confirmedEffectiveArrival(row)),
+    routeActualArrivalAt: exportThaiDate(row.actualArrivalAt),
+    scheduleKitArrivalAt: exportThaiDate(row.scheduleKitArrivalAt),
+    scheduleTbrArrivalAt: exportThaiDate(row.scheduleTbrArrivalAt),
     arrivalPunctuality: isDestination(row) ? p.label : "",
     unloadingCompletedAt: exportThaiDate(row.unloadingCompletedAt),
     unloadingState: row.unloadingState ?? "",

@@ -1093,7 +1093,7 @@ function dateRangeDays(startValue, endValue) {
   return days;
 }
 
-function enrichMsRow(mapped, parcelCounts, busData) {
+export function enrichMsRow(mapped, parcelCounts, busData) {
   // Cross-source matching is deliberately barcode-only. Never use plate,
   // driver or route name because regular vehicles repeat those values daily.
   const parcels = findEnrichment(parcelCounts, mapped);
@@ -1103,8 +1103,6 @@ function enrichMsRow(mapped, parcelCounts, busData) {
     mapped.scheduleTbrArrivalAt = bus.scheduleTbrArrivalAt;
     mapped.arrivedParcels = bus.arrivedParcels;
     mapped.arrivedBags = bus.arrivedBags;
-    const earliest = earliestDate(bus.scheduleKitArrivalAt, bus.scheduleTbrArrivalAt);
-    if (earliest && mapped.attendanceType === "ปลายทาง") mapped.actualArrivalAt = earliest;
   }
   if (mapped.attendanceType === "ปลายทาง" && parcels) Object.assign(mapped, parcels);
   return mapped;

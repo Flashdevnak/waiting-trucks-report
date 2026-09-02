@@ -25,17 +25,21 @@ test("DEV page never auto-loads the heavy archive during live polling", () => {
   assert.match(patched, /metric-archive"\)\.textContent = "กดดู"/);
 });
 
-test("only completed metric is daily; other upper metric logic stays unchanged", () => {
+test("only lower queue completed card uses daily HUB accumulation", () => {
+  assert.match(
+    patched,
+    /completed:\s*state\.archiveRows\.filter\(isCompletedToday\)\.length/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /if \(isCompletedToday\(row\)\) counts\.completed\+\+;/,
+  );
   assert.match(
     patched,
     /"metric-completed",\s*state\.archiveRows\.filter\(\(row\) => isCompletedToday\(row\)\)\.length/,
   );
-  assert.match(patched, /destinations = state\.archiveRows\.filter\(isDestination\)/);
-  assert.match(patched, /origins = state\.archiveRows\.filter\(isOrigin\)/);
-  assert.match(patched, /arrivals = destinations\.map\(\(row\) => punctuality\(row\)\)/);
-  assert.match(patched, /releases = origins\.map\(\(row\) => punctuality\(row\)\)/);
-  assert.match(
-    patched,
-    /if \(isCompletedToday\(row\)\) counts\.completed\+\+;/,
-  );
+  assert.match(patched, /if \(isDestination\(row\) && key === "arrived"\) counts\.waiting\+\+;/);
+  assert.match(patched, /if \(isDestination\(row\) && key === "unloading"\) counts\.unloading\+\+;/);
+  assert.match(patched, /if \(isOrigin\(row\) && !queue\.done\) counts\.origin\+\+;/);
+  assert.match(patched, /if \(isDrop\(row\) && !queue\.done\) counts\.drop\+\+;/);
 });

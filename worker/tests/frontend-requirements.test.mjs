@@ -227,7 +227,10 @@ test("realtime settings and D1 read safeguards remain intact", async () => {
   assert.match(worker, /ms_live_cache/);
   assert.match(worker, /Array\.isArray\(live\.rows\)/);
   assert.match(worker, /COUNT\(\*\) AS total_distinct FROM ms_route_registry/);
-  assert.match(source, /!silent && !state\.archiveLoaded/);
+  assert.match(source, /ARCHIVE_LOAD_DELAY_MS\s*=\s*1500/);
+  assert.match(source, /async function ensureArchiveLoaded/);
+  assert.match(source, /if \(!silent && !state\.archiveLoaded\) scheduleArchiveLoad\(\)/);
+  assert.match(source, /state\.rows = mergeLatest\(state\.archiveRows, state\.currentRows\)/);
   assert.doesNotMatch(source, /!silent \|\| !state\.archiveLoaded/);
   const historyIndex = await readFile(new URL("worker/migrations/0007_ms_history_read_index.sql", root), "utf8");
   assert.match(historyIndex, /ms_route_history\(hub, snapshot_at DESC\)/);

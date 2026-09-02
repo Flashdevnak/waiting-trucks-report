@@ -6,6 +6,7 @@ const CONFIG = {
 };
 
 CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report.alert-squid-6738.chatgpt.site" : window.location.origin}/api`;
+const ARCHIVE_LOAD_DELAY_MS = 1500;
 const AUTH_KEY = "bnak_operator_auth_v2";
 const state = {
   rows: [],
@@ -28,6 +29,8 @@ const state = {
   loading: false,
   archiveLoaded: false,
 };
+let archiveLoadTimer = null;
+let archiveLoadPromise = null;
 const el = (id) => document.getElementById(id);
 const nf = new Intl.NumberFormat("th-TH");
 const dtf = new Intl.DateTimeFormat("th-TH", {
@@ -68,6 +71,7 @@ document.addEventListener("DOMContentLoaded", () => {
   el("branch-filter").onchange = (event) => {
     state.branch = event.target.value;
     state.summary = "all";
+    resetArchiveState();
     loadData();
   };
   setupDateInput("date-from");
@@ -97,9 +101,10 @@ document.addEventListener("DOMContentLoaded", () => {
     state.summary = "all";
     render();
   };
-  el("queue-filter").onchange = (event) => {
+  el("queue-filter").onchange = async (event) => {
     state.queue = event.target.value;
     state.summary = "all";
+    if (state.queue === "all") await ensureArchiveLoaded(true);
     render();
   };
   document.querySelectorAll("[data-metric]").forEach((card) => {
@@ -220,21 +225,9 @@ async function loadData(silent = false) {
   if (!silent) el("loading-state").classList.remove("hidden");
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
-    const archive =
-      !silent && !state.archiveLoaded
-        ? await apiGet("msArchive", { branch: state.branch })
-        : null;
     state.currentRows = Array.isArray(result?.rows) ? result.rows : [];
-    if (archive) {
-      state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
-      state.archiveTotal = Number.isFinite(Number(archive?.totalDistinct))
-        ? Number(archive.totalDistinct)
-        : state.archiveRows.length;
-      state.archiveLoaded = true;
-    } else {
-      state.archiveRows = mergeLatest(state.archiveRows, state.currentRows);
-      state.archiveTotal = Math.max(state.archiveTotal, state.archiveRows.length);
-    }
+    state.archiveRows = mergeLatest(state.archiveRows, state.currentRows);
+    state.archiveTotal = Math.max(state.archiveTotal, state.archiveRows.length);
     state.rows = state.archiveRows;
     state.branch = result?.branch || state.branch;
     state.standards = Object.fromEntries(
@@ -255,12 +248,64 @@ async function loadData(silent = false) {
     el("last-refresh").textContent =
       `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
     render();
+    if (!silent && !state.archiveLoaded) scheduleArchiveLoad();
   } catch (error) {
     connection(false);
     if (!silent) empty(`โหลดข้อมูลไม่สำเร็จ: ${error.message}`);
   } finally {
     state.loading = false;
   }
+}
+
+function resetArchiveState() {
+  if (archiveLoadTimer) clearTimeout(archiveLoadTimer);
+  archiveLoadTimer = null;
+  state.archiveRows = [];
+  state.archiveTotal = 0;
+  state.archiveLoaded = false;
+  state.rows = [];
+}
+
+function scheduleArchiveLoad(delay = ARCHIVE_LOAD_DELAY_MS) {
+  if (!state.auth || state.archiveLoaded || archiveLoadTimer) return;
+  const branch = state.branch;
+  archiveLoadTimer = setTimeout(() => {
+    archiveLoadTimer = null;
+    if (state.auth && state.branch === branch && !state.archiveLoaded)
+      void ensureArchiveLoaded(false);
+  }, delay);
+}
+
+async function ensureArchiveLoaded(userInitiated = false) {
+  if (!state.auth || state.archiveLoaded) return true;
+  const branch = state.branch;
+  if (archiveLoadTimer) {
+    clearTimeout(archiveLoadTimer);
+    archiveLoadTimer = null;
+  }
+  if (archiveLoadPromise?.branch === branch) return archiveLoadPromise.promise;
+  const promise = (async () => {
+    try {
+      const archive = await apiGet("msArchive", { branch });
+      if (state.branch !== branch) return false;
+      state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+      state.archiveTotal = Number.isFinite(Number(archive?.totalDistinct))
+        ? Number(archive.totalDistinct)
+        : state.archiveRows.length;
+      state.archiveLoaded = true;
+      state.rows = mergeLatest(state.archiveRows, state.currentRows);
+      fillFilters();
+      render();
+      return true;
+    } catch (error) {
+      if (userInitiated) toast(`โหลดรายการสะสมไม่สำเร็จ: ${error.message}`, true);
+      return false;
+    } finally {
+      if (archiveLoadPromise?.promise === promise) archiveLoadPromise = null;
+    }
+  })();
+  archiveLoadPromise = { branch, promise };
+  return promise;
 }
 
 function mergeLatest(archive, current) {
@@ -732,7 +777,9 @@ function renderFilterSummary(rows) {
     });
 }
 
-function applyMetricFilter(metric) {
+async function applyMetricFilter(metric) {
+  if (["all", "completed", "arrival-ontime", "arrival-late", "departure-ontime", "departure-late"].includes(metric))
+    await ensureArchiveLoaded(true);
   state.summary = "all";
   state.status = "all";
   state.attendance = "all";

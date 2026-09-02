@@ -13,6 +13,20 @@
   "vars": {
     "MS_BRANCH": "NE1"
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MS_REFRESH_COORDINATOR",
+        "class_name": "MsRefreshCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "dev-ms-refresh-coordinator-v1",
+      "new_sqlite_classes": ["MsRefreshCoordinator"]
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

@@ -1,0 +1,59 @@
+name: Production Topology Readonly
+
+# One-shot/read-only Cloudflare discovery. This workflow MUST NOT deploy,
+# migrate, execute SQL, mutate Worker settings, or write D1 data.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/production-topology-readonly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: List Cloudflare Worker and D1 topology (read-only)
+        run: |
+          node <<'NODE'
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          if (!account || !token) throw new Error('Cloudflare account/token secrets are missing');
+
+          const headers = { Authorization: `Bearer ${token}` };
+          async function get(path) {
+            const url = `https://api.cloudflare.com/client/v4/accounts/${account}${path}`;
+            const response = await fetch(url, { headers });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok || body.success === false) {
+              return { ok: false, status: response.status, errors: body.errors || [] };
+            }
+            return { ok: true, result: body.result, result_info: body.result_info || null };
+          }
+
+          const d1 = await get('/d1/database?per_page=100');
+          const scripts = await get('/workers/scripts');
+          const namespaces = await get('/workers/durable_objects/namespaces');
+
+          const d1Rows = d1.ok && Array.isArray(d1.result)
+            ? d1.result.map((x) => ({ uuid: x.uuid, name: x.name, version: x.version, num_tables: x.num_tables, file_size: x.file_size, created_at: x.created_at }))
+            : d1;
+          const workerRows = scripts.ok && Array.isArray(scripts.result)
+            ? scripts.result.map((x) => ({ id: x.id, modified_on: x.modified_on, created_on: x.created_on, compatibility_date: x.compatibility_date, usage_model: x.usage_model }))
+            : scripts;
+          const durableRows = namespaces.ok && Array.isArray(namespaces.result)
+            ? namespaces.result.map((x) => ({ id: x.id, name: x.name, class: x.class, script: x.script }))
+            : namespaces;
+
+          console.log(`D1_DATABASES=${JSON.stringify(d1Rows)}`);
+          console.log(`WORKER_SCRIPTS=${JSON.stringify(workerRows)}`);
+          console.log(`DURABLE_OBJECT_NAMESPACES=${JSON.stringify(durableRows)}`);
+          console.log('PRODUCTION_TOPOLOGY_MUTATIONS=0');
+          NODE

@@ -19,7 +19,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
-      FOREGROUND_START: 2026-09-02T11:40:00.000Z
+      FOREGROUND_START: 2026-09-02T11:52:00.000Z
     steps:
       - name: Wait for foreground sample and analytics ingestion
         run: sleep 150

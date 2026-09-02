@@ -1,0 +1,55 @@
+name: Browser Connector Readonly
+
+# Read-only verification of the Browser Worker KV connector state.
+# Never print connector token values and never mutate KV/D1/Workers.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/browser-connector-readonly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Inspect Browser Worker connector key names only
+        run: |
+          node <<'NODE'
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+          async function get(url) {
+            const response = await fetch(url, { headers });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok || body.success === false) throw new Error(JSON.stringify(body.errors || body));
+            return body.result;
+          }
+          const base = `https://api.cloudflare.com/client/v4/accounts/${account}`;
+          const settings = await get(`${base}/workers/scripts/waiting-trucks-ms-browser-test/settings`);
+          const bindings = Array.isArray(settings?.bindings) ? settings.bindings : [];
+          const safeBindings = bindings.map((x) => ({
+            name: x.name,
+            type: x.type,
+            namespace_id: x.namespace_id || null,
+            class_name: x.class_name || null,
+          }));
+          const state = bindings.find((x) => x.name === 'STATE' && x.type === 'kv_namespace');
+          let keys = [];
+          if (state?.namespace_id) {
+            const result = await get(`${base}/storage/kv/namespaces/${state.namespace_id}/keys?limit=100`);
+            keys = Array.isArray(result) ? result.map((x) => x.name).filter((name) => name === 'hubs' || name.startsWith('connector:')) : [];
+          }
+          console.log(`BROWSER_BINDINGS=${JSON.stringify(safeBindings)}`);
+          console.log(`BROWSER_CONNECTOR_KEY_NAMES=${JSON.stringify(keys)}`);
+          console.log(`HAS_NE1_CONNECTOR=${keys.includes('connector:NE1')}`);
+          console.log('CONNECTOR_VALUES_EXPOSED=0');
+          console.log('MUTATIONS=0');
+          NODE

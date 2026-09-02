@@ -2,6 +2,7 @@ import { readFile, writeFile, chmod } from "node:fs/promises";
 
 const platformToken = String(process.env.TURSO_PLATFORM_API_TOKEN || "").trim();
 const requestedOrg = String(process.env.TURSO_ORG_SLUG || "").trim();
+const requestedDatabaseName = String(process.env.TURSO_DATABASE_NAME || "waiting-trucks-dev-turso").trim();
 const databaseFile = process.env.TURSO_DATABASE_FILE || "/tmp/waiting-trucks-dev.db";
 const countsFile = process.env.TURSO_COUNTS_FILE || "/tmp/waiting-trucks-counts.json";
 const secretsFile = process.env.TURSO_WORKER_SECRETS_FILE || "/tmp/turso-worker-secrets.json";
@@ -40,7 +41,6 @@ try {
     const locations = Object.keys(locationsPayload?.locations || {});
     if (!locations.length) throw new Error("Turso returned no available database locations");
     const preferred = [
-      "aws-ap-southeast-1",
       "aws-ap-northeast-1",
       "aws-ap-south-1",
     ];
@@ -58,14 +58,39 @@ try {
 
   if (!group?.name) throw new Error("Unable to resolve a Turso database group");
 
-  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14).toLowerCase();
-  const databaseName = `waiting-trucks-dev-${stamp}`.slice(0, 64);
+  // The provision-only step may already have created this upload target.
+  // Recreate it immediately before the real upload so reruns always start clean.
+  try {
+    const existing = await platform(
+      `/v1/organizations/${encodeURIComponent(orgSlug)}/databases/${encodeURIComponent(requestedDatabaseName)}`,
+    );
+    if (existing?.database?.Name) {
+      await platform(
+        `/v1/organizations/${encodeURIComponent(orgSlug)}/databases/${encodeURIComponent(requestedDatabaseName)}`,
+        { method: "DELETE" },
+      );
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        try {
+          await platform(
+            `/v1/organizations/${encodeURIComponent(orgSlug)}/databases/${encodeURIComponent(requestedDatabaseName)}`,
+          );
+        } catch (error) {
+          if (error?.status === 404) break;
+          throw error;
+        }
+      }
+    }
+  } catch (error) {
+    if (error?.status !== 404) throw error;
+  }
+
   const createdPayload = await platform(
     `/v1/organizations/${encodeURIComponent(orgSlug)}/databases`,
     {
       method: "POST",
       json: {
-        name: databaseName,
+        name: requestedDatabaseName,
         group: group.name,
         seed: { type: "database_upload" },
       },
@@ -74,7 +99,7 @@ try {
 
   created = createdPayload?.database;
   const hostname = String(created?.Hostname || "").trim();
-  const actualName = String(created?.Name || databaseName).trim();
+  const actualName = String(created?.Name || requestedDatabaseName).trim();
   if (!hostname || !actualName) throw new Error("Turso create database response is missing Hostname or Name");
 
   const tokenPayload = await platform(
@@ -154,13 +179,14 @@ try {
   if (outputFile) {
     await writeFile(
       outputFile,
-      `turso_database_name=${actualName}\nturso_hostname=${hostname}\nturso_org=${orgSlug}\n`,
+      `turso_database_name=${actualName}\nturso_hostname=${hostname}\nturso_org=${orgSlug}\nturso_primary=${created?.primaryRegion || group?.primary || ""}\n`,
       { flag: "a" },
     );
   }
 
   console.log(`TURSO_ORG=${orgSlug}`);
   console.log(`TURSO_GROUP=${group.name}`);
+  console.log(`TURSO_PRIMARY_REGION=${created?.primaryRegion || group?.primary || "unknown"}`);
   console.log(`TURSO_DATABASE=${actualName}`);
   console.log(`TURSO_HOSTNAME=${hostname}`);
   console.log(`TURSO_UPLOAD_BYTES=${databaseBytes.byteLength}`);
@@ -204,7 +230,9 @@ async function platform(path, { method = "GET", json } = {}) {
     const message = typeof payload === "string"
       ? payload
       : payload?.error || payload?.message || JSON.stringify(payload || {});
-    throw new Error(`Turso Platform API ${method} ${path} failed: HTTP ${response.status} ${String(message).slice(0, 500)}`);
+    const error = new Error(`Turso Platform API ${method} ${path} failed: HTTP ${response.status} ${String(message).slice(0, 500)}`);
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }

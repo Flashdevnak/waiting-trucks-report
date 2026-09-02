@@ -1,0 +1,54 @@
+name: Provision Turso DEV
+
+on:
+  push:
+    branches: [turso-dev-migration]
+    paths:
+      - .github/workflows/provision-turso-dev.yml
+      - .github/turso-tools/provision-only.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG_SLUG: ${{ vars.TURSO_ORG_SLUG }}
+      TURSO_DATABASE_NAME: waiting-trucks-dev-turso
+      TURSO_WORKER_SECRETS_FILE: /tmp/turso-worker-secrets.json
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: turso-dev-migration
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Install Worker tooling
+        working-directory: worker
+        run: npm ci
+      - name: Provision Turso database without D1 access
+        id: turso
+        run: node .github/turso-tools/provision-only.mjs
+      - name: Install Turso connection secrets on DEV Worker without deploying
+        working-directory: worker
+        run: |
+          test -s "$TURSO_WORKER_SECRETS_FILE"
+          npx wrangler secret bulk "$TURSO_WORKER_SECRETS_FILE" --config wrangler.dev.jsonc
+          rm -f "$TURSO_WORKER_SECRETS_FILE"
+          echo "DEV_TURSO_SECRETS=INSTALLED"
+          echo "DEV_DEPLOYED=NO"
+          echo "D1_ACCESS=0"
+      - name: Summary
+        run: |
+          echo "TURSO_DATABASE=${{ steps.turso.outputs.turso_database_name }}"
+          echo "TURSO_HOSTNAME=${{ steps.turso.outputs.turso_hostname }}"
+          echo "TURSO_PRIMARY=${{ steps.turso.outputs.turso_primary }}"
+          echo "PRODUCTION_TOUCHED=NO"
+          echo "DEV_RUNTIME_SWITCHED=NO"
+          echo "D1_ACCESS=0"

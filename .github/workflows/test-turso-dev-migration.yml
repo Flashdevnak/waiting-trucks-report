@@ -5,6 +5,8 @@ on:
     branches: [turso-dev-migration]
     paths:
       - .github/workflows/test-turso-dev-migration.yml
+      - .github/workflows/migrate-dev-d1-to-turso.yml
+      - .github/turso-tools/**
       - .github/dev-tools/**
       - worker/src/turso-*.js
       - worker/src/index.js
@@ -30,6 +32,9 @@ jobs:
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
       - run: npm run check
+      - name: Check one-time migration tooling syntax
+        working-directory: .
+        run: node --check .github/turso-tools/provision-upload.mjs
       - name: Stage current DEV worker patches without deploying
         run: |
           rm -rf .dev-assets

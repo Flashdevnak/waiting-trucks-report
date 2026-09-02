@@ -1,0 +1,58 @@
+name: D1 Analytics Root Cause DEV
+
+# Analytics-only forensic workflow. Uses Cloudflare GraphQL analytics and never queries D1.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/d1-analytics-rootcause-dev.yml
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+    steps:
+      - name: Analyze current UTC quota day without D1 reads
+        run: |
+          node <<'NODE'
+          const endpoint = 'https://api.cloudflare.com/client/v4/graphql';
+          const accountTag = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const databaseId = process.env.DEV_D1_DATABASE_ID;
+          if (!accountTag || !token || !databaseId) process.exit(2);
+          const now = new Date();
+          const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+          const end = new Date(now.getTime() - 2 * 60_000);
+          const query = `query($accountTag:String!,$databaseId:String!,$start:String!,$end:String!){viewer{accounts(filter:{accountTag:$accountTag}){d1AnalyticsAdaptiveGroups(limit:10000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){sum{readQueries writeQueries rowsRead rowsWritten} dimensions{datetimeMinute}} d1QueriesAdaptiveGroups(limit:10000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){count sum{rowsRead rowsWritten} dimensions{datetimeMinute query}}}}}`;
+          const response = await fetch(endpoint, {method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({query,variables:{accountTag,databaseId,start:start.toISOString(),end:end.toISOString()}})});
+          const payload = await response.json();
+          if (!response.ok || payload.errors?.length) throw new Error(JSON.stringify(payload.errors || payload));
+          const a = payload.data?.viewer?.accounts?.[0] || {};
+          let totalRowsRead = 0, totalRowsWritten = 0;
+          const minuteTotals = [];
+          for (const g of a.d1AnalyticsAdaptiveGroups || []) {
+            const row = {minute:g.dimensions?.datetimeMinute,rowsRead:Number(g.sum?.rowsRead||0),rowsWritten:Number(g.sum?.rowsWritten||0),readQueries:Number(g.sum?.readQueries||0),writeQueries:Number(g.sum?.writeQueries||0)};
+            totalRowsRead += row.rowsRead; totalRowsWritten += row.rowsWritten; minuteTotals.push(row);
+          }
+          const queryTotals = new Map();
+          for (const g of a.d1QueriesAdaptiveGroups || []) {
+            const sql = String(g.dimensions?.query || '').replace(/\s+/g,' ').trim();
+            const prior = queryTotals.get(sql) || {query:sql,rowsRead:0,rowsWritten:0,count:0};
+            prior.rowsRead += Number(g.sum?.rowsRead||0); prior.rowsWritten += Number(g.sum?.rowsWritten||0); prior.count += Number(g.count||0); queryTotals.set(sql,prior);
+          }
+          console.log(`ANALYTICS_ONLY=true`);
+          console.log(`UTC_DAY_START=${start.toISOString()}`);
+          console.log(`ANALYTICS_END=${end.toISOString()}`);
+          console.log(`DAY_ROWS_READ=${totalRowsRead}`);
+          console.log(`DAY_ROWS_WRITTEN=${totalRowsWritten}`);
+          console.log('TOP_MINUTES=');
+          for (const row of minuteTotals.sort((a,b)=>b.rowsRead-a.rowsRead).slice(0,20)) console.log(JSON.stringify(row));
+          console.log('TOP_QUERIES=');
+          for (const row of [...queryTotals.values()].sort((a,b)=>b.rowsRead-a.rowsRead).slice(0,30)) console.log(JSON.stringify(row));
+          NODE

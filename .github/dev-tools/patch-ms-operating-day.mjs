@@ -71,9 +71,9 @@ export function patchMsOperatingDayFrontend(source) {
 
   output = replaceUnique(
     output,
-    `    state.archiveRows.filter((row) => isCompletedToday(row)).length,`,
-    `    state.archiveRows.filter((row) => isCompletedAccumulated(row)).length,`,
-    "top completed metric is cumulative",
+    `  setMetric(\n    "metric-completed",\n    state.archiveRows.filter((row) => isCompletedToday(row)).length,\n  );`,
+    `  if (state.archiveLoaded)\n    setMetric(\n      "metric-completed",\n      state.archiveRows.filter((row) => isCompletedAccumulated(row)).length,\n    );\n  else\n    el("metric-completed").textContent = "กดดู";`,
+    "top completed metric is cumulative and never partial",
   );
 
   output = replaceUnique(

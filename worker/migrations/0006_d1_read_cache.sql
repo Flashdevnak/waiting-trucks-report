@@ -1,3 +1,4 @@
+-- D1 read optimization: live source cache and lifetime route registry.
 CREATE TABLE IF NOT EXISTS ms_live_cache (
   hub TEXT PRIMARY KEY NOT NULL,
   source_hash TEXT NOT NULL DEFAULT '',

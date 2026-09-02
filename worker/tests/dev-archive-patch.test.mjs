@@ -22,4 +22,5 @@ test("DEV page never auto-loads the heavy archive during live polling", () => {
     /if \(!\(await ensureArchiveLoaded\(true\)\)\)/,
   );
   assert.match(patched, /async function ensureArchiveLoaded/);
+  assert.match(patched, /metric-archive"\)\.textContent = "กดดู"/);
 });

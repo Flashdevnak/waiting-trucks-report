@@ -24,3 +24,18 @@ test("DEV page never auto-loads the heavy archive during live polling", () => {
   assert.match(patched, /async function ensureArchiveLoaded/);
   assert.match(patched, /metric-archive"\)\.textContent = "กดดู"/);
 });
+
+test("upper completed card is cumulative while lower queue summary stays daily", () => {
+  assert.match(
+    patched,
+    /\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*Number\(row\.unloadingState\) === 2/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /"metric-completed",\s*state\.archiveRows\.filter\(\(row\) => isCompletedToday\(row\)\)/,
+  );
+  assert.match(
+    patched,
+    /if \(isCompletedToday\(row\)\) counts\.completed\+\+;/,
+  );
+});

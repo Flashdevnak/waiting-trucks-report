@@ -1,0 +1,47 @@
+name: Turso Account Preflight
+
+on:
+  push:
+    branches: [turso-dev-migration]
+    paths:
+      - .github/workflows/turso-account-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG_SLUG: ${{ vars.TURSO_ORG_SLUG }}
+    steps:
+      - name: Check Turso account only
+        run: |
+          node <<'NODE'
+          const token = String(process.env.TURSO_PLATFORM_API_TOKEN || '').trim();
+          if (!token) {
+            console.error('TURSO_PLATFORM_API_TOKEN=MISSING');
+            process.exit(3);
+          }
+          const response = await fetch('https://api.turso.tech/v1/organizations', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const payload = await response.json().catch(() => null);
+          if (!response.ok || !Array.isArray(payload)) {
+            console.error(`TURSO_PLATFORM_API=ERROR HTTP_${response.status}`);
+            process.exit(4);
+          }
+          const wanted = String(process.env.TURSO_ORG_SLUG || '').trim();
+          const org = wanted
+            ? payload.find((item) => item?.slug === wanted)
+            : payload.find((item) => item?.type === 'personal') || (payload.length === 1 ? payload[0] : null);
+          if (!org?.slug) {
+            console.error('TURSO_ORG=AUTO_SELECT_FAILED');
+            process.exit(5);
+          }
+          console.log('TURSO_PLATFORM_API_TOKEN=READY');
+          console.log(`TURSO_ORG=${org.slug}`);
+          console.log(`TURSO_PLAN=${org.plan_id || 'unknown'}`);
+          console.log('D1_ACCESS=0');
+          NODE

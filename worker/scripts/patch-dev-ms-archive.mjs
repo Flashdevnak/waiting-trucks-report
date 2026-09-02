@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function patchDevMsArchive(source) {
@@ -52,11 +53,26 @@ export function patchDevMsArchive(source) {
   return output;
 }
 
+const DEV_MOBILE_SPACING_MARKER = "/* DEV mobile MS card spacing */";
+
+export function patchDevMsMobileStyle(source) {
+  const output = String(source || "");
+  if (output.includes(DEV_MOBILE_SPACING_MARKER)) return output;
+  return `${output.trimEnd()}\n\n${DEV_MOBILE_SPACING_MARKER}\n@media (max-width: 900px) {\n  .ms-page .compact-schedule {\n    padding: 14px 14px 16px;\n    border-bottom: 0;\n    background: #f4f5f2;\n  }\n  .ms-page .compact-schedule .schedule-section + .schedule-section {\n    margin-top: 12px;\n  }\n  .ms-page .compact-operation {\n    margin: 0 14px 14px;\n    border: 1px solid #d9dcd8;\n    border-radius: 8px;\n    overflow: hidden;\n  }\n  .ms-page .departure-countdown {\n    width: auto;\n    margin: 0 14px 14px;\n  }\n  .ms-page .arrival-sources,\n  .ms-page .source-empty {\n    width: auto;\n    margin: 0 14px 14px;\n  }\n  .ms-page .compact-party {\n    margin-top: 2px;\n    padding: 16px 14px;\n    border-top: 1px solid #d9dcd8;\n  }\n}\n\n@media (max-width: 420px) {\n  .ms-page .compact-operation,\n  .ms-page .departure-countdown,\n  .ms-page .arrival-sources,\n  .ms-page .source-empty {\n    margin-left: 11px;\n    margin-right: 11px;\n  }\n  .ms-page .compact-schedule {\n    padding: 12px 11px 14px;\n  }\n}\n`;
+}
+
 const invokedPath = process.argv[1] ? fileURLToPath(import.meta.url) === process.argv[1] : false;
 if (invokedPath) {
   const target = process.argv[2] || ".dev-assets/ms.js";
   const source = await readFile(target, "utf8");
   const patched = patchDevMsArchive(source);
   await writeFile(target, patched, "utf8");
+
+  const styleTarget = join(dirname(target), "style.css");
+  const styleSource = await readFile(styleTarget, "utf8");
+  const patchedStyle = patchDevMsMobileStyle(styleSource);
+  await writeFile(styleTarget, patchedStyle, "utf8");
+
   console.log(`Patched DEV archive loading: ${target}`);
+  console.log(`Patched DEV mobile spacing: ${styleTarget}`);
 }

@@ -33,6 +33,24 @@ test("completed card displays the authoritative daily rows represented by its to
   assert.match(staged, /state\.queue = "all";\s*el\("queue-filter"\)\.value = "all";/);
 });
 
+test("completed view keeps the other five cards on the live current queue", () => {
+  assert.match(
+    staged,
+    /function filteredRows\(ignoreSummary = false, queueMode = state\.queue\)/,
+  );
+  assert.match(
+    staged,
+    /queueMode === "queue" \? state\.currentRows : state\.archiveRows/,
+  );
+  assert.match(
+    staged,
+    /state\.summary === "completed" \? "queue" : state\.queue/,
+  );
+  assert.match(staged, /queueMode === "all"/);
+  assert.match(staged, /queueMode === "queue" && queue\.active/);
+  assert.match(staged, /queueMode === "queue" \? aTime - bTime : bTime - aTime/);
+});
+
 test("summary filter fix does not change polling or realtime recovery", () => {
   assert.match(staged, /pollMs:\s*4000/);
   assert.match(staged, /requestTimeoutMs:\s*22000/);

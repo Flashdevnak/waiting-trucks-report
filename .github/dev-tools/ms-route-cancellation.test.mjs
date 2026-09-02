@@ -12,12 +12,23 @@ const root = new URL("../../", import.meta.url);
 const frontendSource = await readFile(new URL("ms.js", root), "utf8");
 const styleSource = await readFile(new URL("style.css", root), "utf8");
 const workerSource = await readFile(new URL("worker/src/index.js", root), "utf8");
-const migration = await readFile(new URL("worker/migrations/0009_ms_route_cancellations.sql", root), "utf8");
-const stage = await readFile(new URL(".github/dev-tools/stage-dev-runtime.mjs", root), "utf8");
-const cutover = await readFile(new URL(".github/cutover-tools/prepare-cutover.mjs", root), "utf8");
+const migration = await readFile(
+  new URL("worker/migrations/0009_ms_route_cancellations.sql", root),
+  "utf8",
+);
+const stage = await readFile(
+  new URL(".github/dev-tools/stage-dev-runtime.mjs", root),
+  "utf8",
+);
+const cutover = await readFile(
+  new URL(".github/cutover-tools/prepare-cutover.mjs", root),
+  "utf8",
+);
 const frontend = patchMsRouteCancellationFrontend(frontendSource);
 const style = patchMsRouteCancellationStyle(styleSource);
-const worker = patchMsRouteCancellationWorker(patchDevWorkerCompletedSummary(workerSource));
+const worker = patchMsRouteCancellationWorker(
+  patchDevWorkerCompletedSummary(workerSource),
+);
 
 test("route cancel button lives with driver data and requires a password PIN dialog", () => {
   assert.match(frontend, /data-cancel-ms-route/);
@@ -26,7 +37,7 @@ test("route cancel button lives with driver data and requires a password PIN dia
   assert.match(frontend, /apiPost\("cancelMsRoute"/);
   assert.match(frontend, /branch: state\.branch/);
   assert.match(frontend, /routeId: target\.id/);
-  assert.match(frontend, /pin/);
+  assert.match(frontend, /pin,/);
   assert.match(style, /MS route cancellation controls/);
   assert.match(style, /\.cancel-route-button/);
 });
@@ -39,6 +50,7 @@ test("cancelled routes leave only the current queue and remain auditable", () =>
   assert.match(frontend, /queueCancelReason/);
   assert.match(frontend, /queueStatus: q\.cancelled/);
   assert.match(frontend, /state\.cancelledRouteIds\.add\(id\)/);
+  assert.doesNotMatch(frontend, /await loadData\(true\)[\s\S]{0,120}ยกเลิกเส้นทาง/);
 });
 
 test("backend re-authenticates the current user PIN and never calls MS upstream", () => {

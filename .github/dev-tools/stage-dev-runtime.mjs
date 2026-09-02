@@ -14,6 +14,11 @@ import { patchDevSummaryFilter } from "./patch-ms-summary-filter.mjs";
 import { patchDevDurableCoordinator } from "./patch-ms-durable-coordinator.mjs";
 import { patchDevConnectorAdoption } from "./patch-ms-connector-adoption.mjs";
 import { patchDevMultiClientWorker } from "./patch-ms-multiclient-dedupe.mjs";
+import {
+  patchMsRouteCancellationFrontend,
+  patchMsRouteCancellationStyle,
+  patchMsRouteCancellationWorker,
+} from "./patch-ms-route-cancellation.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -27,11 +32,17 @@ export function frontendHasIntegratedDevRuntime(source) {
 
 export function stageFrontend(source) {
   let output = String(source || "");
-  if (frontendHasIntegratedDevRuntime(output)) return output;
-  output = patchDevMsArchive(output);
-  output = patchDevRealtimeFrontend(output);
-  output = patchDevSummaryFilter(output);
+  if (!frontendHasIntegratedDevRuntime(output)) {
+    output = patchDevMsArchive(output);
+    output = patchDevRealtimeFrontend(output);
+    output = patchDevSummaryFilter(output);
+  }
+  output = patchMsRouteCancellationFrontend(output);
   return output;
+}
+
+export function stageStyle(source) {
+  return patchMsRouteCancellationStyle(patchDevMsMobileStyle(source));
 }
 
 export function stageWorker(source) {
@@ -40,6 +51,7 @@ export function stageWorker(source) {
   output = patchDevDurableCoordinator(output);
   output = patchDevConnectorAdoption(output);
   output = patchDevMultiClientWorker(output);
+  output = patchMsRouteCancellationWorker(output);
   return output;
 }
 
@@ -52,7 +64,7 @@ export async function stageDevRuntime(frontendTarget, workerTarget) {
   ]);
   await Promise.all([
     writeFile(frontendTarget, stageFrontend(frontend), "utf8"),
-    writeFile(styleTarget, patchDevMsMobileStyle(style), "utf8"),
+    writeFile(styleTarget, stageStyle(style), "utf8"),
     writeFile(workerTarget, stageWorker(worker), "utf8"),
   ]);
 }

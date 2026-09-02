@@ -9,6 +9,10 @@ const workflow = await readFile(
   new URL(".github/workflows/deploy-worker-dev.yml", root),
   "utf8",
 );
+const stage = await readFile(
+  new URL(".github/dev-tools/stage-dev-runtime.mjs", root),
+  "utf8",
+);
 const worker = patchDevConnectorAdoption(workerSource);
 
 test("connector adoption is disabled unless a cutover-only secret exists", () => {
@@ -42,8 +46,10 @@ test("same connector token is idempotent and adoption does not trigger an MS ref
   assert.doesNotMatch(block, /refreshMsIfStale|runMsRefresh|readMsRoutes/);
 });
 
-test("DEV deploy applies connector adoption before syntax validation", () => {
+test("DEV deploy stages connector adoption before syntax validation", () => {
   assert.match(workflow, /ms-connector-adoption\.test\.mjs/);
-  assert.match(workflow, /patch-ms-connector-adoption\.mjs src\/index\.js/);
+  assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
+  assert.match(stage, /patchDevConnectorAdoption/);
+  assert.match(stage, /output = patchDevConnectorAdoption\(output\)/);
   assert.match(workflow, /node --check src\/index\.js/);
 });

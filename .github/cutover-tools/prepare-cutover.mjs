@@ -7,6 +7,10 @@ import {
 } from "../../worker/scripts/patch-dev-ms-archive.mjs";
 import { patchDevRealtimeFrontend } from "../dev-tools/patch-ms-realtime-recovery.mjs";
 import { patchDevSummaryFilter } from "../dev-tools/patch-ms-summary-filter.mjs";
+import {
+  patchMsRouteCancellationFrontend,
+  patchMsRouteCancellationStyle,
+} from "../dev-tools/patch-ms-route-cancellation.mjs";
 
 export const OLD_API_ORIGIN =
   "https://waiting-trucks-report.alert-squid-6738.chatgpt.site";
@@ -25,6 +29,7 @@ export function patchCutoverFrontend(msSource) {
   let output = patchDevMsArchive(msSource);
   output = patchDevRealtimeFrontend(output);
   output = patchDevSummaryFilter(output);
+  output = patchMsRouteCancellationFrontend(output);
   output = replaceUnique(
     output,
     `CONFIG.apiUrl = \`${"${"}window.location.hostname.endsWith("github.io") ? "${OLD_API_ORIGIN}" : window.location.origin}/api\`;`,
@@ -82,7 +87,11 @@ export async function prepareCutover(rootDir, version) {
 
   await Promise.all([
     writeFile(msPath, patchCutoverFrontend(ms), "utf8"),
-    writeFile(stylePath, patchDevMsMobileStyle(style), "utf8"),
+    writeFile(
+      stylePath,
+      patchMsRouteCancellationStyle(patchDevMsMobileStyle(style)),
+      "utf8",
+    ),
     writeFile(browserPath, patchCutoverBrowser(browser), "utf8"),
     writeFile(swPath, bumpServiceWorker(sw, version), "utf8"),
     writeFile(

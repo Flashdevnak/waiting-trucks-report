@@ -48,6 +48,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
       - run: node --test ../.github/dev-tools/safe-parity.test.mjs
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
+      - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
       - name: Apply additive migrations to DEV D1
         run: npx wrangler d1 migrations apply DB --remote --config wrangler.dev.jsonc

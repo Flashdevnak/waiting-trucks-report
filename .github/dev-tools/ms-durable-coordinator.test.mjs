@@ -12,6 +12,10 @@ const workflow = await readFile(
   new URL(".github/workflows/deploy-worker-dev.yml", root),
   "utf8",
 );
+const stage = await readFile(
+  new URL(".github/dev-tools/stage-dev-runtime.mjs", root),
+  "utf8",
+);
 const worker = patchDevDurableCoordinator(workerSource);
 
 test("DEV routes cross-isolate refresh through one Durable Object per HUB", () => {
@@ -44,11 +48,10 @@ test("DEV Wrangler binds one SQLite-backed Durable Object class", () => {
   assert.ok(migration, "SQLite Durable Object migration must exist");
 });
 
-test("DEV deployment patches and validates coordinator before deploy", () => {
+test("DEV deployment stages and validates coordinator before deploy", () => {
   assert.match(workflow, /ms-durable-coordinator\.test\.mjs/);
-  assert.match(
-    workflow,
-    /patch-ms-durable-coordinator\.mjs src\/index\.js/,
-  );
+  assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
+  assert.match(stage, /patchDevDurableCoordinator/);
+  assert.match(stage, /output = patchDevDurableCoordinator\(output\)/);
   assert.match(workflow, /node --check src\/index\.js/);
 });

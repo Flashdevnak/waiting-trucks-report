@@ -43,3 +43,18 @@ test("only lower queue completed card uses daily HUB accumulation", () => {
   assert.match(patched, /if \(isOrigin\(row\) && !queue\.done\) counts\.origin\+\+;/);
   assert.match(patched, /if \(isDrop\(row\) && !queue\.done\) counts\.drop\+\+;/);
 });
+
+test("KIT TBR arrival source block is shown for origin and destination only", () => {
+  assert.match(
+    patched,
+    /function arrivalSources\(row\) \{\s*if \(!isDestination\(row\) && !isOrigin\(row\)\) return "";/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /function arrivalSources\(row\) \{\s*if \(!isDestination\(row\)\) return "";/,
+  );
+  assert.match(patched, /เวลาถึงจากระบบ/);
+  assert.match(patched, /scheduleKitArrivalAt/);
+  assert.match(patched, /scheduleTbrArrivalAt/);
+  assert.match(patched, /ใช้เวลาที่มาก่อน/);
+});

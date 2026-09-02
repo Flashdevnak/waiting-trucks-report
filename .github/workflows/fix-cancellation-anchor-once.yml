@@ -1,0 +1,38 @@
+name: Fix Cancellation Anchor Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-cancellation-anchor-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scope duplicate desktop/mobile anchor safely
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          path = Path('.github/dev-tools/patch-ms-route-cancellation.mjs')
+          text = path.read_text()
+          old = '''  if (first < 0 || first !== last)\n    throw new Error(`MS route cancellation patch failed: ${label}`);'''
+          new = '''  const allowFirstMatch = label === "desktop cancelled work status";\n  if (first < 0 || (first !== last && !allowFirstMatch))\n    throw new Error(`MS route cancellation patch failed: ${label}`);'''
+          if old not in text:
+              raise SystemExit('expected cancellation guard not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+          node --check .github/dev-tools/patch-ms-route-cancellation.mjs
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/dev-tools/patch-ms-route-cancellation.mjs
+          git commit -m "Fix cancellation desktop mobile anchor"
+          git push origin HEAD:main

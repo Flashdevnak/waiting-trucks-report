@@ -43,6 +43,7 @@ jobs:
       - run: npm run check
       - run: node --test tests/dev-archive-patch.test.mjs
       - run: node --test ../.github/dev-tools/ms-realtime-recovery.test.mjs
+      - run: node --test ../.github/dev-tools/ms-summary-filter.test.mjs
       - name: Apply additive migrations to DEV D1
         run: npx wrangler d1 migrations apply DB --remote --config wrangler.dev.jsonc
       - name: Validate DEV schema and row counts
@@ -54,6 +55,7 @@ jobs:
           cp ../ms.html ../ms.js ../style.css ../sw.js ../favicon.svg .dev-assets/
           node scripts/patch-dev-ms-archive.mjs .dev-assets/ms.js src/index.js
           node ../.github/dev-tools/patch-ms-realtime-recovery.mjs .dev-assets/ms.js src/index.js
+          node ../.github/dev-tools/patch-ms-summary-filter.mjs .dev-assets/ms.js
           node --check .dev-assets/ms.js
           node --check src/index.js
       - name: Deploy DEV shadow Worker

@@ -28,6 +28,10 @@ import {
   patchMsSummaryPerformanceFrontend,
   patchMsSummaryPerformanceStyle,
 } from "./patch-ms-summary-performance.mjs";
+import {
+  patchMsOperatingDayFrontend,
+  patchMsOperatingDayWorker,
+} from "./patch-ms-operating-day.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -50,6 +54,7 @@ export function stageFrontend(source) {
   output = patchMsNonDestinationCancellationFrontend(output);
   output = patchMsFastAllCancelledFrontend(output);
   output = patchMsSummaryPerformanceFrontend(output);
+  output = patchMsOperatingDayFrontend(output);
   return output;
 }
 
@@ -67,6 +72,7 @@ export function stageWorker(source) {
   output = patchDevMultiClientWorker(output);
   output = patchMsRouteCancellationWorker(output);
   output = patchMsNonDestinationCancellationWorker(output);
+  output = patchMsOperatingDayWorker(output);
   return output;
 }
 

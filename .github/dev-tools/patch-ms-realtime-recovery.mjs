@@ -36,7 +36,7 @@ export function patchDevRealtimeFrontend(source) {
   output = replaceUnique(
     output,
     "  staleMs: 15000,\n};",
-    "  staleMs: 15000,\n  requestTimeoutMs: 22000,\n};",
+    "  staleMs: 15000,\n  requestTimeoutMs: 32000,\n};",
     "frontend request timeout config",
   );
   output = replaceUnique(
@@ -68,6 +68,19 @@ export function patchDevRealtimeFrontend(source) {
   }`,
     "frontend apiGet abort recovery",
   );
+  output = replaceUnique(
+    output,
+    `    if (state.syncError) toast(state.syncError, true);
+    el("last-refresh").textContent =
+      \`อัปเดตล่าสุด \${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที\`;`,
+    `    if (state.syncError && state.msStatus !== "degraded")
+      toast(state.syncError, true);
+    el("last-refresh").textContent =
+      state.msStatus === "degraded"
+        ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
+        : \`อัปเดตล่าสุด \${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที\`;`,
+    "frontend degraded cache status",
+  );
   return output;
 }
 
@@ -76,7 +89,7 @@ export function patchDevRealtimeWorker(source) {
   output = replaceUnique(
     output,
     "const CONNECTOR_HEARTBEAT_MS = 60 * 60 * 1000;\n",
-    "const CONNECTOR_HEARTBEAT_MS = 60 * 60 * 1000;\nconst UPSTREAM_FETCH_TIMEOUT_MS = 6000;\n",
+    "const CONNECTOR_HEARTBEAT_MS = 60 * 60 * 1000;\nconst UPSTREAM_FETCH_TIMEOUT_MS = 9000;\n",
     "worker upstream timeout config",
   );
   output = replaceUnique(
@@ -111,6 +124,110 @@ async function readMsRoutes(credentials, wantedStart, wantedEnd) {`,
   );
   for (const functionName of ["readMsPage", "readPreEntryPage", "readBusPage"])
     output = replaceFetchInsideFunction(output, functionName);
+
+  output = replaceUnique(
+    output,
+    `    const rows = await readMsRoutes(credentials);
+    const parcelCounts = await readPreEntryCounts(env, branch);
+    const busData = await readBusTimeData(env, branch);`,
+    `    const rows = await readMsRoutes(credentials);
+    const [parcelCounts, busData] = await Promise.all([
+      readPreEntryCounts(env, branch),
+      readBusTimeData(env, branch),
+    ]);`,
+    "parallel optional MS enrichment",
+  );
+
+  output = replaceUnique(
+    output,
+    `  if (!response.ok) fail(\`MS ตอบกลับ \${response.status}\`, "MS_HTTP_ERROR", 502);`,
+    `  if (!response.ok) {
+    const code =
+      response.status === 401 || response.status === 403
+        ? "MS_SESSION_EXPIRED"
+        : "MS_HTTP_ERROR";
+    fail(\`MS ตอบกลับ \${response.status}\`, code, 502);
+  }`,
+    "classify MS auth HTTP failures",
+  );
+
+  output = replaceUnique(
+    output,
+    `  } catch (error) {
+    await safeStatusWrite(
+      markConnectionError(env, "ms_connections", branch, error.message),
+      "ms_connection_error_write_error",
+      branch,
+    );
+    console.error(
+      JSON.stringify({
+        event: "ms_sync_error",
+        code: error.code || "MS_SYNC_FAILED",
+        message: error.message,
+      }),
+    );
+    const result = {
+      status: "error",
+      error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",
+    };
+    recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+    return result;
+  }
+}`,
+    `  } catch (error) {
+    const transient =
+      error?.code === "UPSTREAM_TIMEOUT" ||
+      error?.code === "MS_HTTP_ERROR" ||
+      error instanceof TypeError;
+    if (transient) {
+      const fallback = await readMsLiveCache(env, branch);
+      if (fallback?.rows) {
+        console.warn(
+          JSON.stringify({
+            event: "ms_sync_degraded",
+            branch,
+            code: error.code || "MS_NETWORK_ERROR",
+            message: error.message,
+          }),
+        );
+        const result = {
+          status: "degraded",
+          changes: 0,
+          rows: fallback.rows,
+          completedToday:
+            fallback.completedDay === thaiDay()
+              ? fallback.completedRows.length
+              : 0,
+          error:
+            "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
+        };
+        recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+        return result;
+      }
+    }
+    await safeStatusWrite(
+      markConnectionError(env, "ms_connections", branch, error.message),
+      "ms_connection_error_write_error",
+      branch,
+    );
+    console.error(
+      JSON.stringify({
+        event: "ms_sync_error",
+        code: error.code || "MS_SYNC_FAILED",
+        message: error.message,
+      }),
+    );
+    const result = {
+      status: "error",
+      error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",
+    };
+    recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+    return result;
+  }
+}`,
+    "serve live cache on transient upstream failure",
+  );
+
   return output;
 }
 

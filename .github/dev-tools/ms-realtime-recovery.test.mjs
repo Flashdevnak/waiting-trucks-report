@@ -31,7 +31,7 @@ function functionBody(source, name) {
 
 test("hung frontend polling request aborts and can release state.loading", () => {
   assert.match(frontend, /pollMs:\s*4000/);
-  assert.match(frontend, /requestTimeoutMs:\s*22000/);
+  assert.match(frontend, /requestTimeoutMs:\s*32000/);
   assert.match(frontend, /new AbortController\(\)/);
   assert.match(frontend, /signal:\s*controller\.signal/);
   assert.match(frontend, /timeoutError\.code = "REQUEST_TIMEOUT"/);
@@ -44,19 +44,50 @@ test("hung frontend polling request aborts and can release state.loading", () =>
   );
 });
 
-test("DEV worker bounds all upstream sources used by live msRoutes refresh", () => {
+test("DEV worker tolerates transient upstream slowness without treating session as expired", () => {
   assert.match(worker, /MS_SYNC_TTL = 3000/);
-  assert.match(worker, /UPSTREAM_FETCH_TIMEOUT_MS = 6000/);
+  assert.match(worker, /UPSTREAM_FETCH_TIMEOUT_MS = 9000/);
   assert.match(worker, /async function fetchWithTimeout/);
   assert.match(worker, /timeoutError\.code = "UPSTREAM_TIMEOUT"/);
   assert.match(worker, /timeoutError\.status = 504/);
   assert.match(worker, /clearTimeout\(timeout\)/);
+  assert.match(
+    worker,
+    /response\.status === 401 \|\| response\.status === 403[\s\S]*?"MS_SESSION_EXPIRED"/,
+  );
+  assert.match(worker, /status:\s*"degraded"/);
+  assert.match(worker, /const fallback = await readMsLiveCache\(env, branch\)/);
+  assert.match(worker, /MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ/);
 
   for (const name of ["readMsPage", "readPreEntryPage", "readBusPage"]) {
     const body = functionBody(worker, name);
     assert.match(body, /await fetchWithTimeout\(url, \{/);
     assert.doesNotMatch(body, /await fetch\(url, \{/);
   }
+});
+
+test("optional enrichment runs in parallel so it cannot serially stall live routes", () => {
+  const body = functionBody(worker, "runMsRefresh");
+  assert.match(
+    body,
+    /const \[parcelCounts, busData\] = await Promise\.all\(\[\s*readPreEntryCounts\(env, branch\),\s*readBusTimeData\(env, branch\),\s*\]\);/,
+  );
+  assert.doesNotMatch(
+    body,
+    /const parcelCounts = await readPreEntryCounts\(env, branch\);\s*const busData = await readBusTimeData\(env, branch\);/,
+  );
+});
+
+test("frontend keeps transient degraded mode connected and visible without toast spam", () => {
+  assert.match(
+    frontend,
+    /state\.msStatus !== "error" && state\.msStatus !== "not_configured"/,
+  );
+  assert.match(frontend, /state\.msStatus !== "degraded"/);
+  assert.match(
+    frontend,
+    /MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที/,
+  );
 });
 
 test("realtime recovery patch does not alter polling, cron, queue, or archive policy", () => {

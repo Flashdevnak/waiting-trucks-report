@@ -24,6 +24,11 @@ export function patchDevMsArchive(source) {
       from: "  setMetric(\"metric-archive\", state.archiveTotal ?? state.archiveRows.length);",
       to: "  if (state.archiveLoaded)\n    setMetric(\"metric-archive\", state.archiveTotal ?? state.archiveRows.length);\n  else\n    el(\"metric-archive\").textContent = \"กดดู\";",
     },
+    {
+      name: "keep upper completed metric cumulative",
+      from: "  setMetric(\n    \"metric-completed\",\n    state.archiveRows.filter((row) => isCompletedToday(row)).length,\n  );",
+      to: "  setMetric(\n    \"metric-completed\",\n    state.archiveRows.filter(\n      (row) =>\n        (isDestination(row) || isDrop(row)) &&\n        Number(row.unloadingState) === 2,\n    ).length,\n  );",
+    },
   ];
 
   for (const replacement of replacements) {

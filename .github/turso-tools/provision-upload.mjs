@@ -2,7 +2,7 @@ import { readFile, writeFile, chmod } from "node:fs/promises";
 
 const platformToken = String(process.env.TURSO_PLATFORM_API_TOKEN || "").trim();
 const requestedOrg = String(process.env.TURSO_ORG_SLUG || "").trim();
-const requestedDatabaseName = String(process.env.TURSO_DATABASE_NAME || "waiting-trucks-dev-turso").trim();
+const databasePrefix = String(process.env.TURSO_DATABASE_NAME || "waiting-trucks-dev-turso").trim();
 const databaseFile = process.env.TURSO_DATABASE_FILE || "/tmp/waiting-trucks-dev.db";
 const countsFile = process.env.TURSO_COUNTS_FILE || "/tmp/waiting-trucks-counts.json";
 const secretsFile = process.env.TURSO_WORKER_SECRETS_FILE || "/tmp/turso-worker-secrets.json";
@@ -40,50 +40,23 @@ try {
     const locationsPayload = await platform("/v1/locations");
     const locations = Object.keys(locationsPayload?.locations || {});
     if (!locations.length) throw new Error("Turso returned no available database locations");
-    const preferred = [
-      "aws-ap-northeast-1",
-      "aws-ap-south-1",
-    ];
+    const preferred = ["aws-ap-northeast-1", "aws-ap-south-1"];
     const location = preferred.find((item) => locations.includes(item)) ||
       locations.find((item) => item.includes("ap-")) || locations[0];
     const createdGroup = await platform(
       `/v1/organizations/${encodeURIComponent(orgSlug)}/groups`,
-      {
-        method: "POST",
-        json: { name: "default", location },
-      },
+      { method: "POST", json: { name: "default", location } },
     );
     group = createdGroup?.group;
   }
 
   if (!group?.name) throw new Error("Unable to resolve a Turso database group");
 
-  // The provision-only step may already have created this upload target.
-  // Recreate it immediately before the real upload so reruns always start clean.
-  try {
-    const existing = await platform(
-      `/v1/organizations/${encodeURIComponent(orgSlug)}/databases/${encodeURIComponent(requestedDatabaseName)}`,
-    );
-    if (existing?.database?.Name) {
-      await platform(
-        `/v1/organizations/${encodeURIComponent(orgSlug)}/databases/${encodeURIComponent(requestedDatabaseName)}`,
-        { method: "DELETE" },
-      );
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        try {
-          await platform(
-            `/v1/organizations/${encodeURIComponent(orgSlug)}/databases/${encodeURIComponent(requestedDatabaseName)}`,
-          );
-        } catch (error) {
-          if (error?.status === 404) break;
-          throw error;
-        }
-      }
-    }
-  } catch (error) {
-    if (error?.status !== 404) throw error;
-  }
+  // Never recycle an upload hostname immediately. A same-name delete/recreate can
+  // leave the edge route on the previous database ID briefly, causing a fresh DB
+  // token to be rejected with 401. A unique name makes the DB ID/hostname unambiguous.
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14).toLowerCase();
+  const requestedDatabaseName = `${databasePrefix}-${stamp}`.slice(0, 64);
 
   const createdPayload = await platform(
     `/v1/organizations/${encodeURIComponent(orgSlug)}/databases`,
@@ -102,8 +75,10 @@ try {
   const actualName = String(created?.Name || requestedDatabaseName).trim();
   if (!hostname || !actualName) throw new Error("Turso create database response is missing Hostname or Name");
 
+  // Follow Turso's upload docs exactly: the database token endpoint defaults to
+  // full-access, so no extra authorization query parameter is needed.
   const tokenPayload = await platform(
-    `/v1/organizations/${encodeURIComponent(orgSlug)}/databases/${encodeURIComponent(actualName)}/auth/tokens?authorization=full-access`,
+    `/v1/organizations/${encodeURIComponent(orgSlug)}/databases/${encodeURIComponent(actualName)}/auth/tokens`,
     { method: "POST" },
   );
   const databaseToken = String(tokenPayload?.jwt || "").trim();
@@ -111,24 +86,34 @@ try {
   console.log(`::add-mask::${databaseToken}`);
 
   const databaseBytes = await readFile(databaseFile);
-  const upload = await fetch(`https://${hostname}/v1/upload`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${databaseToken}`,
-      "Content-Length": String(databaseBytes.byteLength),
-      "Content-Type": "application/octet-stream",
-    },
-    body: databaseBytes,
-  });
-  if (!upload.ok) {
-    const text = await upload.text().catch(() => "");
-    throw new Error(`Turso database upload failed: HTTP ${upload.status} ${text.slice(0, 300)}`);
+  let upload = null;
+  let uploadText = "";
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    if (attempt > 1) await sleep(2000);
+    upload = await fetch(`https://${hostname}/v1/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${databaseToken}`,
+        "Content-Length": String(databaseBytes.byteLength),
+        "Content-Type": "application/octet-stream",
+      },
+      body: databaseBytes,
+    });
+    if (upload.ok) break;
+    uploadText = await upload.text().catch(() => "");
+    if (upload.status !== 401) break;
+    console.log(`TURSO_UPLOAD_AUTH_WAIT attempt=${attempt} status=401`);
+  }
+  if (!upload?.ok) {
+    throw new Error(`Turso database upload failed: HTTP ${upload?.status || "unknown"} ${uploadText.slice(0, 300)}`);
   }
 
   const expectedCounts = JSON.parse(await readFile(countsFile, "utf8"));
   const tableNames = Object.keys(expectedCounts).sort();
   if (!tableNames.length) throw new Error("Local migration verification found no tables");
 
+  // Give the uploaded database a moment to leave upload mode before SQL parity.
+  await sleep(2000);
   const requests = tableNames.map((name) => ({
     type: "execute",
     stmt: { sql: `SELECT COUNT(*) AS row_count FROM ${quoteIdentifier(name)}` },
@@ -168,10 +153,7 @@ try {
   const databaseUrl = `libsql://${hostname}`;
   await writeFile(
     secretsFile,
-    JSON.stringify({
-      TURSO_DATABASE_URL: databaseUrl,
-      TURSO_AUTH_TOKEN: databaseToken,
-    }),
+    JSON.stringify({ TURSO_DATABASE_URL: databaseUrl, TURSO_AUTH_TOKEN: databaseToken }),
     { mode: 0o600 },
   );
   await chmod(secretsFile, 0o600);
@@ -220,11 +202,7 @@ async function platform(path, { method = "GET", json } = {}) {
   const text = await response.text();
   let payload = null;
   if (text) {
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = text;
-    }
+    try { payload = JSON.parse(text); } catch { payload = text; }
   }
   if (!response.ok) {
     const message = typeof payload === "string"
@@ -247,4 +225,8 @@ function decode(value) {
   if (value.type === "integer" || value.type === "float") return Number(value.value);
   if (value.type === "null") return null;
   return value.value ?? null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

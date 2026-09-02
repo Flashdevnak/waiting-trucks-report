@@ -1,0 +1,129 @@
+name: Migrate DEV D1 to Turso NOW
+
+on:
+  push:
+    branches: [turso-dev-migration]
+    paths:
+      - .github/workflows/migrate-dev-d1-to-turso-now.yml
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG_SLUG: ${{ vars.TURSO_ORG_SLUG }}
+      TURSO_DATABASE_NAME: waiting-trucks-dev-turso
+      D1_EXPORT_OUTPUT: /tmp/waiting-trucks-d1-export.sql
+      TURSO_DATABASE_FILE: /tmp/waiting-trucks-dev.db
+      TURSO_COUNTS_FILE: /tmp/waiting-trucks-counts.json
+      TURSO_WORKER_SECRETS_FILE: /tmp/turso-worker-secrets.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: turso-dev-migration
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Install Worker tooling
+        working-directory: worker
+        run: npm ci
+      - name: Run full tests before migration
+        working-directory: worker
+        run: |
+          npm run check
+          node --test tests/dev-archive-patch.test.mjs
+          node --test ../.github/dev-tools/ms-realtime-recovery.test.mjs
+          node --test ../.github/dev-tools/ms-summary-filter.test.mjs
+          node --test ../.github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test ../.github/dev-tools/safe-parity.test.mjs
+          node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
+          node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
+          node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
+      - name: Export D1 through Cloudflare control plane
+        run: node .github/turso-tools/export-d1-control-plane.mjs
+      - name: Convert exported SQL to verified SQLite
+        run: |
+          if ! command -v sqlite3 >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y sqlite3
+          fi
+          test -s "$D1_EXPORT_OUTPUT"
+          rm -f "$TURSO_DATABASE_FILE" "$TURSO_DATABASE_FILE-wal" "$TURSO_DATABASE_FILE-shm"
+          sqlite3 "$TURSO_DATABASE_FILE" "PRAGMA page_size=4096; PRAGMA auto_vacuum=0; PRAGMA encoding='UTF-8';"
+          sqlite3 "$TURSO_DATABASE_FILE" < "$D1_EXPORT_OUTPUT"
+          sqlite3 "$TURSO_DATABASE_FILE" "PRAGMA journal_mode=WAL; PRAGMA wal_checkpoint(TRUNCATE);"
+          test "$(sqlite3 "$TURSO_DATABASE_FILE" 'PRAGMA integrity_check;')" = "ok"
+          test "$(sqlite3 "$TURSO_DATABASE_FILE" 'PRAGMA page_size;')" = "4096"
+          test "$(sqlite3 "$TURSO_DATABASE_FILE" 'PRAGMA auto_vacuum;')" = "0"
+          test "$(sqlite3 "$TURSO_DATABASE_FILE" 'PRAGMA encoding;')" = "UTF-8"
+          echo "SQLITE_INTEGRITY=PASS"
+          echo "SQLITE_BYTES=$(wc -c < "$TURSO_DATABASE_FILE")"
+          python3 <<'PY'
+          import json, os, sqlite3
+          path = os.environ['TURSO_DATABASE_FILE']
+          out = os.environ['TURSO_COUNTS_FILE']
+          conn = sqlite3.connect(path)
+          tables = [row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '_cf_KV' ORDER BY name")]
+          counts = {}
+          for name in tables:
+              quoted = '"' + name.replace('"', '""') + '"'
+              counts[name] = int(conn.execute(f'SELECT COUNT(*) FROM {quoted}').fetchone()[0])
+          conn.close()
+          with open(out, 'w', encoding='utf-8') as f:
+              json.dump(counts, f, sort_keys=True)
+          print(f'LOCAL_VERIFIED_TABLES={len(counts)}')
+          print(f'LOCAL_TOTAL_ROWS={sum(counts.values())}')
+          PY
+      - name: Recreate target Turso DB, upload, and verify every table count
+        id: turso
+        run: node .github/turso-tools/provision-upload.mjs
+      - name: Install verified Turso secrets on DEV Worker
+        working-directory: worker
+        run: |
+          test -s "$TURSO_WORKER_SECRETS_FILE"
+          npx wrangler secret bulk "$TURSO_WORKER_SECRETS_FILE" --config wrangler.dev.jsonc
+          rm -f "$TURSO_WORKER_SECRETS_FILE"
+          echo "DEV_TURSO_SECRETS=INSTALLED"
+      - name: Stage exact current DEV runtime
+        working-directory: worker
+        run: |
+          rm -rf .dev-assets
+          mkdir -p .dev-assets
+          cp ../ms.html ../ms.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
+          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
+          node --check .dev-assets/ms.js
+          node --check src/index.js
+          node --check src/turso-d1.js
+          node --check src/turso-index.js
+          echo "DEV_TURSO_STAGE=PASS"
+      - name: Deploy DEV Worker on Turso
+        working-directory: worker
+        run: npx wrangler deploy --config wrangler.dev.jsonc
+      - name: Smoke health
+        run: |
+          sleep 5
+          curl --fail --show-error --silent 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=health' > /tmp/dev-health.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/dev-health.json','utf8'));
+          if (!payload?.ok) throw new Error(JSON.stringify(payload));
+          console.log('DEV_HEALTH=PASS');
+          NODE
+      - name: Migration summary
+        run: |
+          echo "DEV_DATABASE_BACKEND=TURSO"
+          echo "TURSO_DATABASE=${{ steps.turso.outputs.turso_database_name }}"
+          echo "TURSO_HOSTNAME=${{ steps.turso.outputs.turso_hostname }}"
+          echo "TURSO_PRIMARY=${{ steps.turso.outputs.turso_primary }}"
+          echo "PRODUCTION_TOUCHED=NO"
+          echo "CUTOVER=DEV_DATABASE_ONLY"

@@ -140,6 +140,59 @@ async function readMsRoutes(credentials, wantedStart, wantedEnd) {`,
 
   output = replaceUnique(
     output,
+    `    console.error(JSON.stringify({ event: "ms_preentry_sync_error", hub, message: error.message }));
+    return new Map();`,
+    `    console.error(JSON.stringify({ event: "ms_preentry_sync_error", hub, message: error.message }));
+    const failed = new Map();
+    failed.sourceFailed = true;
+    return failed;`,
+    "mark failed pre-entry enrichment without erasing last-known values",
+  );
+
+  output = replaceUnique(
+    output,
+    `    console.error(JSON.stringify({ event: "ms_bus_sync_error", hub, message: error.message }));
+    return new Map();`,
+    `    console.error(JSON.stringify({ event: "ms_bus_sync_error", hub, message: error.message }));
+    const failed = new Map();
+    failed.sourceFailed = true;
+    return failed;`,
+    "mark failed bus enrichment without erasing last-known values",
+  );
+
+  output = replaceUnique(
+    output,
+    `    const mappedRows = rows.map((row) =>
+      enrichMsRow(mapMsRow(row), parcelCounts, busData),
+    );`,
+    `    const previousEnrichment =
+      parcelCounts.sourceFailed || busData.sourceFailed
+        ? await readMsLiveCache(env, branch)
+        : null;
+    const previousById = new Map(
+      (previousEnrichment?.rows || []).map((row) => [row.id, row]),
+    );
+    const mappedRows = rows.map((row) => {
+      const mapped = enrichMsRow(mapMsRow(row), parcelCounts, busData);
+      const previous = previousById.get(mapped.id);
+      if (previous && parcelCounts.sourceFailed) {
+        mapped.expectedParcels = previous.expectedParcels;
+        mapped.enteredParcels = previous.enteredParcels;
+        mapped.pendingParcels = previous.pendingParcels;
+      }
+      if (previous && busData.sourceFailed) {
+        mapped.scheduleKitArrivalAt = previous.scheduleKitArrivalAt;
+        mapped.scheduleTbrArrivalAt = previous.scheduleTbrArrivalAt;
+        mapped.arrivedParcels = previous.arrivedParcels;
+        mapped.arrivedBags = previous.arrivedBags;
+      }
+      return mapped;
+    });`,
+    "preserve last-known optional enrichment on connector failure",
+  );
+
+  output = replaceUnique(
+    output,
     `  if (!response.ok) fail(\`MS ตอบกลับ \${response.status}\`, "MS_HTTP_ERROR", 502);`,
     `  if (!response.ok) {
     const code =

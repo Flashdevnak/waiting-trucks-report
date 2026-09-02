@@ -6,7 +6,7 @@ import {
   patchMsRouteCancellationFrontend,
   patchMsRouteCancellationStyle,
   patchMsRouteCancellationWorker,
-} from "./patch-ms-route-cancellation.mjs";
+} from "./patch-ms-route-cancellation-compat.mjs";
 
 const root = new URL("../../", import.meta.url);
 const frontendSource = await readFile(new URL("ms.js", root), "utf8");

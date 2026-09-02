@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DEV Safe API Parity</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color-scheme: light; }
+    body { margin: 0; background: #f4f6f8; color: #17202a; }
+    main { max-width: 880px; margin: 0 auto; padding: 24px 16px 48px; }
+    .panel { background: white; border: 1px solid #dfe5ea; border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    p { line-height: 1.55; }
+    .note { color: #52606d; font-size: 14px; }
+    .warning { background: #fff8e7; border-color: #ecd28a; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+    label { display: grid; gap: 6px; font-size: 13px; font-weight: 650; }
+    input { width: 100%; box-sizing: border-box; border: 1px solid #bdc7d0; border-radius: 9px; padding: 10px 11px; font: inherit; }
+    button { border: 0; border-radius: 9px; padding: 11px 16px; font: inherit; font-weight: 700; cursor: pointer; background: #182a3d; color: white; }
+    button:disabled { opacity: .6; cursor: wait; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border-bottom: 1px solid #e5eaee; padding: 10px 8px; text-align: left; vertical-align: top; }
+    th { color: #52606d; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+    .pass { color: #14733b; font-weight: 800; }
+    .fail { color: #b3261e; font-weight: 800; }
+    .muted { color: #687785; }
+    #status { min-height: 24px; font-weight: 700; }
+    @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } table { font-size: 12px; } }
+  </style>
+</head>
+<body>
+<main>
+  <section class="panel">
+    <h1>Safe API Parity · OLD ↔ DEV</h1>
+    <p class="note">หน้านี้ใช้สำหรับ Gate ก่อน Cutover เท่านั้น ตรวจเฉพาะ HTTP status, ok และโครงสร้าง response โดยไม่เปรียบเทียบจำนวนรถหรือค่าข้อมูลระหว่างฐานข้อมูลคนละชุด</p>
+  </section>
+
+  <section class="panel warning">
+    <h2>ขอบเขตความปลอดภัย</h2>
+    <p class="note">ทดสอบเฉพาะ <b>health, list, settings, msConnectionStatus</b> เท่านั้น ไม่เรียก route refresh, range, archive, pre-entry หรือ history endpoint ใด ๆ การ login OLD จะมี audit login ตามระบบปกติ แต่ไม่มีการเขียน route/history จาก parity นี้</p>
+  </section>
+
+  <section class="panel">
+    <div class="grid">
+      <label>Username
+        <input id="username" autocomplete="username" maxlength="30" placeholder="เช่น ADMIN" />
+      </label>
+      <label>รหัสจัดการ / PIN
+        <input id="pin" type="password" autocomplete="current-password" placeholder="ใช้เฉพาะใน browser นี้" />
+      </label>
+      <label>HUB
+        <input id="hub" value="NE1" maxlength="20" />
+      </label>
+    </div>
+    <p><button id="run">ตรวจ Safe Parity</button></p>
+    <div id="status" class="muted">ยังไม่ได้ตรวจ</div>
+  </section>
+
+  <section class="panel">
+    <table>
+      <thead><tr><th>Endpoint</th><th>OLD</th><th>DEV</th><th>Contract</th></tr></thead>
+      <tbody id="results"><tr><td colspan="4" class="muted">ยังไม่มีผลตรวจ</td></tr></tbody>
+    </table>
+  </section>
+</main>
+<script>
+(() => {
+  "use strict";
+  const OLD_API = "https://waiting-trucks-report.alert-squid-6738.chatgpt.site/api";
+  const DEV_API = `${window.location.origin}/api`;
+  const DEV_AUTH_KEY = "bnak_operator_auth_v2";
+  const SAFE_CASES = Object.freeze([
+    ["health", {}, false],
+    ["list", {}, true],
+    ["settings", (hub) => ({ branch: hub }), true],
+    ["msConnectionStatus", (hub) => ({ branch: hub }), true],
+  ]);
+  const $ = (id) => document.getElementById(id);
+
+  function readExistingDevAuth(username) {
+    try {
+      const auth = JSON.parse(localStorage.getItem(DEV_AUTH_KEY) || "null");
+      if (
+        auth?.token &&
+        Number(auth.expiresAt) > Date.now() &&
+        String(auth.username || "").toUpperCase() === username
+      ) return auth.token;
+    } catch {}
+    return "";
+  }
+
+  async function login(base, username, pin) {
+    const response = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      cache: "no-store",
+      body: JSON.stringify({ action: "login", username, pin }),
+    });
+    const body = await response.json();
+    if (!response.ok || body?.ok === false || !body?.data?.token)
+      throw new Error(body?.message || `Login HTTP ${response.status}`);
+    return body.data.token;
+  }
+
+  async function call(base, token, action, params, needsAuth) {
+    const url = new URL(base);
+    url.searchParams.set("action", action);
+    if (needsAuth) url.searchParams.set("token", token);
+    for (const [key, value] of Object.entries(params || {}))
+      if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
+    const response = await fetch(url, { cache: "no-store" });
+    let body;
+    try { body = await response.json(); }
+    catch { body = { parseError: true }; }
+    return { status: response.status, body };
+  }
+
+  function kind(value) {
+    if (value === null) return "null";
+    if (Array.isArray(value)) return "array";
+    return typeof value === "object" ? "object" : typeof value;
+  }
+
+  function compatible(a, b) {
+    const ka = kind(a), kb = kind(b);
+    if (ka === "null" || kb === "null") return true;
+    if (ka !== kb) return false;
+    if (ka === "array") {
+      if (!a.length || !b.length) return true;
+      return compatible(a[0], b[0]);
+    }
+    if (ka === "object") {
+      const ak = Object.keys(a).sort();
+      const bk = Object.keys(b).sort();
+      if (JSON.stringify(ak) !== JSON.stringify(bk)) return false;
+      return ak.every((key) => compatible(a[key], b[key]));
+    }
+    return true;
+  }
+
+  function resultLabel(result) {
+    const ok = result.body?.ok !== false;
+    return `${result.status} · ${ok ? "ok" : "error"}`;
+  }
+
+  function esc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[ch]);
+  }
+
+  async function run() {
+    const button = $("run");
+    const status = $("status");
+    const results = $("results");
+    const username = $("username").value.trim().toUpperCase();
+    let pin = $("pin").value;
+    const hub = $("hub").value.trim().toUpperCase() || "NE1";
+    if (!username || !pin) {
+      status.textContent = "กรอก Username และ PIN ก่อน";
+      status.className = "fail";
+      return;
+    }
+
+    button.disabled = true;
+    results.innerHTML = "";
+    status.textContent = "กำลัง login แบบชั่วคราวและตรวจ read-only endpoints...";
+    status.className = "muted";
+    try {
+      const existingDevToken = readExistingDevAuth(username);
+      const oldTokenPromise = login(OLD_API, username, pin);
+      const devTokenPromise = existingDevToken
+        ? Promise.resolve(existingDevToken)
+        : login(DEV_API, username, pin);
+      const [oldToken, devToken] = await Promise.all([oldTokenPromise, devTokenPromise]);
+      $("pin").value = "";
+      pin = "";
+
+      let failed = 0;
+      for (const [action, paramSource, needsAuth] of SAFE_CASES) {
+        const params = typeof paramSource === "function" ? paramSource(hub) : paramSource;
+        const [oldResult, devResult] = await Promise.all([
+          call(OLD_API, oldToken, action, params, needsAuth),
+          call(DEV_API, devToken, action, params, needsAuth),
+        ]);
+        const statusEqual = oldResult.status === devResult.status;
+        const okEqual = (oldResult.body?.ok !== false) === (devResult.body?.ok !== false);
+        const shapeEqual = compatible(oldResult.body, devResult.body);
+        const pass = statusEqual && okEqual && shapeEqual;
+        if (!pass) failed++;
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td><b>${esc(action)}</b></td><td>${esc(resultLabel(oldResult))}</td><td>${esc(resultLabel(devResult))}</td><td class="${pass ? "pass" : "fail"}">${pass ? "PASS" : "FAIL"}${!statusEqual ? " · status" : ""}${!okEqual ? " · ok" : ""}${!shapeEqual ? " · shape" : ""}</td>`;
+        results.appendChild(tr);
+      }
+      status.textContent = failed
+        ? `Safe Parity FAIL ${failed}/${SAFE_CASES.length} endpoint`
+        : `Safe Parity PASS ${SAFE_CASES.length}/${SAFE_CASES.length} endpoint`;
+      status.className = failed ? "fail" : "pass";
+    } catch (error) {
+      status.textContent = `ตรวจไม่สำเร็จ: ${error.message}`;
+      status.className = "fail";
+    } finally {
+      $("pin").value = "";
+      pin = "";
+      button.disabled = false;
+    }
+  }
+
+  $("run").addEventListener("click", run);
+})();
+</script>
+</body>
+</html>

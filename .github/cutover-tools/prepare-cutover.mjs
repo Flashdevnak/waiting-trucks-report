@@ -17,6 +17,7 @@ import {
   patchMsSummaryPerformanceFrontend,
   patchMsSummaryPerformanceStyle,
 } from "../dev-tools/patch-ms-summary-performance.mjs";
+import { patchMsOperatingDayFrontend } from "../dev-tools/patch-ms-operating-day.mjs";
 
 export const OLD_API_ORIGIN =
   "https://waiting-trucks-report.alert-squid-6738.chatgpt.site";
@@ -39,6 +40,7 @@ export function patchCutoverFrontend(msSource) {
   output = patchMsNonDestinationCancellationFrontend(output);
   output = patchMsFastAllCancelledFrontend(output);
   output = patchMsSummaryPerformanceFrontend(output);
+  output = patchMsOperatingDayFrontend(output);
   output = replaceUnique(
     output,
     `CONFIG.apiUrl = \`${"${"}window.location.hostname.endsWith("github.io") ? "${OLD_API_ORIGIN}" : window.location.origin}/api\`;`,

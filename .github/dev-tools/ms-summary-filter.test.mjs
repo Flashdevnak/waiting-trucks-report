@@ -53,6 +53,6 @@ test("completed view keeps the other five cards on the live current queue", () =
 
 test("summary filter fix does not change polling or realtime recovery", () => {
   assert.match(staged, /pollMs:\s*4000/);
-  assert.match(staged, /requestTimeoutMs:\s*22000/);
+  assert.match(staged, /requestTimeoutMs:\s*32000/);
   assert.doesNotMatch(staged, /if \(!silent && !state\.archiveLoaded\) scheduleArchiveLoad\(\)/);
 });

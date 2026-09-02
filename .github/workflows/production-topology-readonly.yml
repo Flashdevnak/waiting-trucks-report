@@ -41,6 +41,8 @@ jobs:
           const d1 = await get('/d1/database?per_page=100');
           const scripts = await get('/workers/scripts');
           const namespaces = await get('/workers/durable_objects/namespaces');
+          const devSecrets = await get('/workers/scripts/waiting-trucks-report-api-dev/secrets');
+          const devSettings = await get('/workers/scripts/waiting-trucks-report-api-dev/settings');
 
           const d1Rows = d1.ok && Array.isArray(d1.result)
             ? d1.result.map((x) => ({ uuid: x.uuid, name: x.name, version: x.version, num_tables: x.num_tables, file_size: x.file_size, created_at: x.created_at }))
@@ -51,9 +53,24 @@ jobs:
           const durableRows = namespaces.ok && Array.isArray(namespaces.result)
             ? namespaces.result.map((x) => ({ id: x.id, name: x.name, class: x.class, script: x.script }))
             : namespaces;
+          const secretRows = devSecrets.ok && Array.isArray(devSecrets.result)
+            ? devSecrets.result.map((x) => ({ name: x.name, type: x.type }))
+            : devSecrets;
+          const bindingRows = devSettings.ok && Array.isArray(devSettings.result?.bindings)
+            ? devSettings.result.bindings.map((x) => ({
+                name: x.name,
+                type: x.type,
+                database_id: x.database_id || null,
+                namespace_id: x.namespace_id || null,
+                class_name: x.class_name || null,
+                service: x.service || null,
+              }))
+            : devSettings;
 
           console.log(`D1_DATABASES=${JSON.stringify(d1Rows)}`);
           console.log(`WORKER_SCRIPTS=${JSON.stringify(workerRows)}`);
           console.log(`DURABLE_OBJECT_NAMESPACES=${JSON.stringify(durableRows)}`);
+          console.log(`DEV_SECRET_NAMES=${JSON.stringify(secretRows)}`);
+          console.log(`DEV_BINDINGS_REDACTED=${JSON.stringify(bindingRows)}`);
           console.log('PRODUCTION_TOPOLOGY_MUTATIONS=0');
           NODE

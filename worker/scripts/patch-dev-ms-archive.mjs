@@ -34,6 +34,11 @@ export function patchDevMsArchive(source) {
       from: "    if (isCompletedToday(row)) counts.completed++;",
       to: "    // DEV: completed is a daily HUB total, independent of the active queue view.",
     },
+    {
+      name: "show KIT TBR arrival sources for origin routes",
+      from: "function arrivalSources(row) {\n  if (!isDestination(row)) return \"\";",
+      to: "function arrivalSources(row) {\n  if (!isDestination(row) && !isOrigin(row)) return \"\";",
+    },
   ];
 
   for (const replacement of replacements) {

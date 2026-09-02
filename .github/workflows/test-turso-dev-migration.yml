@@ -1,0 +1,52 @@
+name: Test Turso DEV Migration
+
+on:
+  push:
+    branches: [turso-dev-migration]
+    paths:
+      - .github/workflows/test-turso-dev-migration.yml
+      - .github/dev-tools/**
+      - worker/src/turso-*.js
+      - worker/src/index.js
+      - worker/tests/turso-d1.test.mjs
+      - worker/package.json
+      - worker/package-lock.json
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - name: Stage current DEV worker patches without deploying
+        run: |
+          rm -rf .dev-assets
+          mkdir -p .dev-assets
+          cp ../ms.html ../ms.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
+          node --check src/index.js
+          node --check src/turso-d1.js
+          node --check src/turso-index.js
+      - name: Verify staged Durable Object is wrapped by Turso entrypoint
+        run: |
+          node --input-type=module <<'NODE'
+          const workerModule = await import('./src/index.js');
+          const tursoModule = await import('./src/turso-index.js');
+          if (typeof workerModule.MsRefreshCoordinator !== 'function')
+            throw new Error('staged MsRefreshCoordinator missing');
+          if (typeof tursoModule.MsRefreshCoordinator !== 'function')
+            throw new Error('Turso coordinator wrapper missing');
+          console.log('TURSO_STAGED_ENTRYPOINT=PASS');
+          NODE

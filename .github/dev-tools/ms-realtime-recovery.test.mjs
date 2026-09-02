@@ -78,6 +78,41 @@ test("optional enrichment runs in parallel so it cannot serially stall live rout
   );
 });
 
+test("failed optional enrichment preserves last-known fields instead of churning source hash", () => {
+  const preEntry = functionBody(worker, "readPreEntryCounts");
+  const bus = functionBody(worker, "readBusTimeData");
+  const refresh = functionBody(worker, "runMsRefresh");
+
+  assert.match(preEntry, /failed\.sourceFailed = true;/);
+  assert.match(bus, /failed\.sourceFailed = true;/);
+  assert.match(
+    refresh,
+    /parcelCounts\.sourceFailed \|\| busData\.sourceFailed[\s\S]*?await readMsLiveCache\(env, branch\)/,
+  );
+
+  for (const field of [
+    "expectedParcels",
+    "enteredParcels",
+    "pendingParcels",
+    "scheduleKitArrivalAt",
+    "scheduleTbrArrivalAt",
+    "arrivedParcels",
+    "arrivedBags",
+  ]) {
+    assert.match(
+      refresh,
+      new RegExp(`mapped\\.${field} = previous\\.${field}`),
+      `${field} must preserve the last-known enrichment value`,
+    );
+  }
+
+  assert.match(
+    refresh,
+    /const sourceHash = await sha\(canonicalMsSource\(mappedRows\)\)/,
+    "source hash must be computed only after last-known enrichment is restored",
+  );
+});
+
 test("frontend keeps transient degraded mode connected and visible without toast spam", () => {
   assert.match(
     frontend,

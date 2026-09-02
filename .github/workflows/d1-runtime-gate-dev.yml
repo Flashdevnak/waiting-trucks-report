@@ -18,18 +18,6 @@ jobs:
   runtime-gate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: worker/package-lock.json
-
-      - name: Install Worker tooling
-        working-directory: worker
-        run: npm ci
-
       - name: Query DEV D1 runtime analytics
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -48,11 +36,11 @@ jobs:
           }
 
           const query = `
-            query D1RuntimeGate($accountTag: String!, $databaseId: String!, $start: String!, $end: String!) {
+            query D1RuntimeMinuteGate($accountTag: String!, $databaseId: String!, $start: String!, $end: String!) {
               viewer {
                 accounts(filter: { accountTag: $accountTag }) {
                   d1AnalyticsAdaptiveGroups(
-                    limit: 1000
+                    limit: 10000
                     filter: {
                       databaseId: $databaseId
                       datetime_geq: $start
@@ -66,11 +54,12 @@ jobs:
                       rowsWritten
                     }
                     dimensions {
+                      datetimeMinute
                       databaseId
                     }
                   }
                   d1QueriesAdaptiveGroups(
-                    limit: 1000
+                    limit: 10000
                     filter: {
                       databaseId: $databaseId
                       datetime_geq: $start
@@ -83,6 +72,7 @@ jobs:
                       rowsWritten
                     }
                     dimensions {
+                      datetimeMinute
                       query
                     }
                   }
@@ -110,45 +100,114 @@ jobs:
             return payload.data?.viewer?.accounts?.[0] || {};
           }
 
-          function total(groups = []) {
-            return groups.reduce((acc, group) => {
-              const sum = group.sum || {};
-              acc.readQueries += Number(sum.readQueries || 0);
-              acc.writeQueries += Number(sum.writeQueries || 0);
-              acc.rowsRead += Number(sum.rowsRead || 0);
-              acc.rowsWritten += Number(sum.rowsWritten || 0);
-              return acc;
-            }, { readQueries: 0, writeQueries: 0, rowsRead: 0, rowsWritten: 0 });
-          }
-
-          function topQueries(groups = []) {
-            return groups.map((group) => ({
-              count: Number(group.count || 0),
-              rowsRead: Number(group.sum?.rowsRead || 0),
-              rowsWritten: Number(group.sum?.rowsWritten || 0),
-              query: String(group.dimensions?.query || '').replace(/\s+/g, ' ').trim(),
-            })).sort((a, b) => (b.rowsRead + b.rowsWritten) - (a.rowsRead + a.rowsWritten));
+          function compactSql(value) {
+            return String(value || '').replace(/\s+/g, ' ').trim();
           }
 
           const end = new Date();
-          // Exclude the newest two minutes because Cloudflare analytics can arrive with a short delay.
+          // Leave room for analytics ingestion delay.
           end.setUTCMinutes(end.getUTCMinutes() - 2);
+          const start = new Date(end.getTime() - 20 * 60_000);
+          const account = await gql(start.toISOString(), end.toISOString());
 
-          for (const minutes of [15, 30]) {
-            const start = new Date(end.getTime() - minutes * 60_000);
-            const startIso = start.toISOString();
-            const endIso = end.toISOString();
-            const account = await gql(startIso, endIso);
-            const totals = total(account.d1AnalyticsAdaptiveGroups);
-            const queries = topQueries(account.d1QueriesAdaptiveGroups);
-
-            console.log(`RUNTIME_GATE_${minutes}M_START=${startIso}`);
-            console.log(`RUNTIME_GATE_${minutes}M_END=${endIso}`);
-            console.log(`NO_CHANGE_RUNTIME_READ_${minutes}M=${totals.rowsRead}`);
-            console.log(`NO_CHANGE_RUNTIME_WRITE_${minutes}M=${totals.rowsWritten}`);
-            console.log(`READ_QUERIES_${minutes}M=${totals.readQueries}`);
-            console.log(`WRITE_QUERIES_${minutes}M=${totals.writeQueries}`);
-            console.log(`TOP_D1_QUERIES_${minutes}M=`);
-            console.log(JSON.stringify(queries.slice(0, 20), null, 2));
+          const minuteTotals = new Map();
+          for (const group of account.d1AnalyticsAdaptiveGroups || []) {
+            const minute = group.dimensions?.datetimeMinute;
+            if (!minute) continue;
+            const sum = group.sum || {};
+            const prior = minuteTotals.get(minute) || {
+              minute,
+              readQueries: 0,
+              writeQueries: 0,
+              rowsRead: 0,
+              rowsWritten: 0,
+            };
+            prior.readQueries += Number(sum.readQueries || 0);
+            prior.writeQueries += Number(sum.writeQueries || 0);
+            prior.rowsRead += Number(sum.rowsRead || 0);
+            prior.rowsWritten += Number(sum.rowsWritten || 0);
+            minuteTotals.set(minute, prior);
           }
+
+          const byMinuteQuery = new Map();
+          for (const group of account.d1QueriesAdaptiveGroups || []) {
+            const minute = group.dimensions?.datetimeMinute;
+            if (!minute) continue;
+            const item = {
+              count: Number(group.count || 0),
+              rowsRead: Number(group.sum?.rowsRead || 0),
+              rowsWritten: Number(group.sum?.rowsWritten || 0),
+              query: compactSql(group.dimensions?.query),
+            };
+            if (!byMinuteQuery.has(minute)) byMinuteQuery.set(minute, []);
+            byMinuteQuery.get(minute).push(item);
+          }
+
+          const businessWritePattern = /INSERT OR REPLACE INTO ms_routes|INSERT INTO ms_route_history|DELETE FROM ms_routes/i;
+          const cacheWritePattern = /INSERT INTO ms_live_cache/i;
+          const heartbeatPattern = /UPDATE ms_(?:preentry_|bus_)?connections SET last_success_at/i;
+          const rows = [...minuteTotals.values()].sort((a, b) => a.minute.localeCompare(b.minute));
+
+          console.log(`RUNTIME_MINUTE_GATE_START=${start.toISOString()}`);
+          console.log(`RUNTIME_MINUTE_GATE_END=${end.toISOString()}`);
+          console.log('RUNTIME_MINUTES=');
+
+          for (const row of rows) {
+            const queries = (byMinuteQuery.get(row.minute) || []).sort(
+              (a, b) => (b.rowsRead + b.rowsWritten) - (a.rowsRead + a.rowsWritten),
+            );
+            const businessWrites = queries
+              .filter((x) => x.rowsWritten > 0 && businessWritePattern.test(x.query))
+              .reduce((sum, x) => sum + x.rowsWritten, 0);
+            const cacheWrites = queries
+              .filter((x) => x.rowsWritten > 0 && cacheWritePattern.test(x.query))
+              .reduce((sum, x) => sum + x.rowsWritten, 0);
+            const heartbeatWrites = queries
+              .filter((x) => x.rowsWritten > 0 && heartbeatPattern.test(x.query))
+              .reduce((sum, x) => sum + x.rowsWritten, 0);
+            const cleanBusiness = businessWrites === 0;
+            console.log(JSON.stringify({
+              ...row,
+              businessWrites,
+              cacheWrites,
+              heartbeatWrites,
+              cleanBusiness,
+              topQueries: queries.slice(0, 8),
+            }));
+          }
+
+          // Report the longest contiguous streak whose query details show no
+          // route/history/delete write. Heartbeat/cache writes remain visible.
+          let best = [], current = [], previous = null;
+          for (const row of rows) {
+            const queries = byMinuteQuery.get(row.minute) || [];
+            const businessWrites = queries
+              .filter((x) => x.rowsWritten > 0 && businessWritePattern.test(x.query))
+              .reduce((sum, x) => sum + x.rowsWritten, 0);
+            const time = Date.parse(row.minute);
+            const contiguous = previous === null || time - previous === 60_000;
+            if (businessWrites === 0) {
+              current = contiguous ? [...current, row] : [row];
+              if (current.length > best.length) best = current;
+            } else {
+              current = [];
+            }
+            previous = time;
+          }
+
+          const clean = best.reduce((acc, row) => {
+            acc.rowsRead += row.rowsRead;
+            acc.rowsWritten += row.rowsWritten;
+            acc.readQueries += row.readQueries;
+            acc.writeQueries += row.writeQueries;
+            return acc;
+          }, { rowsRead: 0, rowsWritten: 0, readQueries: 0, writeQueries: 0 });
+
+          console.log(`CLEAN_STREAK_MINUTES=${best.length}`);
+          console.log(`CLEAN_STREAK_START=${best[0]?.minute || ''}`);
+          console.log(`CLEAN_STREAK_END=${best.at(-1)?.minute || ''}`);
+          console.log(`NO_CHANGE_RUNTIME_READ_CLEAN=${clean.rowsRead}`);
+          console.log(`NO_CHANGE_RUNTIME_WRITE_CLEAN=${clean.rowsWritten}`);
+          console.log(`NO_CHANGE_RUNTIME_READ_QUERIES_CLEAN=${clean.readQueries}`);
+          console.log(`NO_CHANGE_RUNTIME_WRITE_QUERIES_CLEAN=${clean.writeQueries}`);
           NODE

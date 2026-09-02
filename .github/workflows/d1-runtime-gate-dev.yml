@@ -105,3 +105,34 @@ jobs:
           console.log(`CLAIM_DIAGNOSTIC_ROWS_READ=${Number(result?.meta?.rows_read || 0)}`);
           console.log('CLAIM_DIAGNOSTIC_ROWS_WRITTEN=0');
           NODE
+
+      - name: Read DEV MS connection health only
+        run: |
+          node <<'NODE'
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const db = process.env.DEV_D1_DATABASE_ID;
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${db}/query`;
+          async function read(sql) {
+            if (!/^\s*SELECT\b/i.test(sql)) throw new Error('read-only SQL only');
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sql }),
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.success === false) throw new Error(JSON.stringify(payload.errors || payload));
+            const result = Array.isArray(payload.result) ? payload.result[0] : payload.result;
+            return { rows: result?.results || [], rowsRead: Number(result?.meta?.rows_read || 0) };
+          }
+          const main = await read("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections ORDER BY hub LIMIT 20");
+          const pre = await read("SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections ORDER BY hub LIMIT 20");
+          const bus = await read("SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections ORDER BY hub LIMIT 20");
+          const cache = await read("SELECT hub,synced_at FROM ms_live_cache ORDER BY hub LIMIT 20");
+          console.log(`MS_CONNECTION_HEALTH=${JSON.stringify(main.rows)}`);
+          console.log(`MS_PREENTRY_HEALTH=${JSON.stringify(pre.rows)}`);
+          console.log(`MS_BUS_HEALTH=${JSON.stringify(bus.rows)}`);
+          console.log(`MS_LIVE_CACHE_HEALTH=${JSON.stringify(cache.rows)}`);
+          console.log(`CONNECTION_DIAGNOSTIC_ROWS_READ=${main.rowsRead + pre.rowsRead + bus.rowsRead + cache.rowsRead}`);
+          console.log('CONNECTION_DIAGNOSTIC_ROWS_WRITTEN=0');
+          NODE

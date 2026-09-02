@@ -65,6 +65,14 @@ test("cancelled summary card is a fast live-row filter", () => {
   assert.match(first, /queueStatus: q\.cancelled\s*\? "ยกเลิกรถแล้ว"/);
 });
 
+test("destination rows never expose or accept manual cancellation", () => {
+  const first = stageFrontend(frontendSource);
+  const worker = stageWorker(workerSource);
+  assert.equal((first.match(/q\.active && !isDestination\(row\)/g) || []).length, 2);
+  assert.match(first, /if \(isDestination\(row\)\)\s*return toast\("งานปลายทางไม่สามารถยกเลิกรถจากคิวด้วยมือได้"/);
+  assert.match(worker, /if \(attendance === "ปลายทาง"\)\s*fail\("งานปลายทางไม่สามารถยกเลิกรถจากคิวด้วยมือได้", "DESTINATION_CANCEL_NOT_ALLOWED", 409\)/);
+});
+
 test("seven lower summary cards stay on one desktop row", () => {
   const first = stageStyle(styleSource);
   assert.match(first, /MS summary performance/);
@@ -89,6 +97,7 @@ test("DEV staging still assembles all backend runtime patches from clean source"
   assert.match(worker, /msCompletedToday/);
   assert.match(worker, /async function cancelMsRoute/);
   assert.match(worker, /ms_route_cancellations/);
+  assert.match(worker, /DESTINATION_CANCEL_NOT_ALLOWED/);
 });
 
 test("DEV deploy uses the idempotent staging entrypoint", () => {

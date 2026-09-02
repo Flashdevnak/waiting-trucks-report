@@ -24,6 +24,7 @@ test("DEV staging integrates root frontend once and stays idempotent after cutov
   assert.match(first, /submitCancelMsRoute/);
   assert.match(first, /data-summary-status="cancelled"/);
   assert.match(first, /ยกเลิกรถแล้ว/);
+  assert.match(first, /function renderRowsProgressively\(rows\)/);
   const second = stageFrontend(first);
   assert.equal(second, first);
 });
@@ -41,8 +42,17 @@ test("รายการทั้งหมด uses live MS rows and renders only
   );
   assert.match(first, /state\.archiveView = true;\s*state\.archiveLoaded = false;/);
   assert.match(first, /window\.matchMedia\("\(max-width: 700px\)"\)\.matches/);
-  assert.match(first, /el\("table-body"\)\.innerHTML = ""/);
-  assert.match(first, /el\("mobile-cards"\)\.innerHTML = ""/);
+  assert.match(first, /tableBody\.innerHTML = ""/);
+  assert.match(first, /mobileCards\.innerHTML = ""/);
+});
+
+test("ลงรถเสร็จ reuses browser cache and progressively renders large result sets", () => {
+  const first = stageFrontend(frontendSource);
+  assert.match(first, /const cachedCompletedRows = state\.archiveRows\.filter\(isCompletedToday\)/);
+  assert.match(first, /cachedCompletedRows\.length === expectedCompleted/);
+  assert.match(first, /firstBatch = mobileLayout \? 32 : 64/);
+  assert.match(first, /requestAnimationFrame\(pump\)/);
+  assert.match(first, /insertAdjacentHTML/);
 });
 
 test("cancelled summary card is a fast live-row filter", () => {
@@ -55,10 +65,18 @@ test("cancelled summary card is a fast live-row filter", () => {
   assert.match(first, /queueStatus: q\.cancelled\s*\? "ยกเลิกรถแล้ว"/);
 });
 
+test("seven lower summary cards stay on one desktop row", () => {
+  const first = stageStyle(styleSource);
+  assert.match(first, /MS summary performance/);
+  assert.match(first, /grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
+  assert.match(first, /@media \(min-width:1201px\)/);
+});
+
 test("DEV staging integrates mobile spacing and route cancellation controls once", () => {
   const first = stageStyle(styleSource);
   assert.match(first, /DEV mobile MS card spacing/);
   assert.match(first, /MS route cancellation controls/);
+  assert.match(first, /MS summary performance/);
   assert.equal(stageStyle(first), first);
 });
 

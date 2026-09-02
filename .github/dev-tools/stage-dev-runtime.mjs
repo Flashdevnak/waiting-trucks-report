@@ -20,6 +20,10 @@ import {
   patchMsRouteCancellationWorker,
 } from "./patch-ms-route-cancellation-compat.mjs";
 import { patchMsFastAllCancelledFrontend } from "./patch-ms-fast-all-cancelled-card.mjs";
+import {
+  patchMsSummaryPerformanceFrontend,
+  patchMsSummaryPerformanceStyle,
+} from "./patch-ms-summary-performance.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -40,11 +44,14 @@ export function stageFrontend(source) {
   }
   output = patchMsRouteCancellationFrontend(output);
   output = patchMsFastAllCancelledFrontend(output);
+  output = patchMsSummaryPerformanceFrontend(output);
   return output;
 }
 
 export function stageStyle(source) {
-  return patchMsRouteCancellationStyle(patchDevMsMobileStyle(source));
+  return patchMsSummaryPerformanceStyle(
+    patchMsRouteCancellationStyle(patchDevMsMobileStyle(source)),
+  );
 }
 
 export function stageWorker(source) {

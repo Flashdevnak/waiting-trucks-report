@@ -12,6 +12,10 @@ import {
   patchMsRouteCancellationStyle,
 } from "../dev-tools/patch-ms-route-cancellation-compat.mjs";
 import { patchMsFastAllCancelledFrontend } from "../dev-tools/patch-ms-fast-all-cancelled-card.mjs";
+import {
+  patchMsSummaryPerformanceFrontend,
+  patchMsSummaryPerformanceStyle,
+} from "../dev-tools/patch-ms-summary-performance.mjs";
 
 export const OLD_API_ORIGIN =
   "https://waiting-trucks-report.alert-squid-6738.chatgpt.site";
@@ -32,6 +36,7 @@ export function patchCutoverFrontend(msSource) {
   output = patchDevSummaryFilter(output);
   output = patchMsRouteCancellationFrontend(output);
   output = patchMsFastAllCancelledFrontend(output);
+  output = patchMsSummaryPerformanceFrontend(output);
   output = replaceUnique(
     output,
     `CONFIG.apiUrl = \`${"${"}window.location.hostname.endsWith("github.io") ? "${OLD_API_ORIGIN}" : window.location.origin}/api\`;`,
@@ -91,7 +96,9 @@ export async function prepareCutover(rootDir, version) {
     writeFile(msPath, patchCutoverFrontend(ms), "utf8"),
     writeFile(
       stylePath,
-      patchMsRouteCancellationStyle(patchDevMsMobileStyle(style)),
+      patchMsSummaryPerformanceStyle(
+        patchMsRouteCancellationStyle(patchDevMsMobileStyle(style)),
+      ),
       "utf8",
     ),
     writeFile(browserPath, patchCutoverBrowser(browser), "utf8"),

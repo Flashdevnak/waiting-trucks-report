@@ -48,6 +48,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
       - run: node --test ../.github/dev-tools/safe-parity.test.mjs
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
+      - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
       - name: Apply additive migrations to DEV D1
         run: npx wrangler d1 migrations apply DB --remote --config wrangler.dev.jsonc
       - name: Validate DEV schema and row counts
@@ -58,12 +59,7 @@ jobs:
           mkdir -p .dev-assets
           cp ../ms.html ../ms.js ../style.css ../sw.js ../favicon.svg .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
-          node scripts/patch-dev-ms-archive.mjs .dev-assets/ms.js src/index.js
-          node ../.github/dev-tools/patch-ms-realtime-recovery.mjs .dev-assets/ms.js src/index.js
-          node ../.github/dev-tools/patch-ms-summary-filter.mjs .dev-assets/ms.js
-          node ../.github/dev-tools/patch-ms-durable-coordinator.mjs src/index.js
-          node ../.github/dev-tools/patch-ms-connector-adoption.mjs src/index.js
-          node ../.github/dev-tools/patch-ms-multiclient-dedupe.mjs src/index.js
+          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
           node --check .dev-assets/ms.js
           node --check src/index.js
       - name: Deploy DEV shadow Worker

@@ -11,6 +11,7 @@ import {
   patchMsRouteCancellationFrontend,
   patchMsRouteCancellationStyle,
 } from "../dev-tools/patch-ms-route-cancellation-compat.mjs";
+import { patchMsNonDestinationCancellationFrontend } from "../dev-tools/patch-ms-cancel-nondestination.mjs";
 import { patchMsFastAllCancelledFrontend } from "../dev-tools/patch-ms-fast-all-cancelled-card.mjs";
 import {
   patchMsSummaryPerformanceFrontend,
@@ -35,6 +36,7 @@ export function patchCutoverFrontend(msSource) {
   output = patchDevRealtimeFrontend(output);
   output = patchDevSummaryFilter(output);
   output = patchMsRouteCancellationFrontend(output);
+  output = patchMsNonDestinationCancellationFrontend(output);
   output = patchMsFastAllCancelledFrontend(output);
   output = patchMsSummaryPerformanceFrontend(output);
   output = replaceUnique(

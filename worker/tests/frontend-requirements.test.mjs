@@ -219,10 +219,15 @@ test("warehouse page is removed from navigation and redirects without polling sc
   assert.match(await readFile(new URL("scan.html", root), "utf8"), /location\.replace\("ms\.html"\)/);
 });
 
-test("realtime settings and read-only archive count remain intact", async () => {
+test("realtime settings and D1 read safeguards remain intact", async () => {
   assert.match(source, /pollMs:\s*4000/);
   const cron = await readFile(new URL("cloudflare-browser-test/wrangler.jsonc", root), "utf8");
   assert.match(cron, /"\* \* \* \* \*"/);
   const worker = await readFile(new URL("worker/src/index.js", root), "utf8");
-  assert.match(worker, /COUNT\(DISTINCT route_id\) AS total_distinct/);
+  assert.match(worker, /ms_live_cache/);
+  assert.match(worker, /Array\.isArray\(live\.rows\)/);
+  assert.match(worker, /COUNT\(\*\) AS total_distinct FROM ms_route_registry/);
+  const preflight = await readFile(new URL("worker/scripts/production-preflight.sql", root), "utf8");
+  assert.doesNotMatch(preflight, /COUNT\(DISTINCT route_id\)/);
+  assert.doesNotMatch(preflight, /COUNT\(\*\) AS row_count FROM ms_route_history/);
 });

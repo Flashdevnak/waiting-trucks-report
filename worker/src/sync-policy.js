@@ -9,6 +9,21 @@ export const MS_SNAPSHOT_KEYS = [
   "arrivedBags",
 ];
 
+export const MS_SOURCE_KEYS = MS_SNAPSHOT_KEYS.filter(
+  (key) => !["id", "hub", "unloadingCompletedAt"].includes(key),
+);
+
+export function canonicalMsSource(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) =>
+      JSON.stringify(
+        MS_SOURCE_KEYS.map((key) => String(row?.[key] ?? "")),
+      ),
+    )
+    .sort()
+    .join("\n");
+}
+
 export function sameMsSnapshot(oldRow, nextRow) {
   return MS_SNAPSHOT_KEYS.every(
     (key) => String(oldRow?.[key] ?? "") === String(nextRow?.[key] ?? ""),

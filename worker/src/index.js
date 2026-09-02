@@ -1,4 +1,4 @@
-import { planMsChanges } from "./sync-policy.js";
+import { canonicalMsSource, planMsChanges } from "./sync-policy.js";
 
 const SESSION_MS = 180 * 86400000;
 const MS_SYNC_TTL = 3000;
@@ -117,17 +117,21 @@ async function get(url, env) {
   if (action === "msRoutes") {
     const branch = pickBranch(actor, url.searchParams.get("branch")),
       live = await refreshMsIfStale(env, actor, branch);
-    const rows = (
-      await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
-        .bind(branch)
-        .all()
-    ).results.map(output);
+    const rows = Array.isArray(live.rows)
+      ? live.rows
+      : (
+          await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
+            .bind(branch)
+            .all()
+        ).results.map(output);
     const settings = await readSettings(env, branch);
-    const latest = await env.DB.prepare(
-      "SELECT MAX(timestamp) AS synced_at FROM audit_log WHERE action='SYNC_MS_ROUTES' AND record_id=?",
-    )
-      .bind(branch)
-      .first();
+    const latest = live.syncedAt
+      ? null
+      : await env.DB.prepare(
+          "SELECT MAX(timestamp) AS synced_at FROM audit_log WHERE action='SYNC_MS_ROUTES' AND record_id=?",
+        )
+          .bind(branch)
+          .first();
     return ok({
       rows,
       branch,
@@ -903,6 +907,11 @@ async function syncMs(body, actor, env) {
     if (changedIds.has(item.id)) {
       statements.push(
         env.DB.prepare(
+          "INSERT OR IGNORE INTO ms_route_registry(hub,route_id,first_seen_at) VALUES(?,?,?)",
+        ).bind(branch, item.id, now),
+      );
+      statements.push(
+        env.DB.prepare(
           "INSERT OR REPLACE INTO ms_routes(id,hub,proof_id,route_name,region,route_attribute,route_type,attendance_type,estimated_arrival_at,actual_arrival_at,estimated_departure_at,actual_departure_at,supplier,vehicle_type,plate,driver_name,driver_phone,tracking_status,vehicle_status,load_status,unloading_state,unloading_completed_at,source_updated_at,expected_parcels,entered_parcels,pending_parcels,schedule_kit_arrival_at,schedule_tbr_arrival_at,arrived_parcels,arrived_bags,synced_at,synced_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         ).bind(...item.values),
       );
@@ -952,7 +961,23 @@ async function syncMs(body, actor, env) {
       console.error(JSON.stringify({ event: "ms_sync_audit_error", branch, message: error.message }));
     }
   }
-  return { branch, synced: seen.size, syncedAt: now, changes: businessChanges };
+  const responseRows = prepared.map((item) => {
+    const old = oldById.get(item.id);
+    const previous = old ? output(old) : null;
+    const changed = changedIds.has(item.id);
+    return {
+      ...item.snapshot,
+      syncedAt: changed ? now : previous?.syncedAt || now,
+      syncedBy: changed ? actor.username : previous?.syncedBy || actor.username,
+    };
+  });
+  return {
+    branch,
+    synced: seen.size,
+    syncedAt: now,
+    changes: businessChanges,
+    rows: responseRows,
+  };
 }
 
 async function refreshMsIfStale(env, actor, branch, force = false) {
@@ -976,20 +1001,39 @@ async function runMsRefresh(env, branch) {
     const rows = await readMsRoutes(credentials);
     const parcelCounts = await readPreEntryCounts(env, branch);
     const busData = await readBusTimeData(env, branch);
-    const sync = await syncMs(
-      {
-        branch,
-        rows: rows.map((row) => enrichMsRow(mapMsRow(row), parcelCounts, busData)),
-      },
-      { username: "MS_AUTO", role: "admin", branches: ["*"] },
-      env,
+    const mappedRows = rows.map((row) =>
+      enrichMsRow(mapMsRow(row), parcelCounts, busData),
     );
+    const sourceHash = await sha(canonicalMsSource(mappedRows));
+    const cachedRows = await readMsLiveCache(env, branch, sourceHash);
+    const sync = cachedRows
+      ? {
+          syncedAt: new Date().toISOString(),
+          changes: 0,
+          rows: cachedRows,
+        }
+      : await syncMs(
+          { branch, rows: mappedRows },
+          { username: "MS_AUTO", role: "admin", branches: ["*"] },
+          env,
+        );
+    if (!cachedRows)
+      await safeStatusWrite(
+        writeMsLiveCache(env, branch, sourceHash, sync.rows, sync.syncedAt),
+        "ms_live_cache_write_error",
+        branch,
+      );
     await safeStatusWrite(
       markConnectionSuccess(env, "ms_connections", branch, sync.syncedAt),
       "ms_connection_success_write_error",
       branch,
     );
-    const result = { status: "synced", syncedAt: sync.syncedAt, changes: sync.changes };
+    const result = {
+      status: "synced",
+      syncedAt: sync.syncedAt,
+      changes: sync.changes,
+      rows: sync.rows,
+    };
     recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
     return result;
   } catch (error) {
@@ -1012,6 +1056,36 @@ async function runMsRefresh(env, branch) {
     recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
     return result;
   }
+}
+
+async function readMsLiveCache(env, hub, sourceHash) {
+  try {
+    const row = await env.DB.prepare(
+      "SELECT source_hash,rows_json FROM ms_live_cache WHERE hub=?",
+    )
+      .bind(hub)
+      .first();
+    if (!row || row.source_hash !== sourceHash) return null;
+    const rows = JSON.parse(row.rows_json || "[]");
+    return Array.isArray(rows) ? rows : null;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "ms_live_cache_read_error",
+        hub,
+        message: error.message,
+      }),
+    );
+    return null;
+  }
+}
+
+async function writeMsLiveCache(env, hub, sourceHash, rows, syncedAt) {
+  return env.DB.prepare(
+    "INSERT INTO ms_live_cache(hub,source_hash,rows_json,synced_at) VALUES(?,?,?,?) ON CONFLICT(hub) DO UPDATE SET source_hash=excluded.source_hash,rows_json=excluded.rows_json,synced_at=excluded.synced_at",
+  )
+    .bind(hub, sourceHash, JSON.stringify(rows || []), syncedAt || new Date().toISOString())
+    .run();
 }
 
 async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {
@@ -1699,7 +1773,7 @@ async function msArchive(env, actor, hub) {
       .bind(hub)
       .all(),
     env.DB.prepare(
-      "SELECT COUNT(DISTINCT route_id) AS total_distinct FROM ms_route_history WHERE hub=?",
+      "SELECT COUNT(*) AS total_distinct FROM ms_route_registry WHERE hub=?",
     )
       .bind(hub)
       .first(),

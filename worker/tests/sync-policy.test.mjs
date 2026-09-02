@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  canonicalMsSource,
   planMsChanges,
   sameMsSnapshot,
   shouldWriteError,
@@ -50,4 +51,24 @@ test("same error does not write repeatedly", () => {
   assert.equal(shouldWriteError("session expired", "session expired"), false);
   assert.equal(shouldWriteError("", "session expired"), true);
   assert.equal(shouldWriteError("session expired", ""), true);
+});
+
+
+test("canonical live source ignores row order and derived completion metadata", () => {
+  const other = { ...base, id: "r2", proofId: "P2", routeName: "FD-NE1" };
+  assert.equal(
+    canonicalMsSource([base, other]),
+    canonicalMsSource([other, base]),
+  );
+  assert.equal(
+    canonicalMsSource([{ ...base, unloadingCompletedAt: "2026-09-01T02:00:00.000Z", syncedAt: "old" }]),
+    canonicalMsSource([{ ...base, unloadingCompletedAt: "2026-09-01T03:00:00.000Z", syncedAt: "new" }]),
+  );
+});
+
+test("canonical live source changes when business source data changes", () => {
+  assert.notEqual(
+    canonicalMsSource([base]),
+    canonicalMsSource([{ ...base, pendingParcels: 4 }]),
+  );
 });

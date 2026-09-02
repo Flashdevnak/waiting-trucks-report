@@ -37,7 +37,7 @@ test("route cancel button lives with driver data and requires a password PIN dia
   assert.match(frontend, /apiPost\("cancelMsRoute"/);
   assert.match(frontend, /branch: state\.branch/);
   assert.match(frontend, /routeId: target\.id/);
-  assert.match(frontend, /pin,/);
+  assert.match(frontend, /\{ branch: state\.branch, routeId: target\.id, pin \}/);
   assert.match(style, /MS route cancellation controls/);
   assert.match(style, /\.cancel-route-button/);
 });

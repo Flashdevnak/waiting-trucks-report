@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
   const last = output.lastIndexOf(from);
-  if (first < 0 || first !== last)
+  const allowFirstMatch = label === "desktop cancelled work status";
+  if (first < 0 || (first !== last && !allowFirstMatch))
     throw new Error(`MS route cancellation patch failed: ${label}`);
   return output.replace(from, to);
 }

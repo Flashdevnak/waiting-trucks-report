@@ -7,7 +7,6 @@ function replaceUnique(output, from, to, label) {
 }
 
 const FRONTEND_MARKER = 'state.summary === "completed-all"';
-const HTML_MARKER = "ปลายทางและจุดดรอปที่ลงของเสร็จสะสม";
 const WORKER_MARKER = "start + 3 * 86400000 - 1000";
 
 export function patchMsOperatingDayFrontend(source) {
@@ -77,18 +76,14 @@ export function patchMsOperatingDayFrontend(source) {
     "top completed metric is cumulative",
   );
 
-  return output;
-}
-
-export function patchMsOperatingDayHtml(source) {
-  const output = String(source || "");
-  if (output.includes(HTML_MARKER)) return output;
-  return replaceUnique(
+  output = replaceUnique(
     output,
-    `<small>ปลายทางและจุดดรอปที่ลงของเสร็จวันนี้</small>`,
-    `<small>${HTML_MARKER}</small>`,
-    "upper completed card description",
+    `function metrics() {\n  const active =`,
+    `function metrics() {\n  const completedNote = el("metric-completed")?.closest(".metric-card")?.querySelector("small");\n  if (completedNote) completedNote.textContent = "ปลายทางและจุดดรอปที่ลงของเสร็จสะสม";\n  const active =`,
+    "upper completed cumulative wording",
   );
+
+  return output;
 }
 
 export function patchMsOperatingDayWorker(source) {

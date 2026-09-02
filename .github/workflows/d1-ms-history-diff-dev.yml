@@ -1,0 +1,89 @@
+name: D1 MS History Diff DEV
+
+# Read-only diagnostic for identifying source-hash churn. Never deploys, migrates, or writes D1.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/d1-ms-history-diff-dev.yml
+
+permissions:
+  contents: read
+
+jobs:
+  history-diff:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+    steps:
+      - name: Diff latest DEV MS route history
+        run: |
+          node <<'NODE'
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const db = process.env.DEV_D1_DATABASE_ID;
+          if (!account || !token || !db) process.exit(2);
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${db}/query`;
+          const sql = `SELECT route_id,snapshot_at,event_type,payload_json
+            FROM ms_route_history
+            WHERE hub='NE1'
+            ORDER BY snapshot_at DESC
+            LIMIT 120`;
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sql }),
+          });
+          const payload = await response.json();
+          if (!response.ok || payload.success === false) throw new Error(JSON.stringify(payload.errors || payload));
+          const result = Array.isArray(payload.result) ? payload.result[0] : payload.result;
+          const rows = result?.results || [];
+          console.log(`HISTORY_DIFF_ROWS_READ=${Number(result?.meta?.rows_read || 0)}`);
+          console.log('HISTORY_DIFF_ROWS_WRITTEN=0');
+
+          const groups = new Map();
+          for (const row of rows) {
+            if (!groups.has(row.route_id)) groups.set(row.route_id, []);
+            groups.get(row.route_id).push(row);
+          }
+          const ignore = new Set(['syncedAt', 'synced_at', 'syncedBy', 'synced_by']);
+          const fieldCounts = new Map();
+          const samples = [];
+          let pairs = 0;
+          for (const [routeId, list] of groups) {
+            if (list.length < 2) continue;
+            for (let i = 0; i < list.length - 1; i++) {
+              let newer, older;
+              try {
+                newer = JSON.parse(list[i].payload_json || '{}');
+                older = JSON.parse(list[i + 1].payload_json || '{}');
+              } catch { continue; }
+              const keys = [...new Set([...Object.keys(newer), ...Object.keys(older)])]
+                .filter((key) => !ignore.has(key));
+              const changed = keys.filter((key) => JSON.stringify(newer[key] ?? null) !== JSON.stringify(older[key] ?? null));
+              if (!changed.length) continue;
+              pairs++;
+              for (const key of changed) fieldCounts.set(key, (fieldCounts.get(key) || 0) + 1);
+              if (samples.length < 12) {
+                samples.push({
+                  routeId,
+                  newerAt: list[i].snapshot_at,
+                  olderAt: list[i + 1].snapshot_at,
+                  eventType: list[i].event_type,
+                  changed: changed.map((key) => ({
+                    field: key,
+                    old: String(older[key] ?? '').slice(0, 100),
+                    new: String(newer[key] ?? '').slice(0, 100),
+                  })),
+                });
+              }
+            }
+          }
+          console.log(`HISTORY_DIFF_PAIRS=${pairs}`);
+          console.log(`HISTORY_CHANGED_FIELDS=${JSON.stringify([...fieldCounts.entries()].sort((a,b)=>b[1]-a[1]))}`);
+          console.log(`HISTORY_DIFF_SAMPLES=${JSON.stringify(samples)}`);
+          NODE

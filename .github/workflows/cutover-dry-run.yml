@@ -1,7 +1,8 @@
 name: Cutover Dry Run
 
-# Prepares the exact GitHub Pages + Browser Worker cutover diff in an ephemeral
-# checkout only. No Cloudflare writes, no secret changes, no deploy and no push.
+# Re-run after cancellation anchor fix. Prepares the exact GitHub Pages + Browser
+# Worker cutover diff in an ephemeral checkout only. No Cloudflare writes,
+# no secret changes, no deploy and no push.
 
 on:
   workflow_dispatch:

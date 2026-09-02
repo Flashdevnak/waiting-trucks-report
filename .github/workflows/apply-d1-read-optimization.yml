@@ -1,0 +1,148 @@
+name: Apply D1 read optimization
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-d1-read-optimization.yml
+
+permissions:
+  contents: write
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Apply read-efficiency patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected 1 match, got {count}")
+              return text.replace(old, new, 1)
+
+          index_path = Path("worker/src/index.js")
+          index = index_path.read_text()
+
+          index = replace_once(
+              index,
+              'import { planMsChanges } from "./sync-policy.js";',
+              'import { canonicalMsSource, planMsChanges } from "./sync-policy.js";',
+              "sync-policy import",
+          )
+
+          index = replace_once(
+              index,
+              '''    const rows = (\n      await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")\n        .bind(branch)\n        .all()\n    ).results.map(output);''',
+              '''    const rows = Array.isArray(live.rows)\n      ? live.rows\n      : (\n          await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")\n            .bind(branch)\n            .all()\n        ).results.map(output);''',
+              "msRoutes live rows",
+          )
+
+          index = replace_once(
+              index,
+              '''    const latest = await env.DB.prepare(\n      "SELECT MAX(timestamp) AS synced_at FROM audit_log WHERE action='SYNC_MS_ROUTES' AND record_id=?",\n    )\n      .bind(branch)\n      .first();''',
+              '''    const latest = live.syncedAt\n      ? null\n      : await env.DB.prepare(\n          "SELECT MAX(timestamp) AS synced_at FROM audit_log WHERE action='SYNC_MS_ROUTES' AND record_id=?",\n        )\n          .bind(branch)\n          .first();''',
+              "conditional audit fallback",
+          )
+
+          index = replace_once(
+              index,
+              '''    const rows = await readMsRoutes(credentials);\n    const parcelCounts = await readPreEntryCounts(env, branch);\n    const busData = await readBusTimeData(env, branch);\n    const sync = await syncMs(\n      {\n        branch,\n        rows: rows.map((row) => enrichMsRow(mapMsRow(row), parcelCounts, busData)),\n      },\n      { username: "MS_AUTO", role: "admin", branches: ["*"] },\n      env,\n    );''',
+              '''    const rows = await readMsRoutes(credentials);\n    const parcelCounts = await readPreEntryCounts(env, branch);\n    const busData = await readBusTimeData(env, branch);\n    const mappedRows = rows.map((row) =>\n      enrichMsRow(mapMsRow(row), parcelCounts, busData),\n    );\n    const sourceHash = await sha(canonicalMsSource(mappedRows));\n    const cachedRows = await readMsLiveCache(env, branch, sourceHash);\n    const sync = cachedRows\n      ? {\n          syncedAt: new Date().toISOString(),\n          changes: 0,\n          rows: cachedRows,\n        }\n      : await syncMs(\n          { branch, rows: mappedRows },\n          { username: "MS_AUTO", role: "admin", branches: ["*"] },\n          env,\n        );\n    if (!cachedRows)\n      await safeStatusWrite(\n        writeMsLiveCache(env, branch, sourceHash, sync.rows, sync.syncedAt),\n        "ms_live_cache_write_error",\n        branch,\n      );''',
+              "live source cache",
+          )
+
+          index = replace_once(
+              index,
+              '    const result = { status: "synced", syncedAt: sync.syncedAt, changes: sync.changes };',
+              '''    const result = {\n      status: "synced",\n      syncedAt: sync.syncedAt,\n      changes: sync.changes,\n      rows: sync.rows,\n    };''',
+              "live result rows",
+          )
+
+          helpers = '''async function readMsLiveCache(env, hub, sourceHash) {\n  try {\n    const row = await env.DB.prepare(\n      "SELECT source_hash,rows_json FROM ms_live_cache WHERE hub=?",\n    )\n      .bind(hub)\n      .first();\n    if (!row || row.source_hash !== sourceHash) return null;\n    const rows = JSON.parse(row.rows_json || "[]");\n    return Array.isArray(rows) ? rows : null;\n  } catch (error) {\n    console.error(\n      JSON.stringify({\n        event: "ms_live_cache_read_error",\n        hub,\n        message: error.message,\n      }),\n    );\n    return null;\n  }\n}\n\nasync function writeMsLiveCache(env, hub, sourceHash, rows, syncedAt) {\n  return env.DB.prepare(\n    "INSERT INTO ms_live_cache(hub,source_hash,rows_json,synced_at) VALUES(?,?,?,?) ON CONFLICT(hub) DO UPDATE SET source_hash=excluded.source_hash,rows_json=excluded.rows_json,synced_at=excluded.synced_at",\n  )\n    .bind(hub, sourceHash, JSON.stringify(rows || []), syncedAt || new Date().toISOString())\n    .run();\n}\n\n'''
+          marker = "async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {"
+          if index.count(marker) != 1:
+              raise SystemExit("markConnectionSuccess marker mismatch")
+          index = index.replace(marker, helpers + marker, 1)
+
+          index = replace_once(
+              index,
+              '''    if (changedIds.has(item.id)) {\n      statements.push(\n        env.DB.prepare(''',
+              '''    if (changedIds.has(item.id)) {\n      statements.push(\n        env.DB.prepare(\n          "INSERT OR IGNORE INTO ms_route_registry(hub,route_id,first_seen_at) VALUES(?,?,?)",\n        ).bind(branch, item.id, now),\n      );\n      statements.push(\n        env.DB.prepare(''',
+              "route registry write",
+          )
+
+          index = replace_once(
+              index,
+              '"SELECT COUNT(DISTINCT route_id) AS total_distinct FROM ms_route_history WHERE hub=?",',
+              '"SELECT COUNT(*) AS total_distinct FROM ms_route_registry WHERE hub=?",',
+              "archive registry count",
+          )
+
+          index = replace_once(
+              index,
+              '''  return { branch, synced: seen.size, syncedAt: now, changes: businessChanges };\n}''',
+              '''  const responseRows = prepared.map((item) => {\n    const old = oldById.get(item.id);\n    const previous = old ? output(old) : null;\n    const changed = changedIds.has(item.id);\n    return {\n      ...item.snapshot,\n      syncedAt: changed ? now : previous?.syncedAt || now,\n      syncedBy: changed ? actor.username : previous?.syncedBy || actor.username,\n    };\n  });\n  return {\n    branch,\n    synced: seen.size,\n    syncedAt: now,\n    changes: businessChanges,\n    rows: responseRows,\n  };\n}''',
+              "sync return rows",
+          )
+
+          index_path.write_text(index)
+
+          policy_path = Path("worker/src/sync-policy.js")
+          policy = policy_path.read_text()
+          marker = "export function sameMsSnapshot(oldRow, nextRow) {"
+          addition = '''export const MS_SOURCE_KEYS = MS_SNAPSHOT_KEYS.filter(\n  (key) => !["id", "hub", "unloadingCompletedAt"].includes(key),\n);\n\nexport function canonicalMsSource(rows) {\n  return (Array.isArray(rows) ? rows : [])\n    .map((row) =>\n      JSON.stringify(\n        MS_SOURCE_KEYS.map((key) => String(row?.[key] ?? "")),\n      ),\n    )\n    .sort()\n    .join("\\n");\n}\n\n'''
+          if policy.count(marker) != 1:
+              raise SystemExit("sync policy marker mismatch")
+          policy = policy.replace(marker, addition + marker, 1)
+          policy_path.write_text(policy)
+
+          test_path = Path("worker/tests/sync-policy.test.mjs")
+          tests = test_path.read_text()
+          tests = replace_once(
+              tests,
+              '''import {\n  planMsChanges,''',
+              '''import {\n  canonicalMsSource,\n  planMsChanges,''',
+              "sync test import",
+          )
+          tests += '''\n\ntest("canonical live source ignores row order and derived completion metadata", () => {\n  const other = { ...base, id: "r2", proofId: "P2", routeName: "FD-NE1" };\n  assert.equal(\n    canonicalMsSource([base, other]),\n    canonicalMsSource([other, base]),\n  );\n  assert.equal(\n    canonicalMsSource([{ ...base, unloadingCompletedAt: "2026-09-01T02:00:00.000Z", syncedAt: "old" }]),\n    canonicalMsSource([{ ...base, unloadingCompletedAt: "2026-09-01T03:00:00.000Z", syncedAt: "new" }]),\n  );\n});\n\ntest("canonical live source changes when business source data changes", () => {\n  assert.notEqual(\n    canonicalMsSource([base]),\n    canonicalMsSource([{ ...base, pendingParcels: 4 }]),\n  );\n});\n'''
+          test_path.write_text(tests)
+
+          frontend_test_path = Path("worker/tests/frontend-requirements.test.mjs")
+          frontend_tests = frontend_test_path.read_text()
+          old = '''test("realtime settings and read-only archive count remain intact", async () => {\n  assert.match(source, /pollMs:\\s*4000/);\n  const cron = await readFile(new URL("cloudflare-browser-test/wrangler.jsonc", root), "utf8");\n  assert.match(cron, /"\\* \\* \\* \\* \\*"/);\n  const worker = await readFile(new URL("worker/src/index.js", root), "utf8");\n  assert.match(worker, /COUNT\\(DISTINCT route_id\\) AS total_distinct/);\n});'''
+          new = '''test("realtime settings and D1 read safeguards remain intact", async () => {\n  assert.match(source, /pollMs:\\s*4000/);\n  const cron = await readFile(new URL("cloudflare-browser-test/wrangler.jsonc", root), "utf8");\n  assert.match(cron, /"\\* \\* \\* \\* \\*"/);\n  const worker = await readFile(new URL("worker/src/index.js", root), "utf8");\n  assert.match(worker, /ms_live_cache/);\n  assert.match(worker, /Array\\.isArray\\(live\\.rows\\)/);\n  assert.match(worker, /COUNT\\(\\*\\) AS total_distinct FROM ms_route_registry/);\n  const preflight = await readFile(new URL("worker/scripts/production-preflight.sql", root), "utf8");\n  assert.doesNotMatch(preflight, /COUNT\\(DISTINCT route_id\\)/);\n  assert.doesNotMatch(preflight, /COUNT\\(\\*\\) AS row_count FROM ms_route_history/);\n});'''
+          frontend_tests = replace_once(frontend_tests, old, new, "frontend D1 test")
+          frontend_test_path.write_text(frontend_tests)
+
+          Path("worker/migrations/0006_d1_read_cache.sql").write_text('''CREATE TABLE IF NOT EXISTS ms_live_cache (\n  hub TEXT PRIMARY KEY NOT NULL,\n  source_hash TEXT NOT NULL DEFAULT '',\n  rows_json TEXT NOT NULL DEFAULT '[]',\n  synced_at TEXT NOT NULL DEFAULT ''\n);\n\nCREATE TABLE IF NOT EXISTS ms_route_registry (\n  hub TEXT NOT NULL,\n  route_id TEXT NOT NULL,\n  first_seen_at TEXT NOT NULL DEFAULT '',\n  PRIMARY KEY (hub, route_id)\n);\n\nINSERT OR IGNORE INTO ms_route_registry(hub, route_id, first_seen_at)\nSELECT hub, route_id, MIN(snapshot_at)\nFROM ms_route_history\nWHERE COALESCE(hub, '') <> '' AND COALESCE(route_id, '') <> ''\nGROUP BY hub, route_id;\n''')
+
+          Path("worker/scripts/production-preflight.sql").write_text('''PRAGMA table_list;\nPRAGMA table_info(active_trucks);\nPRAGMA table_info(audit_log);\nPRAGMA table_info(hub_settings);\nPRAGMA table_info(ms_bus_connections);\nPRAGMA table_info(ms_connections);\nPRAGMA table_info(ms_connector_tokens);\nPRAGMA table_info(ms_live_cache);\nPRAGMA table_info(ms_pairings);\nPRAGMA table_info(ms_preentry_connections);\nPRAGMA table_info(ms_route_history);\nPRAGMA table_info(ms_route_registry);\nPRAGMA table_info(ms_routes);\nPRAGMA table_info(truck_history);\nPRAGMA table_info(users);\nSELECT 'active_trucks' AS table_name, EXISTS(SELECT 1 FROM active_trucks LIMIT 1) AS has_rows;\nSELECT 'audit_log' AS table_name, EXISTS(SELECT 1 FROM audit_log LIMIT 1) AS has_rows;\nSELECT 'hub_settings' AS table_name, EXISTS(SELECT 1 FROM hub_settings LIMIT 1) AS has_rows;\nSELECT 'ms_route_history' AS table_name, EXISTS(SELECT 1 FROM ms_route_history LIMIT 1) AS has_rows;\nSELECT 'ms_route_registry' AS table_name, EXISTS(SELECT 1 FROM ms_route_registry LIMIT 1) AS has_rows;\nSELECT 'ms_routes' AS table_name, EXISTS(SELECT 1 FROM ms_routes LIMIT 1) AS has_rows;\nSELECT 'truck_history' AS table_name, EXISTS(SELECT 1 FROM truck_history LIMIT 1) AS has_rows;\nSELECT 'users' AS table_name, EXISTS(SELECT 1 FROM users LIMIT 1) AS has_rows;\nSELECT hub FROM ms_connections ORDER BY hub LIMIT 20;\nSELECT hub, synced_at FROM ms_live_cache ORDER BY hub LIMIT 20;\n''')
+          PY
+      - name: Run worker checks
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+      - name: Commit optimization
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add worker/src/index.js worker/src/sync-policy.js worker/tests/sync-policy.test.mjs worker/tests/frontend-requirements.test.mjs worker/migrations/0006_d1_read_cache.sql worker/scripts/production-preflight.sql
+          git diff --cached --check
+          git commit -m "Reduce D1 reads during live MS polling"
+          git push origin HEAD:main

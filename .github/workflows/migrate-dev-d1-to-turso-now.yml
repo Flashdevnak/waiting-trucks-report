@@ -1,5 +1,6 @@
 name: Migrate DEV D1 to Turso NOW
 
+# Retry uses a fresh Turso upload hostname to avoid stale same-name routing.
 on:
   push:
     branches: [turso-dev-migration]
@@ -83,7 +84,7 @@ jobs:
           print(f'LOCAL_VERIFIED_TABLES={len(counts)}')
           print(f'LOCAL_TOTAL_ROWS={sum(counts.values())}')
           PY
-      - name: Recreate target Turso DB, upload, and verify every table count
+      - name: Create fresh Turso DB, upload, and verify every table count
         id: turso
         run: node .github/turso-tools/provision-upload.mjs
       - name: Install verified Turso secrets on DEV Worker

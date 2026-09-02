@@ -1,7 +1,7 @@
 name: Production Topology Readonly
 
 # One-shot/read-only Cloudflare discovery. This workflow MUST NOT deploy,
-# migrate, execute SQL, mutate Worker settings, or write D1 data.
+# migrate, mutate Worker settings, or write D1 data.
 
 on:
   workflow_dispatch:
@@ -19,15 +19,17 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
     steps:
       - name: List Cloudflare Worker and D1 topology (read-only)
         run: |
           node <<'NODE'
           const account = process.env.CLOUDFLARE_ACCOUNT_ID;
           const token = process.env.CLOUDFLARE_API_TOKEN;
-          if (!account || !token) throw new Error('Cloudflare account/token secrets are missing');
+          const devDb = process.env.DEV_D1_DATABASE_ID;
+          if (!account || !token || !devDb) throw new Error('Cloudflare account/token/database secrets are missing');
 
-          const headers = { Authorization: `Bearer ${token}` };
+          const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
           async function get(path) {
             const url = `https://api.cloudflare.com/client/v4/accounts/${account}${path}`;
             const response = await fetch(url, { headers });
@@ -36,6 +38,15 @@ jobs:
               return { ok: false, status: response.status, errors: body.errors || [] };
             }
             return { ok: true, result: body.result, result_info: body.result_info || null };
+          }
+          async function select(sql) {
+            if (!/^\s*(SELECT|PRAGMA)\b/i.test(sql)) throw new Error('read-only SQL only');
+            const url = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${devDb}/query`;
+            const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ sql }) });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok || body.success === false) throw new Error(JSON.stringify(body.errors || body));
+            const result = Array.isArray(body.result) ? body.result[0] : body.result;
+            return { rows: result?.results || [], rowsRead: Number(result?.meta?.rows_read || 0), rowsWritten: Number(result?.meta?.rows_written || 0) };
           }
 
           const d1 = await get('/d1/database?per_page=100');
@@ -67,10 +78,34 @@ jobs:
               }))
             : devSettings;
 
+          const checks = [];
+          for (const sql of [
+            "SELECT 'users' AS table_name, COUNT(*) AS rows FROM users",
+            "SELECT 'active_trucks' AS table_name, COUNT(*) AS rows FROM active_trucks",
+            "SELECT 'truck_history' AS table_name, COUNT(*) AS rows FROM truck_history",
+            "SELECT 'hub_settings' AS table_name, COUNT(*) AS rows FROM hub_settings",
+            "SELECT 'ms_connections' AS table_name, COUNT(*) AS rows FROM ms_connections",
+            "SELECT 'ms_preentry_connections' AS table_name, COUNT(*) AS rows FROM ms_preentry_connections",
+            "SELECT 'ms_bus_connections' AS table_name, COUNT(*) AS rows FROM ms_bus_connections",
+            "SELECT 'ms_connector_tokens' AS table_name, COUNT(*) AS rows FROM ms_connector_tokens",
+            "SELECT 'ms_pairings' AS table_name, COUNT(*) AS rows FROM ms_pairings",
+            "SELECT 'ms_routes' AS table_name, COUNT(*) AS rows FROM ms_routes",
+            "SELECT 'ms_route_registry' AS table_name, COUNT(*) AS rows FROM ms_route_registry",
+            "SELECT 'ms_sync_claims' AS table_name, COUNT(*) AS rows FROM ms_sync_claims",
+            "SELECT hub, COUNT(*) AS rows FROM ms_routes GROUP BY hub ORDER BY hub",
+            "SELECT hub,updated_at,last_success_at,last_error FROM ms_connections ORDER BY hub LIMIT 20",
+            "SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections ORDER BY hub LIMIT 20",
+            "SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections ORDER BY hub LIMIT 20",
+            "SELECT hub,synced_at,source_hash FROM ms_live_cache ORDER BY hub LIMIT 20"
+          ]) checks.push({ sql, ...(await select(sql)) });
+
           console.log(`D1_DATABASES=${JSON.stringify(d1Rows)}`);
           console.log(`WORKER_SCRIPTS=${JSON.stringify(workerRows)}`);
           console.log(`DURABLE_OBJECT_NAMESPACES=${JSON.stringify(durableRows)}`);
           console.log(`DEV_SECRET_NAMES=${JSON.stringify(secretRows)}`);
           console.log(`DEV_BINDINGS_REDACTED=${JSON.stringify(bindingRows)}`);
+          for (const item of checks) console.log(`DEV_D1_CHECK=${JSON.stringify({ rows: item.rows, rowsRead: item.rowsRead, rowsWritten: item.rowsWritten })}`);
+          console.log(`DEV_D1_CHECK_TOTAL_ROWS_READ=${checks.reduce((n,x)=>n+x.rowsRead,0)}`);
+          console.log(`DEV_D1_CHECK_TOTAL_ROWS_WRITTEN=${checks.reduce((n,x)=>n+x.rowsWritten,0)}`);
           console.log('PRODUCTION_TOPOLOGY_MUTATIONS=0');
           NODE

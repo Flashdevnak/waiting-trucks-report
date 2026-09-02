@@ -25,15 +25,15 @@ test("DEV page never auto-loads the heavy archive during live polling", () => {
   assert.match(patched, /metric-archive"\)\.textContent = "กดดู"/);
 });
 
-test("upper completed card is cumulative while lower queue summary stays daily", () => {
+test("only completed metric is daily; other upper metric logic stays unchanged", () => {
   assert.match(
     patched,
-    /\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*Number\(row\.unloadingState\) === 2/,
+    /"metric-completed",\s*state\.archiveRows\.filter\(\(row\) => isCompletedToday\(row\)\)\.length/,
   );
-  assert.doesNotMatch(
-    patched,
-    /"metric-completed",\s*state\.archiveRows\.filter\(\(row\) => isCompletedToday\(row\)\)/,
-  );
+  assert.match(patched, /destinations = state\.archiveRows\.filter\(isDestination\)/);
+  assert.match(patched, /origins = state\.archiveRows\.filter\(isOrigin\)/);
+  assert.match(patched, /arrivals = destinations\.map\(\(row\) => punctuality\(row\)\)/);
+  assert.match(patched, /releases = origins\.map\(\(row\) => punctuality\(row\)\)/);
   assert.match(
     patched,
     /if \(isCompletedToday\(row\)\) counts\.completed\+\+;/,

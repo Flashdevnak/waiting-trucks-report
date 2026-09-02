@@ -1,5 +1,6 @@
 name: Fix Cancellation Anchor Once
 
+# One-shot fix trigger; remove after successful patch commit.
 on:
   push:
     branches: [main]

@@ -28,6 +28,7 @@ test("DEV staging integrates root frontend once and stays idempotent after cutov
   assert.match(first, /function isCompletedAccumulated\(row\)/);
   assert.match(first, /function isCancelledToday\(row, now = new Date\(\)\)/);
   assert.match(first, /function resetLowerDailyViewOnBangkokDayChange\(\)/);
+  assert.match(first, /const preserveObservedCompletion =/);
   const second = stageFrontend(first);
   assert.equal(second, first);
 });
@@ -65,6 +66,20 @@ test("ลงรถเสร็จ reuses browser cache and progressively renders
   assert.match(first, /firstBatch = mobileLayout \? 32 : 64/);
   assert.match(first, /requestAnimationFrame\(pump\)/);
   assert.match(first, /insertAdjacentHTML/);
+});
+
+test("ลงรถเสร็จ stays visible after the next 4-second live poll", () => {
+  const first = stageFrontend(frontendSource);
+  assert.match(first, /pollMs:\s*4000/);
+  assert.match(first, /const sameCompletionObservation =/);
+  assert.match(first, /previous\?\.completionObservedLive === true/);
+  assert.match(first, /Number\(previous\?\.unloadingState\) === 2/);
+  assert.match(first, /Number\(row\?\.unloadingState\) === 2/);
+  assert.match(first, /completionObservedLive: true/);
+  assert.match(
+    first,
+    /row\?\.unloadingCompletedAt \|\| previous\?\.unloadingCompletedAt/,
+  );
 });
 
 test("cancelled summary resets daily without clearing persisted cancellation", () => {

@@ -227,6 +227,10 @@ test("realtime settings and D1 read safeguards remain intact", async () => {
   assert.match(worker, /ms_live_cache/);
   assert.match(worker, /Array\.isArray\(live\.rows\)/);
   assert.match(worker, /COUNT\(\*\) AS total_distinct FROM ms_route_registry/);
+  assert.match(source, /!silent && !state\.archiveLoaded/);
+  assert.doesNotMatch(source, /!silent \|\| !state\.archiveLoaded/);
+  const historyIndex = await readFile(new URL("worker/migrations/0007_ms_history_read_index.sql", root), "utf8");
+  assert.match(historyIndex, /ms_route_history\(hub, snapshot_at DESC\)/);
   const preflight = await readFile(new URL("worker/scripts/production-preflight.sql", root), "utf8");
   assert.doesNotMatch(preflight, /COUNT\(DISTINCT route_id\)/);
   assert.doesNotMatch(preflight, /COUNT\(\*\) AS row_count FROM ms_route_history/);

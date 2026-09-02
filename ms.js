@@ -221,7 +221,7 @@ async function loadData(silent = false) {
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
     const archive =
-      !silent || !state.archiveLoaded
+      !silent && !state.archiveLoaded
         ? await apiGet("msArchive", { branch: state.branch })
         : null;
     state.currentRows = Array.isArray(result?.rows) ? result.rows : [];

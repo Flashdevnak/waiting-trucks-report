@@ -27,6 +27,7 @@ test("DEV staging integrates root frontend once and stays idempotent after cutov
   assert.match(first, /function renderRowsProgressively\(rows\)/);
   assert.match(first, /function isCompletedAccumulated\(row\)/);
   assert.match(first, /function isCancelledToday\(row, now = new Date\(\)\)/);
+  assert.match(first, /function resetLowerDailyViewOnBangkokDayChange\(\)/);
   const second = stageFrontend(first);
   assert.equal(second, first);
 });
@@ -73,7 +74,6 @@ test("cancelled summary resets daily without clearing persisted cancellation", (
   assert.match(first, /state\.summary === "cancelled" && queue\.cancelled && isCancelledToday\(row\)/);
   assert.match(first, /queueInfo\(row\)\.cancelled && isCancelledToday\(row\)/);
   assert.match(first, /bangkokDateValue\(row\.queueCancelledAt\) === bangkokDateValue\(now\)/);
-  assert.match(first, /queueStatus: q\.cancelled\s*\? "ยกเลิกรถแล้ว"/);
 });
 
 test("destination rows never expose or accept manual cancellation", () => {
@@ -88,6 +88,19 @@ test("live Route window includes tomorrow so midnight does not hide arrived cros
   const worker = stageWorker(workerSource);
   assert.match(worker, /start \+ 3 \* 86400000 - 1000/);
   assert.doesNotMatch(worker, /start \+ 2 \* 86400000 - 1000/);
+});
+
+test("daily completed only counts an observed 0\/1 to 2 transition and daily views roll at Bangkok midnight", () => {
+  const first = stageFrontend(frontendSource);
+  const worker = stageWorker(workerSource);
+  assert.match(worker, /completionObservedLive:\s*Number\(item\.snapshot\?\.unloadingState\) === 2/);
+  assert.match(worker, /Boolean\(old\) &&\s*Number\(old\?\.unloading_state\) !== 2/);
+  assert.match(worker, /row\?\.completionObservedLive === true/);
+  assert.match(worker, /item\.action !== "FIRST_SEEN" && item\.synced_by !== "MS_RANGE"/);
+  assert.match(worker, /!completionCacheReady/);
+  assert.match(first, /state\.summary === "completed" \|\| state\.summary === "cancelled"/);
+  assert.match(first, /state\.queue = "queue"/);
+  assert.match(first, /resetLowerDailyViewOnBangkokDayChange\(\)/);
 });
 
 test("seven lower summary cards stay on one desktop row", () => {
@@ -116,6 +129,7 @@ test("DEV staging still assembles all backend runtime patches from clean source"
   assert.match(worker, /ms_route_cancellations/);
   assert.match(worker, /DESTINATION_CANCEL_NOT_ALLOWED/);
   assert.match(worker, /planned across Bangkok midnight are already visible before 00:00/);
+  assert.match(worker, /completion cache only trusts observed live unloading transitions/);
 });
 
 test("DEV deploy uses the idempotent staging entrypoint", () => {

@@ -32,6 +32,10 @@ import {
   patchMsOperatingDayFrontend,
   patchMsOperatingDayWorker,
 } from "./patch-ms-operating-day.mjs";
+import {
+  patchMsDailyCompletionObservationFrontend,
+  patchMsDailyCompletionObservationWorker,
+} from "./patch-ms-daily-completion-observation.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -55,6 +59,7 @@ export function stageFrontend(source) {
   output = patchMsFastAllCancelledFrontend(output);
   output = patchMsSummaryPerformanceFrontend(output);
   output = patchMsOperatingDayFrontend(output);
+  output = patchMsDailyCompletionObservationFrontend(output);
   return output;
 }
 
@@ -73,6 +78,7 @@ export function stageWorker(source) {
   output = patchMsRouteCancellationWorker(output);
   output = patchMsNonDestinationCancellationWorker(output);
   output = patchMsOperatingDayWorker(output);
+  output = patchMsDailyCompletionObservationWorker(output);
   return output;
 }
 

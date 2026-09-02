@@ -147,7 +147,7 @@ export function patchDevMultiClientWorker(source) {
   output = replaceUnique(
     output,
     `async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {`,
-    `const MS_SYNC_CLAIM_LEASE_MS = 5000;
+    `const MS_SYNC_CLAIM_LEASE_MS = 15000;
 
 async function acquireMsSyncClaim(env, hub, sourceHash) {
   const now = new Date();

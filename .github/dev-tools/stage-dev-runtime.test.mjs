@@ -25,6 +25,8 @@ test("DEV staging integrates root frontend once and stays idempotent after cutov
   assert.match(first, /data-summary-status="cancelled"/);
   assert.match(first, /ยกเลิกรถแล้ว/);
   assert.match(first, /function renderRowsProgressively\(rows\)/);
+  assert.match(first, /function isCompletedAccumulated\(row\)/);
+  assert.match(first, /function isCancelledToday\(row, now = new Date\(\)\)/);
   const second = stageFrontend(first);
   assert.equal(second, first);
 });
@@ -46,6 +48,15 @@ test("รายการทั้งหมด uses live MS rows and renders only
   assert.match(first, /mobileCards\.innerHTML = ""/);
 });
 
+test("upper completed is cumulative while lower completed remains Bangkok-today", () => {
+  const first = stageFrontend(frontendSource);
+  assert.match(first, /state\.summary === "completed" && isCompletedToday\(row\)/);
+  assert.match(first, /state\.summary === "completed-all" && isCompletedAccumulated\(row\)/);
+  assert.match(first, /state\.summary = "completed-all"/);
+  assert.match(first, /state\.archiveRows\.filter\(\(row\) => isCompletedAccumulated\(row\)\)\.length/);
+  assert.match(first, /bangkokDateValue\(row\.unloadingCompletedAt\) === bangkokDateValue\(now\)/);
+});
+
 test("ลงรถเสร็จ reuses browser cache and progressively renders large result sets", () => {
   const first = stageFrontend(frontendSource);
   assert.match(first, /const cachedCompletedRows = state\.archiveRows\.filter\(isCompletedToday\)/);
@@ -55,13 +66,13 @@ test("ลงรถเสร็จ reuses browser cache and progressively renders
   assert.match(first, /insertAdjacentHTML/);
 });
 
-test("cancelled summary card is a fast live-row filter", () => {
+test("cancelled summary resets daily without clearing persisted cancellation", () => {
   const first = stageFrontend(frontendSource);
   assert.match(first, /summary-cancelled/);
   assert.match(first, /data-summary-status="cancelled"/);
-  assert.match(first, /state\.summary === "cancelled" && queue\.cancelled/);
-  assert.match(first, /value === "cancelled"/);
-  assert.match(first, /counts\.cancelled = state\.currentRows\.filter/);
+  assert.match(first, /state\.summary === "cancelled" && queue\.cancelled && isCancelledToday\(row\)/);
+  assert.match(first, /queueInfo\(row\)\.cancelled && isCancelledToday\(row\)/);
+  assert.match(first, /bangkokDateValue\(row\.queueCancelledAt\) === bangkokDateValue\(now\)/);
   assert.match(first, /queueStatus: q\.cancelled\s*\? "ยกเลิกรถแล้ว"/);
 });
 
@@ -71,6 +82,12 @@ test("destination rows never expose or accept manual cancellation", () => {
   assert.equal((first.match(/q\.active && !isDestination\(row\)/g) || []).length, 2);
   assert.match(first, /if \(isDestination\(row\)\)\s*return toast\("งานปลายทางไม่สามารถยกเลิกรถจากคิวด้วยมือได้"/);
   assert.match(worker, /if \(attendance === "ปลายทาง"\)\s*fail\("งานปลายทางไม่สามารถยกเลิกรถจากคิวด้วยมือได้", "DESTINATION_CANCEL_NOT_ALLOWED", 409\)/);
+});
+
+test("live Route window includes tomorrow so midnight does not hide arrived cross-day trips", () => {
+  const worker = stageWorker(workerSource);
+  assert.match(worker, /start \+ 3 \* 86400000 - 1000/);
+  assert.doesNotMatch(worker, /start \+ 2 \* 86400000 - 1000/);
 });
 
 test("seven lower summary cards stay on one desktop row", () => {
@@ -98,6 +115,7 @@ test("DEV staging still assembles all backend runtime patches from clean source"
   assert.match(worker, /async function cancelMsRoute/);
   assert.match(worker, /ms_route_cancellations/);
   assert.match(worker, /DESTINATION_CANCEL_NOT_ALLOWED/);
+  assert.match(worker, /planned across Bangkok midnight are already visible before 00:00/);
 });
 
 test("DEV deploy uses the idempotent staging entrypoint", () => {

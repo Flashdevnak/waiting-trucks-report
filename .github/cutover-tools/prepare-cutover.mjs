@@ -10,7 +10,7 @@ import { patchDevSummaryFilter } from "../dev-tools/patch-ms-summary-filter.mjs"
 import {
   patchMsRouteCancellationFrontend,
   patchMsRouteCancellationStyle,
-} from "../dev-tools/patch-ms-route-cancellation.mjs";
+} from "../dev-tools/patch-ms-route-cancellation-compat.mjs";
 
 export const OLD_API_ORIGIN =
   "https://waiting-trucks-report.alert-squid-6738.chatgpt.site";

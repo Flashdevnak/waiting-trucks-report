@@ -81,7 +81,7 @@ export function patchMsFastAllCancelledFrontend(source) {
 
   output = replaceUnique(
     output,
-    `    if (isOrigin(row) && !queue.done && !queue.cancelled) counts.origin++;\n    if (isDrop(row) && !queue.done && !queue.cancelled) counts.drop++;\n  }\n  el("filter-summary").innerHTML = \``,
+    `    if (isOrigin(row) && !queue.done) counts.origin++;\n    if (isDrop(row) && !queue.done) counts.drop++;\n  }\n  el("filter-summary").innerHTML = \``,
     `    if (isOrigin(row) && !queue.done && !queue.cancelled) counts.origin++;\n    if (isDrop(row) && !queue.done && !queue.cancelled) counts.drop++;\n  }\n  counts.cancelled = state.currentRows.filter((row) => queueInfo(row).cancelled).length;\n  el("filter-summary").innerHTML = \``,
     "cancelled summary count",
   );

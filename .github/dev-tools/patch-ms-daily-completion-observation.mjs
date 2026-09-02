@@ -58,8 +58,8 @@ export function patchMsDailyCompletionObservationWorker(source) {
   output = replaceUnique(
     output,
     `      "SELECT route_id,payload_json,synced_by FROM ms_route_history WHERE hub=? AND snapshot_at>=? ORDER BY snapshot_at ASC",`,
-    `      "SELECT route_id,payload_json,action,synced_by FROM ms_route_history WHERE hub=? AND snapshot_at>=? ORDER BY snapshot_at ASC",`,
-    "bootstrap includes FIRST_SEEN versus UPDATED action",
+    `      "SELECT route_id,payload_json,event_type AS action,synced_by FROM ms_route_history WHERE hub=? AND snapshot_at>=? ORDER BY snapshot_at ASC",`,
+    "bootstrap includes FIRST_SEEN versus UPDATED event type",
   );
 
   output = replaceUnique(
@@ -93,8 +93,8 @@ export function patchMsDailyCompletionObservationWorker(source) {
   output = replaceUnique(
     output,
     `      "SELECT route_id,payload_json,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
-    `      "SELECT route_id,payload_json,action,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
-    "archive reads completion observation action",
+    `      "SELECT route_id,payload_json,event_type AS action,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
+    "archive reads completion observation event type",
   );
 
   output = replaceUnique(

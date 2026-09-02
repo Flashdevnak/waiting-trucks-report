@@ -20,7 +20,8 @@ test("changed MS source is serialized across Worker isolates", () => {
   assert.match(worker, /INSERT INTO ms_sync_claims/);
   assert.match(worker, /state='DONE' AND ms_sync_claims\.source_hash<>excluded\.source_hash/);
   assert.match(worker, /state='ACTIVE' AND ms_sync_claims\.lease_until<\?/);
-  assert.match(worker, /MS_SYNC_CLAIM_LEASE_MS = 5000/);
+  assert.match(worker, /MS_SYNC_CLAIM_LEASE_MS = 15000/);
+  assert.doesNotMatch(worker, /MS_SYNC_CLAIM_LEASE_MS = 5000/);
   assert.match(worker, /if \(cache\?\.sourceMatch\) \{[\s\S]*?changes: 0/);
   assert.match(worker, /const claim = await acquireMsSyncClaim\(env, branch, sourceHash\)/);
   assert.match(worker, /const currentCache = await readMsLiveCache\(env, branch, sourceHash\)/);

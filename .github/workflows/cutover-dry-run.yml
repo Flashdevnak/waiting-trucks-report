@@ -1,0 +1,68 @@
+name: Cutover Dry Run
+
+# Prepares the exact GitHub Pages + Browser Worker cutover diff in an ephemeral
+# checkout only. No Cloudflare writes, no secret changes, no deploy and no push.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/cutover-tools/**
+      - .github/workflows/cutover-dry-run.yml
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    env:
+      CUTOVER_VERSION: 20260902-02
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prepare ephemeral cutover diff
+        run: node .github/cutover-tools/prepare-cutover.mjs "$GITHUB_WORKSPACE"
+      - name: Validate cutover targets and safety invariants
+        run: |
+          node --check ms.js
+          node --check cloudflare-browser-test/src/index.js
+          git diff --check
+          node <<'NODE'
+          const fs = require('fs');
+          const ms = fs.readFileSync('ms.js','utf8');
+          const style = fs.readFileSync('style.css','utf8');
+          const browser = fs.readFileSync('cloudflare-browser-test/src/index.js','utf8');
+          const sw = fs.readFileSync('sw.js','utf8');
+          const version = JSON.parse(fs.readFileSync('version.json','utf8'));
+          const expected = 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+          const old = 'https://waiting-trucks-report.alert-squid-6738.chatgpt.site';
+          const checks = [
+            [ms.includes(expected), 'GitHub Pages target is promoted Worker'],
+            [!ms.includes(old), 'root ms.js no longer targets OLD API'],
+            [ms.includes('requestTimeoutMs: 32000'), 'realtime recovery is integrated'],
+            [ms.includes('msCompletedToday'), 'daily completed cache UI is integrated'],
+            [style.includes('/* DEV mobile MS card spacing */'), 'mobile spacing is integrated'],
+            [browser.includes(`${expected}/api`), 'Browser Cron targets promoted Worker'],
+            [browser.includes('bootstrapConnector'), 'Browser can register connector during cutover'],
+            [browser.includes('randomConnectorToken'), 'Browser can recover when old KV token is absent'],
+            [browser.includes('CONNECTOR_BOOTSTRAP_SECRET'), 'Browser bootstrap is secret-gated'],
+            [sw.includes(`VERSION="${process.env.CUTOVER_VERSION}"`), 'service worker version is bumped'],
+            [version.version === process.env.CUTOVER_VERSION, 'version.json is bumped'],
+          ];
+          for (const [pass,label] of checks) {
+            console.log(`${pass ? 'PASS' : 'FAIL'} ${label}`);
+            if (!pass) process.exitCode = 1;
+          }
+          NODE
+          changed="$(git diff --name-only | sort)"
+          expected=$'cloudflare-browser-test/src/index.js\nms.js\nstyle.css\nsw.js\nversion.json'
+          if [ "$changed" != "$expected" ]; then
+            echo "Unexpected cutover files:"
+            printf '%s\n' "$changed"
+            exit 1
+          fi
+          echo "CUTOVER_DRY_RUN_MUTATIONS=0"

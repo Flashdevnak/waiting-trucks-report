@@ -47,16 +47,8 @@ jobs:
                       datetime_leq: $end
                     }
                   ) {
-                    sum {
-                      readQueries
-                      writeQueries
-                      rowsRead
-                      rowsWritten
-                    }
-                    dimensions {
-                      datetimeMinute
-                      databaseId
-                    }
+                    sum { readQueries writeQueries rowsRead rowsWritten }
+                    dimensions { datetimeMinute databaseId }
                   }
                   d1QueriesAdaptiveGroups(
                     limit: 10000
@@ -67,14 +59,8 @@ jobs:
                     }
                   ) {
                     count
-                    sum {
-                      rowsRead
-                      rowsWritten
-                    }
-                    dimensions {
-                      datetimeMinute
-                      query
-                    }
+                    sum { rowsRead rowsWritten }
+                    dimensions { datetimeMinute query }
                   }
                 }
               }
@@ -176,8 +162,6 @@ jobs:
             }));
           }
 
-          // Report the longest contiguous streak whose query details show no
-          // route/history/delete write. Heartbeat/cache writes remain visible.
           let best = [], current = [], previous = null;
           for (const row of rows) {
             const queries = byMinuteQuery.get(row.minute) || [];
@@ -210,4 +194,66 @@ jobs:
           console.log(`NO_CHANGE_RUNTIME_WRITE_CLEAN=${clean.rowsWritten}`);
           console.log(`NO_CHANGE_RUNTIME_READ_QUERIES_CLEAN=${clean.readQueries}`);
           console.log(`NO_CHANGE_RUNTIME_WRITE_QUERIES_CLEAN=${clean.writeQueries}`);
+          NODE
+
+      - name: Query post-deploy multi-client evidence read-only
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+          MULTICLIENT_DEPLOY_AT: 2026-09-02T06:07:08.000Z
+        run: |
+          node <<'NODE'
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const db = process.env.DEV_D1_DATABASE_ID;
+          const since = process.env.MULTICLIENT_DEPLOY_AT;
+          if (!account || !token || !db || !since) process.exit(2);
+
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${db}/query`;
+          async function sql(query, params = []) {
+            if (!/^\s*(SELECT|WITH|PRAGMA)\b/i.test(query))
+              throw new Error('Read-only diagnostic rejected non-read SQL');
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ sql: query, params }),
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.success === false) throw new Error(JSON.stringify(payload.errors || payload));
+            const result = Array.isArray(payload.result) ? payload.result[0] : payload.result;
+            return { rows: result?.results || [], meta: result?.meta || {} };
+          }
+
+          const claims = await sql(
+            'SELECT hub,source_hash,state,claimed_at,finished_at FROM ms_sync_claims ORDER BY hub LIMIT 20',
+          );
+          const minutes = await sql(
+            "SELECT substr(snapshot_at,1,16) AS minute,COUNT(*) AS history_rows,COUNT(DISTINCT route_id) AS distinct_routes FROM ms_route_history WHERE hub=? AND snapshot_at>=? GROUP BY substr(snapshot_at,1,16) ORDER BY minute",
+            ['NE1', since],
+          );
+          const duplicatePayloads = await sql(
+            "SELECT route_id,COUNT(*) AS copies,MIN(snapshot_at) AS first_at,MAX(snapshot_at) AS last_at FROM ms_route_history WHERE hub=? AND snapshot_at>=? GROUP BY route_id,payload_json HAVING COUNT(*)>1 ORDER BY copies DESC LIMIT 20",
+            ['NE1', since],
+          );
+          const syncAudit = await sql(
+            "SELECT substr(timestamp,1,16) AS minute,COUNT(*) AS sync_events FROM audit_log WHERE action='SYNC_MS_ROUTES' AND record_id=? AND timestamp>=? GROUP BY substr(timestamp,1,16) ORDER BY minute",
+            ['NE1', since],
+          );
+
+          console.log(`MULTICLIENT_DEPLOY_AT=${since}`);
+          console.log(`MS_SYNC_CLAIMS=${JSON.stringify(claims.rows)}`);
+          console.log(`POST_DEPLOY_HISTORY_MINUTES=${JSON.stringify(minutes.rows)}`);
+          console.log(`POST_DEPLOY_DUPLICATE_PAYLOADS=${JSON.stringify(duplicatePayloads.rows)}`);
+          console.log(`POST_DEPLOY_SYNC_AUDIT=${JSON.stringify(syncAudit.rows)}`);
+          console.log(`POST_DEPLOY_DIAGNOSTIC_ROWS_READ=${
+            Number(claims.meta.rows_read || 0) +
+            Number(minutes.meta.rows_read || 0) +
+            Number(duplicatePayloads.meta.rows_read || 0) +
+            Number(syncAudit.meta.rows_read || 0)
+          }`);
+          console.log('POST_DEPLOY_DIAGNOSTIC_ROWS_WRITTEN=0');
           NODE

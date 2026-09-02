@@ -11,6 +11,7 @@ import {
   patchMsRouteCancellationFrontend,
   patchMsRouteCancellationStyle,
 } from "../dev-tools/patch-ms-route-cancellation-compat.mjs";
+import { patchMsFastAllCancelledFrontend } from "../dev-tools/patch-ms-fast-all-cancelled-card.mjs";
 
 export const OLD_API_ORIGIN =
   "https://waiting-trucks-report.alert-squid-6738.chatgpt.site";
@@ -30,6 +31,7 @@ export function patchCutoverFrontend(msSource) {
   output = patchDevRealtimeFrontend(output);
   output = patchDevSummaryFilter(output);
   output = patchMsRouteCancellationFrontend(output);
+  output = patchMsFastAllCancelledFrontend(output);
   output = replaceUnique(
     output,
     `CONFIG.apiUrl = \`${"${"}window.location.hostname.endsWith("github.io") ? "${OLD_API_ORIGIN}" : window.location.origin}/api\`;`,

@@ -22,8 +22,37 @@ test("DEV staging integrates root frontend once and stays idempotent after cutov
   assert.equal(frontendHasIntegratedDevRuntime(first), true);
   assert.match(first, /data-cancel-ms-route/);
   assert.match(first, /submitCancelMsRoute/);
+  assert.match(first, /data-summary-status="cancelled"/);
+  assert.match(first, /ยกเลิกรถแล้ว/);
   const second = stageFrontend(first);
   assert.equal(second, first);
+});
+
+test("รายการทั้งหมด uses live MS rows and renders only the visible layout", () => {
+  const first = stageFrontend(frontendSource);
+  assert.match(first, /state\.archiveView = state\.queue === "completed"/);
+  assert.doesNotMatch(
+    first,
+    /state\.queue === "all" \|\| state\.queue === "completed"\) await ensureArchiveLoaded\(true\)/,
+  );
+  assert.match(
+    first,
+    /const useArchive =\s*queueMode === "completed" \|\|\s*\(queueMode === "all" && state\.archiveView\)/,
+  );
+  assert.match(first, /state\.archiveView = true;\s*state\.archiveLoaded = false;/);
+  assert.match(first, /window\.matchMedia\("\(max-width: 700px\)"\)\.matches/);
+  assert.match(first, /el\("table-body"\)\.innerHTML = ""/);
+  assert.match(first, /el\("mobile-cards"\)\.innerHTML = ""/);
+});
+
+test("cancelled summary card is a fast live-row filter", () => {
+  const first = stageFrontend(frontendSource);
+  assert.match(first, /summary-cancelled/);
+  assert.match(first, /data-summary-status="cancelled"/);
+  assert.match(first, /state\.summary === "cancelled" && queue\.cancelled/);
+  assert.match(first, /value === "cancelled"/);
+  assert.match(first, /counts\.cancelled = state\.currentRows\.filter/);
+  assert.match(first, /queueStatus: q\.cancelled\s*\? "ยกเลิกรถแล้ว"/);
 });
 
 test("DEV staging integrates mobile spacing and route cancellation controls once", () => {

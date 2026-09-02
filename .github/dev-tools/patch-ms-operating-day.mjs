@@ -7,6 +7,7 @@ function replaceUnique(output, from, to, label) {
 }
 
 const FRONTEND_MARKER = 'state.summary === "completed-all"';
+const HTML_MARKER = "ปลายทางและจุดดรอปที่ลงของเสร็จสะสม";
 const WORKER_MARKER = "start + 3 * 86400000 - 1000";
 
 export function patchMsOperatingDayFrontend(source) {
@@ -50,6 +51,20 @@ export function patchMsOperatingDayFrontend(source) {
 
   output = replaceUnique(
     output,
+    `  if (["completed", "arrival-ontime", "arrival-late", "departure-ontime", "departure-late"].includes(metric))\n    await ensureArchiveLoaded(true);`,
+    `  if (["all", "completed", "arrival-ontime", "arrival-late", "departure-ontime", "departure-late"].includes(metric))\n    await ensureArchiveLoaded(true);`,
+    "upper accumulated cards load archive",
+  );
+
+  output = replaceUnique(
+    output,
+    `  state.archiveView = [\n    "completed",`,
+    `  state.archiveView = [\n    "all",\n    "completed",`,
+    "upper accumulated all card uses archive view",
+  );
+
+  output = replaceUnique(
+    output,
     `  if (metric === "completed") {\n    state.queue = "all";\n    state.summary = "completed";\n  }`,
     `  if (metric === "completed") {\n    state.queue = "all";\n    state.summary = "completed-all";\n  }`,
     "top completed card opens cumulative completed rows",
@@ -63,6 +78,17 @@ export function patchMsOperatingDayFrontend(source) {
   );
 
   return output;
+}
+
+export function patchMsOperatingDayHtml(source) {
+  const output = String(source || "");
+  if (output.includes(HTML_MARKER)) return output;
+  return replaceUnique(
+    output,
+    `<small>ปลายทางและจุดดรอปที่ลงของเสร็จวันนี้</small>`,
+    `<small>${HTML_MARKER}</small>`,
+    "upper completed card description",
+  );
 }
 
 export function patchMsOperatingDayWorker(source) {

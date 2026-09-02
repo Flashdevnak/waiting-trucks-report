@@ -19,6 +19,11 @@ export function patchDevMsArchive(source) {
       from: "    await loadData(false);\n    toast(`ดึงข้อมูลย้อนหลัง ${nf.format(result.total)} รายการแล้ว`);",
       to: "    await loadData(false);\n    if (!(await ensureArchiveLoaded(true)))\n      throw new Error(\"โหลดรายการย้อนหลังไม่สำเร็จ\");\n    toast(`ดึงข้อมูลย้อนหลัง ${nf.format(result.total)} รายการแล้ว`);",
     },
+    {
+      name: "keep archive metric unloaded until requested",
+      from: "  setMetric(\"metric-archive\", state.archiveTotal ?? state.archiveRows.length);",
+      to: "  if (state.archiveLoaded)\n    setMetric(\"metric-archive\", state.archiveTotal ?? state.archiveRows.length);\n  else\n    el(\"metric-archive\").textContent = \"กดดู\";",
+    },
   ];
 
   for (const replacement of replacements) {

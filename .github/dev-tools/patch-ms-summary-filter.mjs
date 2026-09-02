@@ -60,6 +60,45 @@ export function patchDevSummaryFilter(source) {
         render();`,
     "active summary cards must return to current queue after completed view",
   );
+  output = replaceUnique(
+    output,
+    `function filteredRows(ignoreSummary = false) {
+  const source =
+    state.queue === "queue" ? state.currentRows : state.archiveRows;`,
+    `function filteredRows(ignoreSummary = false, queueMode = state.queue) {
+  const source =
+    queueMode === "queue" ? state.currentRows : state.archiveRows;`,
+    "summary counting can choose current queue without changing table view",
+  );
+  output = replaceUnique(
+    output,
+    `      const queueMatch =
+        state.queue === "all" ||
+        (state.queue === "completed" && (queue.done || queue.expired)) ||
+        (state.queue === "queue" && queue.active);`,
+    `      const queueMatch =
+        queueMode === "all" ||
+        (queueMode === "completed" && (queue.done || queue.expired)) ||
+        (queueMode === "queue" && queue.active);`,
+    "queue match follows requested summary source",
+  );
+  output = replaceUnique(
+    output,
+    `      return state.queue === "queue" ? aTime - bTime : bTime - aTime;`,
+    `      return queueMode === "queue" ? aTime - bTime : bTime - aTime;`,
+    "summary source sort follows requested queue mode",
+  );
+  output = replaceUnique(
+    output,
+    `  const summaryRows = filteredRows(true);
+  const rows = filteredRows();`,
+    `  const summaryRows = filteredRows(
+    true,
+    state.summary === "completed" ? "queue" : state.queue,
+  );
+  const rows = filteredRows();`,
+    "completed view keeps the other five summary counts on current live queue",
+  );
   return output;
 }
 

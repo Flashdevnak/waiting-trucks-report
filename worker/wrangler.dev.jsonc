@@ -27,13 +27,5 @@
       "tag": "dev-ms-refresh-coordinator-v1",
       "new_sqlite_classes": ["MsRefreshCoordinator"]
     }
-  ],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "waiting-trucks-report-dev-db",
-      "database_id": "798db282-46cd-4b2c-bfca-3d6d29596451",
-      "migrations_dir": "migrations"
-    }
   ]
 }

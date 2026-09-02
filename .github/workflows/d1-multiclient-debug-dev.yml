@@ -1,0 +1,86 @@
+name: D1 Multi Client Debug DEV
+
+# Read-only one-off diagnostics for DEV D1. Never deploys, migrates, or writes D1.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/d1-multiclient-debug-dev.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+    steps:
+      - name: Compare recent route-history payload changes
+        run: |
+          node <<'NODE'
+          const account = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const db = process.env.DEV_D1_DATABASE_ID;
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${db}/query`;
+          async function read(sql, params=[]) {
+            if (!/^\s*SELECT\b/i.test(sql)) throw new Error('read-only SQL only');
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sql, params }),
+            });
+            const payload = await response.json();
+            if (!response.ok || payload.success === false) throw new Error(JSON.stringify(payload.errors || payload));
+            const result = Array.isArray(payload.result) ? payload.result[0] : payload.result;
+            return { rows: result?.results || [], rowsRead: Number(result?.meta?.rows_read || 0) };
+          }
+          const history = await read(
+            "SELECT route_id,event_type,snapshot_at,payload_json FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 40",
+            ['NE1'],
+          );
+          const cache = await read(
+            "SELECT hub,source_hash,synced_at FROM ms_live_cache WHERE hub=? LIMIT 1",
+            ['NE1'],
+          );
+          const claim = await read(
+            "SELECT hub,source_hash,state,claimed_at,finished_at FROM ms_sync_claims WHERE hub=? LIMIT 1",
+            ['NE1'],
+          );
+          const byRoute = new Map();
+          const changes = [];
+          for (const row of [...history.rows].reverse()) {
+            let payload = {};
+            try { payload = JSON.parse(row.payload_json || '{}'); } catch {}
+            const previous = byRoute.get(row.route_id);
+            if (previous) {
+              const keys = new Set([...Object.keys(previous.payload || {}), ...Object.keys(payload || {})]);
+              const diff = [];
+              for (const key of keys) {
+                if (String(previous.payload?.[key] ?? '') !== String(payload?.[key] ?? '')) diff.push(key);
+              }
+              if (diff.length) changes.push({
+                routeId: row.route_id,
+                from: previous.at,
+                to: row.snapshot_at,
+                eventType: row.event_type,
+                diff,
+              });
+            }
+            byRoute.set(row.route_id, { at: row.snapshot_at, payload });
+          }
+          const counts = {};
+          for (const item of changes) for (const key of item.diff) counts[key] = (counts[key] || 0) + 1;
+          console.log(`HISTORY_ROWS=${history.rows.length}`);
+          console.log(`HISTORY_DIAGNOSTIC_ROWS_READ=${history.rowsRead}`);
+          console.log(`CACHE=${JSON.stringify(cache.rows)}`);
+          console.log(`CLAIM=${JSON.stringify(claim.rows)}`);
+          console.log(`DIFF_KEY_COUNTS=${JSON.stringify(counts)}`);
+          console.log(`RECENT_DIFFS=${JSON.stringify(changes.slice(-20))}`);
+          console.log(`TOTAL_DIAGNOSTIC_ROWS_READ=${history.rowsRead + cache.rowsRead + claim.rowsRead}`);
+          console.log('TOTAL_DIAGNOSTIC_ROWS_WRITTEN=0');
+          NODE

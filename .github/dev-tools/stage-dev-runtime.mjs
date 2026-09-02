@@ -18,7 +18,7 @@ import {
   patchMsRouteCancellationFrontend,
   patchMsRouteCancellationStyle,
   patchMsRouteCancellationWorker,
-} from "./patch-ms-route-cancellation.mjs";
+} from "./patch-ms-route-cancellation-compat.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");

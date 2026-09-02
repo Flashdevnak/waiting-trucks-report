@@ -1,0 +1,89 @@
+name: Apply MS archive read fix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-ms-archive-read-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Apply targeted archive read fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected 1 match, got {count}")
+              return text.replace(old, new, 1)
+
+          ms = Path("ms.js")
+          text = ms.read_text()
+          text = replace_once(
+              text,
+              '''    const archive =\n      !silent || !state.archiveLoaded\n        ? await apiGet("msArchive", { branch: state.branch })\n        : null;''',
+              '''    const archive =\n      !silent && !state.archiveLoaded\n        ? await apiGet("msArchive", { branch: state.branch })\n        : null;''',
+              "archive preload guard",
+          )
+          ms.write_text(text)
+
+          test_path = Path("worker/tests/frontend-requirements.test.mjs")
+          tests = test_path.read_text()
+          old = '''  assert.match(worker, /COUNT\\(\\*\\) AS total_distinct FROM ms_route_registry/);\n  const preflight = await readFile(new URL("worker/scripts/production-preflight.sql", root), "utf8");'''
+          new = '''  assert.match(worker, /COUNT\\(\\*\\) AS total_distinct FROM ms_route_registry/);\n  assert.match(source, /!silent && !state\\.archiveLoaded/);\n  assert.doesNotMatch(source, /!silent \\|\\| !state\\.archiveLoaded/);\n  const historyIndex = await readFile(new URL("worker/migrations/0007_ms_history_read_index.sql", root), "utf8");\n  assert.match(historyIndex, /ms_route_history\\(hub, snapshot_at DESC\\)/);\n  const preflight = await readFile(new URL("worker/scripts/production-preflight.sql", root), "utf8");'''
+          tests = replace_once(tests, old, new, "archive read regression test")
+          test_path.write_text(tests)
+
+          Path("worker/migrations/0007_ms_history_read_index.sql").write_text('''-- Avoid full-history scans for msArchive/msHistory newest-first reads.\nCREATE INDEX IF NOT EXISTS idx_ms_route_history_hub_snapshot\nON ms_route_history(hub, snapshot_at DESC);\n''')
+          PY
+
+      - name: Run checks
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+      - name: Commit final fix and remove applicator
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-ms-archive-read-fix.yml
+          git add ms.js worker/tests/frontend-requirements.test.mjs worker/migrations/0007_ms_history_read_index.sql
+          git diff --cached --check
+          git commit -m "Reduce archive history reads"
+          git push origin HEAD:main
+      - name: Apply DEV migration
+        working-directory: worker
+        run: npx wrangler d1 migrations apply DB --remote --config wrangler.dev.jsonc
+      - name: Validate DEV with low-read preflight
+        working-directory: worker
+        run: npx wrangler d1 execute DB --remote --config wrangler.dev.jsonc --file scripts/production-preflight.sql
+      - name: Stage DEV frontend assets
+        working-directory: worker
+        run: |
+          rm -rf .dev-assets
+          mkdir -p .dev-assets
+          cp ../ms.html ../ms.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+      - name: Deploy DEV Worker
+        working-directory: worker
+        run: npx wrangler deploy --config wrangler.dev.jsonc

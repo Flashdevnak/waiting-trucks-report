@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "waiting-trucks-report-api-dev",
-  "main": "src/index.js",
+  "main": "src/turso-index.js",
   "compatibility_date": "2026-08-31",
   "workers_dev": true,
   "assets": {
@@ -11,7 +11,8 @@
     "html_handling": "none"
   },
   "vars": {
-    "MS_BRANCH": "NE1"
+    "MS_BRANCH": "NE1",
+    "DB_BACKEND": "turso"
   },
   "durable_objects": {
     "bindings": [

@@ -1,6 +1,7 @@
 name: D1 MS History Diff DEV
 
-# Read-only diagnostic for identifying source-hash churn. Never deploys, migrates, or writes D1.
+# Read-only diagnostic for identifying source-hash churn and duplicate route snapshots.
+# Never deploys, migrates, or writes D1.
 
 on:
   workflow_dispatch:
@@ -19,20 +20,23 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+      LEASE_FIX_DEPLOY_AT: 2026-09-02T11:13:58.843Z
     steps:
-      - name: Diff latest DEV MS route history
+      - name: Diff post-lease DEV MS route history
         run: |
           node <<'NODE'
           const account = process.env.CLOUDFLARE_ACCOUNT_ID;
           const token = process.env.CLOUDFLARE_API_TOKEN;
           const db = process.env.DEV_D1_DATABASE_ID;
-          if (!account || !token || !db) process.exit(2);
+          const deployAt = process.env.LEASE_FIX_DEPLOY_AT;
+          if (!account || !token || !db || !deployAt) process.exit(2);
+          if (!/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(deployAt)) throw new Error('invalid deploy timestamp');
           const endpoint = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database/${db}/query`;
           const sql = `SELECT route_id,snapshot_at,event_type,payload_json
             FROM ms_route_history
-            WHERE hub='NE1'
+            WHERE hub='NE1' AND snapshot_at >= '${deployAt}'
             ORDER BY snapshot_at DESC
-            LIMIT 120`;
+            LIMIT 200`;
           const response = await fetch(endpoint, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -42,6 +46,8 @@ jobs:
           if (!response.ok || payload.success === false) throw new Error(JSON.stringify(payload.errors || payload));
           const result = Array.isArray(payload.result) ? payload.result[0] : payload.result;
           const rows = result?.results || [];
+          console.log(`LEASE_FIX_DEPLOY_AT=${deployAt}`);
+          console.log(`HISTORY_DIFF_ROWS_RETURNED=${rows.length}`);
           console.log(`HISTORY_DIFF_ROWS_READ=${Number(result?.meta?.rows_read || 0)}`);
           console.log('HISTORY_DIFF_ROWS_WRITTEN=0');
 
@@ -52,8 +58,10 @@ jobs:
           }
           const ignore = new Set(['syncedAt', 'synced_at', 'syncedBy', 'synced_by']);
           const fieldCounts = new Map();
-          const samples = [];
-          let pairs = 0;
+          const changedSamples = [];
+          const duplicateSamples = [];
+          let changedPairs = 0;
+          let duplicatePairs = 0;
           for (const [routeId, list] of groups) {
             if (list.length < 2) continue;
             for (let i = 0; i < list.length - 1; i++) {
@@ -65,11 +73,21 @@ jobs:
               const keys = [...new Set([...Object.keys(newer), ...Object.keys(older)])]
                 .filter((key) => !ignore.has(key));
               const changed = keys.filter((key) => JSON.stringify(newer[key] ?? null) !== JSON.stringify(older[key] ?? null));
-              if (!changed.length) continue;
-              pairs++;
+              if (!changed.length) {
+                duplicatePairs++;
+                if (duplicateSamples.length < 12) duplicateSamples.push({
+                  routeId,
+                  newerAt: list[i].snapshot_at,
+                  olderAt: list[i + 1].snapshot_at,
+                  newerEvent: list[i].event_type,
+                  olderEvent: list[i + 1].event_type,
+                });
+                continue;
+              }
+              changedPairs++;
               for (const key of changed) fieldCounts.set(key, (fieldCounts.get(key) || 0) + 1);
-              if (samples.length < 12) {
-                samples.push({
+              if (changedSamples.length < 12) {
+                changedSamples.push({
                   routeId,
                   newerAt: list[i].snapshot_at,
                   olderAt: list[i + 1].snapshot_at,
@@ -83,7 +101,9 @@ jobs:
               }
             }
           }
-          console.log(`HISTORY_DIFF_PAIRS=${pairs}`);
+          console.log(`HISTORY_CHANGED_PAIRS=${changedPairs}`);
+          console.log(`HISTORY_DUPLICATE_PAIRS=${duplicatePairs}`);
           console.log(`HISTORY_CHANGED_FIELDS=${JSON.stringify([...fieldCounts.entries()].sort((a,b)=>b[1]-a[1]))}`);
-          console.log(`HISTORY_DIFF_SAMPLES=${JSON.stringify(samples)}`);
+          console.log(`HISTORY_DUPLICATE_SAMPLES=${JSON.stringify(duplicateSamples)}`);
+          console.log(`HISTORY_CHANGED_SAMPLES=${JSON.stringify(changedSamples)}`);
           NODE

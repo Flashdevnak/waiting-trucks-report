@@ -13,6 +13,7 @@ on:
       - worker/tests/turso-d1.test.mjs
       - worker/package.json
       - worker/package-lock.json
+      - worker/wrangler.dev.jsonc
 
 permissions:
   contents: read
@@ -32,6 +33,16 @@ jobs:
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
       - run: npm run check
+      - name: Verify DEV config is Turso-only
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const config = fs.readFileSync('wrangler.dev.jsonc','utf8');
+          if (!config.includes('"DB_BACKEND": "turso"')) throw new Error('DB_BACKEND=turso missing');
+          if (!config.includes('"main": "src/turso-index.js"')) throw new Error('Turso entrypoint missing');
+          if (config.includes('d1_databases') || config.includes('waiting-trucks-report-dev-db')) throw new Error('DEV D1 runtime binding still present');
+          console.log('DEV_DATABASE_CONFIG=TURSO_ONLY');
+          NODE
       - name: Check one-time migration tooling syntax
         working-directory: .
         run: node --check .github/turso-tools/provision-upload.mjs

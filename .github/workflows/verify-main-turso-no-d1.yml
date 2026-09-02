@@ -1,0 +1,40 @@
+name: Verify Main Turso No D1
+
+on:
+  push:
+    branches: [turso-dev-migration]
+    paths:
+      - .github/workflows/verify-main-turso-no-d1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+    steps:
+      - name: Wait for analytics ingestion
+        run: sleep 120
+      - name: Verify zero D1 activity after main Turso deploy
+        run: |
+          node <<'NODE'
+          const endpoint='https://api.cloudflare.com/client/v4/graphql';
+          const accountTag=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const databaseId=process.env.DEV_D1_DATABASE_ID;
+          const start='2026-09-02T19:39:00.000Z';
+          const end=new Date(Date.now()-60_000).toISOString();
+          const query=`query($accountTag:String!,$databaseId:String!,$start:String!,$end:String!){viewer{accounts(filter:{accountTag:$accountTag}){d1AnalyticsAdaptiveGroups(limit:10000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){sum{readQueries writeQueries rowsRead rowsWritten} dimensions{datetimeMinute}}}}}`;
+          const r=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({query,variables:{accountTag,databaseId,start,end}})});
+          const p=await r.json();
+          if(!r.ok||p.errors?.length) throw new Error(JSON.stringify(p.errors||p));
+          let reads=0,writes=0,rowsRead=0,rowsWritten=0;
+          for(const g of p.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups||[]){reads+=Number(g.sum?.readQueries||0);writes+=Number(g.sum?.writeQueries||0);rowsRead+=Number(g.sum?.rowsRead||0);rowsWritten+=Number(g.sum?.rowsWritten||0);}
+          console.log(`VERIFY_START=${start}`); console.log(`VERIFY_END=${end}`);
+          console.log(`D1_READ_QUERIES=${reads}`); console.log(`D1_WRITE_QUERIES=${writes}`); console.log(`D1_ROWS_READ=${rowsRead}`); console.log(`D1_ROWS_WRITTEN=${rowsWritten}`); console.log('ANALYTICS_ONLY=true');
+          if(reads||writes||rowsRead||rowsWritten) process.exit(2);
+          NODE

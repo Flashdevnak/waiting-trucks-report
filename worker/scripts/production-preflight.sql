@@ -11,6 +11,7 @@ PRAGMA table_info(ms_preentry_connections);
 PRAGMA table_info(ms_route_history);
 PRAGMA table_info(ms_route_registry);
 PRAGMA table_info(ms_routes);
+PRAGMA table_info(ms_sync_claims);
 PRAGMA table_info(truck_history);
 PRAGMA table_info(users);
 SELECT 'active_trucks' AS table_name, EXISTS(SELECT 1 FROM active_trucks LIMIT 1) AS has_rows;
@@ -19,7 +20,9 @@ SELECT 'hub_settings' AS table_name, EXISTS(SELECT 1 FROM hub_settings LIMIT 1) 
 SELECT 'ms_route_history' AS table_name, EXISTS(SELECT 1 FROM ms_route_history LIMIT 1) AS has_rows;
 SELECT 'ms_route_registry' AS table_name, EXISTS(SELECT 1 FROM ms_route_registry LIMIT 1) AS has_rows;
 SELECT 'ms_routes' AS table_name, EXISTS(SELECT 1 FROM ms_routes LIMIT 1) AS has_rows;
+SELECT 'ms_sync_claims' AS table_name, EXISTS(SELECT 1 FROM ms_sync_claims LIMIT 1) AS has_rows;
 SELECT 'truck_history' AS table_name, EXISTS(SELECT 1 FROM truck_history LIMIT 1) AS has_rows;
 SELECT 'users' AS table_name, EXISTS(SELECT 1 FROM users LIMIT 1) AS has_rows;
 SELECT hub FROM ms_connections ORDER BY hub LIMIT 20;
 SELECT hub, synced_at FROM ms_live_cache ORDER BY hub LIMIT 20;
+SELECT hub, source_hash, state, claimed_at, finished_at FROM ms_sync_claims ORDER BY hub LIMIT 20;

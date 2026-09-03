@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/fix-ms-archive-completeness.yml
       - .github/dev-tools/apply-ms-archive-completeness.mjs
+      - .github/dev-tools/apply-ms-archive-completeness-v2.mjs
 
 permissions:
   contents: write
@@ -21,7 +22,7 @@ jobs:
         with:
           node-version: 22
       - name: Apply accumulated archive completeness patch
-        run: node .github/dev-tools/apply-ms-archive-completeness.mjs
+        run: node .github/dev-tools/apply-ms-archive-completeness-v2.mjs
       - name: Validate patch before commit
         run: |
           node --check ms.js

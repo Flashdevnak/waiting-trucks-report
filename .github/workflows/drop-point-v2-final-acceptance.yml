@@ -1,0 +1,131 @@
+name: Drop Point V2 Final Acceptance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/drop-point-v2-final-acceptance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+      WORKER_BASE: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      PAGES_BASE: https://flashdevnak.github.io/waiting-trucks-report
+      BROWSER_API: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      RELEASE: 20260904-01
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify served drop-point V2 release
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const bust=Date.now();
+            async function get(url){const sep=url.includes('?')?'&':'?';const r=await fetch(`${url}${sep}__dropv2=${bust}`,{cache:'no-store'});const t=await r.text();if(!r.ok)throw new Error(`${url} HTTP ${r.status}`);return t}
+            for(const [name,base] of [['WORKER',process.env.WORKER_BASE],['PAGES',process.env.PAGES_BASE]]){
+              const [html,js,sw]=await Promise.all([get(`${base}/ms.html`),get(`${base}/ms.js`),get(`${base}/sw.js`)]);
+              if(!html.includes(`ms.js?v=${process.env.RELEASE}`)) throw new Error(`${name} ms.html release mismatch`);
+              if(!sw.includes(`VERSION="${process.env.RELEASE}"`)) throw new Error(`${name} service worker release mismatch`);
+              const markers=[
+                'DROP_POINT_UI_V2',
+                'pollMs: 4000',
+                'q.active && isOrigin(row)',
+                '<span>1 · ลงของ</span>',
+                'ตั้งแต่รถถึง · มาตรฐาน ${nf.format(drop.unloadingStandard)} นาที',
+                'เพิ่ม ${nf.format(lateAdjustment)} นาทีจากรถเข้าช้า',
+                'function adjustedDropDeparturePlan(row)'
+              ];
+              for(const marker of markers) if(!js.includes(marker)) throw new Error(`${name} ms.js missing ${marker}`);
+              if(js.includes('q.active && !isDestination(row)')) throw new Error(`${name} still exposes cancel to drop rows`);
+              if(js.includes('เหลืออีก ${nf.format(Math.max(0, drop.unloadingStandard - drop.unloadingMinutes))} นาที')) throw new Error(`${name} still serves legacy unload remaining text`);
+              console.log(`${name}_RELEASE=${process.env.RELEASE}`);
+              console.log(`${name}_DROP_CANCEL_ORIGIN_ONLY=PASS`);
+              console.log(`${name}_DROP_UNLOAD_DESTINATION_STYLE=PASS`);
+              console.log(`${name}_DROP_RELEASE_LATE_ADJUSTMENT=PASS`);
+              console.log(`${name}_POLL_MS=4000`);
+            }
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify timing example and Browser Cron
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const cfg=fs.readFileSync('cloudflare-browser-test/wrangler.jsonc','utf8');
+          const browser=fs.readFileSync('cloudflare-browser-test/src/index.js','utf8');
+          if(!cfg.includes('"* * * * *"')) throw new Error('Browser Cron is not every minute');
+          if(!browser.includes('syncConfiguredHubs(env)')) throw new Error('Browser scheduled sync missing');
+          const plannedArrival=Date.parse('2026-09-03T21:00:00+07:00');
+          const actualArrival=Date.parse('2026-09-03T21:45:00+07:00');
+          const plannedDeparture=Date.parse('2026-09-03T22:00:00+07:00');
+          const now=Date.parse('2026-09-03T21:58:00+07:00');
+          const late=Math.max(0,Math.round((actualArrival-plannedArrival)/60000));
+          const adjusted=plannedDeparture+late*60000;
+          const remaining=Math.ceil((adjusted-now)/60000);
+          if(late!==45||remaining!==47) throw new Error(`timing mismatch late=${late} remaining=${remaining}`);
+          if(new Date(adjusted).toISOString()!=='2026-09-03T15:45:00.000Z') throw new Error('adjusted deadline is not 22:45 Bangkok');
+          console.log('DROP_EXAMPLE_21_00_TO_21_45_LATE=45_MIN');
+          console.log('DROP_EXAMPLE_ADJUSTED_RELEASE=22:45');
+          console.log('DROP_EXAMPLE_AT_21_58_REMAINING=47_MIN');
+          console.log('BROWSER_CRON_1_MINUTE=PASS');
+          NODE
+
+      - name: Verify Cloudflare runtimes and JSON health
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const hr=await fetch(`${process.env.WORKER_BASE}/api?action=health`,{headers:{Accept:'application/json'},cache:'no-store'});const ht=await hr.text();if(/^\s*</.test(ht))throw new Error('health returned HTML');const hj=JSON.parse(ht);if(!hr.ok||!hj?.ok)throw new Error(`health HTTP ${hr.status}`);
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,headers={Authorization:`Bearer ${token}`};
+            async function cf(script,path){const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}${path}`,{headers});const p=await r.json();if(!r.ok||p.success===false)throw new Error(`${script}${path} HTTP ${r.status}`);return p.result}
+            const browser='waiting-trucks-ms-browser-test',backend='waiting-trucks-report-api-dev';
+            const [bd,bs,wd,ws]=await Promise.all([cf(browser,'/deployments'),cf(browser,'/script-settings'),cf(backend,'/deployments'),cf(backend,'/script-settings')]);
+            const active=r=>{const d=r?.deployments?.[0];return [...(d?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||'-'};
+            for(const [name,s] of [[browser,bs],[backend,ws]]){const bindings=Array.isArray(s?.bindings)?s.bindings:[];if(bindings.some(x=>x.type==='d1'||x.type==='d1_database'))throw new Error(`${name} has D1 binding`)}
+            console.log(`ACTIVE_BROWSER_VERSION=${active(bd)}`);
+            console.log(`ACTIVE_BACKEND_VERSION=${active(wd)}`);
+            console.log('ACTIVE_D1_BINDINGS=0');
+            console.log('HEALTH_JSON=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify sessions and Turso live cache
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG,db=process.env.TURSO_DATABASE,ph={Authorization:`Bearer ${process.env.TURSO_PLATFORM_API_TOKEN}`};
+            const dr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:ph});const dj=await dr.json();if(!dr.ok)throw new Error(`Turso DB HTTP ${dr.status}`);const database=dj.database||dj,hostname=database.Hostname||database.hostname;
+            const tr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:ph});const tj=await tr.json();if(!tr.ok||!tj.jwt)throw new Error(`Turso token HTTP ${tr.status}`);const token=tj.jwt;console.log(`::add-mask::${token}`);
+            async function q(sql){const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});const p=await r.json();const i=p?.results?.[0];if(!r.ok||i?.type==='error')throw new Error(`Turso query failed ${JSON.stringify(i?.error||p).slice(0,400)}`);return i?.response?.result}
+            const d=v=>v==null?null:(typeof v==='object'&&'value'in v?v.value:v),first=r=>(r?.rows?.[0]||[]).map(d),age=v=>{const t=Date.parse(String(v||''));return Number.isFinite(t)?Math.max(0,Math.round((Date.now()-t)/1000)):-1};
+            const [route,pre,bus,live]=await Promise.all([
+              q("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT synced_at,json_valid(rows_json),CASE WHEN json_type(rows_json)='object' THEN json_array_length(rows_json,'$.rows') ELSE json_array_length(rows_json) END FROM ms_live_cache WHERE hub='NE1' LIMIT 1")
+            ]);
+            for(const [name,r] of Object.entries({route,preentry:pre,bus})){const x=first(r),a=age(x[0]);if(String(x[1]||''))throw new Error(`${name} last_error=${x[1]}`);if(a<0||a>1200)throw new Error(`${name} stale ${a}s`);console.log(`${name.toUpperCase()}_SESSION_AGE_SECONDS=${a}`);console.log(`${name.toUpperCase()}_SESSION=PASS`)}
+            const l=first(live),la=age(l[0]);if(Number(l[1])!==1)throw new Error('live cache invalid');if(la<0||la>180)throw new Error(`live cache stale ${la}s`);console.log(`LIVE_CACHE_SYNC_AGE_SECONDS=${la}`);console.log(`LIVE_ROUTE_ROWS=${Number(l[2]||0)}`);console.log('TURSO_LIVE_CACHE=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify D1 remains inactive
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,databaseId=process.env.DEV_D1_DATABASE_ID,end=new Date(Date.now()-120000),start=new Date(Date.now()-900000);
+            const query=`query($accountTag:String!,$databaseId:String!,$start:String!,$end:String!){viewer{accounts(filter:{accountTag:$accountTag}){d1AnalyticsAdaptiveGroups(limit:1000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){sum{rowsRead rowsWritten readQueries writeQueries}}}}}`;
+            const r=await fetch('https://api.cloudflare.com/client/v4/graphql',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({query,variables:{accountTag:account,databaseId,start:start.toISOString(),end:end.toISOString()}})});const p=await r.json();if(!r.ok||p.errors?.length)throw new Error(JSON.stringify(p.errors||p));const gs=p.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups||[];const t=gs.reduce((s,g)=>({rr:s.rr+Number(g.sum?.rowsRead||0),rw:s.rw+Number(g.sum?.rowsWritten||0),rq:s.rq+Number(g.sum?.readQueries||0),wq:s.wq+Number(g.sum?.writeQueries||0)}),{rr:0,rw:0,rq:0,wq:0});
+            console.log(`D1_ROWS_READ=${t.rr}`);console.log(`D1_ROWS_WRITTEN=${t.rw}`);console.log(`D1_READ_QUERIES=${t.rq}`);console.log(`D1_WRITE_QUERIES=${t.wq}`);if(Object.values(t).some(Number))throw new Error(`D1 activity not zero ${JSON.stringify(t)}`);console.log('D1_RUNTIME_ACTIVITY=0');console.log('DROP_POINT_V2_FINAL_ACCEPTANCE=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

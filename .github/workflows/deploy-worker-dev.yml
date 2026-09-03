@@ -2,7 +2,7 @@ name: Deploy Worker DEV
 
 # DEV-only pipeline. Runtime is Turso-only. The former D1 database is a frozen
 # rollback snapshot and is never bound or queried by this normal deploy path.
-# Trigger: DROP_POINT_UI_V2-R4
+# Trigger: MS_QUOTA_SAFE_LIVE_V1
 
 on:
   workflow_dispatch:
@@ -53,6 +53,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
       - run: node --test ../.github/dev-tools/ms-archive-completeness.test.mjs
       - run: node --test ../.github/dev-tools/daily-history.test.mjs
+      - run: node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
       - name: Reject any remaining D1 binding before deploy
         run: |
@@ -87,7 +88,10 @@ jobs:
             if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
           if(!worker.includes('MS_DAILY_HISTORY_V1: read-only daily history')) throw new Error('staged worker missing daily-history contract');
           if(!worker.includes('upstreamMsCalls: 0') || !worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
+          if(!worker.includes('MS_QUOTA_SAFE_LIVE_V1')) throw new Error('staged worker missing quota-safe live contract');
+          if(!worker.includes('baselineRows: (currentCache || cache)?.rows || null')) throw new Error('staged worker does not pass live-cache baseline');
           console.log('STAGED_DAILY_HISTORY=PASS');
+          console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
           console.log('STAGED_POLL_MS=4000');
           NODE
       - name: Verify Turso secrets exist on DEV Worker

@@ -43,6 +43,8 @@ jobs:
                 SELECT route_id AS id FROM ms_route_history WHERE hub='NE1'
                 UNION
                 SELECT id FROM ms_routes WHERE hub='NE1'
+              ), recent10k AS (
+                SELECT route_id FROM ms_route_history WHERE hub='NE1' ORDER BY snapshot_at DESC LIMIT 10000
               )
               SELECT
                 (SELECT COUNT(*) FROM ms_route_registry WHERE hub='NE1'),
@@ -51,16 +53,19 @@ jobs:
                 (SELECT COUNT(*) FROM known),
                 (SELECT COUNT(*) FROM known k LEFT JOIN ms_route_registry r ON r.hub='NE1' AND r.route_id=k.id WHERE r.route_id IS NULL),
                 (SELECT COUNT(*) FROM ms_route_history WHERE hub='NE1'),
+                (SELECT COUNT(DISTINCT route_id) FROM recent10k),
                 (SELECT MIN(snapshot_at) FROM ms_route_history WHERE hub='NE1'),
                 (SELECT MAX(snapshot_at) FROM ms_route_history WHERE hub='NE1')
             `));
-            const [registry,historyDistinct,currentDistinct,knownDistinct,registryMissing,snapshots,firstSnapshot,lastSnapshot]=counts;
+            const [registry,historyDistinct,currentDistinct,knownDistinct,registryMissing,snapshots,recent10kDistinct,firstSnapshot,lastSnapshot]=counts;
             console.log(`REGISTRY_COUNT=${registry}`);
             console.log(`HISTORY_DISTINCT=${historyDistinct}`);
             console.log(`CURRENT_DISTINCT=${currentDistinct}`);
             console.log(`KNOWN_DISTINCT=${knownDistinct}`);
             console.log(`REGISTRY_MISSING_KNOWN=${registryMissing}`);
             console.log(`HISTORY_SNAPSHOTS=${snapshots}`);
+            console.log(`RECENT_10000_DISTINCT=${recent10kDistinct}`);
+            console.log(`ARCHIVE_DETAIL_GAP=${Math.max(0,Number(knownDistinct)-Number(recent10kDistinct))}`);
             console.log(`FIRST_HISTORY=${firstSnapshot||'-'}`);
             console.log(`LAST_HISTORY=${lastSnapshot||'-'}`);
             console.log(`ACCUMULATED_COUNT_MATCH=${Number(registry)===Number(knownDistinct)&&Number(registryMissing)===0?'PASS':'FAIL'}`);

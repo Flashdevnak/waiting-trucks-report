@@ -36,11 +36,15 @@ test("completed view keeps the other five cards on the live current queue", () =
   );
   assert.match(
     staged,
-    /queueMode === "queue" \? state\.currentRows : state\.archiveRows/,
+    /const useArchive =\s*queueMode === "completed" \|\|\s*\(queueMode === "all" && state\.archiveView\);/,
   );
   assert.match(
     staged,
-    /state\.summary === "completed" \? "queue" : state\.queue/,
+    /const source = useArchive \? state\.archiveRows : state\.currentRows;/,
+  );
+  assert.match(
+    staged,
+    /state\.summary === "completed" \|\|\s*state\.summary === "completed-all" \|\|\s*state\.summary === "cancelled"\s*\? "queue"\s*: state\.queue/,
   );
   assert.match(staged, /queueMode === "all"/);
   assert.match(staged, /queueMode === "queue" && queue\.active/);

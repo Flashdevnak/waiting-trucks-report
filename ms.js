@@ -740,32 +740,64 @@ function isCancelledToday(row, now = new Date()) {
   );
 }
 
+// DROP_POINT_UI_V2: only a late real arrival shifts the drop-point release deadline.
+function adjustedDropDeparturePlan(row) {
+  const plannedDeparture = parseDate(row.estimatedDepartureAt);
+  if (!plannedDeparture || !isDrop(row))
+    return { plan: plannedDeparture, lateMinutes: 0 };
+  const plannedArrival = parseDate(row.estimatedArrivalAt);
+  const actualArrival = parseDate(row.actualArrivalAt);
+  if (!plannedArrival || !actualArrival)
+    return { plan: plannedDeparture, lateMinutes: 0 };
+  const lateMinutes = Math.max(
+    0,
+    Math.round((actualArrival - plannedArrival) / 60000),
+  );
+  return {
+    plan: new Date(plannedDeparture.getTime() + lateMinutes * 60000),
+    lateMinutes,
+  };
+}
+
 function departureCountdown(row, now = new Date()) {
-  const plan = parseDate(row.estimatedDepartureAt);
-  if (!plan || (!isOrigin(row) && !isDrop(row))) return null;
+  const basePlan = parseDate(row.estimatedDepartureAt);
+  if (!basePlan || (!isOrigin(row) && !isDrop(row))) return null;
+  const adjusted = isDrop(row)
+    ? adjustedDropDeparturePlan(row)
+    : { plan: basePlan, lateMinutes: 0 };
+  const plan = adjusted.plan || basePlan;
+  const lateAdjustment = Number(adjusted.lateMinutes) || 0;
+  const adjustmentLabel =
+    isDrop(row) && lateAdjustment > 0
+      ? ` · เพิ่ม ${nf.format(lateAdjustment)} นาทีจากรถเข้าช้า`
+      : "";
   const actual = parseDate(row.actualDepartureAt);
   if (actual) {
     const diff = Math.round((actual - plan) / 60000);
     return {
       key: diff > 0 ? "late" : "ontime",
       minutes: Math.abs(diff),
-      label: diff > 0
-        ? `ออกช้า ${nf.format(diff)} นาที`
-        : diff < 0
-          ? `ออกก่อนเวลา ${nf.format(Math.abs(diff))} นาที`
-          : "ตรงเวลา",
+      adjustedByLateMinutes: lateAdjustment,
+      label:
+        (diff > 0
+          ? `ออกช้า ${nf.format(diff)} นาที`
+          : diff < 0
+            ? `ออกก่อนเวลา ${nf.format(Math.abs(diff))} นาที`
+            : "ตรงเวลา") + adjustmentLabel,
     };
   }
   const diff = Math.ceil((plan - now) / 60000);
   return {
     key: diff < 0 ? "late" : "pending",
     minutes: Math.abs(diff),
-    label: diff < 0
-      ? `เกินกำหนด ${nf.format(Math.abs(diff))} นาที`
-      : `เหลือ ${nf.format(diff)} นาทีถึงกำหนดปล่อย`,
+    adjustedByLateMinutes: lateAdjustment,
+    label:
+      (diff < 0
+        ? `เกินกำหนด ${nf.format(Math.abs(diff))} นาที`
+        : `เหลือ ${nf.format(diff)} นาทีถึงกำหนดปล่อย`) +
+      adjustmentLabel,
   };
 }
-
 function departureCountdownHtml(row) {
   const item = departureCountdown(row);
   return item
@@ -774,19 +806,18 @@ function departureCountdownHtml(row) {
 }
 
 function dropProgressHtml(drop, compact = false) {
-  const stageOneDetail = drop.unloadingMinutes === null
-    ? "รอรถมาถึง"
-    : drop.unloadingDone
-      ? `ใช้เวลา ${nf.format(drop.unloadingMinutes)} นาที · มาตรฐาน ${nf.format(drop.unloadingStandard)} นาที`
-      : `ใช้แล้ว ${nf.format(drop.unloadingMinutes)} นาที · มาตรฐาน ${nf.format(drop.unloadingStandard)} นาที · ${drop.unloadingOver ? `เกินมาตรฐาน ${nf.format(drop.unloadingMinutes - drop.unloadingStandard)} นาที` : `เหลืออีก ${nf.format(Math.max(0, drop.unloadingStandard - drop.unloadingMinutes))} นาที`}`;
-  const stageTwoDetail = drop.onwardMinutes === null
-    ? "รอขั้นตอนลงของ"
-    : drop.onwardDone
-      ? `ออกหลังลงของเสร็จ ${nf.format(drop.onwardMinutes)} นาที`
-      : `รอออกแล้ว ${nf.format(drop.onwardMinutes)} นาที`;
-  return `<div class="drop-progress${compact ? " compact-drop-progress" : ""}"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""} ${drop.unloadingOver ? "is-late" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${stageOneDetail}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${stageTwoDetail}</small></div></div>`;
+  const stageOneDetail =
+    drop.unloadingMinutes === null
+      ? '<span class="row-muted">รอรถมาถึง</span>'
+      : `<div class="duration-line ${drop.unloadingOver ? "is-late" : "is-ok"}"><strong>${nf.format(drop.unloadingMinutes)} นาที</strong><span>ตั้งแต่รถถึง · มาตรฐาน ${nf.format(drop.unloadingStandard)} นาที</span></div>`;
+  const stageTwoDetail =
+    drop.onwardMinutes === null
+      ? ""
+      : drop.onwardDone
+        ? `ออกหลังลงของ ${nf.format(drop.onwardMinutes)} นาที`
+        : `รอออก ${nf.format(drop.onwardMinutes)} นาที`;
+  return `<div class="drop-progress${compact ? " compact-drop-progress" : ""}"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""} ${drop.unloadingOver ? "is-late" : ""}"><span>1 · ลงของ</span><strong>${esc(drop.unloadingLabel)}</strong>${stageOneDetail}</div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong>${stageTwoDetail ? `<small>${stageTwoDetail}</small>` : ""}</div></div>`;
 }
-
 function filteredRows(ignoreSummary = false, queueMode = state.queue) {
   const useArchive =
     queueMode === "completed" ||
@@ -1299,7 +1330,7 @@ function tableRow(row) {
     <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
     <td><div class="schedule-stack ${isDestination(row) ? "single" : "dual"}">${scheduleHtml}</div></td>
     <td><div class="work-summary"><div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}${departureCountdownHtml(row)}<small class="queue-label">${esc(queueText)}</small>${arrivalSources(row)}</div></td>
-    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && !isDestination(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
+    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
   </tr>`;
 }
 
@@ -1370,7 +1401,7 @@ function card(row) {
     <div class="compact-operation ${isDestination(row) && wait.over ? "late" : ""}"><div><span>${isDestination(row) ? "เวลารอ + ลงงาน" : "เวลาเทียบแผน"}</span><strong>${esc(durationText)}</strong><small>${esc(durationNote)}</small></div><div><span>สถานะล่าสุด</span><strong>${esc(workStatus)}</strong><small>${esc(queueText)}</small></div></div>
     ${isDrop(row) ? dropProgressHtml(drop, true) : ""}${departureCountdownHtml(row)}
     ${arrivalSources(row)}
-    <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}${q.active && !isDestination(row) ? `<button type="button" class="cancel-route-button compact-cancel-route" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div>
+    <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button compact-cancel-route" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div>
   </article>`;
 }
 

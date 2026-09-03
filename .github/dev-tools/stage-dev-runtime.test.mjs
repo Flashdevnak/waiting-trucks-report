@@ -97,10 +97,11 @@ test("cancelled summary resets daily without clearing persisted cancellation", (
   assert.match(first, /bangkokDateValue\(row\.queueCancelledAt\) === bangkokDateValue\(now\)/);
 });
 
-test("destination rows never expose or accept manual cancellation", () => {
+test("only origin rows expose manual cancellation", () => {
   const first = stageFrontend(frontendSource);
   const worker = stageWorker(workerSource);
-  assert.equal((first.match(/q\.active && !isDestination\(row\)/g) || []).length, 2);
+  assert.equal((first.match(/q\.active && isOrigin\(row\)/g) || []).length, 2);
+  assert.doesNotMatch(first, /q\.active && !isDestination\(row\)/);
   assert.match(first, /if \(isDestination\(row\)\)\s*return toast\("งานปลายทางไม่สามารถยกเลิกรถจากคิวด้วยมือได้"/);
   assert.match(worker, /if \(attendance === "ปลายทาง"\)\s*fail\("งานปลายทางไม่สามารถยกเลิกรถจากคิวด้วยมือได้", "DESTINATION_CANCEL_NOT_ALLOWED", 409\)/);
 });

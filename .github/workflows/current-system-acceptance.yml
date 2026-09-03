@@ -1,0 +1,187 @@
+name: Current System Acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/current-system-acceptance.yml
+
+permissions:
+  contents: read
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      PAGES_ORIGIN: https://flashdevnak.github.io/waiting-trucks-report
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify user-facing pages and realtime frontend invariants
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const stamp=Date.now();
+            const worker=process.env.WORKER_ORIGIN;
+            const pages=process.env.PAGES_ORIGIN;
+            const browser=process.env.BROWSER_ORIGIN;
+            const urls={
+              workerHtml:`${worker}/ms.html?v=${stamp}`,
+              workerJs:`${worker}/ms.js?v=${stamp}`,
+              pagesHtml:`${pages}/ms.html?v=${stamp}`,
+              pagesJs:`${pages}/ms.js?v=${stamp}`,
+              health:`${worker}/api?action=health`,
+              browser:`${browser}/api/config`,
+            };
+            const entries=await Promise.all(Object.entries(urls).map(async([name,url])=>{
+              const response=await fetch(url,{cache:'no-store'});
+              if(!response.ok) throw new Error(`${name} HTTP ${response.status}`);
+              return [name,response];
+            }));
+            const map=Object.fromEntries(entries);
+            const workerHtml=await map.workerHtml.text();
+            const workerJs=await map.workerJs.text();
+            const pagesHtml=await map.pagesHtml.text();
+            const pagesJs=await map.pagesJs.text();
+            const health=await map.health.json();
+            const browserBody=await map.browser.json();
+            const api=`${worker}/api`;
+            for(const [name,html] of [['worker',workerHtml],['pages',pagesHtml]])
+              if(!html.includes('ms.js')) throw new Error(`${name} ms.html does not load ms.js`);
+            for(const [name,js] of [['worker',workerJs],['pages',pagesJs]]){
+              if(!js.includes(api)) throw new Error(`${name} ms.js target mismatch`);
+              if(!/pollMs:\s*4000/.test(js)) throw new Error(`${name} polling is not 4000 ms`);
+              if(!js.includes('const preserveObservedCompletion =')) throw new Error(`${name} completed view stability missing`);
+            }
+            if(!health?.ok) throw new Error(`Worker health failed: ${JSON.stringify(health)}`);
+            if(!browserBody?.ok) throw new Error(`Browser health failed: ${JSON.stringify(browserBody)}`);
+            console.log('WORKER_MS_PAGE=PASS');
+            console.log('GITHUB_PAGES_MS_PAGE=PASS');
+            console.log('PROMOTED_TURSO_API_TARGET=PASS');
+            console.log('FRONTEND_POLL_4S=PASS');
+            console.log('COMPLETED_VIEW_STABILITY=PASS');
+            console.log('WORKER_HEALTH=PASS');
+            console.log('BROWSER_HEALTH=PASS');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Verify Browser recovery source and one-minute Cron policy
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const source=fs.readFileSync('cloudflare-browser-test/src/index.js','utf8');
+          const config=fs.readFileSync('cloudflare-browser-test/wrangler.jsonc','utf8');
+          if(!source.includes('payload?.code === "INVALID_CONNECTOR"')) throw new Error('Browser invalid-connector discrimination missing');
+          if(!source.includes('connector_sync_blocked')) throw new Error('Browser retained-connector diagnostic missing');
+          if(/response\.status === 401 && !env\.CONNECTOR_BOOTSTRAP_SECRET\)\s*\n\s*await env\.STATE\.delete/.test(source))
+            throw new Error('Browser still deletes connector on every 401');
+          if(!config.includes('"* * * * *"')) throw new Error('Browser Cron is not every minute');
+          if(config.includes('d1_databases')) throw new Error('Browser source config binds D1');
+          console.log('BROWSER_SESSION_EXPIRY_RECOVERY=PASS');
+          console.log('BROWSER_CRON_ONE_MINUTE=PASS');
+          console.log('BROWSER_SOURCE_D1_BINDING=0');
+          NODE
+
+      - name: Verify Cloudflare active runtime topology
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            if(!account||!token) throw new Error('Cloudflare credentials missing');
+            const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+            const root=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts`;
+            async function get(name,path){
+              const response=await fetch(`${root}/${name}${path}`,{headers});
+              const body=await response.json().catch(()=>({}));
+              if(!response.ok||body.success===false) throw new Error(`${name}${path} HTTP ${response.status}: ${JSON.stringify(body.errors||body)}`);
+              return body.result;
+            }
+            async function verify(name){
+              const [settings,secrets,deployments]=await Promise.all([
+                get(name,'/script-settings'),get(name,'/secrets'),get(name,'/deployments'),
+              ]);
+              const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
+              const d1=bindings.filter(x=>x.type==='d1'||x.type==='d1_database');
+              const secretNames=(Array.isArray(secrets)?secrets:[]).map(x=>x.name);
+              if(d1.length) throw new Error(`${name} exposes D1 binding`);
+              if(secretNames.includes('CONNECTOR_BOOTSTRAP_SECRET')) throw new Error(`${name} bootstrap secret still present`);
+              const active=deployments?.deployments?.[0];
+              const version=[...(active?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||'-';
+              console.log(`${name.toUpperCase().replaceAll('-','_')}_VERSION=${version}`);
+              console.log(`${name.toUpperCase().replaceAll('-','_')}_D1_BINDING=0`);
+              console.log(`${name.toUpperCase().replaceAll('-','_')}_BOOTSTRAP_SECRET=0`);
+            }
+            await verify('waiting-trucks-report-api-dev');
+            await verify('waiting-trucks-ms-browser-test');
+            console.log('CLOUDFLARE_D1_API_CALLS=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Verify Turso connector and all MS sessions
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!platform) throw new Error('Turso platform token missing');
+            const headers={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('Turso hostname missing');
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json();
+            const dbToken=tokenJson.jwt;
+            if(!tokenRes.ok||!dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
+            console.log(`::add-mask::${dbToken}`);
+            async function query(sql){
+              const response=await fetch(`https://${hostname}/v2/pipeline`,{
+                method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+              });
+              const payload=await response.json();
+              const item=payload?.results?.[0];
+              if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+              return item?.response?.result;
+            }
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const first=result=>(result?.rows?.[0]||[]).map(decode);
+            const age=value=>{
+              const parsed=Date.parse(String(value||''));
+              return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
+            };
+            const [connectorResult,liveResult,routeResult,preentryResult,busResult]=await Promise.all([
+              query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
+              query("SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+              query("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
+              query("SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
+              query("SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
+            ]);
+            const connector=first(connectorResult), live=first(liveResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
+            if(String(connector[0]||'')!=='NE1'||Number(connector[1]||0)!==1) throw new Error('NE1 connector inactive');
+            if(String(live[0]||'')!=='NE1') throw new Error('NE1 live cache missing');
+            const healthy=row=>Boolean(row?.[2])&&!String(row?.[3]||'')&&age(row[2])>=0&&age(row[2])<=20*60;
+            const routeHealthy=healthy(route), preentryHealthy=healthy(preentry), busHealthy=healthy(bus);
+            console.log(`CONNECTOR_LAST_USED=${connector[2]||'-'}`);
+            console.log(`LIVE_SNAPSHOT_AT=${live[1]||'-'}`);
+            console.log(`LIVE_ROWS=${Number(live[2]||0)}`);
+            console.log(`ROUTE_LAST_SUCCESS=${route[2]||'-'} AGE=${age(route[2])} ERROR=${route[3]||'-'}`);
+            console.log(`PREENTRY_LAST_SUCCESS=${preentry[2]||'-'} AGE=${age(preentry[2])} ERROR=${preentry[3]||'-'}`);
+            console.log(`BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
+            if(!routeHealthy||!preentryHealthy||!busHealthy) throw new Error(`MS sessions unhealthy route=${routeHealthy} preentry=${preentryHealthy} bus=${busHealthy}`);
+            console.log('ALL_MS_SESSIONS_READY=true');
+            console.log('REALTIME_READY=READY');
+            console.log('TURSO_INFRASTRUCTURE=PASS');
+            console.log('D1_QUERIES=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

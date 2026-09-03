@@ -6,7 +6,8 @@ const CONFIG = {
   requestTimeoutMs: 32000,
 };
 
-CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev" : window.location.origin}/api`;
+// LIVE_RESILIENCE_V1: every frontend host uses the promoted Turso Worker.
+CONFIG.apiUrl = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 const ARCHIVE_LOAD_DELAY_MS = 1500;
 const AUTH_KEY = "bnak_operator_auth_v2";
 const state = {
@@ -31,6 +32,8 @@ const state = {
   archiveLoaded: false,
   archiveView: false,
   cancelledRouteIds: new Set(),
+  transportLastOkAt: 0,
+  transportFailures: 0,
 };
 let archiveLoadTimer = null;
 let archiveLoadPromise = null;
@@ -271,6 +274,8 @@ async function loadData(silent = false) {
     state.lastSync = result?.lastSync || "";
     state.msStatus = result?.msStatus || "";
     state.syncError = result?.syncError || "";
+    state.transportLastOkAt = Date.now();
+    state.transportFailures = 0;
     fillFilters();
     connection(
       state.msStatus !== "error" && state.msStatus !== "not_configured",
@@ -284,8 +289,16 @@ async function loadData(silent = false) {
     render();
     // DEV: archive stays lazy; live polling must never auto-read msArchive.
   } catch (error) {
-    connection(false);
-    if (!silent) empty(`โหลดข้อมูลไม่สำเร็จ: ${error.message}`);
+    state.transportFailures = Number(state.transportFailures || 0) + 1;
+    const recentlyHealthy =
+      Number(state.transportLastOkAt || 0) > 0 &&
+      Date.now() - Number(state.transportLastOkAt) <= CONFIG.staleMs;
+    connection(Boolean(recentlyHealthy));
+    if (!silent) {
+      if (recentlyHealthy)
+        toast(`เครือข่ายสะดุดชั่วคราว · ใช้ข้อมูลล่าสุดและกำลังลองใหม่: ${error.message}`, true);
+      else empty(`โหลดข้อมูลไม่สำเร็จ: ${error.message}`);
+    }
   } finally {
     state.loading = false;
   }
@@ -1499,37 +1512,72 @@ async function apiGet(action, params = {}) {
     ([key, value]) =>
       value !== undefined && value !== "" && url.searchParams.set(key, value),
   );
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    CONFIG.requestTimeoutMs,
-  );
-  let json;
-  try {
-    const response = await fetch(url, {
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    json = await response.json();
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      const timeoutError = new Error(
-        "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",
-      );
-      timeoutError.code = "REQUEST_TIMEOUT";
-      throw timeoutError;
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      CONFIG.requestTimeoutMs,
+    );
+    try {
+      const response = await fetch(url, {
+        cache: "no-store",
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+      const text = await response.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        const error = new Error(
+          contentType.includes("text/html") || /^\s*</.test(text)
+            ? "API ตอบกลับเป็นหน้าเว็บแทน JSON · ระบบกำลังลองใหม่"
+            : "API ตอบกลับข้อมูลไม่สมบูรณ์ · ระบบกำลังลองใหม่",
+        );
+        error.code = "NON_JSON_RESPONSE";
+        error.retryable = response.status >= 500 || response.status === 404 || response.status === 200;
+        throw error;
+      }
+      if (json?.ok === false) {
+        const error = new Error(json.message || `API error HTTP ${response.status}`);
+        error.code = json.code || "SERVER_ERROR";
+        if (error.code === "INVALID_SESSION") invalidateSession();
+        error.retryable = response.status >= 500 || error.code === "REQUEST_TIMEOUT";
+        throw error;
+      }
+      if (!response.ok) {
+        const error = new Error(`API HTTP ${response.status}`);
+        error.code = `HTTP_${response.status}`;
+        error.retryable = response.status >= 500 || response.status === 429;
+        throw error;
+      }
+      return json.data ?? json;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        const timeoutError = new Error(
+          "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",
+        );
+        timeoutError.code = "REQUEST_TIMEOUT";
+        timeoutError.retryable = true;
+        lastError = timeoutError;
+      } else {
+        lastError = error;
+      }
+      const retryable =
+        lastError?.retryable === true ||
+        lastError?.code === "NON_JSON_RESPONSE" ||
+        lastError?.code === "REQUEST_TIMEOUT" ||
+        lastError instanceof TypeError;
+      if (!retryable || attempt === 3) throw lastError;
+      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+    } finally {
+      clearTimeout(timeout);
     }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
   }
-  if (json.ok === false) {
-    const error = new Error(json.message);
-    error.code = json.code || "SERVER_ERROR";
-    if (error.code === "INVALID_SESSION") invalidateSession();
-    throw error;
-  }
-  return json.data ?? json;
+  throw lastError || new Error("โหลดข้อมูลไม่สำเร็จ");
 }
 
 function openMsConnection() {

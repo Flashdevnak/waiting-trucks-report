@@ -178,3 +178,19 @@ test("missing Turso credentials fail closed instead of falling back to D1", asyn
     (error) => error.code === "TURSO_CONFIG_MISSING",
   );
 });
+
+test("fetch implementation is not rebound to the database instance", async () => {
+  let observedThis = "not-called";
+  const fetchImpl = async function () {
+    observedThis = this;
+    return response({ results: [okExecute(), okClose] });
+  };
+  const db = new TursoD1Database({
+    url: "https://example.turso.io",
+    authToken: "secret",
+    fetchImpl,
+  });
+
+  await db.prepare("SELECT 1").all();
+  assert.equal(observedThis, undefined);
+});

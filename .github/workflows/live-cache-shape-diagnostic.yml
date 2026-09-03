@@ -1,0 +1,91 @@
+name: Live Cache Shape Diagnostic
+
+# Turso-only metadata diagnostic. Never logs rows_json contents or D1 data.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/live-cache-shape-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Inspect NE1 live-cache structural metadata
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!platform) throw new Error('Turso platform token missing');
+            const headers={Authorization:`Bearer ${platform}`};
+            const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+            async function fetchJson(url,options={},label='request'){
+              let lastError;
+              for(let attempt=1;attempt<=4;attempt++){
+                try{
+                  const response=await fetch(url,options);
+                  const text=await response.text();
+                  let payload;
+                  try{ payload=JSON.parse(text); }catch{ throw new Error(`${label} non-JSON HTTP ${response.status}`); }
+                  if(!response.ok) throw new Error(`${label} HTTP ${response.status}`);
+                  return payload;
+                }catch(error){
+                  lastError=error;
+                  if(attempt<4) await sleep(attempt*750);
+                }
+              }
+              throw lastError;
+            }
+            const dbJson=await fetchJson(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers},'database lookup');
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('Turso hostname missing');
+            const tokenJson=await fetchJson(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers},'auth token');
+            const dbToken=tokenJson.jwt;
+            if(!dbToken) throw new Error('Turso auth token missing');
+            console.log(`::add-mask::${dbToken}`);
+            const sql=`
+              SELECT
+                synced_at,
+                typeof(rows_json),
+                length(rows_json),
+                length(CAST(rows_json AS BLOB)),
+                json_valid(rows_json),
+                hex(substr(rows_json,1,1)),
+                hex(substr(rows_json,-1,1)),
+                CASE WHEN rows_json='' THEN 1 ELSE 0 END,
+                instr(rows_json,char(0))
+              FROM ms_live_cache
+              WHERE hub='NE1'
+              LIMIT 1
+            `;
+            const payload=await fetchJson(`https://${hostname}/v2/pipeline`,{
+              method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+            },'pipeline');
+            const item=payload?.results?.[0];
+            if(item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item.error)}`);
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const row=(item?.response?.result?.rows?.[0]||[]).map(decode);
+            if(!row.length) throw new Error('NE1 live cache missing');
+            console.log(`CACHE_SYNCED_AT=${row[0]||'-'}`);
+            console.log(`ROWS_JSON_SQL_TYPE=${row[1]||'-'}`);
+            console.log(`ROWS_JSON_TEXT_LENGTH=${Number(row[2]||0)}`);
+            console.log(`ROWS_JSON_BLOB_LENGTH=${Number(row[3]||0)}`);
+            console.log(`ROWS_JSON_VALID=${Number(row[4]||0)}`);
+            console.log(`ROWS_JSON_FIRST_BYTE=${row[5]||'-'}`);
+            console.log(`ROWS_JSON_LAST_BYTE=${row[6]||'-'}`);
+            console.log(`ROWS_JSON_EMPTY=${Number(row[7]||0)}`);
+            console.log(`ROWS_JSON_NUL_POSITION=${Number(row[8]||0)}`);
+            console.log('ROWS_JSON_CONTENT_LOGGED=0');
+            console.log('D1_QUERIES=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

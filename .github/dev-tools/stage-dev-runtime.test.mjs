@@ -116,7 +116,7 @@ test("daily completed only counts an observed 0\/1 to 2 transition and daily vie
   const first = stageFrontend(frontendSource);
   const worker = stageWorker(workerSource);
   assert.match(worker, /completionObservedLive:\s*Number\(item\.snapshot\?\.unloadingState\) === 2/);
-  assert.match(worker, /Boolean\(old\) &&\s*Number\(old\?\.unloading_state\) !== 2/);
+  assert.match(worker, /Boolean\(old\) &&\s*Number\(old\?\.unloadingState\) !== 2/);
   assert.match(worker, /row\?\.completionObservedLive === true/);
   assert.match(worker, /item\.action !== "FIRST_SEEN" && item\.synced_by !== "MS_RANGE"/);
   assert.match(worker, /!completionCacheReady/);

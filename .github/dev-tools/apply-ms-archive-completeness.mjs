@@ -33,7 +33,8 @@ worker = replaceUnique(
   "add lightweight archive total endpoint",
 );
 
-const archiveFunctions = String.raw`async function msArchiveTotal(env, actor, hub) {
+const bt = String.fromCharCode(96);
+const archiveFunctions = `async function msArchiveTotal(env, actor, hub) {
   if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
   const row = await env.DB.prepare(
     "SELECT COUNT(*) AS total_distinct FROM ms_route_registry WHERE hub=?",
@@ -48,7 +49,7 @@ async function msArchive(env, actor, hub) {
   const [historyResult, completionResult, distinctResult, currentResult] =
     await Promise.all([
       env.DB.prepare(
-        `WITH ranked AS (
+        ${bt}WITH ranked AS (
           SELECT route_id,payload_json,snapshot_at,synced_by,
             ROW_NUMBER() OVER (
               PARTITION BY route_id
@@ -60,12 +61,12 @@ async function msArchive(env, actor, hub) {
         SELECT route_id,payload_json,snapshot_at,synced_by
         FROM ranked
         WHERE rn=1
-        ORDER BY snapshot_at DESC`,
+        ORDER BY snapshot_at DESC${bt},
       )
         .bind(hub)
         .all(),
       env.DB.prepare(
-        `WITH completions AS (
+        ${bt}WITH completions AS (
           SELECT route_id,synced_by,
             ROW_NUMBER() OVER (
               PARTITION BY route_id
@@ -78,7 +79,7 @@ async function msArchive(env, actor, hub) {
         )
         SELECT route_id,synced_by
         FROM completions
-        WHERE rn=1`,
+        WHERE rn=1${bt},
       )
         .bind(hub)
         .all(),

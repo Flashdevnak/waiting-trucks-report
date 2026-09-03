@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/apply-ms-daily-history.yml
+      - .github/dev-tools/apply-ms-daily-history.mjs
 
 permissions:
   contents: write

@@ -32,27 +32,58 @@ jobs:
             const platform=process.env.TURSO_PLATFORM_API_TOKEN;
             if(!platform) throw new Error('Turso platform token missing');
             const headers={Authorization:`Bearer ${platform}`};
-            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
-            const dbJson=await dbRes.json();
-            if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
+            const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+            async function fetchJson(url,options={},label='request'){
+              let lastError;
+              for(let attempt=1;attempt<=4;attempt++){
+                try{
+                  const response=await fetch(url,options);
+                  const text=await response.text();
+                  let payload;
+                  try{ payload=JSON.parse(text); }
+                  catch{ throw new Error(`${label} returned non-JSON HTTP ${response.status}`); }
+                  if(!response.ok) throw new Error(`${label} HTTP ${response.status}: ${JSON.stringify(payload).slice(0,300)}`);
+                  return payload;
+                }catch(error){
+                  lastError=error;
+                  if(attempt<4){
+                    console.log(`${label} transient attempt ${attempt}/4: ${error.message}`);
+                    await sleep(attempt*750);
+                  }
+                }
+              }
+              throw lastError;
+            }
+
+            const dbJson=await fetchJson(
+              `https://api.turso.tech/v1/organizations/${org}/databases/${db}`,
+              {headers},
+              'Turso database lookup',
+            );
             const database=dbJson.database||dbJson;
             const hostname=database.Hostname||database.hostname;
             if(!hostname) throw new Error('Turso hostname missing');
-            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
-            const tokenJson=await tokenRes.json();
+            const tokenJson=await fetchJson(
+              `https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,
+              {method:'POST',headers},
+              'Turso auth token',
+            );
             const dbToken=tokenJson.jwt;
-            if(!tokenRes.ok||!dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
+            if(!dbToken) throw new Error('Turso auth token missing from response');
             console.log(`::add-mask::${dbToken}`);
 
             async function query(sql){
-              const response=await fetch(`https://${hostname}/v2/pipeline`,{
-                method:'POST',
-                headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
-                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
-              });
-              const payload=await response.json();
+              const payload=await fetchJson(
+                `https://${hostname}/v2/pipeline`,
+                {
+                  method:'POST',
+                  headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                  body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+                },
+                'Turso pipeline',
+              );
               const item=payload?.results?.[0];
-              if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+              if(item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
               return item?.response?.result;
             }
             const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
@@ -103,7 +134,7 @@ jobs:
             }
 
             // One full 1-minute Browser Cron interval plus propagation margin.
-            await new Promise(resolve=>setTimeout(resolve,75_000));
+            await sleep(75_000);
             const after=await snapshot('IDLE_AFTER');
             if(after.liveRows>0){
               console.log('IDLE_GATE=TRAFFIC_APPEARED_DURING_TEST');

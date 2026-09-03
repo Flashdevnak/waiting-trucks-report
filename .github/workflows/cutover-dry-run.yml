@@ -22,7 +22,7 @@ jobs:
   dry-run:
     runs-on: ubuntu-latest
     env:
-      CUTOVER_VERSION: 20260903-04
+      CUTOVER_VERSION: 20260904-01
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

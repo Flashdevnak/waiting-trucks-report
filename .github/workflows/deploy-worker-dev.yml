@@ -1,8 +1,7 @@
 name: Deploy Worker DEV
 
-# DEV-only pipeline. Production remains on the legacy API until coordinated cutover.
-# DEV runtime is Turso-only. The former D1 database is a frozen backup and is not
-# bound, queried, migrated or inspected by this normal deploy path.
+# DEV-only pipeline. Runtime is Turso-only. The former D1 database is a frozen
+# rollback snapshot and is never bound or queried by this normal deploy path.
 
 on:
   workflow_dispatch:
@@ -52,6 +51,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
       - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
       - run: node --test ../.github/dev-tools/ms-archive-completeness.test.mjs
+      - run: node --test ../.github/dev-tools/daily-history.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
       - name: Reject any remaining D1 binding before deploy
         run: |
@@ -78,6 +78,17 @@ jobs:
           node --check src/index.js
           node --check src/turso-d1.js
           node --check src/turso-index.js
+          node <<'NODE'
+          const fs=require('node:fs');
+          const front=fs.readFileSync('.dev-assets/ms.js','utf8');
+          const worker=fs.readFileSync('src/index.js','utf8');
+          for(const marker of ['MS_DAILY_HISTORY_V1','pollMs: 4000','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
+            if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
+          if(!worker.includes('MS_DAILY_HISTORY_V1: read-only daily history')) throw new Error('staged worker missing daily-history contract');
+          if(!worker.includes('upstreamMsCalls: 0') || !worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
+          console.log('STAGED_DAILY_HISTORY=PASS');
+          console.log('STAGED_POLL_MS=4000');
+          NODE
       - name: Verify Turso secrets exist on DEV Worker
         run: |
           npx wrangler secret list --config wrangler.dev.jsonc > /tmp/worker-secrets.json

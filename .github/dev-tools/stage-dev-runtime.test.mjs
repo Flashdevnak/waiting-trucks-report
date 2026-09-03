@@ -17,9 +17,14 @@ const workflow = await readFile(
   "utf8",
 );
 
-test("DEV staging integrates root frontend once and stays idempotent after cutover", () => {
+test("DEV staging preserves the integrated daily-history frontend and stays idempotent", () => {
   const first = stageFrontend(frontendSource);
   assert.equal(frontendHasIntegratedDevRuntime(first), true);
+  assert.match(first, /MS_DAILY_HISTORY_V1/);
+  assert.match(first, /pollMs:\s*4000/);
+  assert.match(first, /apiGet\("msDailyArchive"/);
+  assert.match(first, /เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา/);
+  assert.match(first, /function metricSourceRows\(\)/);
   assert.match(first, /data-cancel-ms-route/);
   assert.match(first, /submitCancelMsRoute/);
   assert.match(first, /data-summary-status="cancelled"/);
@@ -33,29 +38,30 @@ test("DEV staging integrates root frontend once and stays idempotent after cutov
   assert.equal(second, first);
 });
 
-test("รายการทั้งหมด uses live MS rows and renders only the visible layout", () => {
+test("live polling stays live-only while explicit history search uses the daily Turso endpoint", () => {
   const first = stageFrontend(frontendSource);
-  assert.match(first, /state\.archiveView = state\.queue === "completed"/);
-  assert.doesNotMatch(
-    first,
-    /state\.queue === "all" \|\| state\.queue === "completed"\) await ensureArchiveLoaded\(true\)/,
-  );
   assert.match(
     first,
-    /const useArchive =\s*queueMode === "completed" \|\|\s*\(queueMode === "all" && state\.archiveView\)/,
+    /state\.rows = state\.archiveView \? state\.archiveRows : state\.currentRows/,
   );
-  assert.match(first, /state\.archiveView = true;\s*state\.archiveLoaded = false;/);
+  assert.match(first, /DEV: archive stays lazy; live polling must never auto-read msArchive/);
+  assert.match(first, /const useArchive =\s*queueMode === "completed" \|\|\s*\(queueMode === "all" && state\.archiveView\)/);
+  assert.match(first, /const result = await apiGet\("msDailyArchive", \{/);
+  assert.doesNotMatch(first, /const result = await apiGet\("msRange"/);
+  assert.match(first, /input\.onchange = \(\) => \{\}/);
   assert.match(first, /window\.matchMedia\("\(max-width: 700px\)"\)\.matches/);
   assert.match(first, /tableBody\.innerHTML = ""/);
   assert.match(first, /mobileCards\.innerHTML = ""/);
 });
 
-test("upper completed is cumulative while lower completed remains Bangkok-today", () => {
+test("upper metrics use today or the explicitly searched date range", () => {
   const first = stageFrontend(frontendSource);
+  assert.match(first, /function rowBusinessDay\(row\)/);
+  assert.match(first, /function metricSourceRows\(\)/);
+  assert.match(first, /if \(state\.archiveLoaded\) return state\.archiveRows/);
+  assert.match(first, /state\.currentRows\.filter\(\(row\) => rowBusinessDay\(row\) === today\)/);
+  assert.match(first, /metricRows\.filter\(\(row\) => isCompletedAccumulated\(row\)\)\.length/);
   assert.match(first, /state\.summary === "completed" && isCompletedToday\(row\)/);
-  assert.match(first, /state\.summary === "completed-all" && isCompletedAccumulated\(row\)/);
-  assert.match(first, /state\.summary = "completed-all"/);
-  assert.match(first, /state\.archiveRows\.filter\(\(row\) => isCompletedAccumulated\(row\)\)\.length/);
   assert.match(first, /bangkokDateValue\(row\.unloadingCompletedAt\) === bangkokDateValue\(now\)/);
 });
 
@@ -118,6 +124,19 @@ test("daily completed only counts an observed 0\/1 to 2 transition and daily vie
   assert.match(first, /resetLowerDailyViewOnBangkokDayChange\(\)/);
 });
 
+test("daily history remains read-only after worker staging", () => {
+  const worker = stageWorker(workerSource);
+  const start = worker.indexOf("async function msDailyArchive");
+  const end = worker.indexOf("async function msArchiveTotal", start);
+  assert.ok(start >= 0 && end > start, "msDailyArchive must remain staged");
+  const daily = worker.slice(start, end);
+  assert.match(daily, /TURSO_DAILY_HISTORY/);
+  assert.match(daily, /upstreamMsCalls:\s*0/);
+  assert.match(daily, /historyWrites:\s*0/);
+  assert.match(daily, /31 \* 86400000/);
+  assert.doesNotMatch(daily, /readMsRoutes\(|syncMs\(|refreshMsIfStale\(/);
+});
+
 test("seven lower summary cards stay on one desktop row", () => {
   const first = stageStyle(styleSource);
   assert.match(first, /MS summary performance/);
@@ -145,10 +164,12 @@ test("DEV staging still assembles all backend runtime patches from clean source"
   assert.match(worker, /DESTINATION_CANCEL_NOT_ALLOWED/);
   assert.match(worker, /planned across Bangkok midnight are already visible before 00:00/);
   assert.match(worker, /completion cache only trusts observed live unloading transitions/);
+  assert.match(worker, /MS_DAILY_HISTORY_V1: read-only daily history/);
 });
 
-test("DEV deploy uses the idempotent staging entrypoint", () => {
+test("DEV deploy uses the idempotent staging entrypoint and daily-history gate", () => {
   assert.match(workflow, /stage-dev-runtime\.test\.mjs/);
+  assert.match(workflow, /daily-history\.test\.mjs/);
   assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
   assert.doesNotMatch(
     workflow,

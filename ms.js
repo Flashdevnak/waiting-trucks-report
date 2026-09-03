@@ -3,9 +3,10 @@ const CONFIG = {
     "https://script.google.com/macros/s/AKfycbxE2-_8h6EzOQQ3FeDwFxNIAn4U40pacvRnp3XeOGevXDzhw15bgDi74LVgtozfjgiHXQ/exec",
   pollMs: 4000,
   staleMs: 15000,
+  requestTimeoutMs: 32000,
 };
 
-CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report.alert-squid-6738.chatgpt.site" : window.location.origin}/api`;
+CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev" : window.location.origin}/api`;
 const ARCHIVE_LOAD_DELAY_MS = 1500;
 const AUTH_KEY = "bnak_operator_auth_v2";
 const state = {
@@ -28,6 +29,8 @@ const state = {
   standards: {},
   loading: false,
   archiveLoaded: false,
+  archiveView: false,
+  cancelledRouteIds: new Set(),
 };
 let archiveLoadTimer = null;
 let archiveLoadPromise = null;
@@ -49,8 +52,14 @@ document.addEventListener("DOMContentLoaded", () => {
   el("copy-pending-parcels").onclick = copyPendingParcels;
   el("export-pending-parcels").onclick = exportPendingParcels;
   document.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-pending-proof]");
-    if (button) openPendingParcels(button.dataset.pendingProof, button.dataset.pendingDay);
+    const pendingButton = event.target.closest("[data-pending-proof]");
+    if (pendingButton)
+      openPendingParcels(
+        pendingButton.dataset.pendingProof,
+        pendingButton.dataset.pendingDay,
+      );
+    const cancelButton = event.target.closest("[data-cancel-ms-route]");
+    if (cancelButton) openCancelMsRoute(cancelButton.dataset.cancelMsRoute);
   });
   document.querySelectorAll("[data-har-save]").forEach((button) => {
     button.onclick = () => saveMsConnection(button.dataset.harSave, button);
@@ -104,7 +113,8 @@ document.addEventListener("DOMContentLoaded", () => {
   el("queue-filter").onchange = async (event) => {
     state.queue = event.target.value;
     state.summary = "all";
-    if (state.queue === "all") await ensureArchiveLoaded(true);
+    state.archiveView = state.queue === "completed";
+    if (state.archiveView) await ensureArchiveLoaded(true);
     render();
   };
   document.querySelectorAll("[data-metric]").forEach((card) => {
@@ -214,6 +224,21 @@ function invalidateSession() {
   empty("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง");
 }
 
+let lowerDailyDay = bangkokDateValue(new Date());
+
+function resetLowerDailyViewOnBangkokDayChange() {
+  const nextDay = bangkokDateValue(new Date());
+  if (!nextDay || nextDay === lowerDailyDay) return;
+  lowerDailyDay = nextDay;
+  state.completedToday = 0;
+  if (state.summary === "completed" || state.summary === "cancelled") {
+    state.summary = "all";
+    state.queue = "queue";
+    state.archiveView = false;
+    if (el("queue-filter")) el("queue-filter").value = "queue";
+  }
+}
+
 async function loadData(silent = false) {
   if (!state.auth) {
     connection(false);
@@ -225,7 +250,13 @@ async function loadData(silent = false) {
   if (!silent) el("loading-state").classList.remove("hidden");
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
+    resetLowerDailyViewOnBangkokDayChange();
     state.currentRows = Array.isArray(result?.rows) ? result.rows : [];
+    for (const row of state.currentRows) {
+      const routeId = String(row.id || row.proofId || "");
+      if (routeId && row.queueCancelledAt) state.cancelledRouteIds.add(routeId);
+    }
+    state.completedToday = Number(result?.completedToday) || 0;
     state.archiveRows = mergeLatest(state.archiveRows, state.currentRows);
     state.archiveTotal = Math.max(state.archiveTotal, state.archiveRows.length);
     state.rows = state.archiveRows;
@@ -244,11 +275,14 @@ async function loadData(silent = false) {
     connection(
       state.msStatus !== "error" && state.msStatus !== "not_configured",
     );
-    if (state.syncError) toast(state.syncError, true);
+    if (state.syncError && state.msStatus !== "degraded")
+      toast(state.syncError, true);
     el("last-refresh").textContent =
-      `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
+      state.msStatus === "degraded"
+        ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
+        : `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
     render();
-    if (!silent && !state.archiveLoaded) scheduleArchiveLoad();
+    // DEV: archive stays lazy; live polling must never auto-read msArchive.
   } catch (error) {
     connection(false);
     if (!silent) empty(`โหลดข้อมูลไม่สำเร็จ: ${error.message}`);
@@ -262,7 +296,10 @@ function resetArchiveState() {
   archiveLoadTimer = null;
   state.archiveRows = [];
   state.archiveTotal = 0;
+  state.completedToday = 0;
   state.archiveLoaded = false;
+  state.archiveView = false;
+  state.cancelledRouteIds.clear();
   state.rows = [];
 }
 
@@ -312,7 +349,30 @@ function mergeLatest(archive, current) {
   const latest = new Map(
     (archive || []).map((row) => [row.id || row.proofId, row]),
   );
-  for (const row of current || []) latest.set(row.id || row.proofId, row);
+  for (const row of current || []) {
+    const key = row.id || row.proofId;
+    const previous = latest.get(key);
+    const sameCompletionObservation =
+      !row?.unloadingCompletedAt ||
+      !previous?.unloadingCompletedAt ||
+      String(row.unloadingCompletedAt) === String(previous.unloadingCompletedAt);
+    const preserveObservedCompletion =
+      previous?.completionObservedLive === true &&
+      Number(previous?.unloadingState) === 2 &&
+      Number(row?.unloadingState) === 2 &&
+      sameCompletionObservation;
+    latest.set(
+      key,
+      preserveObservedCompletion
+        ? {
+            ...row,
+            unloadingCompletedAt:
+              row?.unloadingCompletedAt || previous?.unloadingCompletedAt,
+            completionObservedLive: true,
+          }
+        : row,
+    );
+  }
   return [...latest.values()];
 }
 
@@ -512,7 +572,12 @@ function queueInfo(row, now = new Date()) {
   const routeArrival = parseDate(row.actualArrivalAt),
     arrival = routeArrival ? effectiveArrival(row) : null,
     ageHours = arrival ? (now - arrival) / 36e5 : 0;
-  const unloadingState = Number(row.unloadingState),
+  const routeId = String(row.id || row.proofId || ""),
+    cancelled = Boolean(
+      row.queueCancelledAt ||
+        (routeId && state.cancelledRouteIds?.has(routeId)),
+    ),
+    unloadingState = Number(row.unloadingState),
     done = isDestination(row)
       ? unloadingState === 2
       : isDrop(row)
@@ -521,12 +586,13 @@ function queueInfo(row, now = new Date()) {
     started =
       (isDestination(row) || isDrop(row)) &&
       (unloadingState === 1 || unloadingState === 2),
-    active = Boolean(routeArrival) && !done && ageHours <= 12;
+    active = Boolean(routeArrival) && !done && !cancelled && ageHours <= 12;
   return {
     active,
     done,
     started,
-    expired: Boolean(routeArrival) && !done && ageHours > 12,
+    cancelled,
+    expired: Boolean(routeArrival) && !done && !cancelled && ageHours > 12,
     ageHours,
   };
 }
@@ -575,11 +641,27 @@ function bangkokDateValue(value) {
 }
 
 function isCompletedToday(row, now = new Date()) {
+  if (row.queueCancelledAt) return false;
   if ((!isDestination(row) && !isDrop(row)) || Number(row.unloadingState) !== 2)
     return false;
   if (!row.unloadingCompletedAt) return false;
   if (row.completionObservedLive === false) return false;
   return bangkokDateValue(row.unloadingCompletedAt) === bangkokDateValue(now);
+}
+
+function isCompletedAccumulated(row) {
+  return (
+    !row.queueCancelledAt &&
+    (isDestination(row) || isDrop(row)) &&
+    Number(row.unloadingState) === 2
+  );
+}
+
+function isCancelledToday(row, now = new Date()) {
+  return (
+    Boolean(row.queueCancelledAt) &&
+    bangkokDateValue(row.queueCancelledAt) === bangkokDateValue(now)
+  );
 }
 
 function departureCountdown(row, now = new Date()) {
@@ -629,9 +711,11 @@ function dropProgressHtml(drop, compact = false) {
   return `<div class="drop-progress${compact ? " compact-drop-progress" : ""}"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""} ${drop.unloadingOver ? "is-late" : ""}"><span>1 · ลงของที่จุดดรอป</span><strong>${esc(drop.unloadingLabel)}</strong><small>${stageOneDetail}</small></div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong><small>${stageTwoDetail}</small></div></div>`;
 }
 
-function filteredRows(ignoreSummary = false) {
-  const source =
-    state.queue === "queue" ? state.currentRows : state.archiveRows;
+function filteredRows(ignoreSummary = false, queueMode = state.queue) {
+  const useArchive =
+    queueMode === "completed" ||
+    (queueMode === "all" && state.archiveView);
+  const source = useArchive ? state.archiveRows : state.currentRows;
   return source
     .filter((row) => {
       const status = routeState(row);
@@ -666,12 +750,14 @@ function filteredRows(ignoreSummary = false) {
         (state.summary === "waiting" && isDestination(row) && status.key === "arrived") ||
         (state.summary === "unloading" && isDestination(row) && status.key === "unloading") ||
         (state.summary === "completed" && isCompletedToday(row)) ||
-        (state.summary === "origin" && isOrigin(row) && !queue.done) ||
-        (state.summary === "drop" && isDrop(row) && !queue.done);
+        (state.summary === "completed-all" && isCompletedAccumulated(row)) ||
+        (state.summary === "origin" && isOrigin(row) && !queue.done && !queue.cancelled) ||
+        (state.summary === "drop" && isDrop(row) && !queue.done && !queue.cancelled) ||
+        (state.summary === "cancelled" && queue.cancelled && isCancelledToday(row));
       const queueMatch =
-        state.queue === "all" ||
-        (state.queue === "completed" && (queue.done || queue.expired)) ||
-        (state.queue === "queue" && queue.active);
+        queueMode === "all" ||
+        (queueMode === "completed" && (queue.done || queue.expired)) ||
+        (queueMode === "queue" && queue.active);
       return (
         queueMatch &&
         (!state.query || text.includes(state.query)) &&
@@ -689,7 +775,7 @@ function filteredRows(ignoreSummary = false) {
     .sort((a, b) => {
       const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;
       const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;
-      return state.queue === "queue" ? aTime - bTime : bTime - aTime;
+      return queueMode === "queue" ? aTime - bTime : bTime - aTime;
     });
 }
 
@@ -707,8 +793,11 @@ async function loadRange() {
     state.dateTo = end;
     state.queue = "all";
     el("queue-filter").value = "all";
+    state.archiveView = true;
     state.archiveLoaded = false;
     await loadData(false);
+    if (!(await ensureArchiveLoaded(true)))
+      throw new Error("โหลดรายการย้อนหลังไม่สำเร็จ");
     toast(`ดึงข้อมูลย้อนหลัง ${nf.format(result.total)} รายการแล้ว`);
   } catch (error) {
     toast(error.message, true);
@@ -729,7 +818,14 @@ function render() {
   el("loading-state").classList.add("hidden");
   metrics();
   renderFreshness();
-  const summaryRows = filteredRows(true);
+  const summaryRows = filteredRows(
+    true,
+    state.summary === "completed" ||
+    state.summary === "completed-all" ||
+    state.summary === "cancelled"
+      ? "queue"
+      : state.queue,
+  );
   const rows = filteredRows();
   renderFilterSummary(summaryRows);
   if (!rows.length) {
@@ -743,34 +839,128 @@ function render() {
   el("empty-state").classList.add("hidden");
   el("desktop-table").classList.remove("hidden");
   el("mobile-cards").classList.remove("hidden");
-  el("table-body").innerHTML = rows.map(tableRow).join("");
-  el("mobile-cards").innerHTML = rows.map(card).join("");
+  renderRowsProgressively(rows);
+}
+
+let rowRenderGeneration = 0;
+
+function renderRowsProgressively(rows) {
+  const generation = ++rowRenderGeneration;
+  const mobileLayout = window.matchMedia("(max-width: 700px)").matches;
+  const tableBody = el("table-body");
+  const mobileCards = el("mobile-cards");
+  tableBody.innerHTML = "";
+  mobileCards.innerHTML = "";
+
+  const target = mobileLayout ? mobileCards : tableBody;
+  const renderer = mobileLayout ? card : tableRow;
+  const firstBatch = mobileLayout ? 32 : 64;
+  const nextBatch = mobileLayout ? 24 : 64;
+
+  const appendBatch = (start, end) => {
+    if (generation !== rowRenderGeneration || start >= rows.length) return;
+    target.insertAdjacentHTML(
+      "beforeend",
+      rows.slice(start, end).map(renderer).join(""),
+    );
+  };
+
+  let index = Math.min(firstBatch, rows.length);
+  appendBatch(0, index);
+
+  const pump = () => {
+    if (generation !== rowRenderGeneration || index >= rows.length) return;
+    const end = Math.min(index + nextBatch, rows.length);
+    appendBatch(index, end);
+    index = end;
+    if (index < rows.length) requestAnimationFrame(pump);
+  };
+
+  if (index < rows.length) requestAnimationFrame(pump);
 }
 
 function renderFilterSummary(rows) {
   el("filter-summary").classList.remove("hidden");
-  const counts = { waiting: 0, unloading: 0, completed: 0, origin: 0, drop: 0 };
+  const counts = {
+    waiting: 0,
+    unloading: 0,
+    completed: Number(state.completedToday) || 0,
+    origin: 0,
+    drop: 0,
+    cancelled: 0,
+  };
   for (const row of rows) {
     const key = routeState(row).key;
     const queue = queueInfo(row);
     if (isDestination(row) && key === "arrived") counts.waiting++;
     if (isDestination(row) && key === "unloading") counts.unloading++;
-    if (isCompletedToday(row)) counts.completed++;
-    if (isOrigin(row) && !queue.done) counts.origin++;
-    if (isDrop(row) && !queue.done) counts.drop++;
+    // DEV: completed is a daily HUB total supplied by the lightweight live cache.
+    if (isOrigin(row) && !queue.done && !queue.cancelled) counts.origin++;
+    if (isDrop(row) && !queue.done && !queue.cancelled) counts.drop++;
   }
+  counts.cancelled = state.currentRows.filter(
+    (row) => queueInfo(row).cancelled && isCancelledToday(row),
+  ).length;
   el("filter-summary").innerHTML = `
     <button type="button" class="summary-all ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all"><span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
     <button type="button" class="summary-wait ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
     <button type="button" class="summary-work ${state.summary === "unloading" ? "is-active" : ""}" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
     <button type="button" class="summary-done ${state.summary === "completed" ? "is-active" : ""}" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
     <button type="button" class="summary-origin ${state.summary === "origin" ? "is-active" : ""}" data-summary-status="origin"><span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
-    <button type="button" class="summary-drop ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>`;
+    <button type="button" class="summary-drop ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>
+    <button type="button" class="summary-cancelled ${state.summary === "cancelled" ? "is-active" : ""}" data-summary-status="cancelled"><span>ยกเลิกรถแล้ว</span><strong>${nf.format(counts.cancelled)}</strong></button>`;
   el("filter-summary")
     .querySelectorAll("button")
     .forEach((button) => {
-      button.onclick = () => {
-      const value = button.dataset.summaryStatus;
+      button.onclick = async () => {
+        const value = button.dataset.summaryStatus;
+        if (value === "completed") {
+          try {
+            const cachedCompletedRows = state.archiveRows.filter(isCompletedToday);
+            const expectedCompleted = Number(state.completedToday) || 0;
+            const completed =
+              cachedCompletedRows.length === expectedCompleted
+                ? { rows: cachedCompletedRows, total: expectedCompleted }
+                : await apiGet("msCompletedToday", { branch: state.branch });
+            const completedRows = Array.isArray(completed?.rows) ? completed.rows : [];
+            state.archiveRows = mergeLatest(
+              state.archiveRows.filter((row) => !isCompletedToday(row)),
+              completedRows,
+            );
+            state.rows = mergeLatest(state.archiveRows, state.currentRows);
+            state.completedToday = Number(completed?.total) || completedRows.length;
+            state.query = "";
+            state.dateFrom = "";
+            state.dateTo = "";
+            state.attendance = "all";
+            state.attribute = "all";
+            state.region = "all";
+            state.route = "all";
+            state.status = "all";
+            el("search-input").value = "";
+            el("date-from").value = "";
+            el("date-to").value = "";
+            el("attendance-filter").value = "all";
+            el("attribute-filter").value = "all";
+            el("region-filter").value = "all";
+            el("route-filter").value = "all";
+            el("status-filter").value = "all";
+            state.archiveView = true;
+            state.queue = "all";
+            el("queue-filter").value = "all";
+          } catch (error) {
+            toast(`โหลดรายการลงรถเสร็จวันนี้ไม่สำเร็จ: ${error.message}`, true);
+            return;
+          }
+        } else if (value === "cancelled") {
+          state.archiveView = false;
+          state.queue = "all";
+          el("queue-filter").value = "all";
+        } else {
+          state.archiveView = false;
+          state.queue = "queue";
+          el("queue-filter").value = "queue";
+        }
         state.summary = value;
         render();
       };
@@ -783,6 +973,14 @@ async function applyMetricFilter(metric) {
   state.summary = "all";
   state.status = "all";
   state.attendance = "all";
+  state.archiveView = [
+    "all",
+    "completed",
+    "arrival-ontime",
+    "arrival-late",
+    "departure-ontime",
+    "departure-late",
+  ].includes(metric);
   if (metric === "all") state.queue = "all";
   if (metric === "queue") state.queue = "queue";
   if (metric === "unloading") {
@@ -791,7 +989,7 @@ async function applyMetricFilter(metric) {
   }
   if (metric === "completed") {
     state.queue = "all";
-    state.summary = "completed";
+    state.summary = "completed-all";
   }
   if (metric === "arrival-ontime") {
     state.queue = "all";
@@ -820,22 +1018,30 @@ async function applyMetricFilter(metric) {
 }
 
 function metrics() {
+  const completedNote = el("metric-completed")?.closest(".metric-card")?.querySelector("small");
+  if (completedNote) completedNote.textContent = "ปลายทางและจุดดรอปที่ลงของเสร็จสะสม";
   const active = state.currentRows.filter((row) => queueInfo(row).active),
     destinations = state.archiveRows.filter(isDestination),
     origins = state.archiveRows.filter(isOrigin),
     arrivals = destinations.map((row) => punctuality(row)),
     releases = origins.map((row) => punctuality(row)),
     waits = destinations.map(waitInfo).filter((item) => item.minutes !== null);
-  setMetric("metric-archive", state.archiveTotal ?? state.archiveRows.length);
+  if (state.archiveLoaded)
+    setMetric("metric-archive", state.archiveTotal ?? state.archiveRows.length);
+  else
+    el("metric-archive").textContent = "กดดู";
   setMetric("metric-total", active.length);
   setMetric(
     "metric-unloading",
     active.filter((row) => Number(row.unloadingState) === 1).length,
   );
-  setMetric(
-    "metric-completed",
-    state.archiveRows.filter((row) => isCompletedToday(row)).length,
-  );
+  if (state.archiveLoaded)
+    setMetric(
+      "metric-completed",
+      state.archiveRows.filter((row) => isCompletedAccumulated(row)).length,
+    );
+  else
+    el("metric-completed").textContent = "กดดู";
   setMetric(
     "metric-not-arrived",
     arrivals.filter((item) => item.key === "ontime").length,
@@ -961,7 +1167,7 @@ function exportPendingParcels() {
 }
 
 function arrivalSources(row) {
-  if (!isDestination(row)) return "";
+  if (!isDestination(row) && !isOrigin(row)) return "";
   if (!row.scheduleKitArrivalAt && !row.scheduleTbrArrivalAt)
     return '<div class="source-empty"><b>เวลา KIT / TBR</b><span>ยังไม่พบรายการที่ตรงกับรถคันนี้</span></div>';
   const earliest = [row.scheduleKitArrivalAt, row.scheduleTbrArrivalAt]
@@ -974,13 +1180,17 @@ function tableRow(row) {
   const p = punctuality(row);
   const q = queueInfo(row);
   const drop = isDrop(row) ? dropOperation(row) : null;
-  const workStatus = isDestination(row)
-    ? row.loadStatus || status.label
+  const workStatus = q.cancelled
+    ? "ยกเลิกรถแล้ว"
+    : isDestination(row)
+      ? row.loadStatus || status.label
     : isDrop(row)
       ? drop.unloadingLabel
       : row.vehicleStatus || status.label;
-  const queueText = q.done
-    ? "เสร็จแล้ว"
+  const queueText = q.cancelled
+    ? `ยกเลิกโดย ${row.queueCancelledBy || "-"} · ${shortDateTime(row.queueCancelledAt)}`
+    : q.done
+      ? "เสร็จแล้ว"
     : q.expired
       ? "ตัดจากคิวเกิน 12 ชม."
       : q.active
@@ -1005,8 +1215,8 @@ function tableRow(row) {
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
     <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
     <td><div class="schedule-stack ${isDestination(row) ? "single" : "dual"}">${scheduleHtml}</div></td>
-    <td><div class="work-summary"><div class="work-badge ${q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}${departureCountdownHtml(row)}<small class="queue-label">${esc(queueText)}</small>${arrivalSources(row)}</div></td>
-    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}</div></td>
+    <td><div class="work-summary"><div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}${departureCountdownHtml(row)}<small class="queue-label">${esc(queueText)}</small>${arrivalSources(row)}</div></td>
+    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && !isDestination(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
   </tr>`;
 }
 
@@ -1016,9 +1226,11 @@ function card(row) {
     p = punctuality(row),
     q = queueInfo(row);
   const drop = isDrop(row) ? dropOperation(row) : null;
-  const workStatus = isDestination(row)
-    ? row.loadStatus || status.label
-    : isDrop(row)
+  const workStatus = q.cancelled
+    ? "ยกเลิกรถแล้ว"
+    : isDestination(row)
+      ? row.loadStatus || status.label
+      : isDrop(row)
       ? drop.onwardLabel
     : row.vehicleStatus || status.label;
   const attendanceClass = isDestination(row)
@@ -1052,8 +1264,10 @@ function card(row) {
         : p.diff > 0
           ? "ปล่อยช้ากว่าแผน"
           : "ปล่อยก่อนแผน",
-    queueText = isDrop(row)
-      ? drop.onwardMinutes === null
+    queueText = q.cancelled
+      ? `ยกเลิกโดย ${row.queueCancelledBy || "-"} · ${shortDateTime(row.queueCancelledAt)}`
+      : isDrop(row)
+        ? drop.onwardMinutes === null
         ? "รอขั้นตอนลงของ"
         : `ขึ้นงาน/รอออก ${nf.format(drop.onwardMinutes)} นาที`
       : q.done
@@ -1073,8 +1287,94 @@ function card(row) {
     <div class="compact-operation ${isDestination(row) && wait.over ? "late" : ""}"><div><span>${isDestination(row) ? "เวลารอ + ลงงาน" : "เวลาเทียบแผน"}</span><strong>${esc(durationText)}</strong><small>${esc(durationNote)}</small></div><div><span>สถานะล่าสุด</span><strong>${esc(workStatus)}</strong><small>${esc(queueText)}</small></div></div>
     ${isDrop(row) ? dropProgressHtml(drop, true) : ""}${departureCountdownHtml(row)}
     ${arrivalSources(row)}
-    <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}</div>
+    <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}${q.active && !isDestination(row) ? `<button type="button" class="cancel-route-button compact-cancel-route" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div>
   </article>`;
+}
+
+let cancelRouteTarget = null;
+
+function ensureCancelMsRouteDialog() {
+  let dialog = el("cancel-ms-route-dialog");
+  if (dialog) return dialog;
+  dialog = document.createElement("dialog");
+  dialog.id = "cancel-ms-route-dialog";
+  dialog.className = "cancel-ms-route-dialog";
+  dialog.innerHTML = `
+    <form method="dialog" class="cancel-route-form">
+      <div class="cancel-route-icon">!</div>
+      <h3>ยืนยันยกเลิกเส้นทาง</h3>
+      <p id="cancel-route-detail"></p>
+      <div class="cancel-route-warning">เส้นทางจะถูกตัดออกจากคิวของระบบนี้เท่านั้น และจะไม่แก้สถานะใน MS</div>
+      <label>รหัสจัดการ / PIN
+        <input id="cancel-route-pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+      </label>
+      <div id="cancel-route-error" class="cancel-route-error hidden"></div>
+      <div class="cancel-route-actions">
+        <button type="button" class="cancel-route-back" data-cancel-route-close>ไม่ยกเลิก</button>
+        <button type="submit" class="cancel-route-confirm">ยืนยันยกเลิกเส้นทาง</button>
+      </div>
+    </form>`;
+  document.body.append(dialog);
+  dialog.querySelector("[data-cancel-route-close]").onclick = () => dialog.close();
+  dialog.querySelector("form").onsubmit = submitCancelMsRoute;
+  dialog.addEventListener("close", () => {
+    el("cancel-route-pin").value = "";
+    el("cancel-route-error").classList.add("hidden");
+    cancelRouteTarget = null;
+  });
+  return dialog;
+}
+
+function openCancelMsRoute(routeId) {
+  const id = String(routeId || "");
+  const row = state.currentRows.find((item) => String(item.id || "") === id);
+  if (!row || !queueInfo(row).active)
+    return toast("เส้นทางนี้ไม่ได้อยู่ในคิวปัจจุบันแล้ว", true);
+  if (isDestination(row))
+    return toast("งานปลายทางไม่สามารถยกเลิกรถจากคิวด้วยมือได้", true);
+  cancelRouteTarget = { id, proofId: row.proofId || "", routeName: row.routeName || "" };
+  const dialog = ensureCancelMsRouteDialog();
+  el("cancel-route-detail").textContent = `${row.proofId || id} · ${row.routeName || "ไม่พบชื่อเส้นทาง"}`;
+  el("cancel-route-pin").value = "";
+  el("cancel-route-error").classList.add("hidden");
+  dialog.showModal();
+  setTimeout(() => el("cancel-route-pin").focus(), 0);
+}
+
+function applyCancelledRouteLocal(routeId, result) {
+  const id = String(routeId || "");
+  const patchRow = (row) => String(row.id || "") === id ? { ...row, queueCancelledAt: result.cancelledAt, queueCancelledBy: result.cancelledBy, queueCancelReason: result.reason || "ยกเลิกเส้นทาง" } : row;
+  state.cancelledRouteIds.add(id);
+  state.currentRows = state.currentRows.map(patchRow);
+  state.archiveRows = state.archiveRows.map(patchRow);
+  state.rows = state.rows.map(patchRow);
+}
+
+async function submitCancelMsRoute(event) {
+  event.preventDefault();
+  const target = cancelRouteTarget;
+  const pin = el("cancel-route-pin").value;
+  const confirmButton = event.currentTarget.querySelector(".cancel-route-confirm");
+  const errorBox = el("cancel-route-error");
+  if (!target || !pin) {
+    errorBox.textContent = "กรุณาใส่รหัสจัดการเพื่อยืนยัน";
+    errorBox.classList.remove("hidden");
+    return;
+  }
+  try {
+    confirmButton.disabled = true;
+    errorBox.classList.add("hidden");
+    const result = await apiPost("cancelMsRoute", { branch: state.branch, routeId: target.id, pin });
+    applyCancelledRouteLocal(target.id, result);
+    el("cancel-ms-route-dialog").close();
+    render();
+    toast(`ยกเลิกเส้นทาง ${target.proofId || target.id} และตัดออกจากคิวแล้ว`);
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.classList.remove("hidden");
+  } finally {
+    confirmButton.disabled = false;
+  }
 }
 
 function normalizeVehicle(value) {
@@ -1199,7 +1499,30 @@ async function apiGet(action, params = {}) {
     ([key, value]) =>
       value !== undefined && value !== "" && url.searchParams.set(key, value),
   );
-  const json = await (await fetch(url, { cache: "no-store" })).json();
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    CONFIG.requestTimeoutMs,
+  );
+  let json;
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    json = await response.json();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error(
+        "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",
+      );
+      timeoutError.code = "REQUEST_TIMEOUT";
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (json.ok === false) {
     const error = new Error(json.message);
     error.code = json.code || "SERVER_ERROR";
@@ -1546,13 +1869,18 @@ function exportRow(row) {
           ? "เกินมาตรฐาน"
           : "อยู่ในมาตรฐาน",
     vehicleStatus: status.label,
-    queueStatus: q.expired
-      ? "ตัดคิวเกิน 12 ชั่วโมง"
+    queueStatus: q.cancelled
+      ? "ยกเลิกรถแล้ว"
+      : q.expired
+        ? "ตัดคิวเกิน 12 ชั่วโมง"
       : q.done
         ? "ดำเนินการแล้ว"
         : q.active
           ? "งานปัจจุบัน"
           : "รอดำเนินการ",
+    queueCancelledAt: exportThaiDate(row.queueCancelledAt),
+    queueCancelledBy: row.queueCancelledBy || "",
+    queueCancelReason: row.queueCancelReason || "",
     loadStatus: row.loadStatus || "",
     supplier: row.supplier || "",
     driverName: row.driverName || "",

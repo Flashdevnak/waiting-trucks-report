@@ -3731,3 +3731,56 @@ tbody tr.is-unloading:hover {
   .ms-page .compact-operation > div { padding: 9px 7px; }
   .ms-page .compact-operation strong { font-size: 13px; }
 }
+
+/* DEV mobile MS card spacing */
+@media (max-width: 900px) {
+  .ms-page .compact-schedule {
+    padding: 14px 14px 16px;
+    border-bottom: 0;
+    background: #f4f5f2;
+  }
+  .ms-page .compact-schedule .schedule-section + .schedule-section {
+    margin-top: 12px;
+  }
+  .ms-page .compact-operation {
+    margin: 0 14px 14px;
+    border: 1px solid #d9dcd8;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .ms-page .departure-countdown {
+    width: auto;
+    margin: 0 14px 14px;
+  }
+  .ms-page .arrival-sources,
+  .ms-page .source-empty {
+    width: auto;
+    margin: 0 14px 14px;
+  }
+  .ms-page .compact-party {
+    margin-top: 2px;
+    padding: 16px 14px;
+    border-top: 1px solid #d9dcd8;
+  }
+}
+
+@media (max-width: 420px) {
+  .ms-page .compact-operation,
+  .ms-page .departure-countdown,
+  .ms-page .arrival-sources,
+  .ms-page .source-empty {
+    margin-left: 11px;
+    margin-right: 11px;
+  }
+  .ms-page .compact-schedule {
+    padding: 12px 11px 14px;
+  }
+}
+
+/* MS route cancellation controls */
+.cancel-route-button{margin-top:8px;border:1px solid #b3261e;background:#fff;color:#9b1c1c;border-radius:8px;padding:7px 10px;font:inherit;font-weight:700;cursor:pointer}.cancel-route-button:hover{background:#fff1f1}.cancel-route-button:disabled{opacity:.55;cursor:wait}.compact-cancel-route{width:100%;grid-column:1/-1}.work-badge.cancelled{background:#fff1f1;color:#9b1c1c;border-color:#efb5b5}.cancel-ms-route-dialog{border:0;border-radius:16px;padding:0;max-width:480px;width:calc(100% - 28px);box-shadow:0 24px 80px #0004}.cancel-ms-route-dialog::backdrop{background:#0008}.cancel-route-form{padding:24px;display:grid;gap:14px}.cancel-route-form h3{margin:0;font-size:22px}.cancel-route-form p{margin:0;font-weight:700;line-height:1.5}.cancel-route-icon{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#fff1f1;color:#b3261e;font-size:26px;font-weight:900}.cancel-route-warning{padding:12px 14px;border-radius:10px;background:#fff8dc;border:1px solid #efd36b;line-height:1.5}.cancel-route-form label{display:grid;gap:7px;font-weight:700}.cancel-route-form input{width:100%;min-height:46px;border:1px solid #b8bec6;border-radius:9px;padding:0 12px;font-size:18px}.cancel-route-error{padding:10px 12px;border-radius:8px;background:#fff0f0;color:#a31313;font-weight:700}.cancel-route-actions{display:flex;gap:10px;justify-content:flex-end}.cancel-route-actions button{min-height:44px;border-radius:9px;padding:0 14px;font-weight:700;cursor:pointer}.cancel-route-back{border:1px solid #aeb4bb;background:#fff;color:#222}.cancel-route-confirm{border:1px solid #9b1c1c;background:#b3261e;color:#fff}@media(max-width:600px){.cancel-route-actions{display:grid;grid-template-columns:1fr}.cancel-route-actions button{width:100%}}
+
+/* MS summary performance */
+@media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}
+@media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}
+@media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}

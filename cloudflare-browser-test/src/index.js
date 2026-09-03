@@ -4,7 +4,7 @@ const MS_URL = "https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance";
 const API_URL =
   "https://ms-api.flashexpress.com/gw/nws/staff/ms/store/line/task";
 const MAIN_API =
-  "https://waiting-trucks-report.alert-squid-6738.chatgpt.site/api";
+  "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 
 export default {
   async fetch(request, env) {
@@ -15,6 +15,10 @@ export default {
     if (!url.pathname.startsWith("/api/"))
       return reply({ ok: false, message: "Not found" }, 404);
     try {
+      if (url.pathname === "/api/bootstrap-connector" && request.method === "POST") {
+        const body = await request.json();
+        return reply(await bootstrapBrowserConnector(env, body));
+      }
       if (url.pathname === "/api/start" && request.method === "POST") {
         const body = await request.json();
         return reply(await start(env, body));
@@ -149,6 +153,32 @@ async function saveToMain(pairing, hub, credentials) {
   return json.data;
 }
 
+async function sameBootstrapSecret(left, right) {
+  const encoder = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(String(left || ""))),
+    crypto.subtle.digest("SHA-256", encoder.encode(String(right || ""))),
+  ]);
+  const av = new Uint8Array(a), bv = new Uint8Array(b);
+  let diff = av.length ^ bv.length;
+  for (let i = 0; i < Math.max(av.length, bv.length); i++)
+    diff |= (av[i] || 0) ^ (bv[i] || 0);
+  return diff === 0;
+}
+
+async function bootstrapBrowserConnector(env, body) {
+  const configured = String(env.CONNECTOR_BOOTSTRAP_SECRET || "");
+  const supplied = String(body?.bootstrapSecret || "");
+  if (!configured || !supplied || !(await sameBootstrapSecret(configured, supplied)))
+    throw new Error("ยืนยันการย้ายตัวเชื่อมต่อ Browser ไม่สำเร็จ");
+  const hub = String(body?.hub || "").trim().toUpperCase();
+  const connectorToken = String(body?.connectorToken || "").trim();
+  if (!/^[A-Z0-9_-]{2,20}$/.test(hub) || connectorToken.length < 20)
+    throw new Error("ข้อมูลตัวเชื่อมต่อ Browser ไม่ถูกต้อง");
+  await rememberConnector(env, hub, connectorToken);
+  return { ok: true, hub, stored: true };
+}
+
 async function rememberConnector(env, hub, connectorToken) {
   const hubs = JSON.parse((await env.STATE.get("hubs")) || "[]");
   if (!hubs.includes(hub)) hubs.push(hub);
@@ -158,18 +188,73 @@ async function rememberConnector(env, hub, connectorToken) {
   ]);
 }
 
+function randomConnectorToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function registerConnectorForCutover(env, hub, connectorToken) {
+  if (!env.CONNECTOR_BOOTSTRAP_SECRET) return false;
+  const response = await fetch(MAIN_API, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      action: "bootstrapConnector",
+      hub,
+      connectorToken,
+      bootstrapSecret: env.CONNECTOR_BOOTSTRAP_SECRET,
+    }),
+  });
+  return response.ok;
+}
+
+async function sendConnectorSync(hub, connectorToken) {
+  return fetch(MAIN_API, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "connectorSync", hub, connectorToken }),
+  });
+}
+
 async function syncConfiguredHubs(env) {
-  const hubs = JSON.parse((await env.STATE.get("hubs")) || "[]");
+  const storedHubs = JSON.parse((await env.STATE.get("hubs")) || "[]");
+  const bootstrapHubs = env.CONNECTOR_BOOTSTRAP_SECRET
+    ? String(env.CONNECTOR_BOOTSTRAP_HUBS || "NE1")
+        .split(",")
+        .map((hub) => hub.trim().toUpperCase())
+        .filter((hub) => /^[A-Z0-9_-]{2,20}$/.test(hub))
+    : [];
+  const hubs = [...new Set([...storedHubs, ...bootstrapHubs])];
+
   await Promise.all(
     hubs.map(async (hub) => {
-      const connectorToken = await env.STATE.get(`connector:${hub}`);
-      if (!connectorToken) return;
-      const response = await fetch(MAIN_API, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "connectorSync", hub, connectorToken }),
-      });
-      if (response.status === 401) await env.STATE.delete(`connector:${hub}`);
+      try {
+        let connectorToken = await env.STATE.get(`connector:${hub}`);
+        if (!connectorToken && env.CONNECTOR_BOOTSTRAP_SECRET) {
+          const candidate = randomConnectorToken();
+          if (await registerConnectorForCutover(env, hub, candidate)) {
+            connectorToken = candidate;
+            await rememberConnector(env, hub, connectorToken);
+          }
+        }
+        if (!connectorToken) return;
+
+        let response = await sendConnectorSync(hub, connectorToken);
+        if (response.status === 401 && env.CONNECTOR_BOOTSTRAP_SECRET) {
+          if (await registerConnectorForCutover(env, hub, connectorToken))
+            response = await sendConnectorSync(hub, connectorToken);
+        }
+        if (response.status === 401 && !env.CONNECTOR_BOOTSTRAP_SECRET)
+          await env.STATE.delete(`connector:${hub}`);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "connector_sync_error",
+            hub,
+            message: error?.message || String(error),
+          }),
+        );
+      }
     }),
   );
 }

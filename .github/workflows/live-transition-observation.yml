@@ -1,0 +1,254 @@
+name: Live Transition Observation
+
+# Observes real queue changes across one Browser Cron interval without mutating MS.
+# Turso reads + Cloudflare analytics only. Never queries D1 directly.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/live-transition-observation.yml
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+    steps:
+      - name: Observe real queue transition
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!platform) throw new Error('Turso platform token missing');
+            const platformHeaders={Authorization:`Bearer ${platform}`};
+            const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+            async function fetchJson(url,options={},label='request'){
+              let lastError;
+              for(let attempt=1;attempt<=4;attempt++){
+                try{
+                  const response=await fetch(url,options);
+                  const text=await response.text();
+                  let payload;
+                  try{ payload=JSON.parse(text); }
+                  catch{ throw new Error(`${label} returned non-JSON HTTP ${response.status}`); }
+                  if(!response.ok) throw new Error(`${label} HTTP ${response.status}`);
+                  return payload;
+                }catch(error){
+                  lastError=error;
+                  if(attempt<4){
+                    console.log(`${label} transient attempt ${attempt}/4: ${error.message}`);
+                    await sleep(attempt*750);
+                  }
+                }
+              }
+              throw lastError;
+            }
+            const dbJson=await fetchJson(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:platformHeaders},'Turso database lookup');
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('Turso hostname missing');
+            const tokenJson=await fetchJson(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:platformHeaders},'Turso auth token');
+            const dbToken=tokenJson.jwt;
+            if(!dbToken) throw new Error('Turso auth token missing');
+            console.log(`::add-mask::${dbToken}`);
+
+            async function query(sql){
+              const payload=await fetchJson(`https://${hostname}/v2/pipeline`,{
+                method:'POST',
+                headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+              },'Turso pipeline');
+              const item=payload?.results?.[0];
+              if(item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item.error)}`);
+              return item?.response?.result;
+            }
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const rows=result=>(result?.rows||[]).map(row=>row.map(decode));
+            const first=result=>rows(result)[0]||[];
+            const hashId=async id=>{
+              const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(id||'')));
+              return [...new Uint8Array(digest)].slice(0,8).map(x=>x.toString(16).padStart(2,'0')).join('');
+            };
+            const ageSeconds=value=>{
+              const parsed=Date.parse(String(value||''));
+              return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
+            };
+
+            const activeSql=`
+              WITH cache AS (
+                SELECT CASE WHEN json_type(rows_json)='array' THEN rows_json ELSE json_extract(rows_json,'$.rows') END AS live_json
+                FROM ms_live_cache WHERE hub='NE1' LIMIT 1
+              ), raw AS (
+                SELECT
+                  trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.proofId'),json_extract(value,'$.routeId'),json_extract(value,'$.route_id'),'')) AS row_id,
+                  lower(trim(COALESCE(json_extract(value,'$.attendanceType'),json_extract(value,'$.attendance_type'),''))) AS attendance_raw,
+                  trim(COALESCE(json_extract(value,'$.actualArrivalAt'),json_extract(value,'$.actual_arrival_at'),'')) AS actual_arrival,
+                  trim(COALESCE(json_extract(value,'$.scheduleKitArrivalAt'),json_extract(value,'$.schedule_kit_arrival_at'),'')) AS kit_arrival,
+                  trim(COALESCE(json_extract(value,'$.scheduleTbrArrivalAt'),json_extract(value,'$.schedule_tbr_arrival_at'),'')) AS tbr_arrival,
+                  trim(COALESCE(json_extract(value,'$.actualDepartureAt'),json_extract(value,'$.actual_departure_at'),'')) AS actual_departure,
+                  trim(COALESCE(json_extract(value,'$.queueCancelledAt'),json_extract(value,'$.queue_cancelled_at'),'')) AS cancelled_at,
+                  CAST(COALESCE(json_extract(value,'$.unloadingState'),json_extract(value,'$.unloading_state'),-1) AS INTEGER) AS unloading_state
+                FROM cache, json_each(COALESCE(cache.live_json,'[]'))
+              ), classified AS (
+                SELECT *,
+                  CASE
+                    WHEN instr(attendance_raw,'จุดดร')>0 THEN 'drop'
+                    WHEN instr(attendance_raw,'ปลายทาง')>0 THEN 'destination'
+                    WHEN instr(attendance_raw,'ต้นทาง')>0 THEN 'origin'
+                    ELSE attendance_raw
+                  END AS attendance,
+                  min(
+                    COALESCE(julianday(actual_arrival),9999999),
+                    COALESCE(julianday(kit_arrival),9999999),
+                    COALESCE(julianday(tbr_arrival),9999999)
+                  ) AS effective_arrival_jd
+                FROM raw
+              ), flagged AS (
+                SELECT *,
+                  CASE
+                    WHEN attendance='destination' THEN unloading_state=2
+                    WHEN attendance='drop' THEN unloading_state=2 AND actual_departure<>''
+                    ELSE actual_departure<>''
+                  END AS done
+                FROM classified
+              )
+              SELECT row_id,attendance,unloading_state
+              FROM flagged
+              WHERE actual_arrival<>''
+                AND COALESCE(julianday(actual_arrival),0)>0
+                AND NOT done
+                AND cancelled_at=''
+                AND effective_arrival_jd<9999999
+                AND (julianday('now')-effective_arrival_jd)*24.0<=12.0
+              ORDER BY row_id
+            `;
+            const completedSql=`
+              WITH cache AS (
+                SELECT CASE
+                  WHEN json_type(rows_json)='object' THEN json_extract(rows_json,'$.completedRows')
+                  ELSE '[]'
+                END AS completed_json
+                FROM ms_live_cache WHERE hub='NE1' LIMIT 1
+              )
+              SELECT
+                trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.proofId'),json_extract(value,'$.routeId'),'')) AS row_id,
+                CASE WHEN json_extract(value,'$.completionObservedLive')=1 THEN 1 ELSE 0 END AS observed
+              FROM cache, json_each(COALESCE(cache.completed_json,'[]'))
+            `;
+
+            async function snapshot(label){
+              const [activeResult,completedResult,metaResult,routeResult,preentryResult,busResult]=await Promise.all([
+                query(activeSql),
+                query(completedSql),
+                query("SELECT source_hash,synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+                query("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
+                query("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
+                query("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
+              ]);
+              const activeRows=rows(activeResult);
+              const completedRows=rows(completedResult);
+              const meta=first(metaResult);
+              for(const [name,result] of Object.entries({route:routeResult,preentry:preentryResult,bus:busResult})){
+                const row=first(result);
+                if(String(row?.[1]||'')) throw new Error(`${label} ${name} session error: ${row[1]}`);
+                const age=ageSeconds(row?.[0]);
+                if(age<0||age>20*60) throw new Error(`${label} ${name} session stale: ${age}s`);
+              }
+              const active=new Map(activeRows.map(([id,attendance,state])=>[String(id),{attendance:String(attendance),state:Number(state)}]));
+              const completed=new Map(completedRows.map(([id,observed])=>[String(id),Number(observed)===1]));
+              const fingerprints=await Promise.all([...active.keys()].map(hashId));
+              console.log(`${label}_ACTIVE_COUNT=${active.size}`);
+              console.log(`${label}_ACTIVE_FINGERPRINTS=${fingerprints.join(',')||'-'}`);
+              console.log(`${label}_COMPLETED_COUNT=${completed.size}`);
+              console.log(`${label}_SOURCE_HASH_CHANGED_TOKEN=${String(meta?.[0]||'').slice(0,12)||'-'}`);
+              console.log(`${label}_CACHE_SYNCED_AT=${meta?.[1]||'-'}`);
+              return {active,completed,sourceHash:String(meta?.[0]||''),syncedAt:String(meta?.[1]||'')};
+            }
+
+            const before=await snapshot('BEFORE');
+            if(before.active.size===0){
+              console.log('TRANSITION_GATE=WAITING_FOR_TRAFFIC');
+              console.log('D1_QUERIES=0');
+              return;
+            }
+
+            await sleep(75_000);
+            const after=await snapshot('AFTER');
+            const lost=[...before.active.keys()].filter(id=>!after.active.has(id));
+            const added=[...after.active.keys()].filter(id=>!before.active.has(id));
+            const lostFingerprints=await Promise.all(lost.map(hashId));
+            const addedFingerprints=await Promise.all(added.map(hashId));
+            console.log(`LOST_ACTIVE_COUNT=${lost.length}`);
+            console.log(`ADDED_ACTIVE_COUNT=${added.length}`);
+            console.log(`LOST_FINGERPRINTS=${lostFingerprints.join(',')||'-'}`);
+            console.log(`ADDED_FINGERPRINTS=${addedFingerprints.join(',')||'-'}`);
+
+            let completedTransitions=0;
+            for(const id of lost){
+              const previous=before.active.get(id);
+              if(previous?.attendance==='destination'||previous?.attendance==='drop'){
+                if(after.completed.get(id)!==true)
+                  throw new Error('Destination/drop left current queue without an observed completed-cache record');
+                completedTransitions++;
+              }
+            }
+            console.log(`OBSERVED_COMPLETED_TRANSITIONS=${completedTransitions}`);
+            console.log(`CACHE_SOURCE_CHANGED=${before.sourceHash!==after.sourceHash}`);
+            console.log('SENSITIVE_ROW_VALUES_LOGGED=0');
+            console.log('ALL_MS_SESSIONS_HEALTHY=PASS');
+            if(lost.length===0 && added.length===0){
+              console.log('TRANSITION_GATE=NO_TRANSITION_YET');
+            }else{
+              console.log('TRANSITION_GATE=PASS');
+            }
+            console.log('D1_QUERIES=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Verify zero D1 bindings and recent runtime activity
+        if: always()
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID, token=process.env.CLOUDFLARE_API_TOKEN;
+            if(!account||!token) throw new Error('Cloudflare credentials missing');
+            const headers={Authorization:`Bearer ${token}`};
+            for(const name of ['waiting-trucks-report-api-dev','waiting-trucks-ms-browser-test']){
+              const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/script-settings`,{headers});
+              const payload=await response.json();
+              if(!response.ok||payload.success===false) throw new Error(`${name} settings HTTP ${response.status}`);
+              const bindings=Array.isArray(payload.result?.bindings)?payload.result.bindings:[];
+              if(bindings.some(x=>x.type==='d1'||x.type==='d1_database')) throw new Error(`${name} exposes D1 binding`);
+            }
+            console.log('ACTIVE_D1_BINDINGS=0');
+
+            const endpoint='https://api.cloudflare.com/client/v4/graphql';
+            const databaseId=process.env.DEV_D1_DATABASE_ID;
+            const end=new Date(Date.now()-2*60_000), start=new Date(end.getTime()-10*60_000);
+            const query=`query($accountTag:String!,$databaseId:String!,$start:String!,$end:String!){viewer{accounts(filter:{accountTag:$accountTag}){d1AnalyticsAdaptiveGroups(limit:1000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){sum{rowsRead rowsWritten readQueries writeQueries}}}}}`;
+            const response=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({query,variables:{accountTag:account,databaseId,start:start.toISOString(),end:end.toISOString()}})});
+            const payload=await response.json();
+            if(!response.ok||payload.errors?.length) throw new Error(JSON.stringify(payload.errors||payload));
+            const groups=payload.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups||[];
+            const total=groups.reduce((sum,g)=>({
+              rowsRead:sum.rowsRead+Number(g.sum?.rowsRead||0),rowsWritten:sum.rowsWritten+Number(g.sum?.rowsWritten||0),
+              readQueries:sum.readQueries+Number(g.sum?.readQueries||0),writeQueries:sum.writeQueries+Number(g.sum?.writeQueries||0),
+            }),{rowsRead:0,rowsWritten:0,readQueries:0,writeQueries:0});
+            console.log(`D1_RECENT_ROWS_READ=${total.rowsRead}`);
+            console.log(`D1_RECENT_ROWS_WRITTEN=${total.rowsWritten}`);
+            console.log(`D1_RECENT_READ_QUERIES=${total.readQueries}`);
+            console.log(`D1_RECENT_WRITE_QUERIES=${total.writeQueries}`);
+            if(Object.values(total).some(Number)) throw new Error(`Recent D1 activity is not zero: ${JSON.stringify(total)}`);
+            console.log('D1_RECENT_RUNTIME_ACTIVITY=0');
+            console.log('ANALYTICS_ONLY=true');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

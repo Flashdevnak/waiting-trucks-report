@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const SHADOW_MARKER = "TBR_SHADOW_OBSERVER_V1";
+const SHADOW_REPORT_MARKER = "TBR_SHADOW_REPORT_V1";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -13,23 +14,42 @@ function replaceUnique(output, from, to, label) {
 
 function patchTbrShadowObserver(source) {
   let output = String(source || "");
-  if (output.includes(SHADOW_MARKER)) return output;
 
-  output = replaceUnique(
-    output,
-    `import puppeteer from "@cloudflare/puppeteer";`,
-    `import puppeteer from "@cloudflare/puppeteer";\nimport { observeTbrShadow } from "./tbr-shadow.js";`,
-    "add TBR shadow observer import",
-  );
+  if (!output.includes(SHADOW_MARKER)) {
+    output = replaceUnique(
+      output,
+      `import puppeteer from "@cloudflare/puppeteer";`,
+      `import puppeteer from "@cloudflare/puppeteer";\nimport { observeTbrShadow, readTbrShadowReport, tbrShadowPage } from "./tbr-shadow.js";`,
+      "add TBR shadow observer import",
+    );
 
-  const syncBlock = `        } else if (!response.ok) {\n          console.error(\n            JSON.stringify({\n              event: "connector_sync_blocked",\n              hub,\n              status: response.status,\n              code: payload?.code || "UNKNOWN",\n            }),\n          );\n        }`;
+    const syncBlock = `        } else if (!response.ok) {\n          console.error(\n            JSON.stringify({\n              event: "connector_sync_blocked",\n              hub,\n              status: response.status,\n              code: payload?.code || "UNKNOWN",\n            }),\n          );\n        }`;
 
-  output = replaceUnique(
-    output,
-    syncBlock,
-    `${syncBlock}\n        // ${SHADOW_MARKER}: observe the already-returned BusTime feed only.\n        // This writes event changes to Browser KV and never writes Turso.\n        if (response.ok) {\n          try {\n            await observeTbrShadow(env, hub, payload?.data || {});\n          } catch (shadowError) {\n            console.error(\n              JSON.stringify({\n                event: "tbr_shadow_error",\n                hub,\n                message: shadowError?.message || String(shadowError),\n              }),\n            );\n          }\n        }`,
-    "observe successful connector sync without another network call",
-  );
+    output = replaceUnique(
+      output,
+      syncBlock,
+      `${syncBlock}\n        // ${SHADOW_MARKER}: observe the already-returned BusTime feed only.\n        // This writes event changes to Browser KV and never writes Turso.\n        if (response.ok) {\n          try {\n            await observeTbrShadow(env, hub, payload?.data || {});\n          } catch (shadowError) {\n            console.error(\n              JSON.stringify({\n                event: "tbr_shadow_error",\n                hub,\n                message: shadowError?.message || String(shadowError),\n              }),\n            );\n          }\n        }`,
+      "observe successful connector sync without another network call",
+    );
+  } else if (
+    output.includes('import { observeTbrShadow } from "./tbr-shadow.js";')
+  ) {
+    output = output.replace(
+      'import { observeTbrShadow } from "./tbr-shadow.js";',
+      'import { observeTbrShadow, readTbrShadowReport, tbrShadowPage } from "./tbr-shadow.js";',
+    );
+  }
+
+  if (!output.includes(SHADOW_REPORT_MARKER)) {
+    const routeBlock = `    if (url.pathname === "/api/config")\n      return reply({ ok: true, pinConfigured: Boolean(env.TEST_PIN) });\n    if (!url.pathname.startsWith("/api/"))`;
+    const reportBlock = `    if (url.pathname === "/api/config")\n      return reply({ ok: true, pinConfigured: Boolean(env.TEST_PIN) });\n    // ${SHADOW_REPORT_MARKER}: KV-only readout for the hidden TBR shadow test.\n    if (url.pathname === "/shadow-tbr")\n      return tbrShadowPage(\n        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),\n      );\n    if (url.pathname === "/api/shadow-tbr")\n      return reply(\n        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),\n      );\n    if (!url.pathname.startsWith("/api/"))`;
+    output = replaceUnique(
+      output,
+      routeBlock,
+      reportBlock,
+      "add read-only TBR shadow report routes",
+    );
+  }
 
   return output;
 }

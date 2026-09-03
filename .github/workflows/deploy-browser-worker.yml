@@ -6,9 +6,11 @@ on:
     branches: [main]
     paths:
       - cloudflare-browser-test/src/**
+      - cloudflare-browser-test/scripts/**
       - cloudflare-browser-test/wrangler.jsonc
       - cloudflare-browser-test/package.json
       - cloudflare-browser-test/package-lock.json
+      - .github/workflows/deploy-browser-worker.yml
 
 permissions:
   contents: read
@@ -29,6 +31,10 @@ jobs:
           node-version: 22
       - name: Install Browser Worker tooling
         run: npm install --no-audit --no-fund
+      - name: Stage Browser connector recovery
+        run: |
+          node scripts/patch-connector-recovery.mjs src/index.js
+          node --check src/index.js
       - name: Validate Browser recovery policy and config
         run: |
           npm run check

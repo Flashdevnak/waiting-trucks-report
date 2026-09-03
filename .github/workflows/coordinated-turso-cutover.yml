@@ -96,6 +96,8 @@ jobs:
           cp /tmp/browser-cutover.js src/index.js
           npx wrangler deploy --config wrangler.jsonc
           echo "BROWSER_TURSO_TARGET_DEPLOYED=PASS"
+          echo "BROWSER_CUTOVER_PROPAGATION_WAIT=10s"
+          sleep 10
 
       - name: Deterministically register connector in Turso and Browser KV
         id: connector

@@ -1,7 +1,7 @@
 name: Turso Live State Readonly
 
 # Lightweight post-cutover liveness check. Turso SELECTs only; never touches D1.
-# Recheck after Browser connector recovery and guarded token repair.
+# Readiness follows the intentional 15-minute connection heartbeat throttle; unchanged live snapshots may stay older without being stale.
 on:
   workflow_dispatch:
   push:
@@ -62,6 +62,13 @@ jobs:
             const parsed=Date.parse(String(value||''));
             return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
           };
+          const heartbeatReadySeconds=20*60;
+          const connectionHealthy=(row)=>{
+            const success=String(row?.[2]||'');
+            const error=String(row?.[3]||'');
+            const age=ageSeconds(success);
+            return Boolean(success) && !error && age>=0 && age<=heartbeatReadySeconds;
+          };
 
           const [connectorResult,liveResult,routeResult,preentryResult,busResult]=await Promise.all([
             query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
@@ -81,10 +88,11 @@ jobs:
           if(String(route[0]||'')!=='NE1') throw new Error('NE1 MS connection missing');
 
           const syncedAt=String(live[2]||'');
-          const routeLastSuccess=String(route[2]||'');
           const routeLastError=String(route[3]||'');
           const syncAge=ageSeconds(syncedAt);
-          const routeAge=ageSeconds(routeLastSuccess);
+          const routeHealthy=connectionHealthy(route);
+          const preentryHealthy=connectionHealthy(preentry);
+          const busHealthy=connectionHealthy(bus);
 
           function printConnection(prefix,row){
             console.log(`${prefix}_UPDATED_AT=${row[1]||'-'}`);
@@ -97,15 +105,19 @@ jobs:
           console.log(`TURSO_CONNECTOR_ACTIVE=${Number(connector[1]||0)}`);
           console.log(`TURSO_CONNECTOR_LAST_USED=${connector[2]||'-'}`);
           console.log(`TURSO_LIVE_SYNCED_AT=${syncedAt||'-'}`);
-          console.log(`TURSO_LIVE_SYNC_AGE_SECONDS=${syncAge}`);
+          console.log(`TURSO_LIVE_SNAPSHOT_AGE_SECONDS=${syncAge}`);
           console.log(`TURSO_LIVE_ROWS=${Number(live[3]||0)}`);
           printConnection('MS_ROUTE_CONNECTION',route);
           printConnection('MS_PREENTRY_CONNECTION',preentry);
           printConnection('MS_BUS_CONNECTION',bus);
+          console.log(`MS_ROUTE_HEALTHY=${routeHealthy}`);
+          console.log(`MS_PREENTRY_HEALTHY=${preentryHealthy}`);
+          console.log(`MS_BUS_HEALTHY=${busHealthy}`);
 
           let readiness='STALE';
           if(/\b401\b|SESSION_EXPIRED/i.test(routeLastError)) readiness='NO_MS_SESSION';
-          else if(routeLastSuccess && routeAge>=0 && routeAge<=120 && syncAge>=0 && syncAge<=120) readiness='READY';
+          else if(routeHealthy && preentryHealthy && busHealthy) readiness='READY';
+          console.log(`ALL_MS_SESSIONS_READY=${routeHealthy&&preentryHealthy&&busHealthy}`);
           console.log(`REALTIME_READY=${readiness}`);
           console.log('TURSO_INFRASTRUCTURE=PASS');
           console.log('TURSO_LIVE_STATE_READONLY=PASS');

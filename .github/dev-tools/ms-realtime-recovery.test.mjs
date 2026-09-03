@@ -1,14 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
-  patchDevMsArchive,
-  patchDevWorkerCompletedSummary,
-} from "../../worker/scripts/patch-dev-ms-archive.mjs";
-import {
-  patchDevRealtimeFrontend,
-  patchDevRealtimeWorker,
-} from "./patch-ms-realtime-recovery.mjs";
+import { stageFrontend, stageWorker } from "./stage-dev-runtime.mjs";
 
 const root = new URL("../../", import.meta.url);
 const frontendSource = await readFile(new URL("ms.js", root), "utf8");
@@ -16,10 +9,8 @@ const workerSource = await readFile(
   new URL("worker/src/index.js", root),
   "utf8",
 );
-const stagedFrontend = patchDevMsArchive(frontendSource);
-const stagedWorker = patchDevWorkerCompletedSummary(workerSource);
-const frontend = patchDevRealtimeFrontend(stagedFrontend);
-const worker = patchDevRealtimeWorker(stagedWorker);
+const frontend = stageFrontend(frontendSource);
+const worker = stageWorker(workerSource);
 
 function functionBody(source, name) {
   const marker = `async function ${name}(`;
@@ -125,7 +116,7 @@ test("frontend keeps transient degraded mode connected and visible without toast
   );
 });
 
-test("realtime recovery patch does not alter polling, cron, queue, or archive policy", () => {
+test("realtime recovery staging does not alter polling, cron, queue, or archive policy", () => {
   assert.match(frontend, /pollMs:\s*4000/);
   assert.doesNotMatch(
     frontend,

@@ -57,36 +57,56 @@ jobs:
             return cell;
           };
           const firstRow=(result)=>(result?.rows?.[0]||[]).map(decode);
+          const ageSeconds=(value)=>{
+            const parsed=Date.parse(String(value||''));
+            return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
+          };
 
-          const connector=firstRow(await query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"));
-          const live=firstRow(await query("SELECT hub,source_hash,synced_at,json_array_length(rows_json) AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"));
-          const connection=firstRow(await query("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"));
+          const [connectorResult,liveResult,routeResult,preentryResult,busResult]=await Promise.all([
+            query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
+            query("SELECT hub,source_hash,synced_at,json_array_length(rows_json) AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+            query("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
+            query("SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
+            query("SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
+          ]);
 
+          const connector=firstRow(connectorResult);
+          const live=firstRow(liveResult);
+          const route=firstRow(routeResult);
+          const preentry=firstRow(preentryResult);
+          const bus=firstRow(busResult);
           if(String(connector[0]||'')!=='NE1'||Number(connector[1]||0)!==1) throw new Error('NE1 connector inactive or missing');
           if(String(live[0]||'')!=='NE1') throw new Error('NE1 live cache missing');
-          if(String(connection[0]||'')!=='NE1') throw new Error('NE1 MS connection missing');
+          if(String(route[0]||'')!=='NE1') throw new Error('NE1 MS connection missing');
 
-          const now=Date.now();
           const syncedAt=String(live[2]||'');
-          const syncAgeSeconds=syncedAt&&Number.isFinite(Date.parse(syncedAt))
-            ? Math.max(0,Math.round((now-Date.parse(syncedAt))/1000))
-            : -1;
-          const lastSuccess=String(connection[2]||'');
-          const successAgeSeconds=lastSuccess&&Number.isFinite(Date.parse(lastSuccess))
-            ? Math.max(0,Math.round((now-Date.parse(lastSuccess))/1000))
-            : -1;
-          const lastError=String(connection[3]||'');
+          const routeLastSuccess=String(route[2]||'');
+          const routeLastError=String(route[3]||'');
+          const syncAge=ageSeconds(syncedAt);
+          const routeAge=ageSeconds(routeLastSuccess);
+
+          function printConnection(prefix,row){
+            console.log(`${prefix}_UPDATED_AT=${row[1]||'-'}`);
+            console.log(`${prefix}_LAST_SUCCESS=${row[2]||'-'}`);
+            console.log(`${prefix}_SUCCESS_AGE_SECONDS=${ageSeconds(row[2])}`);
+            console.log(`${prefix}_LAST_ERROR=${row[3]||'-'}`);
+          }
 
           console.log(`TURSO_CONNECTOR_HUB=${connector[0]||'-'}`);
           console.log(`TURSO_CONNECTOR_ACTIVE=${Number(connector[1]||0)}`);
           console.log(`TURSO_CONNECTOR_LAST_USED=${connector[2]||'-'}`);
           console.log(`TURSO_LIVE_SYNCED_AT=${syncedAt||'-'}`);
-          console.log(`TURSO_LIVE_SYNC_AGE_SECONDS=${syncAgeSeconds}`);
+          console.log(`TURSO_LIVE_SYNC_AGE_SECONDS=${syncAge}`);
           console.log(`TURSO_LIVE_ROWS=${Number(live[3]||0)}`);
-          console.log(`MS_CONNECTION_UPDATED_AT=${connection[1]||'-'}`);
-          console.log(`MS_CONNECTION_LAST_SUCCESS=${lastSuccess||'-'}`);
-          console.log(`MS_CONNECTION_SUCCESS_AGE_SECONDS=${successAgeSeconds}`);
-          console.log(`MS_CONNECTION_LAST_ERROR=${lastError||'-'}`);
+          printConnection('MS_ROUTE_CONNECTION',route);
+          printConnection('MS_PREENTRY_CONNECTION',preentry);
+          printConnection('MS_BUS_CONNECTION',bus);
+
+          let readiness='STALE';
+          if(/\b401\b|SESSION_EXPIRED/i.test(routeLastError)) readiness='NO_MS_SESSION';
+          else if(routeLastSuccess && routeAge>=0 && routeAge<=120 && syncAge>=0 && syncAge<=120) readiness='READY';
+          console.log(`REALTIME_READY=${readiness}`);
+          console.log('TURSO_INFRASTRUCTURE=PASS');
           console.log('TURSO_LIVE_STATE_READONLY=PASS');
           console.log('D1_QUERIES=0');
           NODE

@@ -30,10 +30,13 @@ jobs:
           node --test .github/dev-tools/ms-archive-completeness.test.mjs
           node --test .github/dev-tools/stage-dev-runtime.test.mjs
           git diff --check
-      - name: Commit validated fix to main
+      - name: Commit validated runtime fix to main
         run: |
           git config user.name "Flashdevnak"
           git config user.email "26nak.testdev@gmail.com"
-          git add ms.js ms.html sw.js version.json worker/src/index.js .github/dev-tools/ms-archive-completeness.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/cutover-dry-run.yml .github/workflows/go-live-preflight.yml
+          # The Actions token has contents:write but not workflows permission.
+          # Push only the already-validated runtime/source files here; workflow gates
+          # are updated separately through the repository connector after this lands.
+          git add ms.js ms.html sw.js version.json worker/src/index.js .github/dev-tools/ms-archive-completeness.test.mjs
           git commit -m "Make MS accumulated archive complete and authoritative"
           git push origin main

@@ -31,6 +31,7 @@ const state = {
   standards: {},
   loading: false,
   archiveLoaded: false,
+  archiveRangeKey: "",
   archiveView: false,
   cancelledRouteIds: new Set(),
   transportLastOkAt: 0,
@@ -263,10 +264,8 @@ async function loadData(silent = false) {
       if (routeId && row.queueCancelledAt) state.cancelledRouteIds.add(routeId);
     }
     state.completedToday = Number(result?.completedToday) || 0;
-    state.archiveRows = mergeLatest(state.archiveRows, state.currentRows);
-    state.archiveTotal = Math.max(state.archiveTotal, state.archiveRows.length);
-    if (!state.archiveTotalLoaded) void ensureArchiveTotalLoaded();
-    state.rows = state.archiveRows;
+    // MS_DAILY_HISTORY_V1: live polling never grows or reads historical rows.
+    state.rows = state.archiveView ? state.archiveRows : state.currentRows;
     state.branch = result?.branch || state.branch;
     state.standards = Object.fromEntries(
       (result?.standards || []).map((item) => [
@@ -317,6 +316,7 @@ function resetArchiveState() {
   archiveTotalPromise = null;
   state.completedToday = 0;
   state.archiveLoaded = false;
+  state.archiveRangeKey = "";
   state.archiveView = false;
   state.cancelledRouteIds.clear();
   state.rows = [];
@@ -359,41 +359,52 @@ async function ensureArchiveTotalLoaded() {
 }
 
 async function ensureArchiveLoaded(userInitiated = false) {
-  if (!state.auth || state.archiveLoaded) return true;
+  if (!state.auth) return false;
   const branch = state.branch;
+  const today = bangkokDateValue(new Date());
+  const inputStart = displayDateToIso(el("date-from")?.value);
+  const inputEnd = displayDateToIso(el("date-to")?.value);
+  const start = inputStart || state.dateFrom || inputEnd || state.dateTo || today;
+  const end = inputEnd || state.dateTo || inputStart || state.dateFrom || start;
+  const rangeKey = `${branch}|${start}|${end}`;
+  if (state.archiveLoaded && state.archiveRangeKey === rangeKey) return true;
   if (archiveLoadTimer) {
     clearTimeout(archiveLoadTimer);
     archiveLoadTimer = null;
   }
-  if (archiveLoadPromise?.branch === branch) return archiveLoadPromise.promise;
+  if (archiveLoadPromise?.rangeKey === rangeKey) return archiveLoadPromise.promise;
   const promise = (async () => {
     try {
-      const archive = await apiGet("msArchive", { branch });
+      const archive = await apiGet("msDailyArchive", { branch, start, end });
       if (state.branch !== branch) return false;
       const archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
-      const archiveTotal = Number.isFinite(Number(archive?.totalDistinct))
-        ? Number(archive.totalDistinct)
-        : archiveRows.length;
-      if (archive?.complete === false || archiveRows.length < archiveTotal)
+      const archiveTotal = Number(archive?.total) || archiveRows.length;
+      if (archive?.complete === false || archiveRows.length !== archiveTotal)
         throw new Error(
-          `รายการสะสมไม่ครบ: ได้ ${nf.format(archiveRows.length)} จาก ${nf.format(archiveTotal)} รายการ`,
+          `ข้อมูลรายวันไม่ครบ: ได้ ${nf.format(archiveRows.length)} จาก ${nf.format(archiveTotal)} รายการ`,
         );
       state.archiveRows = archiveRows;
       state.archiveTotal = archiveTotal;
       state.archiveTotalLoaded = true;
       state.archiveLoaded = true;
-      state.rows = mergeLatest(state.archiveRows, state.currentRows);
+      state.archiveRangeKey = rangeKey;
+      state.archiveView = true;
+      state.dateFrom = start;
+      state.dateTo = end;
+      if (el("date-from")) el("date-from").value = start;
+      if (el("date-to")) el("date-to").value = end;
+      state.rows = state.archiveRows;
       fillFilters();
       render();
       return true;
     } catch (error) {
-      if (userInitiated) toast(`โหลดรายการสะสมไม่สำเร็จ: ${error.message}`, true);
+      if (userInitiated) toast(`โหลดข้อมูลรายวันไม่สำเร็จ: ${error.message}`, true);
       return false;
     } finally {
       if (archiveLoadPromise?.promise === promise) archiveLoadPromise = null;
     }
   })();
-  archiveLoadPromise = { branch, promise };
+  archiveLoadPromise = { branch, rangeKey, promise };
   return promise;
 }
 
@@ -692,6 +703,19 @@ function bangkokDateValue(value) {
   }).format(date);
 }
 
+function rowBusinessDay(row) {
+  const value = isOrigin(row)
+    ? row.estimatedDepartureAt || row.actualDepartureAt || row.estimatedArrivalAt
+    : row.estimatedArrivalAt || row.actualArrivalAt || row.estimatedDepartureAt;
+  return bangkokDateValue(value);
+}
+
+function metricSourceRows() {
+  if (state.archiveLoaded) return state.archiveRows;
+  const today = bangkokDateValue(new Date());
+  return state.currentRows.filter((row) => rowBusinessDay(row) === today);
+}
+
 function isCompletedToday(row, now = new Date()) {
   if (row.queueCancelledAt) return false;
   if ((!isDestination(row) && !isDrop(row)) || Number(row.unloadingState) !== 2)
@@ -792,9 +816,7 @@ function filteredRows(ignoreSummary = false, queueMode = state.queue) {
           isOrigin(row) &&
           punctuality(row).key === "ontime") ||
         (state.status === "departure-late" && status.departureLate);
-      const arrivalDate = localDateValue(
-        row.actualArrivalAt || row.estimatedArrivalAt,
-      );
+      const arrivalDate = rowBusinessDay(row);
       const queue = queueInfo(row);
       const summaryMatch =
         ignoreSummary ||
@@ -832,28 +854,40 @@ function filteredRows(ignoreSummary = false, queueMode = state.queue) {
 }
 
 async function loadRange() {
-  const start = displayDateToIso(el("date-from").value),
-    end = displayDateToIso(el("date-to").value);
-  if (!start || !end) return toast("กรุณาเลือกวันที่เริ่มต้นและสิ้นสุด", true);
+  const rawStart = displayDateToIso(el("date-from").value),
+    rawEnd = displayDateToIso(el("date-to").value),
+    start = rawStart || rawEnd,
+    end = rawEnd || rawStart;
+  if (!start || !end) return toast("กรุณาเลือกวันที่อย่างน้อย 1 วัน", true);
   try {
-    const result = await apiGet("msRange", {
+    const result = await apiGet("msDailyArchive", {
       branch: state.branch,
       start,
       end,
     });
+    const rows = Array.isArray(result?.rows) ? result.rows : [];
+    const total = Number(result?.total) || rows.length;
+    if (result?.complete === false || rows.length !== total)
+      throw new Error(`ข้อมูลรายวันไม่ครบ: ได้ ${nf.format(rows.length)} จาก ${nf.format(total)} รายการ`);
     state.dateFrom = start;
     state.dateTo = end;
+    el("date-from").value = start;
+    el("date-to").value = end;
+    state.archiveRows = rows;
+    state.archiveTotal = total;
+    state.archiveTotalLoaded = true;
+    state.archiveLoaded = true;
+    state.archiveRangeKey = `${state.branch}|${start}|${end}`;
     state.queue = "all";
     el("queue-filter").value = "all";
     state.archiveView = true;
-    state.archiveLoaded = false;
-    await loadData(false);
-    if (!(await ensureArchiveLoaded(true)))
-      throw new Error("โหลดรายการย้อนหลังไม่สำเร็จ");
-    toast(`ดึงข้อมูลย้อนหลัง ${nf.format(result.total)} รายการแล้ว`);
+    state.rows = state.archiveRows;
+    fillFilters();
+    render();
+    const rangeLabel = start === end ? start : start + " ถึง " + end;
+    toast("โหลดข้อมูลสะสม " + rangeLabel + " จำนวน " + nf.format(total) + " เที่ยวจากฐานระบบแล้ว");
   } catch (error) {
     toast(error.message, true);
-  } finally {
   }
 }
 
@@ -1070,30 +1104,27 @@ async function applyMetricFilter(metric) {
 }
 
 function metrics() {
+  const metricRows = metricSourceRows();
   const completedNote = el("metric-completed")?.closest(".metric-card")?.querySelector("small");
-  if (completedNote) completedNote.textContent = "ปลายทางและจุดดรอปที่ลงของเสร็จสะสม";
+  if (completedNote)
+    completedNote.textContent = state.archiveLoaded
+      ? "ปลายทางและจุดดรอปที่ลงของเสร็จในช่วงวันที่เลือก"
+      : "ปลายทางและจุดดรอปที่ลงของเสร็จวันนี้";
   const active = state.currentRows.filter((row) => queueInfo(row).active),
-    destinations = state.archiveRows.filter(isDestination),
-    origins = state.archiveRows.filter(isOrigin),
+    destinations = metricRows.filter(isDestination),
+    origins = metricRows.filter(isOrigin),
     arrivals = destinations.map((row) => punctuality(row)),
-    releases = origins.map((row) => punctuality(row)),
-    waits = destinations.map(waitInfo).filter((item) => item.minutes !== null);
-  if (state.archiveTotalLoaded)
-    setMetric("metric-archive", state.archiveTotal ?? state.archiveRows.length);
-  else
-    el("metric-archive").textContent = "…";
+    releases = origins.map((row) => punctuality(row));
+  setMetric("metric-archive", metricRows.length);
   setMetric("metric-total", active.length);
   setMetric(
     "metric-unloading",
     active.filter((row) => Number(row.unloadingState) === 1).length,
   );
-  if (state.archiveLoaded)
-    setMetric(
-      "metric-completed",
-      state.archiveRows.filter((row) => isCompletedAccumulated(row)).length,
-    );
-  else
-    el("metric-completed").textContent = "กดดู";
+  setMetric(
+    "metric-completed",
+    metricRows.filter((row) => isCompletedAccumulated(row)).length,
+  );
   setMetric(
     "metric-not-arrived",
     arrivals.filter((item) => item.key === "ontime").length,
@@ -1506,15 +1537,10 @@ function displayDateToIso(value) {
 
 function setupDateInput(id) {
   const input = el(id);
-  input.oninput = () => {
-    state[id === "date-from" ? "dateFrom" : "dateTo"] = displayDateToIso(input.value);
-    render();
-  };
+  // เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา
+  input.oninput = () => {};
   input.onclick = () => input.showPicker?.();
-  input.onchange = () => {
-    state[id === "date-from" ? "dateFrom" : "dateTo"] = displayDateToIso(input.value);
-    render();
-  };
+  input.onchange = () => {};
 }
 
 function renderFreshness() {
@@ -1789,7 +1815,7 @@ function exportCurrent() {
   downloadRows(
     `MS_รายวัน_${state.branch}_${state.dateFrom}_${state.dateTo}.csv`,
     dedupeRoutes(state.rows.filter((row) => {
-      const day = localDateValue(row.actualArrivalAt || row.estimatedArrivalAt);
+      const day = rowBusinessDay(row);
       return day >= state.dateFrom && day <= state.dateTo;
     })).map(exportRow),
   );
@@ -1868,18 +1894,25 @@ async function captureVisibleTable() {
   }
 }
 async function exportHistory() {
+  const start = displayDateToIso(el("date-from").value) || state.dateFrom;
+  const end = displayDateToIso(el("date-to").value) || state.dateTo || start;
+  if (!start || !end)
+    return toast("เลือกวันที่แล้วกดค้นหาก่อน Export ช่วงวันที่", true);
   try {
-    if (!state.archiveLoaded) {
-      const archive = await apiGet("msArchive", { branch: state.branch });
+    const rangeKey = `${state.branch}|${start}|${end}`;
+    if (!state.archiveLoaded || state.archiveRangeKey !== rangeKey) {
+      const archive = await apiGet("msDailyArchive", { branch: state.branch, start, end });
       state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+      state.archiveTotal = Number(archive?.total) || state.archiveRows.length;
       state.archiveLoaded = true;
+      state.archiveRangeKey = rangeKey;
     }
     const rows = dedupeRoutes(state.archiveRows);
     downloadRows(
-      `MS_ประวัติ_${state.branch}_${localDateValue(new Date())}.csv`,
+      `MS_สะสมรายวัน_${state.branch}_${start}_${end}.csv`,
       rows.map(exportRow),
     );
-    toast(`Export ทั้งหมด ${nf.format(rows.length)} เที่ยวแล้ว`);
+    toast(`Export ช่วงวันที่ ${nf.format(rows.length)} เที่ยวแล้ว`);
   } catch (error) {
     toast(error.message, true);
   }

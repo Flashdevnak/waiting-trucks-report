@@ -149,6 +149,18 @@ async function get(url, env) {
     const branch = pickBranch(actor, url.searchParams.get("branch"));
     return ok(await msArchiveTotal(env, actor, branch));
   }
+  if (action === "msDailyArchive") {
+    const branch = pickBranch(actor, url.searchParams.get("branch"));
+    return ok(
+      await msDailyArchive(
+        env,
+        actor,
+        branch,
+        url.searchParams.get("start"),
+        url.searchParams.get("end"),
+      ),
+    );
+  }
   if (action === "msHistory")
     return ok(
       await msHistory(
@@ -1766,6 +1778,98 @@ async function msHistory(env, actor, hub, offset) {
       return item;
     });
   return { rows, hasMore, nextOffset: offset + rows.length };
+}
+
+// MS_DAILY_HISTORY_V1: read-only daily history. It never calls upstream MS and never writes history.
+async function msDailyArchive(env, actor, hub, startValue, endValue) {
+  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
+  const start = String(startValue || ""),
+    end = String(endValue || start);
+  const startMs = thaiDateBoundary(start, false),
+    endMs = thaiDateBoundary(end, true);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs)
+    fail("กรุณาเลือกช่วงวันที่ให้ถูกต้อง", "INVALID_DATE_RANGE");
+  if (endMs - startMs > 31 * 86400000)
+    fail("ดูข้อมูลสะสมได้ครั้งละไม่เกิน 31 วัน", "DATE_RANGE_TOO_LARGE");
+
+  const [historyResult, cancellationResult] = await Promise.all([
+    env.DB.prepare(
+      `WITH latest AS (
+        SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type
+        FROM ms_route_registry r
+        JOIN ms_route_history h
+          ON h.rowid = (
+            SELECT h2.rowid
+            FROM ms_route_history h2
+            WHERE h2.hub=r.hub AND h2.route_id=r.route_id
+            ORDER BY h2.snapshot_at DESC,h2.rowid DESC
+            LIMIT 1
+          )
+        WHERE r.hub=? AND h.hub=? AND json_valid(h.payload_json)=1
+      ), daily AS (
+        SELECT route_id,payload_json,snapshot_at,synced_by,event_type,
+          CASE
+            WHEN COALESCE(json_extract(payload_json,'$.attendanceType'),'') LIKE '%ต้นทาง%' THEN
+              date(datetime(COALESCE(
+                NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),''),
+                NULLIF(json_extract(payload_json,'$.actualDepartureAt'),''),
+                NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),'')
+              ), '+7 hours'))
+            ELSE
+              date(datetime(COALESCE(
+                NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),''),
+                NULLIF(json_extract(payload_json,'$.actualArrivalAt'),''),
+                NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),'')
+              ), '+7 hours'))
+          END AS business_day
+        FROM latest
+      )
+      SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day
+      FROM daily
+      WHERE business_day>=? AND business_day<=?
+      ORDER BY business_day DESC,snapshot_at DESC`,
+    )
+      .bind(hub, hub, start, end)
+      .all(),
+    env.DB.prepare(
+      "SELECT route_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1",
+    )
+      .bind(hub)
+      .all(),
+  ]);
+
+  const cancellations = new Map(
+    cancellationResult.results.map((row) => [row.route_id, row]),
+  );
+  const rows = [];
+  for (const item of historyResult.results) {
+    try {
+      const row = JSON.parse(item.payload_json || "{}");
+      if (!row || typeof row !== "object") continue;
+      row.id = row.id || item.route_id;
+      row.hub = row.hub || hub;
+      row.archivedAt = item.snapshot_at;
+      row.businessDay = item.business_day;
+      const cancelled = cancellations.get(item.route_id);
+      if (cancelled) {
+        row.queueCancelledAt = cancelled.cancelled_at;
+        row.queueCancelledBy = cancelled.cancelled_by;
+        row.queueCancelReason = cancelled.reason;
+      }
+      rows.push(row);
+    } catch {}
+  }
+  return {
+    rows,
+    total: rows.length,
+    complete: true,
+    branch: hub,
+    start,
+    end,
+    source: "TURSO_DAILY_HISTORY",
+    upstreamMsCalls: 0,
+    historyWrites: 0,
+  };
 }
 
 async function msArchiveTotal(env, actor, hub) {

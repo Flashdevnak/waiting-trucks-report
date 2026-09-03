@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="style.css?v=20260901-01" />
     <script>if(location.search)history.replaceState(null,'',location.pathname+location.hash);if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
-    <script src="ms.js?v=20260903-03" defer></script>
+    <script src="ms.js?v=20260903-04" defer></script>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -77,8 +77,8 @@
           class="metric-card metric-dark metric-action"
           data-metric="all"
         >
-          <span>รายการสะสม</span><strong id="metric-archive">0</strong
-          ><small>รายการที่ระบบบันทึกไว้</small>
+          <span>รายการรายวัน</span><strong id="metric-archive">0</strong
+          ><small>วันนี้ หรือช่วงวันที่ที่กดค้นหา</small>
         </article>
         <article class="metric-card metric-action" data-metric="queue">
           <span>รถอยู่ในคิว</span><strong id="metric-total">0</strong
@@ -206,7 +206,7 @@
           <button id="export-current-btn" class="btn btn-header" type="button">
             Export รายวันที่เลือก</button
           ><button id="export-history-btn" class="btn btn-header" type="button">
-            Export ทั้งหมด
+            Export ช่วงวันที่
           </button>
         </div>
         <p id="last-refresh" class="sync-text">ยังไม่ได้โหลดข้อมูล</p>

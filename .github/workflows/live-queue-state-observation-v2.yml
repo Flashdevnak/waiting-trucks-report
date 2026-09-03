@@ -1,0 +1,136 @@
+name: Live Queue State Observation V2
+
+# Read-only observation of real queue state transitions.
+# Reads Turso live cache and Cloudflare analytics only. Never mutates MS or queries D1 directly.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/live-queue-state-observation-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+    steps:
+      - name: Observe real queue state transitions for 2 minutes
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG,db=process.env.TURSO_DATABASE,platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+            if(!platform) throw new Error('Turso platform token missing');
+            async function json(url,options={},label='request'){
+              const r=await fetch(url,options); const text=await r.text(); let p;
+              try{p=JSON.parse(text)}catch{throw new Error(`${label} non-JSON HTTP ${r.status}`)}
+              if(!r.ok) throw new Error(`${label} HTTP ${r.status}`); return p;
+            }
+            const dj=await json(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:{Authorization:`Bearer ${platform}`}},'db lookup');
+            const database=dj.database||dj,hostname=database.Hostname||database.hostname;
+            const tj=await json(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:{Authorization:`Bearer ${platform}`}},'token');
+            const token=tj.jwt; if(!hostname||!token) throw new Error('Turso credentials unavailable'); console.log(`::add-mask::${token}`);
+            async function q(sql){
+              const p=await json(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})},'pipeline');
+              const item=p?.results?.[0]; if(item?.type==='error') throw new Error(JSON.stringify(item.error)); return item?.response?.result;
+            }
+            const d=v=>v==null?null:(typeof v==='object'&&'value'in v?v.value:v);
+            const rows=r=>(r?.rows||[]).map(x=>x.map(d));
+            const first=r=>rows(r)[0]||[];
+            const hash=async id=>{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(id)));return [...new Uint8Array(b)].slice(0,6).map(x=>x.toString(16).padStart(2,'0')).join('')};
+            const age=v=>{const t=Date.parse(String(v||''));return Number.isFinite(t)?Math.max(0,Math.round((Date.now()-t)/1000)):-1};
+            const activeSql=`
+              WITH cache AS (
+                SELECT CASE WHEN json_type(rows_json)='array' THEN rows_json ELSE json_extract(rows_json,'$.rows') END live_json
+                FROM ms_live_cache WHERE hub='NE1' LIMIT 1
+              ), raw AS (
+                SELECT
+                  trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.proofId'),json_extract(value,'$.routeId'),json_extract(value,'$.route_id'),'')) id,
+                  lower(trim(COALESCE(json_extract(value,'$.attendanceType'),json_extract(value,'$.attendance_type'),''))) attendance_raw,
+                  trim(COALESCE(json_extract(value,'$.actualArrivalAt'),json_extract(value,'$.actual_arrival_at'),'')) actual_arrival,
+                  trim(COALESCE(json_extract(value,'$.scheduleKitArrivalAt'),json_extract(value,'$.schedule_kit_arrival_at'),'')) kit_arrival,
+                  trim(COALESCE(json_extract(value,'$.scheduleTbrArrivalAt'),json_extract(value,'$.schedule_tbr_arrival_at'),'')) tbr_arrival,
+                  trim(COALESCE(json_extract(value,'$.actualDepartureAt'),json_extract(value,'$.actual_departure_at'),'')) actual_departure,
+                  trim(COALESCE(json_extract(value,'$.queueCancelledAt'),json_extract(value,'$.queue_cancelled_at'),'')) cancelled_at,
+                  CAST(COALESCE(json_extract(value,'$.unloadingState'),json_extract(value,'$.unloading_state'),-1) AS INTEGER) unloading_state
+                FROM cache,json_each(COALESCE(cache.live_json,'[]'))
+              ), c AS (
+                SELECT *,CASE WHEN instr(attendance_raw,'จุดดร')>0 THEN 'drop' WHEN instr(attendance_raw,'ปลายทาง')>0 THEN 'destination' WHEN instr(attendance_raw,'ต้นทาง')>0 THEN 'origin' ELSE attendance_raw END attendance,
+                  min(COALESCE(julianday(actual_arrival),9999999),COALESCE(julianday(kit_arrival),9999999),COALESCE(julianday(tbr_arrival),9999999)) effective_jd
+                FROM raw
+              ), f AS (
+                SELECT *,CASE WHEN attendance='destination' THEN unloading_state=2 WHEN attendance='drop' THEN unloading_state=2 AND actual_departure<>'' ELSE actual_departure<>'' END done
+                FROM c
+              )
+              SELECT id,attendance,unloading_state,CASE WHEN actual_departure<>'' THEN 1 ELSE 0 END departed
+              FROM f
+              WHERE actual_arrival<>'' AND COALESCE(julianday(actual_arrival),0)>0 AND NOT done AND cancelled_at='' AND effective_jd<9999999 AND (julianday('now')-effective_jd)*24.0<=12.0
+              ORDER BY id`;
+            const completedSql=`WITH cache AS (SELECT CASE WHEN json_type(rows_json)='object' THEN json_extract(rows_json,'$.completedRows') ELSE '[]' END j FROM ms_live_cache WHERE hub='NE1' LIMIT 1) SELECT trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.proofId'),json_extract(value,'$.routeId'),'')) id,CASE WHEN json_extract(value,'$.completionObservedLive')=1 THEN 1 ELSE 0 END observed FROM cache,json_each(COALESCE(j,'[]'))`;
+            async function snap(i){
+              const [a,c,m,route,pre,bus]=await Promise.all([q(activeSql),q(completedSql),q("SELECT source_hash,synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),q("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),q("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),q("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1")]);
+              for(const [name,r] of Object.entries({route,pre,bus})){const x=first(r);if(String(x[1]||''))throw new Error(`${name} error ${x[1]}`);if(age(x[0])<0||age(x[0])>1200)throw new Error(`${name} stale`)}
+              const active=new Map(rows(a).map(([id,attendance,state,departed])=>[String(id),{attendance:String(attendance),state:Number(state),departed:Number(departed)}]));
+              const completed=new Map(rows(c).map(([id,observed])=>[String(id),Number(observed)===1]));
+              const meta=first(m); console.log(`SNAP_${i}_ACTIVE=${active.size}`); console.log(`SNAP_${i}_CACHE_AGE_SECONDS=${age(meta[1])}`);
+              return {active,completed,sourceHash:String(meta[0]||'')};
+            }
+            let prev=await snap(0),added=0,waitToStarted=0,dropUnloadDoneWaitingRelease=0,removed=0,completedRemoved=0,sourceChanges=0;
+            const attendanceAdds={origin:0,destination:0,drop:0,other:0};
+            for(let i=1;i<=12;i++){
+              await sleep(10_000); const cur=await snap(i); if(cur.sourceHash!==prev.sourceHash) sourceChanges++;
+              for(const [id,row] of cur.active){
+                if(!prev.active.has(id)){added++;attendanceAdds[row.attendance]??=0;attendanceAdds[row.attendance]++;}
+                else{
+                  const before=prev.active.get(id);
+                  if(before.state===0&&row.state===1) waitToStarted++;
+                  if(row.attendance==='drop'&&before.state!==2&&row.state===2&&!row.departed) dropUnloadDoneWaitingRelease++;
+                }
+              }
+              for(const [id,row] of prev.active){
+                if(!cur.active.has(id)){
+                  removed++;
+                  if((row.attendance==='destination'||row.attendance==='drop')&&cur.completed.get(id)===true) completedRemoved++;
+                }
+              }
+              prev=cur;
+            }
+            console.log(`ADDED_ACTIVE=${added}`);
+            console.log(`ADDED_ORIGIN=${attendanceAdds.origin||0}`);
+            console.log(`ADDED_DESTINATION=${attendanceAdds.destination||0}`);
+            console.log(`ADDED_DROP=${attendanceAdds.drop||0}`);
+            console.log(`WAIT_TO_STARTED=${waitToStarted}`);
+            console.log(`DROP_UNLOAD_DONE_WAITING_RELEASE=${dropUnloadDoneWaitingRelease}`);
+            console.log(`REMOVED_ACTIVE=${removed}`);
+            console.log(`REMOVED_WITH_COMPLETED_RECORD=${completedRemoved}`);
+            console.log(`SOURCE_HASH_CHANGES=${sourceChanges}`);
+            console.log('ALL_MS_SESSIONS_HEALTHY=PASS');
+            console.log('SENSITIVE_ROW_VALUES_LOGGED=0');
+            console.log('LIVE_QUEUE_STATE_OBSERVATION_V2=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify D1 remains inactive
+        if: always()
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,headers={Authorization:`Bearer ${token}`};
+            for(const name of ['waiting-trucks-report-api-dev','waiting-trucks-ms-browser-test']){
+              const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/script-settings`,{headers});const p=await r.json();if(!r.ok||p.success===false)throw new Error(`${name} settings failed`);const b=p.result?.bindings||[];if(b.some(x=>x.type==='d1'||x.type==='d1_database'))throw new Error(`${name} D1 binding present`);
+            }
+            const end=new Date(Date.now()-120000),start=new Date(end.getTime()-900000),databaseId=process.env.DEV_D1_DATABASE_ID;
+            const query=`query($accountTag:String!,$databaseId:String!,$start:String!,$end:String!){viewer{accounts(filter:{accountTag:$accountTag}){d1AnalyticsAdaptiveGroups(limit:1000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){sum{rowsRead rowsWritten readQueries writeQueries}}}}}`;
+            const r=await fetch('https://api.cloudflare.com/client/v4/graphql',{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({query,variables:{accountTag:account,databaseId,start:start.toISOString(),end:end.toISOString()}})});const p=await r.json();if(!r.ok||p.errors?.length)throw new Error(JSON.stringify(p.errors||p));const gs=p.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups||[];const t=gs.reduce((s,g)=>({rr:s.rr+Number(g.sum?.rowsRead||0),rw:s.rw+Number(g.sum?.rowsWritten||0),rq:s.rq+Number(g.sum?.readQueries||0),wq:s.wq+Number(g.sum?.writeQueries||0)}),{rr:0,rw:0,rq:0,wq:0});
+            console.log(`D1_ROWS_READ=${t.rr}`);console.log(`D1_ROWS_WRITTEN=${t.rw}`);console.log(`D1_READ_QUERIES=${t.rq}`);console.log(`D1_WRITE_QUERIES=${t.wq}`);if(Object.values(t).some(Number))throw new Error(`D1 activity ${JSON.stringify(t)}`);console.log('D1_RUNTIME_ACTIVITY=0');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

@@ -1,3 +1,7 @@
+function workerFetch(input, init) {
+  return globalThis.fetch(input, init);
+}
+
 const DEFAULT_BACKEND = "d1";
 
 export function databaseEnv(env) {
@@ -7,7 +11,7 @@ export function databaseEnv(env) {
   const db = new TursoD1Database({
     url: env?.TURSO_DATABASE_URL,
     authToken: env?.TURSO_AUTH_TOKEN,
-    fetchImpl: fetch,
+    fetchImpl: workerFetch,
   });
 
   return new Proxy(env, {
@@ -19,10 +23,10 @@ export function databaseEnv(env) {
 }
 
 export class TursoD1Database {
-  constructor({ url, authToken, fetchImpl = fetch } = {}) {
+  constructor({ url, authToken, fetchImpl = workerFetch } = {}) {
     this.url = normalizeDatabaseUrl(url);
     this.authToken = String(authToken || "").trim();
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = (...args) => fetchImpl(...args);
   }
 
   prepare(sql) {

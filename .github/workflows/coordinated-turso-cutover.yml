@@ -20,6 +20,7 @@ jobs:
       TURSO_ORG: flashdevnak
       TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
       PROMOTED_API: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,6 +49,8 @@ jobs:
             throw new Error('Cutover targets are not the promoted Turso Worker');
           if(!ms.includes('const preserveObservedCompletion ='))
             throw new Error('Latest completed-view stability patch is missing');
+          if(!browser.includes('/api/bootstrap-connector') || !browser.includes('bootstrapBrowserConnector'))
+            throw new Error('Deterministic Browser connector handoff is missing');
           const changed=String(require('child_process').execSync('git diff --name-only')).trim().split(/\r?\n/).filter(Boolean).sort();
           const wanted=['cloudflare-browser-test/src/index.js','ms.js','style.css','sw.js','version.json'].sort();
           if(JSON.stringify(changed)!==JSON.stringify(wanted))
@@ -65,12 +68,15 @@ jobs:
           (cd cloudflare-browser-test && npm install --no-audit --no-fund)
           (cd cloudflare-browser-test && npm run check)
 
-      - name: Generate one-time connector bootstrap secret
+      - name: Generate one-time bootstrap and connector tokens
         run: |
           umask 077
           openssl rand -hex 32 > /tmp/connector-bootstrap-secret
+          openssl rand -hex 32 > /tmp/connector-token
           test "$(wc -c < /tmp/connector-bootstrap-secret)" -ge 64
+          test "$(wc -c < /tmp/connector-token)" -ge 64
           echo "CONNECTOR_BOOTSTRAP_SECRET=GENERATED"
+          echo "CONNECTOR_TOKEN=GENERATED"
 
       - name: Enable one-time connector adoption on promoted backend
         working-directory: worker
@@ -84,22 +90,44 @@ jobs:
           cat /tmp/connector-bootstrap-secret | npx wrangler secret put CONNECTOR_BOOTSTRAP_SECRET --config wrangler.jsonc
           echo "BROWSER_CONNECTOR_BOOTSTRAP=ENABLED"
 
-      - name: Deploy Browser Cron to promoted Turso backend first
+      - name: Deploy Browser cutover code before public frontend
         working-directory: cloudflare-browser-test
         run: |
           cp /tmp/browser-cutover.js src/index.js
           npx wrangler deploy --config wrangler.jsonc
           echo "BROWSER_TURSO_TARGET_DEPLOYED=PASS"
 
-      - name: Verify Browser connector adoption in Turso before frontend cutover
+      - name: Deterministically register connector in backend and Browser KV
         id: connector
         continue-on-error: true
         run: |
           node <<'NODE'
+          const fs=require('node:fs');
+          const secret=fs.readFileSync('/tmp/connector-bootstrap-secret','utf8').trim();
+          const connectorToken=fs.readFileSync('/tmp/connector-token','utf8').trim();
+          console.log(`::add-mask::${secret}`);
+          console.log(`::add-mask::${connectorToken}`);
+          async function post(url, body, label){
+            const response=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+            const payload=await response.json().catch(()=>({}));
+            if(!response.ok || payload?.ok===false)
+              throw new Error(`${label} HTTP ${response.status}: ${JSON.stringify(payload)}`);
+            console.log(`${label}=PASS`);
+            return payload;
+          }
+          await post(`${process.env.PROMOTED_API}/api`,{
+            action:'bootstrapConnector',hub:'NE1',connectorToken,bootstrapSecret:secret
+          },'BACKEND_CONNECTOR_REGISTER');
+          await post(`${process.env.BROWSER_ORIGIN}/api/bootstrap-connector`,{
+            hub:'NE1',connectorToken,bootstrapSecret:secret
+          },'BROWSER_KV_CONNECTOR_STORE');
+          await post(`${process.env.PROMOTED_API}/api`,{
+            action:'connectorSync',hub:'NE1',connectorToken
+          },'CONNECTOR_SYNC_DIRECT');
+
           const org=process.env.TURSO_ORG;
           const db=process.env.TURSO_DATABASE;
           const platformToken=process.env.TURSO_PLATFORM_API_TOKEN;
-          if(!platformToken) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
           const headers={Authorization:`Bearer ${platformToken}`};
           const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
           const dbJson=await dbRes.json();
@@ -112,47 +140,40 @@ jobs:
           const dbToken=tokenJson.jwt;
           if(!tokenRes.ok||!dbToken) throw new Error(`Turso auth token failed HTTP ${tokenRes.status}`);
           console.log(`::add-mask::${dbToken}`);
-          async function query(sql,args=[]){
+          async function query(sql){
             const response=await fetch(`https://${hostname}/v2/pipeline`,{
-              method:'POST',
-              headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
-              body:JSON.stringify({requests:[{type:'execute',stmt:{sql,args}},{type:'close'}]})
+              method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})
             });
             const payload=await response.json();
             const item=payload?.results?.[0];
             if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
             return item?.response?.result;
           }
-          const started=Date.now();
-          let last=null;
-          for(let attempt=1;attempt<=8;attempt++){
-            const result=await query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1");
-            const row=result?.rows?.[0]||[];
-            const decode=v=>v==null?null:(typeof v==='object'&&v.type?v.value:v);
-            last={hub:decode(row[0]),active:Number(decode(row[1])||0),lastUsed:String(decode(row[2])||'')};
-            console.log(`CONNECTOR_ATTEMPT=${attempt} HUB=${last.hub||'-'} ACTIVE=${last.active} LAST_USED=${last.lastUsed||'-'}`);
-            if(last.hub==='NE1'&&last.active===1&&last.lastUsed){
-              console.log('TURSO_CONNECTOR_ADOPTION=PASS');
-              break;
-            }
-            if(attempt<8) await new Promise(r=>setTimeout(r,20000));
-          }
-          if(!last||last.hub!=='NE1'||last.active!==1||!last.lastUsed)
-            throw new Error(`Connector adoption not observed after ${Math.round((Date.now()-started)/1000)}s`);
-          const live=await query("SELECT synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1");
           const decode=v=>v==null?null:(typeof v==='object'&&v.type?v.value:v);
+          const connector=await query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1");
+          const row=connector?.rows?.[0]||[];
+          const hub=String(decode(row[0])||'');
+          const active=Number(decode(row[1])||0);
+          const lastUsed=String(decode(row[2])||'');
+          console.log(`TURSO_CONNECTOR HUB=${hub||'-'} ACTIVE=${active} LAST_USED=${lastUsed||'-'}`);
+          if(hub!=='NE1'||active!==1||!lastUsed) throw new Error('Turso connector verification failed');
+          const live=await query("SELECT synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1");
           const synced=String(decode(live?.rows?.[0]?.[0])||'');
-          if(!synced) throw new Error('Turso live cache missing after connector adoption');
+          if(!synced) throw new Error('Turso live cache missing after connector sync');
           console.log(`TURSO_LIVE_CACHE_SYNCED_AT=${synced}`);
+          console.log('TURSO_CONNECTOR_HANDOFF=PASS');
           NODE
 
-      - name: Roll Browser back to OLD API if connector adoption failed
+      - name: Roll Browser back and disable bootstrap if connector handoff failed
         if: steps.connector.outcome == 'failure'
-        working-directory: cloudflare-browser-test
         run: |
-          cp /tmp/browser-old.js src/index.js
-          npx wrangler deploy --config wrangler.jsonc
+          cp /tmp/browser-old.js cloudflare-browser-test/src/index.js
+          (cd cloudflare-browser-test && npx wrangler deploy --config wrangler.jsonc)
+          (cd worker && printf 'y\n' | npx wrangler secret delete CONNECTOR_BOOTSTRAP_SECRET --config wrangler.dev.jsonc || true)
+          (cd cloudflare-browser-test && printf 'y\n' | npx wrangler secret delete CONNECTOR_BOOTSTRAP_SECRET --config wrangler.jsonc || true)
           echo "BROWSER_ROLLBACK_TO_OLD=PASS"
+          echo "FAILED_BOOTSTRAP_CLEANUP=DONE"
           exit 1
 
       - name: Commit coordinated GitHub Pages and Browser source cutover
@@ -202,13 +223,17 @@ jobs:
         working-directory: worker
         run: |
           printf 'y\n' | npx wrangler secret delete CONNECTOR_BOOTSTRAP_SECRET --config wrangler.dev.jsonc || true
-          echo "BACKEND_CONNECTOR_BOOTSTRAP=DISABLED_OR_ALREADY_GONE"
+          npx wrangler secret list --config wrangler.dev.jsonc > /tmp/backend-secrets.json
+          if grep -q 'CONNECTOR_BOOTSTRAP_SECRET' /tmp/backend-secrets.json; then exit 1; fi
+          echo "BACKEND_CONNECTOR_BOOTSTRAP=DISABLED"
 
       - name: Disable one-time connector bootstrap on Browser Worker
         working-directory: cloudflare-browser-test
         run: |
           printf 'y\n' | npx wrangler secret delete CONNECTOR_BOOTSTRAP_SECRET --config wrangler.jsonc || true
-          echo "BROWSER_CONNECTOR_BOOTSTRAP=DISABLED_OR_ALREADY_GONE"
+          npx wrangler secret list --config wrangler.jsonc > /tmp/browser-secrets.json
+          if grep -q 'CONNECTOR_BOOTSTRAP_SECRET' /tmp/browser-secrets.json; then exit 1; fi
+          echo "BROWSER_CONNECTOR_BOOTSTRAP=DISABLED"
 
       - name: Final cutover summary
         run: |

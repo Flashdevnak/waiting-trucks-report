@@ -8,6 +8,7 @@ function replaceUnique(output, from, to, label) {
 
 const FRONTEND_MARKER = "function resetLowerDailyViewOnBangkokDayChange()";
 const WORKER_MARKER = "completion cache only trusts observed live unloading transitions";
+const COMPLETE_ARCHIVE_MARKER = "MS_ARCHIVE_COMPLETE_V1";
 
 export function patchMsDailyCompletionObservationFrontend(source) {
   let output = String(source || "");
@@ -90,19 +91,21 @@ export function patchMsDailyCompletionObservationWorker(source) {
     "completed-today endpoint rejects legacy unmarked cache",
   );
 
-  output = replaceUnique(
-    output,
-    `      "SELECT route_id,payload_json,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
-    `      "SELECT route_id,payload_json,event_type AS action,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
-    "archive reads completion observation event type",
-  );
+  if (!output.includes(COMPLETE_ARCHIVE_MARKER)) {
+    output = replaceUnique(
+      output,
+      `      "SELECT route_id,payload_json,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
+      `      "SELECT route_id,payload_json,event_type AS action,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
+      "archive reads completion observation event type",
+    );
 
-  output = replaceUnique(
-    output,
-    `      if (row?.unloadingCompletedAt)\n        completionObserved.set(item.route_id, item.synced_by !== "MS_RANGE");`,
-    `      if (row?.unloadingCompletedAt) {\n        const explicit = row?.completionObservedLive;\n        completionObserved.set(\n          item.route_id,\n          explicit === true ||\n            (typeof explicit !== "boolean" &&\n              item.action !== "FIRST_SEEN" &&\n              item.synced_by !== "MS_RANGE"),\n        );\n      }`,
-    "archive excludes first-seen already-completed rows from daily completion",
-  );
+    output = replaceUnique(
+      output,
+      `      if (row?.unloadingCompletedAt)\n        completionObserved.set(item.route_id, item.synced_by !== "MS_RANGE");`,
+      `      if (row?.unloadingCompletedAt) {\n        const explicit = row?.completionObservedLive;\n        completionObserved.set(\n          item.route_id,\n          explicit === true ||\n            (typeof explicit !== "boolean" &&\n              item.action !== "FIRST_SEEN" &&\n              item.synced_by !== "MS_RANGE"),\n        );\n      }`,
+      "archive excludes first-seen already-completed rows from daily completion",
+    );
+  }
 
   output = output.replace(
     `async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {`,

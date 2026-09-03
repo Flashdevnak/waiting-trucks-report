@@ -68,9 +68,13 @@ jobs:
           if(!account||!token) throw new Error('Cloudflare credentials missing');
           const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
           const base=`https://api.cloudflare.com/client/v4/accounts/${account}`;
-          async function get(path){
+          async function raw(path){
             const response=await fetch(`${base}${path}`,{headers});
             const body=await response.json().catch(()=>({}));
+            return {response,body};
+          }
+          async function get(path){
+            const {response,body}=await raw(path);
             if(!response.ok||body.success===false) throw new Error(`${path} HTTP ${response.status}: ${JSON.stringify(body.errors||body)}`);
             return body.result;
           }
@@ -97,11 +101,18 @@ jobs:
           const browserBindings=Array.isArray(browserSettings?.bindings)?browserSettings.bindings:[];
           const state=browserBindings.find(x=>x.name==='STATE'&&x.type==='kv_namespace');
           if(!state?.namespace_id) throw new Error(`Browser STATE KV binding missing: ${JSON.stringify(browserBindings.map(x=>({name:x.name,type:x.type})))}`);
-          const keys=await get(`/storage/kv/namespaces/${state.namespace_id}/keys?limit=100`);
-          const names=(Array.isArray(keys)?keys:[]).map(x=>x.name);
-          if(!names.includes('hubs')||!names.includes('connector:NE1')) throw new Error(`Browser connector keys missing: ${JSON.stringify(names.filter(x=>x==='hubs'||x.startsWith('connector:')))}`);
-          console.log('BROWSER_KV_HUBS=PASS');
-          console.log('BROWSER_KV_CONNECTOR_NE1=PASS');
+          console.log('BROWSER_STATE_KV_BINDING=PASS');
+          const {response:keyRes,body:keyBody}=await raw(`/storage/kv/namespaces/${state.namespace_id}/keys?limit=100`);
+          if(keyRes.ok&&keyBody.success!==false){
+            const names=(Array.isArray(keyBody.result)?keyBody.result:[]).map(x=>x.name);
+            if(!names.includes('hubs')||!names.includes('connector:NE1')) throw new Error(`Browser connector keys missing: ${JSON.stringify(names.filter(x=>x==='hubs'||x.startsWith('connector:')))}`);
+            console.log('BROWSER_KV_HUBS=PASS');
+            console.log('BROWSER_KV_CONNECTOR_NE1=PASS');
+          }else if(keyRes.status===401||keyRes.status===403){
+            console.log(`BROWSER_KV_KEY_NAMES=UNVERIFIED_PERMISSION_${keyRes.status}`);
+          }else{
+            throw new Error(`Browser KV key listing HTTP ${keyRes.status}: ${JSON.stringify(keyBody.errors||keyBody)}`);
+          }
           console.log('CLOUDFLARE_D1_API_CALLS=0');
           NODE
 

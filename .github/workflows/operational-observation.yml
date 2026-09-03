@@ -1,0 +1,173 @@
+name: Operational Observation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/operational-observation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify realtime contracts before observation
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const front=fs.readFileSync('ms.js','utf8');
+          const browser=fs.readFileSync('cloudflare-browser-test/src/index.js','utf8');
+          const cfg=fs.readFileSync('cloudflare-browser-test/wrangler.jsonc','utf8');
+          if(!front.includes('pollMs: 4000')) throw new Error('frontend poll is not 4000 ms');
+          if(!cfg.includes('"* * * * *"')) throw new Error('Browser Cron is not every minute');
+          if(!browser.includes('syncConfiguredHubs(env)')) throw new Error('Browser scheduled sync missing');
+          if(!browser.includes('payload?.code === "INVALID_CONNECTOR"')) throw new Error('connector recovery guard missing');
+          console.log('FRONTEND_POLL_MS=4000');
+          console.log('BROWSER_CRON_1_MINUTE=PASS');
+          console.log('CONNECTOR_RECOVERY=PASS');
+          NODE
+
+      - name: Observe real queue transitions for 2 minutes
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG,db=process.env.TURSO_DATABASE;
+            const ph={Authorization:`Bearer ${process.env.TURSO_PLATFORM_API_TOKEN}`};
+            const dr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:ph});
+            const dj=await dr.json(); if(!dr.ok) throw new Error(`Turso DB HTTP ${dr.status}`);
+            const database=dj.database||dj,hostname=database.Hostname||database.hostname;
+            const tr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:ph});
+            const tj=await tr.json(); if(!tr.ok||!tj.jwt) throw new Error(`Turso token HTTP ${tr.status}`);
+            const token=tj.jwt; console.log(`::add-mask::${token}`);
+            async function q(sql){
+              const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});
+              const p=await r.json(),i=p?.results?.[0];
+              if(!r.ok||i?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(i?.error||p).slice(0,500)}`);
+              return i?.response?.result;
+            }
+            const dec=v=>v==null?null:(typeof v==='object'&&'value'in v?v.value:v);
+            const rows=r=>(r?.rows||[]).map(row=>row.map(dec));
+            const ageSec=v=>{const t=Date.parse(String(v||''));return Number.isFinite(t)?Math.max(0,Math.round((Date.now()-t)/1000)):-1};
+            async function sessions(label){
+              const [a,b,c]=await Promise.all([
+                q("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
+                q("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
+                q("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1")
+              ]);
+              for(const [name,result] of [['ROUTE',a],['PREENTRY',b],['BUS',c]]){
+                const x=rows(result)[0]||[],age=ageSec(x[0]),err=String(x[1]||'');
+                if(err) throw new Error(`${label} ${name} last_error=${err}`);
+                if(age<0||age>1200) throw new Error(`${label} ${name} stale ${age}s`);
+                console.log(`${label}_${name}_SESSION_AGE_SECONDS=${age}`);
+              }
+            }
+            function attendanceDestination(v){return String(v||'').trim().includes('ปลายทาง')}
+            function parseTime(v){const t=Date.parse(String(v||''));return Number.isFinite(t)?t:null}
+            function status(r){
+              if(!attendanceDestination(r.attendance)) return 'other';
+              if(r.cancelled) return 'cancelled';
+              if(Number(r.unloadingState)===2) return 'completed';
+              if(!r.actualArrivalAt) return 'not-arrived';
+              const t=parseTime(r.actualArrivalAt),fresh=t===null?true:(Date.now()-t)<=12*3600*1000;
+              if(!fresh) return 'expired';
+              return Number(r.unloadingState)===1?'unloading':'waiting';
+            }
+            async function snapshot(){
+              const result=await q(`
+                WITH cache AS (
+                  SELECT rows_json,synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1
+                ), items AS (
+                  SELECT 'live' source,value FROM cache,json_each(CASE WHEN json_type(rows_json)='object' THEN json_extract(rows_json,'$.rows') ELSE rows_json END)
+                  UNION ALL
+                  SELECT 'completed' source,value FROM cache,json_each(CASE WHEN json_type(rows_json)='object' THEN COALESCE(json_extract(rows_json,'$.completedRows'),'[]') ELSE '[]' END)
+                )
+                SELECT source,
+                  COALESCE(json_extract(value,'$.id'),json_extract(value,'$.proofId')) id,
+                  json_extract(value,'$.attendanceType') attendance,
+                  json_extract(value,'$.actualArrivalAt') actual_arrival,
+                  COALESCE(CAST(json_extract(value,'$.unloadingState') AS INTEGER),0) unloading_state,
+                  json_extract(value,'$.queueCancelledAt') cancelled_at
+                FROM items
+                WHERE COALESCE(json_extract(value,'$.id'),json_extract(value,'$.proofId')) IS NOT NULL
+              `);
+              const map=new Map();
+              for(const [source,id,attendance,actualArrivalAt,unloadingState,cancelledAt] of rows(result)){
+                const item={id:String(id),attendance,actualArrivalAt,unloadingState:Number(unloadingState)||0,cancelled:Boolean(cancelledAt),source};
+                const old=map.get(item.id);
+                if(!old || item.unloadingState===2 || source==='live') map.set(item.id,item);
+              }
+              const counts={waiting:0,unloading:0,completed:0,active:0};
+              for(const r of map.values()){
+                const s=status(r); if(s==='waiting')counts.waiting++; if(s==='unloading')counts.unloading++; if(s==='completed')counts.completed++; if(s==='waiting'||s==='unloading')counts.active++;
+              }
+              const meta=rows(await q("SELECT synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1"))[0]||[];
+              return {map,counts,syncedAt:meta[0],syncAge:ageSec(meta[0])};
+            }
+            await sessions('START');
+            let prev=await snapshot();
+            console.log(`OBS_START_ACTIVE=${prev.counts.active}`);
+            console.log(`OBS_START_WAITING=${prev.counts.waiting}`);
+            console.log(`OBS_START_UNLOADING=${prev.counts.unloading}`);
+            console.log(`OBS_START_COMPLETED_CACHE=${prev.counts.completed}`);
+            console.log(`OBS_START_CACHE_AGE_SECONDS=${prev.syncAge}`);
+            const events={arrivedQueue:0,startUnload:0,completed:0,exitOther:0,cacheChanges:0};
+            for(let i=1;i<=24;i++){
+              await new Promise(r=>setTimeout(r,5000));
+              const cur=await snapshot();
+              if(cur.syncedAt!==prev.syncedAt) events.cacheChanges++;
+              const ids=new Set([...prev.map.keys(),...cur.map.keys()]);
+              for(const id of ids){
+                const a=prev.map.get(id),b=cur.map.get(id),sa=a?status(a):'missing',sb=b?status(b):'missing';
+                if((sa==='missing'||sa==='not-arrived'||sa==='expired'||sa==='cancelled')&&(sb==='waiting'||sb==='unloading')) events.arrivedQueue++;
+                if(sa==='waiting'&&sb==='unloading') events.startUnload++;
+                if((sa==='waiting'||sa==='unloading')&&sb==='completed') events.completed++;
+                if((sa==='waiting'||sa==='unloading')&&['missing','expired','cancelled'].includes(sb)) events.exitOther++;
+              }
+              if(i%6===0) console.log(`OBS_T+${i*5}s active=${cur.counts.active} waiting=${cur.counts.waiting} unloading=${cur.counts.unloading} completedCache=${cur.counts.completed} cacheAge=${cur.syncAge}s`);
+              prev=cur;
+            }
+            await sessions('END');
+            console.log(`TRANSITION_ARRIVED_QUEUE=${events.arrivedQueue}`);
+            console.log(`TRANSITION_START_UNLOAD=${events.startUnload}`);
+            console.log(`TRANSITION_COMPLETED=${events.completed}`);
+            console.log(`TRANSITION_EXIT_OTHER=${events.exitOther}`);
+            console.log(`LIVE_CACHE_CHANGE_SAMPLES=${events.cacheChanges}`);
+            console.log(`OBS_END_ACTIVE=${prev.counts.active}`);
+            console.log(`OBS_END_WAITING=${prev.counts.waiting}`);
+            console.log(`OBS_END_UNLOADING=${prev.counts.unloading}`);
+            console.log(`OBS_END_COMPLETED_CACHE=${prev.counts.completed}`);
+            if(prev.syncAge<0||prev.syncAge>180) throw new Error(`live cache stale at end ${prev.syncAge}s`);
+            if(events.exitOther>0) console.log('OPERATIONAL_NOTE=active rows exited without observed completion; inspect if cancellation/12h expiry occurred');
+            if(events.arrivedQueue+events.startUnload+events.completed===0) console.log('OPERATIONAL_RESULT=NO_BUSINESS_TRANSITION_DURING_WINDOW');
+            else console.log('OPERATIONAL_RESULT=REAL_TRANSITIONS_OBSERVED');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify D1 remains inactive during observation
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,databaseId=process.env.DEV_D1_DATABASE_ID,end=new Date(Date.now()-120000),start=new Date(Date.now()-900000);
+            const query=`query($accountTag:String!,$databaseId:String!,$start:String!,$end:String!){viewer{accounts(filter:{accountTag:$accountTag}){d1AnalyticsAdaptiveGroups(limit:1000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){sum{rowsRead rowsWritten readQueries writeQueries}}}}}`;
+            const r=await fetch('https://api.cloudflare.com/client/v4/graphql',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({query,variables:{accountTag:account,databaseId,start:start.toISOString(),end:end.toISOString()}})}); const p=await r.json(); if(!r.ok||p.errors?.length) throw new Error(JSON.stringify(p.errors||p));
+            const groups=p.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups||[];
+            const t=groups.reduce((s,g)=>({rr:s.rr+Number(g.sum?.rowsRead||0),rw:s.rw+Number(g.sum?.rowsWritten||0),rq:s.rq+Number(g.sum?.readQueries||0),wq:s.wq+Number(g.sum?.writeQueries||0)}),{rr:0,rw:0,rq:0,wq:0});
+            console.log(`D1_ROWS_READ=${t.rr}`); console.log(`D1_ROWS_WRITTEN=${t.rw}`); console.log(`D1_READ_QUERIES=${t.rq}`); console.log(`D1_WRITE_QUERIES=${t.wq}`);
+            if(Object.values(t).some(Number)) throw new Error(`D1 activity not zero ${JSON.stringify(t)}`);
+            console.log('D1_RUNTIME_ACTIVITY=0');
+            console.log('OPERATIONAL_OBSERVATION_GATE=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

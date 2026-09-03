@@ -1,8 +1,8 @@
 name: Cutover Dry Run
 
-# Re-run after cancellation anchor fix. Prepares the exact GitHub Pages + Browser
-# Worker cutover diff in an ephemeral checkout only. No Cloudflare writes,
-# no secret changes, no deploy and no push.
+# Prepares the exact GitHub Pages + Browser Worker cutover diff in an
+# ephemeral checkout only. No Cloudflare writes, no secret changes,
+# no deploy, no database access and no push.
 
 on:
   workflow_dispatch:
@@ -10,8 +10,10 @@ on:
     branches: [main]
     paths:
       - .github/cutover-tools/**
-      - .github/dev-tools/patch-ms-route-cancellation.mjs
+      - .github/dev-tools/**
       - .github/workflows/cutover-dry-run.yml
+      - .github/workflows/deploy-worker-dev.yml
+      - worker/wrangler.dev.jsonc
 
 permissions:
   contents: read
@@ -20,7 +22,7 @@ jobs:
   dry-run:
     runs-on: ubuntu-latest
     env:
-      CUTOVER_VERSION: 20260902-02
+      CUTOVER_VERSION: 20260903-01
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,7 +30,7 @@ jobs:
           node-version: 22
       - name: Prepare ephemeral cutover diff
         run: node .github/cutover-tools/prepare-cutover.mjs "$GITHUB_WORKSPACE"
-      - name: Validate cutover targets and safety invariants
+      - name: Validate cutover targets, Turso backend and safety invariants
         run: |
           node --check ms.js
           node --check cloudflare-browser-test/src/index.js
@@ -40,23 +42,31 @@ jobs:
           const browser = fs.readFileSync('cloudflare-browser-test/src/index.js','utf8');
           const sw = fs.readFileSync('sw.js','utf8');
           const version = JSON.parse(fs.readFileSync('version.json','utf8'));
+          const wrangler = fs.readFileSync('worker/wrangler.dev.jsonc','utf8');
+          const deploy = fs.readFileSync('.github/workflows/deploy-worker-dev.yml','utf8');
           const expected = 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
           const old = 'https://waiting-trucks-report.alert-squid-6738.chatgpt.site';
           const checks = [
-            [ms.includes(expected), 'GitHub Pages target is promoted Worker'],
+            [ms.includes(expected), 'GitHub Pages target is promoted Turso Worker'],
             [!ms.includes(old), 'root ms.js no longer targets OLD API'],
             [ms.includes('requestTimeoutMs: 32000'), 'realtime recovery is integrated'],
             [ms.includes('msCompletedToday'), 'daily completed cache UI is integrated'],
+            [ms.includes('const preserveObservedCompletion ='), 'completed view remains stable across live polls'],
             [ms.includes('data-cancel-ms-route'), 'route cancellation UI is integrated'],
             [ms.includes('type="password"'), 'route cancellation requires PIN confirmation'],
             [style.includes('/* DEV mobile MS card spacing */'), 'mobile spacing is integrated'],
             [style.includes('/* MS route cancellation controls */'), 'route cancellation styling is integrated'],
-            [browser.includes(`${expected}/api`), 'Browser Cron targets promoted Worker'],
+            [browser.includes(`${expected}/api`), 'Browser Cron targets promoted Turso Worker'],
             [browser.includes('bootstrapConnector'), 'Browser can register connector during cutover'],
             [browser.includes('randomConnectorToken'), 'Browser can recover when old KV token is absent'],
             [browser.includes('CONNECTOR_BOOTSTRAP_SECRET'), 'Browser bootstrap is secret-gated'],
             [sw.includes(`VERSION="${process.env.CUTOVER_VERSION}"`), 'service worker version is bumped'],
             [version.version === process.env.CUTOVER_VERSION, 'version.json is bumped'],
+            [wrangler.includes('"main": "src/turso-index.js"'), 'promoted Worker entrypoint is Turso'],
+            [wrangler.includes('"DB_BACKEND": "turso"'), 'promoted Worker backend is Turso'],
+            [!wrangler.includes('d1_databases'), 'promoted Worker config has no D1 binding'],
+            [deploy.includes('Reject any remaining D1 binding before deploy'), 'normal DEV deploy rejects D1 rebinding'],
+            [deploy.includes('TURSO_DATABASE_URL'), 'normal DEV deploy requires Turso credentials'],
           ];
           for (const [pass,label] of checks) {
             console.log(`${pass ? 'PASS' : 'FAIL'} ${label}`);
@@ -71,3 +81,4 @@ jobs:
             exit 1
           fi
           echo "CUTOVER_DRY_RUN_MUTATIONS=0"
+          echo "CUTOVER_DRY_RUN_DATABASE_ACCESS=0"

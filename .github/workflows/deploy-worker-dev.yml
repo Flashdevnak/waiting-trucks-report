@@ -2,6 +2,7 @@ name: Deploy Worker DEV
 
 # DEV-only pipeline. Runtime is Turso-only. The former D1 database is a frozen
 # rollback snapshot and is never bound or queried by this normal deploy path.
+# Trigger: DROP_POINT_UI_V2
 
 on:
   workflow_dispatch:

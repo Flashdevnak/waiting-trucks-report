@@ -107,62 +107,67 @@ jobs:
           const connectorToken=fs.readFileSync('/tmp/connector-token','utf8').trim();
           console.log(`::add-mask::${secret}`);
           console.log(`::add-mask::${connectorToken}`);
-          async function post(url, body, label){
-            const response=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-            const payload=await response.json().catch(()=>({}));
-            if(!response.ok || payload?.ok===false)
-              throw new Error(`${label} HTTP ${response.status}: ${JSON.stringify(payload)}`);
-            console.log(`${label}=PASS`);
-            return payload;
-          }
-          await post(`${process.env.PROMOTED_API}/api`,{
-            action:'bootstrapConnector',hub:'NE1',connectorToken,bootstrapSecret:secret
-          },'BACKEND_CONNECTOR_REGISTER');
-          await post(`${process.env.BROWSER_ORIGIN}/api/bootstrap-connector`,{
-            hub:'NE1',connectorToken,bootstrapSecret:secret
-          },'BROWSER_KV_CONNECTOR_STORE');
-          await post(`${process.env.PROMOTED_API}/api`,{
-            action:'connectorSync',hub:'NE1',connectorToken
-          },'CONNECTOR_SYNC_DIRECT');
+          (async () => {
+            async function post(url, body, label){
+              const response=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+              const payload=await response.json().catch(()=>({}));
+              if(!response.ok || payload?.ok===false)
+                throw new Error(`${label} HTTP ${response.status}: ${JSON.stringify(payload)}`);
+              console.log(`${label}=PASS`);
+              return payload;
+            }
+            await post(`${process.env.PROMOTED_API}/api`,{
+              action:'bootstrapConnector',hub:'NE1',connectorToken,bootstrapSecret:secret
+            },'BACKEND_CONNECTOR_REGISTER');
+            await post(`${process.env.BROWSER_ORIGIN}/api/bootstrap-connector`,{
+              hub:'NE1',connectorToken,bootstrapSecret:secret
+            },'BROWSER_KV_CONNECTOR_STORE');
+            await post(`${process.env.PROMOTED_API}/api`,{
+              action:'connectorSync',hub:'NE1',connectorToken
+            },'CONNECTOR_SYNC_DIRECT');
 
-          const org=process.env.TURSO_ORG;
-          const db=process.env.TURSO_DATABASE;
-          const platformToken=process.env.TURSO_PLATFORM_API_TOKEN;
-          const headers={Authorization:`Bearer ${platformToken}`};
-          const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
-          const dbJson=await dbRes.json();
-          if(!dbRes.ok) throw new Error(`Turso database lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
-          const database=dbJson.database||dbJson;
-          const hostname=database.Hostname||database.hostname;
-          if(!hostname) throw new Error('Turso hostname missing');
-          const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
-          const tokenJson=await tokenRes.json();
-          const dbToken=tokenJson.jwt;
-          if(!tokenRes.ok||!dbToken) throw new Error(`Turso auth token failed HTTP ${tokenRes.status}`);
-          console.log(`::add-mask::${dbToken}`);
-          async function query(sql){
-            const response=await fetch(`https://${hostname}/v2/pipeline`,{
-              method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
-              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})
-            });
-            const payload=await response.json();
-            const item=payload?.results?.[0];
-            if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
-            return item?.response?.result;
-          }
-          const decode=v=>v==null?null:(typeof v==='object'&&v.type?v.value:v);
-          const connector=await query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1");
-          const row=connector?.rows?.[0]||[];
-          const hub=String(decode(row[0])||'');
-          const active=Number(decode(row[1])||0);
-          const lastUsed=String(decode(row[2])||'');
-          console.log(`TURSO_CONNECTOR HUB=${hub||'-'} ACTIVE=${active} LAST_USED=${lastUsed||'-'}`);
-          if(hub!=='NE1'||active!==1||!lastUsed) throw new Error('Turso connector verification failed');
-          const live=await query("SELECT synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1");
-          const synced=String(decode(live?.rows?.[0]?.[0])||'');
-          if(!synced) throw new Error('Turso live cache missing after connector sync');
-          console.log(`TURSO_LIVE_CACHE_SYNCED_AT=${synced}`);
-          console.log('TURSO_CONNECTOR_HANDOFF=PASS');
+            const org=process.env.TURSO_ORG;
+            const db=process.env.TURSO_DATABASE;
+            const platformToken=process.env.TURSO_PLATFORM_API_TOKEN;
+            const headers={Authorization:`Bearer ${platformToken}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`Turso database lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('Turso hostname missing');
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json();
+            const dbToken=tokenJson.jwt;
+            if(!tokenRes.ok||!dbToken) throw new Error(`Turso auth token failed HTTP ${tokenRes.status}`);
+            console.log(`::add-mask::${dbToken}`);
+            async function query(sql){
+              const response=await fetch(`https://${hostname}/v2/pipeline`,{
+                method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})
+              });
+              const payload=await response.json();
+              const item=payload?.results?.[0];
+              if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+              return item?.response?.result;
+            }
+            const decode=v=>v==null?null:(typeof v==='object'&&v.type?v.value:v);
+            const connector=await query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1");
+            const row=connector?.rows?.[0]||[];
+            const hub=String(decode(row[0])||'');
+            const active=Number(decode(row[1])||0);
+            const lastUsed=String(decode(row[2])||'');
+            console.log(`TURSO_CONNECTOR HUB=${hub||'-'} ACTIVE=${active} LAST_USED=${lastUsed||'-'}`);
+            if(hub!=='NE1'||active!==1||!lastUsed) throw new Error('Turso connector verification failed');
+            const live=await query("SELECT synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1");
+            const synced=String(decode(live?.rows?.[0]?.[0])||'');
+            if(!synced) throw new Error('Turso live cache missing after connector sync');
+            console.log(`TURSO_LIVE_CACHE_SYNCED_AT=${synced}`);
+            console.log('TURSO_CONNECTOR_HANDOFF=PASS');
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
           NODE
 
       - name: Roll Browser back and disable bootstrap if connector handoff failed

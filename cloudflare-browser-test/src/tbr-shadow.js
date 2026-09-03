@@ -70,6 +70,91 @@ function summary(state) {
   };
 }
 
+function cleanHub(value) {
+  const hub = String(value || "NE1").trim().toUpperCase();
+  return /^[A-Z0-9_-]{2,20}$/.test(hub) ? hub : "NE1";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function displayTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("th-TH", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+export async function readTbrShadowReport(env, hubValue = "NE1") {
+  const hub = cleanHub(hubValue);
+  const nowIso = new Date().toISOString();
+  const key = `shadow:tbr:v1:${hub}`;
+  const raw = env?.STATE ? await env.STATE.get(key) : null;
+  const state = parseState(raw, hub, nowIso);
+  const stats = summary(state);
+  const records = Object.entries(state.records || {})
+    .map(([id, item]) => ({
+      id: id.slice(0, 12),
+      status: String(item?.status || ""),
+      tbrAt: String(item?.tbrAt || ""),
+      kitAt: String(item?.kitAt || ""),
+      firstSeenAt: String(item?.firstSeenAt || ""),
+      confirmedAt: String(item?.confirmedAt || ""),
+      expiredAt: String(item?.expiredAt || ""),
+      routeActualArrivalAt: String(item?.routeActualArrivalAt || ""),
+      leadMinutes: Number.isFinite(Number(item?.leadMinutes))
+        ? Number(item.leadMinutes)
+        : null,
+    }))
+    .sort((a, b) => String(b.tbrAt).localeCompare(String(a.tbrAt)));
+  return {
+    ok: true,
+    shadowOnly: true,
+    tursoReads: 0,
+    tursoWrites: 0,
+    hub,
+    key,
+    startedAt: state.startedAt,
+    updatedAt: state.updatedAt,
+    ...stats,
+    records,
+  };
+}
+
+export function tbrShadowPage(report) {
+  const rows = (report?.records || [])
+    .map((item) => {
+      const label =
+        item.status === "confirmed"
+          ? "ยืนยันแล้ว"
+          : item.status === "expired"
+            ? "หมดเวลา/ต้องตรวจ"
+            : "รอ Route";
+      return `<tr><td><code>${escapeHtml(item.id)}</code></td><td>${escapeHtml(label)}</td><td>${escapeHtml(displayTime(item.tbrAt))}</td><td>${escapeHtml(displayTime(item.kitAt))}</td><td>${escapeHtml(displayTime(item.confirmedAt || item.expiredAt))}</td><td>${item.leadMinutes == null ? "-" : `${escapeHtml(item.leadMinutes)} นาที`}</td></tr>`;
+    })
+    .join("");
+  const body = rows || '<tr><td colspan="6" class="empty">ยังไม่มี TBR candidate ที่ต้องบันทึกใน Shadow</td></tr>';
+  return new Response(
+    `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>TBR Shadow ${escapeHtml(report?.hub || "")}</title><style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f7fb;color:#18212f}.wrap{max-width:1180px;margin:28px auto;padding:0 16px}.head{display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap}.sub{color:#667085}.cards{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:18px 0}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:14px}.card b{display:block;font-size:24px;margin-top:6px}.table{overflow:auto;background:white;border:1px solid #e5e7eb;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:780px}th,td{padding:11px 12px;border-bottom:1px solid #eef1f5;text-align:center;font-size:14px}th{background:#f8fafc}.empty{padding:28px;color:#667085}.safe{font-size:13px;color:#067647;background:#ecfdf3;border-radius:999px;padding:7px 10px}.foot{margin-top:12px;color:#667085;font-size:13px}@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}}</style></head><body><div class="wrap"><div class="head"><div><h1>TBR Shadow Test · ${escapeHtml(report?.hub || "")}</h1><div class="sub">ทดลองจับคิวจาก TBR ก่อน Route · ไม่กระทบคิวจริง</div></div><div class="safe">Turso Read 0 · Write 0 สำหรับหน้ารายงานนี้</div></div><div class="cards"><div class="card">ทั้งหมด<b>${escapeHtml(report?.total ?? 0)}</b></div><div class="card">รอ Route<b>${escapeHtml(report?.pending ?? 0)}</b></div><div class="card">ยืนยันแล้ว<b>${escapeHtml(report?.confirmed ?? 0)}</b></div><div class="card">หมดเวลา<b>${escapeHtml(report?.expired ?? 0)}</b></div><div class="card">เร็วขึ้นเฉลี่ย<b>${report?.averageLeadMinutes == null ? "-" : `${escapeHtml(report.averageLeadMinutes)} นาที`}</b></div><div class="card">เร็วสุด<b>${report?.maxLeadMinutes == null ? "-" : `${escapeHtml(report.maxLeadMinutes)} นาที`}</b></div></div><div class="table"><table><thead><tr><th>Shadow ID</th><th>สถานะ</th><th>TBR</th><th>KIT</th><th>ยืนยัน/หมดเวลา</th><th>รู้เร็วขึ้น</th></tr></thead><tbody>${body}</tbody></table></div><div class="foot">อัปเดต Shadow ล่าสุด: ${escapeHtml(displayTime(report?.updatedAt))} · หน้านี้รีเฟรชทุก 60 วินาที · ID ถูก hash ไม่แสดงบาร์โค้ดจริง</div></div></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+  );
+}
+
 export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now()) {
   const hub = String(hubValue || "").trim().toUpperCase();
   if (!hub || !env?.STATE) return { changed: false, skipped: "missing_state" };

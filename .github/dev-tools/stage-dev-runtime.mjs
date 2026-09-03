@@ -37,6 +37,7 @@ import {
   patchMsDailyCompletionObservationWorker,
 } from "./patch-ms-daily-completion-observation.mjs";
 import { patchMsCompletedViewStabilityFrontend } from "./patch-ms-completed-view-stability.mjs";
+import { patchMsLiveResilienceFrontend } from "./patch-ms-live-resilience.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -62,6 +63,7 @@ export function stageFrontend(source) {
   output = patchMsOperatingDayFrontend(output);
   output = patchMsDailyCompletionObservationFrontend(output);
   output = patchMsCompletedViewStabilityFrontend(output);
+  output = patchMsLiveResilienceFrontend(output);
   return output;
 }
 

@@ -56,9 +56,9 @@ test("daily history UI and cache release are current", () => {
   assert.match(html, /รายการรายวัน/);
   assert.match(html, /วันนี้ หรือช่วงวันที่ที่กดค้นหา/);
   assert.match(html, /Export ช่วงวันที่/);
-  assert.match(html, /ms\.js\?v=20260903-04/);
-  assert.match(sw, /VERSION="20260903-04"/);
-  assert.equal(version.version, "20260903-04");
+  assert.match(html, /ms\.js\?v=20260904-01/);
+  assert.match(sw, /VERSION="20260904-01"/);
+  assert.equal(version.version, "20260904-01");
 });
 
 test("daily history read index is present", () => {

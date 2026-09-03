@@ -1,6 +1,7 @@
 name: Turso Live State Readonly
 
 # Lightweight post-cutover liveness check. Turso SELECTs only; never touches D1.
+# Recheck after Browser connector recovery and guarded token repair.
 on:
   workflow_dispatch:
   push:

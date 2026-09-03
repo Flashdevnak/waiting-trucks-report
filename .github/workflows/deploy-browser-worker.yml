@@ -1,0 +1,84 @@
+name: Deploy Browser Worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - cloudflare-browser-test/src/**
+      - cloudflare-browser-test/wrangler.jsonc
+      - cloudflare-browser-test/package.json
+      - cloudflare-browser-test/package-lock.json
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    defaults:
+      run:
+        working-directory: cloudflare-browser-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Browser Worker tooling
+        run: npm install --no-audit --no-fund
+      - name: Validate Browser recovery policy and config
+        run: |
+          npm run check
+          node --check src/index.js
+          node <<'NODE'
+          const fs=require('node:fs');
+          const source=fs.readFileSync('src/index.js','utf8');
+          const config=fs.readFileSync('wrangler.jsonc','utf8');
+          const api='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api';
+          if(!source.includes(api)) throw new Error('Browser MAIN_API is not promoted Turso API');
+          if(!source.includes('payload?.code === "INVALID_CONNECTOR"')) throw new Error('Browser does not distinguish invalid connector from expired MS session');
+          if(!source.includes('connector_sync_blocked')) throw new Error('Browser missing retained-connector diagnostic');
+          if(/response\.status === 401 && !env\.CONNECTOR_BOOTSTRAP_SECRET\)\s*\n\s*await env\.STATE\.delete/.test(source))
+            throw new Error('Browser still deletes connector on every backend 401');
+          if(!config.includes('"* * * * *"')) throw new Error('Browser cron is not every minute');
+          if(/d1_databases/.test(config)) throw new Error('Browser Worker must not bind D1');
+          console.log('BROWSER_CONNECTOR_RECOVERY_POLICY=PASS');
+          console.log('BROWSER_CRON_ONE_MINUTE=PASS');
+          console.log('BROWSER_D1_BINDING_CONFIG=0');
+          NODE
+      - name: Deploy Browser Worker
+        run: npx wrangler deploy --config wrangler.jsonc
+      - name: Verify Browser Worker runtime
+        run: |
+          node <<'NODE'
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const name='waiting-trucks-ms-browser-test';
+          const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
+          const base=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}`;
+          async function get(path){
+            const response=await fetch(`${base}${path}`,{headers});
+            const body=await response.json().catch(()=>({}));
+            if(!response.ok||body.success===false) throw new Error(`${path} HTTP ${response.status}: ${JSON.stringify(body.errors||body)}`);
+            return body.result;
+          }
+          const [deployments,settings,secrets]=await Promise.all([
+            get('/deployments'),
+            get('/script-settings'),
+            get('/secrets'),
+          ]);
+          const active=deployments?.deployments?.[0];
+          const version=[...(active?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||'';
+          const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
+          const d1=bindings.filter(x=>x.type==='d1'||x.type==='d1_database');
+          const secretNames=(Array.isArray(secrets)?secrets:[]).map(x=>x.name);
+          if(d1.length) throw new Error('Active Browser Worker exposes a D1 binding');
+          if(secretNames.includes('CONNECTOR_BOOTSTRAP_SECRET')) throw new Error('One-time Browser bootstrap secret unexpectedly remains');
+          console.log(`ACTIVE_BROWSER_VERSION=${version||'-'}`);
+          console.log('BROWSER_RUNTIME_D1_BINDING=0');
+          console.log('BROWSER_BOOTSTRAP_SECRET=0');
+          NODE
+          curl --fail --show-error --silent 'https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev/api/config'

@@ -38,7 +38,8 @@ test("drop unloading time freezes and uses the existing vehicle standard", () =>
   const drop = ui.dropOperation(row);
   assert.equal(drop.unloadingMinutes, 24);
   assert.equal(drop.unloadingStandard, 30);
-  assert.match(ui.dropProgressHtml(drop), /ใช้เวลา 24 นาที · มาตรฐาน 30 นาที/);
+  assert.match(ui.dropProgressHtml(drop), /<strong>24 นาที<\/strong>/);
+  assert.match(ui.dropProgressHtml(drop), /ตั้งแต่รถถึง · มาตรฐาน 30 นาที/);
   assert.match(ui.dropProgressHtml(drop), /2 · ไปต่อ/);
 });
 
@@ -70,6 +71,23 @@ test("departure countdown covers pending, overdue, early, late, and on-time", ()
   assert.match(ui.departureCountdown({ ...base, actualDepartureAt: "2026-09-01T00:07:00.000Z" }).label, /ออกก่อนเวลา 53 นาที/);
   assert.match(ui.departureCountdown({ ...base, actualDepartureAt: "2026-09-01T01:08:00.000Z" }).label, /ออกช้า 8 นาที/);
   assert.equal(ui.departureCountdown({ ...base, actualDepartureAt: base.estimatedDepartureAt }).label, "ตรงเวลา");
+});
+
+test("drop late arrival shifts only the release countdown", () => {
+  const row = {
+    attendanceType: "จุดดรอป",
+    estimatedArrivalAt: "2026-09-03T14:00:00.000Z", // 21:00 Bangkok
+    actualArrivalAt: "2026-09-03T14:45:00.000Z", // 21:45 Bangkok
+    estimatedDepartureAt: "2026-09-03T15:00:00.000Z", // 22:00 Bangkok
+  };
+  const item = ui.departureCountdown(row, new Date("2026-09-03T14:58:00.000Z")); // 21:58 Bangkok
+  assert.equal(item.minutes, 47);
+  assert.equal(item.adjustedByLateMinutes, 45);
+  assert.match(item.label, /เหลือ 47 นาทีถึงกำหนดปล่อย/);
+  assert.match(item.label, /เพิ่ม 45 นาทีจากรถเข้าช้า/);
+  const onTime = ui.departureCountdown({ ...row, actualArrivalAt: row.estimatedArrivalAt }, new Date("2026-09-03T14:58:00.000Z"));
+  assert.equal(onTime.adjustedByLateMinutes, 0);
+  assert.equal(onTime.minutes, 2);
 });
 
 test("Bangkok-normalized route times keep punctuality and waiting durations local", () => {
@@ -221,6 +239,9 @@ test("warehouse page is removed from navigation and redirects without polling sc
 
 test("realtime settings and D1 read safeguards remain intact", async () => {
   assert.match(source, /pollMs:\s*4000/);
+  // cancel button remains origin-only: destination and drop never expose it.
+  assert.doesNotMatch(source, /q\.active && !isDestination\(row\)/);
+  assert.match(source, /q\.active && isOrigin\(row\)/);
   const cron = await readFile(new URL("cloudflare-browser-test/wrangler.jsonc", root), "utf8");
   assert.match(cron, /"\* \* \* \* \*"/);
   const worker = await readFile(new URL("worker/src/index.js", root), "utf8");

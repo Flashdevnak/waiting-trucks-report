@@ -85,11 +85,43 @@ jobs:
               return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
             };
 
-            const [metaResult,aggregateResult,routeResult,preentryResult,busResult]=await Promise.all([
-              query("SELECT synced_at,json_valid(rows_json),json_type(rows_json),json_array_length(rows_json) FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+            const metaResult=await query(`
+              SELECT
+                synced_at,
+                json_valid(rows_json),
+                json_type(rows_json),
+                CASE
+                  WHEN json_type(rows_json)='array' THEN json_array_length(rows_json)
+                  ELSE COALESCE(json_array_length(rows_json,'$.rows'),0)
+                END AS live_count,
+                CASE
+                  WHEN json_type(rows_json)='array' THEN 1
+                  ELSE COALESCE(CAST(json_extract(rows_json,'$.version') AS INTEGER),0)
+                END AS cache_version,
+                CASE
+                  WHEN json_type(rows_json)='object' THEN COALESCE(json_array_length(rows_json,'$.completedRows'),0)
+                  ELSE 0
+                END AS completed_cache_count
+              FROM ms_live_cache
+              WHERE hub='NE1'
+              LIMIT 1
+            `);
+            const meta=first(metaResult);
+            if(!meta.length) throw new Error('NE1 live cache missing');
+            if(Number(meta[1]||0)!==1 || !['array','object'].includes(String(meta[2]||'')))
+              throw new Error(`NE1 live cache JSON shape invalid valid=${meta[1]} type=${meta[2]}`);
+
+            const [aggregateResult,routeResult,preentryResult,busResult]=await Promise.all([
               query(`
                 WITH cache AS (
-                  SELECT rows_json FROM ms_live_cache WHERE hub='NE1' LIMIT 1
+                  SELECT
+                    CASE
+                      WHEN json_type(rows_json)='array' THEN rows_json
+                      ELSE json_extract(rows_json,'$.rows')
+                    END AS live_json
+                  FROM ms_live_cache
+                  WHERE hub='NE1'
+                  LIMIT 1
                 ), items AS (
                   SELECT
                     trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.routeId'),json_extract(value,'$.route_id'),'')) AS row_id,
@@ -97,7 +129,7 @@ jobs:
                     trim(COALESCE(json_extract(value,'$.actualArrivalAt'),json_extract(value,'$.actual_arrival_at'),'')) AS actual_arrival,
                     trim(COALESCE(json_extract(value,'$.actualDepartureAt'),json_extract(value,'$.actual_departure_at'),'')) AS actual_departure,
                     CAST(COALESCE(json_extract(value,'$.unloadingState'),json_extract(value,'$.unloading_state'),-1) AS INTEGER) AS unloading_state
-                  FROM cache, json_each(cache.rows_json)
+                  FROM cache, json_each(COALESCE(cache.live_json,'[]'))
                 )
                 SELECT
                   COUNT(*) AS total,
@@ -122,10 +154,7 @@ jobs:
               query("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
               query("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
             ]);
-            const meta=first(metaResult), agg=first(aggregateResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
-            if(!meta.length) throw new Error('NE1 live cache missing');
-            if(Number(meta[1]||0)!==1 || String(meta[2]||'')!=='array')
-              throw new Error(`NE1 live cache JSON shape invalid valid=${meta[1]} type=${meta[2]}`);
+            const agg=first(aggregateResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
             for(const [name,row] of Object.entries({route,preentry,bus})){
               if(String(row?.[1]||'')) throw new Error(`${name} session error: ${row[1]}`);
               const age=ageSeconds(row?.[0]);
@@ -133,9 +162,14 @@ jobs:
             }
 
             const total=Number(agg[0]||0);
+            const declaredTotal=Number(meta[3]||0);
+            if(total!==declaredTotal) throw new Error(`Live cache row count mismatch SQL=${total} meta=${declaredTotal}`);
             console.log(`LIVE_SNAPSHOT_AT=${meta[0]||'-'}`);
             console.log(`LIVE_SNAPSHOT_AGE_SECONDS=${ageSeconds(meta[0])}`);
             console.log(`LIVE_ROWS=${total}`);
+            console.log(`LIVE_CACHE_FORMAT=${meta[2]}`);
+            console.log(`LIVE_CACHE_VERSION=${Number(meta[4]||0)}`);
+            console.log(`COMPLETED_CACHE_ROWS=${Number(meta[5]||0)}`);
             console.log('LIVE_CACHE_JSON_VALID=PASS');
             console.log('ALL_MS_SESSIONS_HEALTHY=PASS');
             console.log('SENSITIVE_ROW_VALUES_LOGGED=0');

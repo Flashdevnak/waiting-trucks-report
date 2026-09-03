@@ -1,0 +1,74 @@
+name: Apply MS Live Resilience
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-ms-live-resilience.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply resilience patch
+        run: |
+          node .github/dev-tools/patch-ms-live-resilience.mjs ms.js
+          node --check ms.js
+          grep -q 'LIVE_RESILIENCE_V1' ms.js
+          grep -q 'waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api' ms.js
+          grep -q 'NON_JSON_RESPONSE' ms.js
+          grep -q 'transportLastOkAt' ms.js
+
+      - name: Bump public cache version
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const version='20260903-02';
+          const now=new Date().toISOString();
+          fs.writeFileSync('version.json',JSON.stringify({version,updatedAt:now})+'\n');
+          const sw=fs.readFileSync('sw.js','utf8').replace(/const VERSION="[^"]+";/,`const VERSION="${version}";`);
+          fs.writeFileSync('sw.js',sw);
+          NODE
+          grep -q '20260903-02' version.json
+          grep -q '20260903-02' sw.js
+
+      - name: Verify frontend invariants
+        run: |
+          node --check ms.js
+          node - <<'NODE'
+          const fs=require('fs');
+          const s=fs.readFileSync('ms.js','utf8');
+          const must=[
+            'pollMs: 4000',
+            'DEV: archive stays lazy',
+            'apiGet("msCompletedToday"',
+            'LIVE_RESILIENCE_V1',
+            'CONFIG.apiUrl = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api"',
+            'API ตอบกลับเป็นหน้าเว็บแทน JSON',
+            'Date.now() - Number(state.transportLastOkAt) <= CONFIG.staleMs',
+          ];
+          for(const marker of must) if(!s.includes(marker)) throw new Error(`missing invariant: ${marker}`);
+          if(s.includes('window.location.origin}/api')) throw new Error('same-origin API fallback still present');
+          console.log('PUBLIC_MS_FRONTEND_RESILIENCE=PASS');
+          NODE
+
+      - name: Commit public frontend fix
+        run: |
+          if git diff --quiet -- ms.js version.json sw.js; then
+            echo 'No public frontend changes required'
+            exit 0
+          fi
+          git config user.name 'Flashdevnak'
+          git config user.email '26nak.testdev@gmail.com'
+          git add ms.js version.json sw.js
+          git commit -m 'Harden public MS live API transport'
+          git push origin HEAD:main

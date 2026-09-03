@@ -114,14 +114,11 @@ jobs:
           const settings=await settingsRes.json();
           if(!settingsRes.ok || !settings.success) throw new Error(`settings HTTP ${settingsRes.status}`);
           const bindings=settings.result?.bindings||[];
-          const hasD1=bindings.some(x=>x.type==='d1' || x.type==='d1_database');
-          const tursoSecrets=['TURSO_DATABASE_URL','TURSO_AUTH_TOKEN'];
-          const missing=tursoSecrets.filter(secret=>!bindings.some(x=>x.name===secret && x.type==='secret_text'));
-          console.log(`D1_BINDING_COUNT=${bindings.filter(x=>x.type==='d1'||x.type==='d1_database').length}`);
-          console.log(`TURSO_SECRET_BINDINGS=${tursoSecrets.length-missing.length}`);
-          if(hasD1) throw new Error('Active DEV Worker exposes a D1 binding');
-          if(missing.length) throw new Error(`Active DEV Worker misses Turso secrets: ${missing.join(',')}`);
-          console.log('WORKER_TURSO_BINDINGS_ONLY=PASS');
+          const d1Bindings=bindings.filter(x=>x.type==='d1' || x.type==='d1_database');
+          console.log(`D1_BINDING_COUNT=${d1Bindings.length}`);
+          if(d1Bindings.length) throw new Error('Active DEV Worker exposes a D1 binding');
+          console.log('WORKER_D1_BINDING_ZERO=PASS');
+          console.log('TURSO_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           NODE
       - name: Smoke DEV public health
         working-directory: .

@@ -2,6 +2,7 @@ name: D1 Analytics Root Cause DEV
 
 # Analytics-only forensic workflow. Uses Cloudflare GraphQL analytics and never queries D1.
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:

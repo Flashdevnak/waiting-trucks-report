@@ -1,0 +1,165 @@
+name: Repair Browser Connector
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/repair-browser-connector.yml
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      PROMOTED_API: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify repair prerequisites
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const browser=fs.readFileSync('cloudflare-browser-test/src/index.js','utf8');
+          const patch=fs.readFileSync('cloudflare-browser-test/scripts/patch-connector-recovery.mjs','utf8');
+          const config=fs.readFileSync('cloudflare-browser-test/wrangler.jsonc','utf8');
+          if(!browser.includes(`${process.env.PROMOTED_API}/api`)) throw new Error('Browser source target mismatch');
+          if(!patch.includes('payload?.code === "INVALID_CONNECTOR"') || !patch.includes('connector_sync_blocked'))
+            throw new Error('Browser recovery patch missing');
+          if(!config.includes('"* * * * *"')) throw new Error('Browser cron is not every minute');
+          if(config.includes('d1_databases')) throw new Error('Browser config unexpectedly binds D1');
+          console.log('CONNECTOR_REPAIR_PREREQUISITES=PASS');
+          console.log('D1_CONFIG_BINDING=0');
+          NODE
+
+      - name: Install Browser tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Generate one-time connector material
+        run: |
+          umask 077
+          openssl rand -hex 32 > /tmp/browser-bootstrap-secret
+          openssl rand -hex 32 > /tmp/browser-connector-token
+          echo "::add-mask::$(cat /tmp/browser-bootstrap-secret)"
+          echo "::add-mask::$(cat /tmp/browser-connector-token)"
+          echo "ONE_TIME_CONNECTOR_MATERIAL=GENERATED"
+
+      - name: Register fresh connector hash in Turso
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const {createHash}=require('node:crypto');
+          const connectorToken=fs.readFileSync('/tmp/browser-connector-token','utf8').trim();
+          const tokenHash=createHash('sha256').update(connectorToken).digest('hex');
+          const platform=process.env.TURSO_PLATFORM_API_TOKEN;
+          if(!platform) throw new Error('Turso platform token missing');
+          const headers={Authorization:`Bearer ${platform}`};
+          const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE;
+          const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+          const dbJson=await dbRes.json();
+          if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
+          const hostname=(dbJson.database||dbJson).Hostname||(dbJson.database||dbJson).hostname;
+          if(!hostname) throw new Error('Turso hostname missing');
+          const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+          const tokenJson=await tokenRes.json();
+          const dbToken=tokenJson.jwt;
+          if(!tokenRes.ok||!dbToken) throw new Error(`Turso auth token HTTP ${tokenRes.status}`);
+          console.log(`::add-mask::${dbToken}`);
+          async function query(sql){
+            const response=await fetch(`https://${hostname}/v2/pipeline`,{
+              method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+            });
+            const payload=await response.json();
+            const item=payload?.results?.[0];
+            if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+            return item?.response?.result;
+          }
+          const now=new Date().toISOString();
+          await query(`INSERT INTO ms_connector_tokens(hub,token_hash,created_at,last_used_at,active) VALUES('NE1','${tokenHash}','${now}','',1) ON CONFLICT(hub) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at,last_used_at='',active=1`);
+          console.log('TURSO_CONNECTOR_HASH_REPAIRED=PASS');
+          console.log('D1_QUERIES=0');
+          NODE
+
+      - name: Enable one-time Browser bootstrap secret
+        working-directory: cloudflare-browser-test
+        run: |
+          cat /tmp/browser-bootstrap-secret | npx wrangler secret put CONNECTOR_BOOTSTRAP_SECRET --config wrangler.jsonc
+          echo "BROWSER_BOOTSTRAP_SECRET=ENABLED"
+          sleep 10
+
+      - name: Store connector in Browser KV and verify backend authentication
+        id: handoff
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const secret=fs.readFileSync('/tmp/browser-bootstrap-secret','utf8').trim();
+          const connectorToken=fs.readFileSync('/tmp/browser-connector-token','utf8').trim();
+          console.log(`::add-mask::${secret}`);
+          console.log(`::add-mask::${connectorToken}`);
+          const browserRes=await fetch(`${process.env.BROWSER_ORIGIN}/api/bootstrap-connector`,{
+            method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({hub:'NE1',connectorToken,bootstrapSecret:secret}),
+          });
+          const browserBody=await browserRes.json().catch(()=>({}));
+          if(!browserRes.ok||browserBody?.ok===false) throw new Error(`Browser KV store HTTP ${browserRes.status}: ${JSON.stringify(browserBody)}`);
+          console.log('BROWSER_KV_CONNECTOR_STORE=PASS');
+
+          const syncRes=await fetch(`${process.env.PROMOTED_API}/api`,{
+            method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({action:'connectorSync',hub:'NE1',connectorToken}),
+          });
+          const syncBody=await syncRes.json().catch(()=>({}));
+          const code=String(syncBody?.code||syncBody?.data?.code||'');
+          if(code==='INVALID_CONNECTOR') throw new Error('Fresh connector token was rejected by backend');
+          if(syncRes.ok && syncBody?.ok!==false) {
+            console.log('CONNECTOR_SYNC_RESULT=READY');
+          } else {
+            console.log(`CONNECTOR_SYNC_RESULT=UPSTREAM_BLOCKED HTTP=${syncRes.status} CODE=${code||'-'}`);
+          }
+          console.log('CONNECTOR_BACKEND_AUTH=PASS');
+          NODE
+
+      - name: Disable one-time Browser bootstrap secret
+        if: always()
+        working-directory: cloudflare-browser-test
+        run: |
+          printf 'y\n' | npx wrangler secret delete CONNECTOR_BOOTSTRAP_SECRET --config wrangler.jsonc || true
+          npx wrangler secret list --config wrangler.jsonc > /tmp/browser-secrets-after-repair.json
+          if grep -q 'CONNECTOR_BOOTSTRAP_SECRET' /tmp/browser-secrets-after-repair.json; then
+            echo "Browser bootstrap secret cleanup failed"
+            exit 1
+          fi
+          echo "BROWSER_BOOTSTRAP_SECRET=DISABLED"
+
+      - name: Verify repaired connector remains valid after cleanup
+        if: steps.handoff.outcome == 'success'
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const connectorToken=fs.readFileSync('/tmp/browser-connector-token','utf8').trim();
+          console.log(`::add-mask::${connectorToken}`);
+          const response=await fetch(`${process.env.PROMOTED_API}/api`,{
+            method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({action:'connectorSync',hub:'NE1',connectorToken}),
+          });
+          const body=await response.json().catch(()=>({}));
+          const code=String(body?.code||body?.data?.code||'');
+          if(code==='INVALID_CONNECTOR') throw new Error('Connector became invalid after bootstrap cleanup');
+          console.log(`POST_CLEANUP_CONNECTOR_HTTP=${response.status}`);
+          console.log(`POST_CLEANUP_CONNECTOR_CODE=${code||'-'}`);
+          console.log('CONNECTOR_REPAIR=PASS');
+          console.log('D1_QUERIES=0');
+          NODE

@@ -1,0 +1,69 @@
+name: Bump Drop Point V2 Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bump-drop-point-v2-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bump-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Bump frontend cache release
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const release='20260904-01';
+          function replace(path, from, to){
+            let s=fs.readFileSync(path,'utf8');
+            if(!s.includes(from) && !s.includes(to)) throw new Error(`${path}: release marker missing`);
+            s=s.split(from).join(to);
+            fs.writeFileSync(path,s);
+          }
+          replace('ms.html','ms.js?v=20260903-04',`ms.js?v=${release}`);
+          replace('sw.js','VERSION="20260903-04"',`VERSION="${release}"`);
+          const v=JSON.parse(fs.readFileSync('version.json','utf8'));
+          v.version=release;
+          v.updatedAt=new Date().toISOString();
+          fs.writeFileSync('version.json',JSON.stringify(v)+'\n');
+          replace('.github/dev-tools/daily-history.test.mjs','20260903-04',release);
+          replace('.github/workflows/cutover-dry-run.yml','CUTOVER_VERSION: 20260903-04',`CUTOVER_VERSION: ${release}`);
+          NODE
+      - name: Verify release and drop-point contract
+        run: |
+          node --check ms.js
+          node --test .github/dev-tools/daily-history.test.mjs
+          cd worker && npm ci && npm run check
+          cd ..
+          node <<'NODE'
+          const fs=require('node:fs');
+          const release='20260904-01';
+          const html=fs.readFileSync('ms.html','utf8');
+          const sw=fs.readFileSync('sw.js','utf8');
+          const js=fs.readFileSync('ms.js','utf8');
+          const version=JSON.parse(fs.readFileSync('version.json','utf8'));
+          for(const marker of ['DROP_POINT_UI_V2','q.active && isOrigin(row)','ตั้งแต่รถถึง · มาตรฐาน ${nf.format(drop.unloadingStandard)} นาที','เพิ่ม ${nf.format(lateAdjustment)} นาทีจากรถเข้าช้า'])
+            if(!js.includes(marker)) throw new Error(`drop marker missing: ${marker}`);
+          if(js.includes('q.active && !isDestination(row)')) throw new Error('drop cancel button legacy condition remains');
+          if(!html.includes(`ms.js?v=${release}`)) throw new Error('html release mismatch');
+          if(!sw.includes(`VERSION="${release}"`)) throw new Error('service worker release mismatch');
+          if(version.version!==release) throw new Error('version.json mismatch');
+          console.log('DROP_POINT_V2_RELEASE='+release);
+          console.log('DROP_POINT_V2_CONTRACT=PASS');
+          NODE
+      - name: Commit tested release bump
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ms.html sw.js version.json .github/dev-tools/daily-history.test.mjs .github/workflows/cutover-dry-run.yml
+          git commit -m "Release drop-point UI V2 as 20260904-01"
+          git push origin HEAD:main

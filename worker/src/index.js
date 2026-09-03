@@ -145,6 +145,10 @@ async function get(url, env) {
       syncError: live.error || "",
     });
   }
+  if (action === "msArchiveTotal") {
+    const branch = pickBranch(actor, url.searchParams.get("branch"));
+    return ok(await msArchiveTotal(env, actor, branch));
+  }
   if (action === "msHistory")
     return ok(
       await msHistory(
@@ -1764,63 +1768,109 @@ async function msHistory(env, actor, hub, offset) {
   return { rows, hasMore, nextOffset: offset + rows.length };
 }
 
+async function msArchiveTotal(env, actor, hub) {
+  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS total_distinct FROM ms_route_registry WHERE hub=?",
+  )
+    .bind(hub)
+    .first();
+  return { branch: hub, total: Number(row?.total_distinct) || 0 };
+}
+
+// MS_ARCHIVE_COMPLETE_V1: all distinct routes, latest snapshot per route.
 async function msArchive(env, actor, hub) {
   if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
-  const [historyResult, distinctResult] = await Promise.all([
-    env.DB.prepare(
-      "SELECT route_id,payload_json,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",
-    )
-      .bind(hub)
-      .all(),
-    env.DB.prepare(
-      "SELECT COUNT(*) AS total_distinct FROM ms_route_registry WHERE hub=?",
-    )
-      .bind(hub)
-      .first(),
-  ]);
-  const history = historyResult.results;
-  // A completed row first discovered by a historical range import has no real
-  // unloading-finish time. Mark only transitions observed by the live poller.
-  const completionObserved = new Map();
-  for (const item of [...history].reverse()) {
-    if (completionObserved.has(item.route_id)) continue;
-    try {
-      const row = JSON.parse(item.payload_json || "{}");
-      if (row?.unloadingCompletedAt)
-        completionObserved.set(item.route_id, item.synced_by !== "MS_RANGE");
-    } catch {}
-  }
+  const [historyResult, completionResult, distinctResult, currentResult] =
+    await Promise.all([
+      env.DB.prepare(
+        `WITH ranked AS (
+          SELECT route_id,payload_json,snapshot_at,synced_by,
+            ROW_NUMBER() OVER (
+              PARTITION BY route_id
+              ORDER BY snapshot_at DESC, rowid DESC
+            ) AS rn
+          FROM ms_route_history
+          WHERE hub=?
+        )
+        SELECT route_id,payload_json,snapshot_at,synced_by
+        FROM ranked
+        WHERE rn=1
+        ORDER BY snapshot_at DESC`,
+      )
+        .bind(hub)
+        .all(),
+      env.DB.prepare(
+        `WITH completions AS (
+          SELECT route_id,payload_json,event_type AS action,synced_by,
+            ROW_NUMBER() OVER (
+              PARTITION BY route_id
+              ORDER BY snapshot_at ASC, rowid ASC
+            ) AS rn
+          FROM ms_route_history
+          WHERE hub=?
+            AND json_valid(payload_json)=1
+            AND COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'')<>''
+        )
+        SELECT route_id,synced_by
+        FROM completions
+        WHERE rn=1`,
+      )
+        .bind(hub)
+        .all(),
+      env.DB.prepare(
+        "SELECT COUNT(*) AS total_distinct FROM ms_route_registry WHERE hub=?",
+      )
+        .bind(hub)
+        .first(),
+      env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
+        .bind(hub)
+        .all(),
+    ]);
+
+  const completionObserved = new Map(
+    completionResult.results.map((item) => {
+      let explicit;
+      try {
+        explicit = JSON.parse(item.payload_json || "{}")?.completionObservedLive;
+      } catch {}
+      return [
+        item.route_id,
+        explicit === true ||
+          (typeof explicit !== "boolean" &&
+            item.action !== "FIRST_SEEN" &&
+            item.synced_by !== "MS_RANGE"),
+      ];
+    }),
+  );
   const latest = new Map();
-  for (const item of history) {
-    if (latest.has(item.route_id)) continue;
+  for (const item of historyResult.results) {
     try {
       const row = JSON.parse(item.payload_json || "{}");
-      if (row && typeof row === "object") {
-        row.id = row.id || item.route_id;
-        row.hub = row.hub || hub;
-        row.archivedAt = item.snapshot_at;
-        row.completionObservedLive = completionObserved.get(item.route_id) === true;
-        latest.set(item.route_id, row);
-      }
+      if (!row || typeof row !== "object") continue;
+      row.id = row.id || item.route_id;
+      row.hub = row.hub || hub;
+      row.archivedAt = item.snapshot_at;
+      row.completionObservedLive = completionObserved.get(item.route_id) === true;
+      latest.set(item.route_id, row);
     } catch {}
   }
-  const current = (
-    await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
-      .bind(hub)
-      .all()
-  ).results.map(output);
+
+  const current = currentResult.results.map(output);
   for (const row of current) {
     row.completionObservedLive = completionObserved.has(row.id)
       ? completionObserved.get(row.id) === true
       : row.syncedBy !== "MS_RANGE" && Boolean(row.unloadingCompletedAt);
     latest.set(row.id, row);
   }
+
   const rows = [...latest.values()];
   const totalDistinct = Math.max(
     Number(distinctResult?.total_distinct) || 0,
     rows.length,
   );
-  return { rows, total: rows.length, totalDistinct, branch: hub };
+  const complete = rows.length >= totalDistinct;
+  return { rows, total: rows.length, totalDistinct, complete, branch: hub };
 }
 
 async function msCryptoKey(env) {

@@ -15,6 +15,7 @@ const state = {
   currentRows: [],
   archiveRows: [],
   archiveTotal: 0,
+  archiveTotalLoaded: false,
   auth: loadAuth(),
   query: "",
   branch: "NE1",
@@ -37,6 +38,7 @@ const state = {
 };
 let archiveLoadTimer = null;
 let archiveLoadPromise = null;
+let archiveTotalPromise = null;
 const el = (id) => document.getElementById(id);
 const nf = new Intl.NumberFormat("th-TH");
 const dtf = new Intl.DateTimeFormat("th-TH", {
@@ -213,7 +215,8 @@ function closeLogin() {
 
 function logout() {
   state.auth = null;
-  state.rows = [];
+  state.currentRows = [];
+  resetArchiveState();
   localStorage.removeItem(AUTH_KEY);
   authUi();
   render();
@@ -262,6 +265,7 @@ async function loadData(silent = false) {
     state.completedToday = Number(result?.completedToday) || 0;
     state.archiveRows = mergeLatest(state.archiveRows, state.currentRows);
     state.archiveTotal = Math.max(state.archiveTotal, state.archiveRows.length);
+    if (!state.archiveTotalLoaded) void ensureArchiveTotalLoaded();
     state.rows = state.archiveRows;
     state.branch = result?.branch || state.branch;
     state.standards = Object.fromEntries(
@@ -309,6 +313,8 @@ function resetArchiveState() {
   archiveLoadTimer = null;
   state.archiveRows = [];
   state.archiveTotal = 0;
+  state.archiveTotalLoaded = false;
+  archiveTotalPromise = null;
   state.completedToday = 0;
   state.archiveLoaded = false;
   state.archiveView = false;
@@ -326,6 +332,32 @@ function scheduleArchiveLoad(delay = ARCHIVE_LOAD_DELAY_MS) {
   }, delay);
 }
 
+async function ensureArchiveTotalLoaded() {
+  if (!state.auth) return false;
+  if (state.archiveTotalLoaded) return true;
+  const branch = state.branch;
+  if (archiveTotalPromise?.branch === branch) return archiveTotalPromise.promise;
+  const promise = (async () => {
+    try {
+      const result = await apiGet("msArchiveTotal", { branch });
+      if (state.branch !== branch) return false;
+      state.archiveTotal = Math.max(
+        Number(result?.total) || 0,
+        state.currentRows.length,
+      );
+      state.archiveTotalLoaded = true;
+      metrics();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (archiveTotalPromise?.promise === promise) archiveTotalPromise = null;
+    }
+  })();
+  archiveTotalPromise = { branch, promise };
+  return promise;
+}
+
 async function ensureArchiveLoaded(userInitiated = false) {
   if (!state.auth || state.archiveLoaded) return true;
   const branch = state.branch;
@@ -338,10 +370,17 @@ async function ensureArchiveLoaded(userInitiated = false) {
     try {
       const archive = await apiGet("msArchive", { branch });
       if (state.branch !== branch) return false;
-      state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
-      state.archiveTotal = Number.isFinite(Number(archive?.totalDistinct))
+      const archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+      const archiveTotal = Number.isFinite(Number(archive?.totalDistinct))
         ? Number(archive.totalDistinct)
-        : state.archiveRows.length;
+        : archiveRows.length;
+      if (archive?.complete === false || archiveRows.length < archiveTotal)
+        throw new Error(
+          `รายการสะสมไม่ครบ: ได้ ${nf.format(archiveRows.length)} จาก ${nf.format(archiveTotal)} รายการ`,
+        );
+      state.archiveRows = archiveRows;
+      state.archiveTotal = archiveTotal;
+      state.archiveTotalLoaded = true;
       state.archiveLoaded = true;
       state.rows = mergeLatest(state.archiveRows, state.currentRows);
       fillFilters();
@@ -1039,10 +1078,10 @@ function metrics() {
     arrivals = destinations.map((row) => punctuality(row)),
     releases = origins.map((row) => punctuality(row)),
     waits = destinations.map(waitInfo).filter((item) => item.minutes !== null);
-  if (state.archiveLoaded)
+  if (state.archiveTotalLoaded)
     setMetric("metric-archive", state.archiveTotal ?? state.archiveRows.length);
   else
-    el("metric-archive").textContent = "กดดู";
+    el("metric-archive").textContent = "…";
   setMetric("metric-total", active.length);
   setMetric(
     "metric-unloading",

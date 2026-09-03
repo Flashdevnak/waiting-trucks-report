@@ -97,12 +97,13 @@ jobs:
           npx wrangler deploy --config wrangler.jsonc
           echo "BROWSER_TURSO_TARGET_DEPLOYED=PASS"
 
-      - name: Deterministically register connector in backend and Browser KV
+      - name: Deterministically register connector in Turso and Browser KV
         id: connector
         continue-on-error: true
         run: |
           node <<'NODE'
           const fs=require('node:fs');
+          const {createHash}=require('node:crypto');
           const secret=fs.readFileSync('/tmp/connector-bootstrap-secret','utf8').trim();
           const connectorToken=fs.readFileSync('/tmp/connector-token','utf8').trim();
           console.log(`::add-mask::${secret}`);
@@ -116,15 +117,6 @@ jobs:
               console.log(`${label}=PASS`);
               return payload;
             }
-            await post(`${process.env.PROMOTED_API}/api`,{
-              action:'bootstrapConnector',hub:'NE1',connectorToken,bootstrapSecret:secret
-            },'BACKEND_CONNECTOR_REGISTER');
-            await post(`${process.env.BROWSER_ORIGIN}/api/bootstrap-connector`,{
-              hub:'NE1',connectorToken,bootstrapSecret:secret
-            },'BROWSER_KV_CONNECTOR_STORE');
-            await post(`${process.env.PROMOTED_API}/api`,{
-              action:'connectorSync',hub:'NE1',connectorToken
-            },'CONNECTOR_SYNC_DIRECT');
 
             const org=process.env.TURSO_ORG;
             const db=process.env.TURSO_DATABASE;
@@ -152,6 +144,19 @@ jobs:
               return item?.response?.result;
             }
             const decode=v=>v==null?null:(typeof v==='object'&&v.type?v.value:v);
+
+            const tokenHash=createHash('sha256').update(connectorToken).digest('hex');
+            const createdAt=new Date().toISOString();
+            await query(`INSERT INTO ms_connector_tokens(hub,token_hash,created_at,last_used_at,active) VALUES('NE1','${tokenHash}','${createdAt}','',1) ON CONFLICT(hub) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at,last_used_at='',active=1`);
+            console.log('BACKEND_CONNECTOR_REGISTER=PASS');
+
+            await post(`${process.env.BROWSER_ORIGIN}/api/bootstrap-connector`,{
+              hub:'NE1',connectorToken,bootstrapSecret:secret
+            },'BROWSER_KV_CONNECTOR_STORE');
+            await post(`${process.env.PROMOTED_API}/api`,{
+              action:'connectorSync',hub:'NE1',connectorToken
+            },'CONNECTOR_SYNC_DIRECT');
+
             const connector=await query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1");
             const row=connector?.rows?.[0]||[];
             const hub=String(decode(row[0])||'');

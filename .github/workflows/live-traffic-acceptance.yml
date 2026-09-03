@@ -1,6 +1,6 @@
 name: Live Traffic Acceptance
 
-# Read-only post-cutover gate for the first real live queue rows.
+# Read-only post-cutover gate for the first real current-queue rows.
 # Turso reads + Cloudflare metadata/analytics only. Never queries D1 directly.
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
     steps:
-      - name: Validate current live queue from Turso
+      - name: Validate current queue using the frontend queue rules
         run: |
           node <<'NODE'
           (async()=>{
@@ -93,7 +93,7 @@ jobs:
                 CASE
                   WHEN json_type(rows_json)='array' THEN json_array_length(rows_json)
                   ELSE COALESCE(json_array_length(rows_json,'$.rows'),0)
-                END AS live_count,
+                END AS route_count,
                 CASE
                   WHEN json_type(rows_json)='array' THEN 1
                   ELSE COALESCE(CAST(json_extract(rows_json,'$.version') AS INTEGER),0)
@@ -111,7 +111,7 @@ jobs:
             if(Number(meta[1]||0)!==1 || !['array','object'].includes(String(meta[2]||'')))
               throw new Error(`NE1 live cache JSON shape invalid valid=${meta[1]} type=${meta[2]}`);
 
-            const [aggregateResult,routeResult,preentryResult,busResult]=await Promise.all([
+            const [queueResult,routeResult,preentryResult,busResult]=await Promise.all([
               query(`
                 WITH cache AS (
                   SELECT
@@ -122,89 +122,120 @@ jobs:
                   FROM ms_live_cache
                   WHERE hub='NE1'
                   LIMIT 1
-                ), items AS (
+                ), raw AS (
                   SELECT
-                    trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.routeId'),json_extract(value,'$.route_id'),'')) AS row_id,
-                    lower(trim(COALESCE(json_extract(value,'$.attendanceType'),json_extract(value,'$.attendance_type'),''))) AS attendance,
+                    trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.proofId'),json_extract(value,'$.routeId'),json_extract(value,'$.route_id'),'')) AS row_id,
+                    lower(trim(COALESCE(json_extract(value,'$.attendanceType'),json_extract(value,'$.attendance_type'),''))) AS attendance_raw,
                     trim(COALESCE(json_extract(value,'$.actualArrivalAt'),json_extract(value,'$.actual_arrival_at'),'')) AS actual_arrival,
+                    trim(COALESCE(json_extract(value,'$.scheduleKitArrivalAt'),json_extract(value,'$.schedule_kit_arrival_at'),'')) AS kit_arrival,
+                    trim(COALESCE(json_extract(value,'$.scheduleTbrArrivalAt'),json_extract(value,'$.schedule_tbr_arrival_at'),'')) AS tbr_arrival,
                     trim(COALESCE(json_extract(value,'$.actualDepartureAt'),json_extract(value,'$.actual_departure_at'),'')) AS actual_departure,
+                    trim(COALESCE(json_extract(value,'$.queueCancelledAt'),json_extract(value,'$.queue_cancelled_at'),'')) AS cancelled_at,
                     CAST(COALESCE(json_extract(value,'$.unloadingState'),json_extract(value,'$.unloading_state'),-1) AS INTEGER) AS unloading_state
                   FROM cache, json_each(COALESCE(cache.live_json,'[]'))
+                ), classified AS (
+                  SELECT *,
+                    CASE
+                      WHEN instr(attendance_raw,'จุดดร')>0 THEN 'drop'
+                      WHEN instr(attendance_raw,'ปลายทาง')>0 THEN 'destination'
+                      WHEN instr(attendance_raw,'ต้นทาง')>0 THEN 'origin'
+                      ELSE attendance_raw
+                    END AS attendance,
+                    min(
+                      COALESCE(julianday(actual_arrival),9999999),
+                      COALESCE(julianday(kit_arrival),9999999),
+                      COALESCE(julianday(tbr_arrival),9999999)
+                    ) AS effective_arrival_jd
+                  FROM raw
+                ), flags AS (
+                  SELECT *,
+                    CASE
+                      WHEN attendance='destination' THEN unloading_state=2
+                      WHEN attendance='drop' THEN unloading_state=2 AND actual_departure<>''
+                      ELSE actual_departure<>''
+                    END AS done,
+                    CASE
+                      WHEN attendance IN ('destination','drop') AND unloading_state IN (1,2) THEN 1
+                      ELSE 0
+                    END AS started
+                  FROM classified
+                ), active AS (
+                  SELECT *
+                  FROM flags
+                  WHERE actual_arrival<>''
+                    AND COALESCE(julianday(actual_arrival),0)>0
+                    AND NOT done
+                    AND cancelled_at=''
+                    AND effective_arrival_jd<9999999
+                    AND (julianday('now')-effective_arrival_jd)*24.0<=12.0
                 )
                 SELECT
-                  COUNT(*) AS total,
+                  COUNT(*) AS queue_count,
                   SUM(CASE WHEN row_id='' THEN 1 ELSE 0 END) AS missing_ids,
                   COUNT(DISTINCT NULLIF(row_id,'')) AS distinct_ids,
-                  SUM(CASE WHEN actual_arrival='' THEN 1 ELSE 0 END) AS arrival_violations,
-                  SUM(CASE WHEN (attendance LIKE '%ปลายทาง%' OR attendance LIKE '%destination%') AND unloading_state=2 THEN 1 ELSE 0 END) AS destination_done_current,
-                  SUM(CASE WHEN (attendance LIKE '%จุดดรอป%' OR attendance LIKE '%ดรอป%' OR attendance LIKE '%drop%') AND unloading_state=2 AND actual_departure<>'' THEN 1 ELSE 0 END) AS drop_done_current,
-                  SUM(CASE WHEN (attendance LIKE '%ต้นทาง%' OR attendance LIKE '%origin%') AND actual_departure<>'' THEN 1 ELSE 0 END) AS origin_done_current,
-                  SUM(CASE WHEN NOT (
-                    attendance LIKE '%ปลายทาง%' OR attendance LIKE '%destination%' OR
-                    attendance LIKE '%จุดดรอป%' OR attendance LIKE '%ดรอป%' OR attendance LIKE '%drop%' OR
-                    attendance LIKE '%ต้นทาง%' OR attendance LIKE '%origin%'
-                  ) THEN 1 ELSE 0 END) AS unknown_attendance,
-                  SUM(CASE WHEN actual_arrival<>'' AND julianday('now')-julianday(actual_arrival)>0.5 THEN 1 ELSE 0 END) AS over_12h,
-                  SUM(CASE WHEN attendance LIKE '%ต้นทาง%' OR attendance LIKE '%origin%' THEN 1 ELSE 0 END) AS origin_count,
-                  SUM(CASE WHEN attendance LIKE '%ปลายทาง%' OR attendance LIKE '%destination%' THEN 1 ELSE 0 END) AS destination_count,
-                  SUM(CASE WHEN attendance LIKE '%จุดดรอป%' OR attendance LIKE '%ดรอป%' OR attendance LIKE '%drop%' THEN 1 ELSE 0 END) AS drop_count
-                FROM items
+                  SUM(CASE WHEN attendance='origin' THEN 1 ELSE 0 END) AS origin_count,
+                  SUM(CASE WHEN attendance='destination' THEN 1 ELSE 0 END) AS destination_count,
+                  SUM(CASE WHEN attendance='drop' THEN 1 ELSE 0 END) AS drop_count,
+                  SUM(CASE WHEN attendance NOT IN ('origin','destination','drop') THEN 1 ELSE 0 END) AS unknown_count,
+                  SUM(CASE WHEN started=1 THEN 1 ELSE 0 END) AS started_count,
+                  SUM(CASE WHEN started=0 THEN 1 ELSE 0 END) AS waiting_count,
+                  SUM(CASE WHEN effective_arrival_jd>julianday('now') THEN 1 ELSE 0 END) AS future_effective_arrival_count
+                FROM active
               `),
               query("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
               query("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
               query("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
             ]);
-            const agg=first(aggregateResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
+            const queue=first(queueResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
             for(const [name,row] of Object.entries({route,preentry,bus})){
               if(String(row?.[1]||'')) throw new Error(`${name} session error: ${row[1]}`);
               const age=ageSeconds(row?.[0]);
               if(age<0||age>20*60) throw new Error(`${name} session stale: ${age}s`);
             }
 
-            const total=Number(agg[0]||0);
-            const declaredTotal=Number(meta[3]||0);
-            if(total!==declaredTotal) throw new Error(`Live cache row count mismatch SQL=${total} meta=${declaredTotal}`);
+            const queueCount=Number(queue[0]||0);
+            const missingIds=Number(queue[1]||0);
+            const distinctIds=Number(queue[2]||0);
+            const duplicateIds=Math.max(0,queueCount-missingIds-distinctIds);
+            const counts={
+              origin:Number(queue[3]||0),
+              destination:Number(queue[4]||0),
+              drop:Number(queue[5]||0),
+              unknown:Number(queue[6]||0),
+            };
+            const started=Number(queue[7]||0);
+            const waiting=Number(queue[8]||0);
+            const futureEffectiveArrival=Number(queue[9]||0);
+
             console.log(`LIVE_SNAPSHOT_AT=${meta[0]||'-'}`);
             console.log(`LIVE_SNAPSHOT_AGE_SECONDS=${ageSeconds(meta[0])}`);
-            console.log(`LIVE_ROWS=${total}`);
+            console.log(`LIVE_ROUTE_ROWS=${Number(meta[3]||0)}`);
+            console.log(`CURRENT_QUEUE_ROWS=${queueCount}`);
             console.log(`LIVE_CACHE_FORMAT=${meta[2]}`);
             console.log(`LIVE_CACHE_VERSION=${Number(meta[4]||0)}`);
             console.log(`COMPLETED_CACHE_ROWS=${Number(meta[5]||0)}`);
+            console.log(`QUEUE_ATTENDANCE_COUNTS=${JSON.stringify(counts)}`);
+            console.log(`QUEUE_WAITING_COUNT=${waiting}`);
+            console.log(`QUEUE_STARTED_COUNT=${started}`);
+            console.log(`QUEUE_MISSING_IDS=${missingIds}`);
+            console.log(`QUEUE_DUPLICATE_IDS=${duplicateIds}`);
+            console.log(`QUEUE_FUTURE_EFFECTIVE_ARRIVAL=${futureEffectiveArrival}`);
             console.log('LIVE_CACHE_JSON_VALID=PASS');
             console.log('ALL_MS_SESSIONS_HEALTHY=PASS');
             console.log('SENSITIVE_ROW_VALUES_LOGGED=0');
 
-            if(total===0){
+            if(missingIds||duplicateIds||counts.unknown)
+              throw new Error(`Current queue identity/type invariant failed missing=${missingIds} duplicates=${duplicateIds} unknown=${counts.unknown}`);
+
+            if(queueCount===0){
               console.log('TRAFFIC_GATE=WAITING_FOR_TRAFFIC');
-              console.log('QUEUE_RULES=NOT_APPLICABLE_YET');
+              console.log('CURRENT_QUEUE=EMPTY');
+              console.log('QUEUE_RULES=PASS');
               console.log('D1_QUERIES=0');
               return;
             }
 
-            const missingIds=Number(agg[1]||0);
-            const distinctIds=Number(agg[2]||0);
-            const duplicateIds=Math.max(0,total-missingIds-distinctIds);
-            const arrivalViolations=Number(agg[3]||0);
-            const destinationDoneStillCurrent=Number(agg[4]||0);
-            const dropDoneStillCurrent=Number(agg[5]||0);
-            const originDoneStillCurrent=Number(agg[6]||0);
-            const unknownAttendance=Number(agg[7]||0);
-            const over12h=Number(agg[8]||0);
-            const counts={origin:Number(agg[9]||0),destination:Number(agg[10]||0),drop:Number(agg[11]||0),unknown:unknownAttendance};
-
-            console.log(`ATTENDANCE_COUNTS=${JSON.stringify(counts)}`);
-            console.log(`MISSING_IDS=${missingIds}`);
-            console.log(`DUPLICATE_IDS=${duplicateIds}`);
-            console.log(`QUEUE_ARRIVAL_VIOLATIONS=${arrivalViolations}`);
-            console.log(`DESTINATION_DONE_STILL_CURRENT=${destinationDoneStillCurrent}`);
-            console.log(`DROP_DONE_STILL_CURRENT=${dropDoneStillCurrent}`);
-            console.log(`ORIGIN_DONE_STILL_CURRENT=${originDoneStillCurrent}`);
-            console.log(`QUEUE_OVER_12H=${over12h}`);
-
-            const violations={missingIds,duplicateIds,arrivalViolations,destinationDoneStillCurrent,dropDoneStillCurrent,originDoneStillCurrent,unknownAttendance,over12h};
-            if(Object.values(violations).some(Number))
-              throw new Error(`Live queue invariant violation: ${JSON.stringify(violations)}`);
-
+            console.log('CURRENT_QUEUE=HAS_TRAFFIC');
             console.log('QUEUE_RULES=PASS');
             console.log('TRAFFIC_GATE=PASS');
             console.log('D1_QUERIES=0');

@@ -38,6 +38,10 @@ import {
 } from "./patch-ms-daily-completion-observation.mjs";
 import { patchMsCompletedViewStabilityFrontend } from "./patch-ms-completed-view-stability.mjs";
 import { patchMsLiveResilienceFrontend } from "./patch-ms-live-resilience.mjs";
+import {
+  patchMsDailyHistoryFrontend,
+  patchMsDailyHistoryWorker,
+} from "./apply-ms-daily-history.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -64,6 +68,7 @@ export function stageFrontend(source) {
   output = patchMsDailyCompletionObservationFrontend(output);
   output = patchMsCompletedViewStabilityFrontend(output);
   output = patchMsLiveResilienceFrontend(output);
+  output = patchMsDailyHistoryFrontend(output);
   return output;
 }
 
@@ -83,6 +88,7 @@ export function stageWorker(source) {
   output = patchMsNonDestinationCancellationWorker(output);
   output = patchMsOperatingDayWorker(output);
   output = patchMsDailyCompletionObservationWorker(output);
+  output = patchMsDailyHistoryWorker(output);
   return output;
 }
 

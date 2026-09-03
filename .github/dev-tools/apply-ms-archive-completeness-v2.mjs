@@ -1,3 +1,4 @@
+// Triggered only to apply and validate the complete accumulated archive fix.
 import "./apply-ms-archive-completeness.mjs";
 import { readFileSync, writeFileSync } from "node:fs";
 

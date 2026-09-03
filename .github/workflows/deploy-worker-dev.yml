@@ -51,6 +51,7 @@ jobs:
       - run: node --test ../.github/dev-tools/safe-parity.test.mjs
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
       - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
+      - run: node --test ../.github/dev-tools/ms-archive-completeness.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
       - name: Reject any remaining D1 binding before deploy
         run: |

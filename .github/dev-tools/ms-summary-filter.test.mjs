@@ -1,15 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { patchDevMsArchive } from "../../worker/scripts/patch-dev-ms-archive.mjs";
-import { patchDevRealtimeFrontend } from "./patch-ms-realtime-recovery.mjs";
-import { patchDevSummaryFilter } from "./patch-ms-summary-filter.mjs";
+import { stageFrontend } from "./stage-dev-runtime.mjs";
 
 const root = new URL("../../", import.meta.url);
 const source = await readFile(new URL("ms.js", root), "utf8");
-const staged = patchDevSummaryFilter(
-  patchDevRealtimeFrontend(patchDevMsArchive(source)),
-);
+const staged = stageFrontend(source);
 
 test("five active queue summary cards keep their original queue logic", () => {
   assert.match(staged, /state\.queue = "queue";\s*el\("queue-filter"\)\.value = "queue";/);
@@ -51,7 +47,7 @@ test("completed view keeps the other five cards on the live current queue", () =
   assert.match(staged, /queueMode === "queue" \? aTime - bTime : bTime - aTime/);
 });
 
-test("summary filter fix does not change polling or realtime recovery", () => {
+test("summary filter staging does not change polling or realtime recovery", () => {
   assert.match(staged, /pollMs:\s*4000/);
   assert.match(staged, /requestTimeoutMs:\s*32000/);
   assert.doesNotMatch(staged, /if \(!silent && !state\.archiveLoaded\) scheduleArchiveLoad\(\)/);

@@ -43,6 +43,7 @@ import {
   patchMsDailyHistoryWorker,
 } from "./apply-ms-daily-history.mjs";
 import { patchMsQuotaSafeLiveWorker } from "./patch-ms-quota-safe-live.mjs";
+import { patchMsTbrShadowFeedWorker } from "./patch-ms-tbr-shadow-feed.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -91,6 +92,7 @@ export function stageWorker(source) {
   output = patchMsDailyCompletionObservationWorker(output);
   output = patchMsDailyHistoryWorker(output);
   output = patchMsQuotaSafeLiveWorker(output);
+  output = patchMsTbrShadowFeedWorker(output);
   return output;
 }
 

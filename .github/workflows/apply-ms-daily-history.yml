@@ -1,0 +1,68 @@
+name: Apply MS Daily History
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-ms-daily-history.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply daily-history runtime patch
+        run: node .github/dev-tools/apply-ms-daily-history.mjs
+      - name: Syntax and focused tests
+        run: |
+          node --check ms.js
+          node --check worker/src/index.js
+          node --test .github/dev-tools/daily-history.test.mjs
+      - name: Worker regression
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+      - name: Create Turso daily-history read index
+        env:
+          TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+          TURSO_ORG: flashdevnak
+          TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+        run: |
+          node <<'NODE'
+          const org=process.env.TURSO_ORG,db=process.env.TURSO_DATABASE;
+          const ph={Authorization:`Bearer ${process.env.TURSO_PLATFORM_API_TOKEN}`};
+          const dr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:ph});
+          const dj=await dr.json();
+          if(!dr.ok) throw new Error(`Turso DB HTTP ${dr.status}`);
+          const database=dj.database||dj,hostname=database.Hostname||database.hostname;
+          const tr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:ph});
+          const tj=await tr.json();
+          if(!tr.ok||!tj.jwt) throw new Error(`Turso token HTTP ${tr.status}`);
+          console.log(`::add-mask::${tj.jwt}`);
+          const sql='CREATE INDEX IF NOT EXISTS idx_ms_route_history_hub_route_snapshot ON ms_route_history(hub, route_id, snapshot_at DESC)';
+          const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${tj.jwt}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});
+          const p=await r.json();
+          const first=p?.results?.[0];
+          if(!r.ok||first?.type==='error') throw new Error(`Turso index failed: ${JSON.stringify(first?.error||p).slice(0,500)}`);
+          console.log('TURSO_DAILY_HISTORY_INDEX=PASS');
+          console.log('D1_QUERIES=0');
+          NODE
+      - name: Commit daily-history runtime
+        run: |
+          git config user.name "Flashdevnak"
+          git config user.email "26nak.testdev@gmail.com"
+          git add ms.js ms.html sw.js version.json worker/src/index.js worker/migrations/0010_ms_daily_history_read_index.sql
+          if git diff --cached --quiet; then
+            echo "DAILY_HISTORY_SOURCE_ALREADY_CURRENT=PASS"
+            exit 0
+          fi
+          git commit -m "Use quota-safe daily MS history"
+          git push origin HEAD:main

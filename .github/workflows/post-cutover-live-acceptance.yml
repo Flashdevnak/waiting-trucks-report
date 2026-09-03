@@ -75,12 +75,12 @@ jobs:
             return body.result;
           }
           async function script(name){
-            const [settings,secrets,deployments]=await Promise.all([
+            const [scriptSettings,secrets,deployments]=await Promise.all([
               get(`/workers/scripts/${name}/script-settings`),
               get(`/workers/scripts/${name}/secrets`),
               get(`/workers/scripts/${name}/deployments`),
             ]);
-            const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
+            const bindings=Array.isArray(scriptSettings?.bindings)?scriptSettings.bindings:[];
             const d1=bindings.filter(x=>x.type==='d1'||x.type==='d1_database');
             const secretNames=(Array.isArray(secrets)?secrets:[]).map(x=>x.name);
             if(d1.length) throw new Error(`${name} still has D1 binding`);
@@ -90,12 +90,13 @@ jobs:
             console.log(`${name.toUpperCase().replaceAll('-','_')}_ACTIVE_VERSION=${version||'-'}`);
             console.log(`${name.toUpperCase().replaceAll('-','_')}_D1_BINDING=0`);
             console.log(`${name.toUpperCase().replaceAll('-','_')}_BOOTSTRAP_SECRET=0`);
-            return {bindings};
           }
           await script('waiting-trucks-report-api-dev');
-          const browser=await script('waiting-trucks-ms-browser-test');
-          const state=browser.bindings.find(x=>x.name==='STATE'&&x.type==='kv_namespace');
-          if(!state?.namespace_id) throw new Error('Browser STATE KV binding missing');
+          await script('waiting-trucks-ms-browser-test');
+          const browserSettings=await get('/workers/scripts/waiting-trucks-ms-browser-test/settings');
+          const browserBindings=Array.isArray(browserSettings?.bindings)?browserSettings.bindings:[];
+          const state=browserBindings.find(x=>x.name==='STATE'&&x.type==='kv_namespace');
+          if(!state?.namespace_id) throw new Error(`Browser STATE KV binding missing: ${JSON.stringify(browserBindings.map(x=>({name:x.name,type:x.type})))}`);
           const keys=await get(`/storage/kv/namespaces/${state.namespace_id}/keys?limit=100`);
           const names=(Array.isArray(keys)?keys:[]).map(x=>x.name);
           if(!names.includes('hubs')||!names.includes('connector:NE1')) throw new Error(`Browser connector keys missing: ${JSON.stringify(names.filter(x=>x==='hubs'||x.startsWith('connector:')))}`);

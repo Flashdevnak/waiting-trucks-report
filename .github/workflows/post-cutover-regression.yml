@@ -1,0 +1,56 @@
+name: Post Cutover Regression
+
+# Local/source-only regression gate. No deploys, no Cloudflare D1, no Turso mutations.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/post-cutover-regression.yml
+      - ms.js
+      - worker/src/**
+      - worker/test/**
+      - cloudflare-browser-test/src/**
+      - .github/dev-tools/*.test.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Frontend and acceptance source checks
+        run: |
+          node --check ms.js
+          node --test .github/dev-tools/ms-*.test.mjs
+          node <<'NODE'
+          const fs=require('node:fs');
+          const ms=fs.readFileSync('ms.js','utf8');
+          if(!/pollMs:\s*4000/.test(ms)) throw new Error('pollMs is not 4000 ms');
+          if(!ms.includes('const preserveObservedCompletion =')) throw new Error('completed-view stability patch missing');
+          if(!ms.includes('https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev')) throw new Error('public Turso target missing');
+          console.log('FRONTEND_POLL_4S=PASS');
+          console.log('COMPLETED_VIEW_STABILITY=PASS');
+          console.log('PUBLIC_TURSO_TARGET=PASS');
+          NODE
+      - name: Worker full check without deployment
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+      - name: Browser Worker dry run without deployment
+        working-directory: cloudflare-browser-test
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
+      - name: Regression summary
+        run: |
+          echo "POST_CUTOVER_REGRESSION=PASS"
+          echo "DEPLOYS=0"
+          echo "D1_QUERIES=0"
+          echo "TURSO_MUTATIONS=0"

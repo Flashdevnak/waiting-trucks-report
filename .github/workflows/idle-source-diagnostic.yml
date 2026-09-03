@@ -1,0 +1,88 @@
+name: Idle Source Change Diagnostic
+
+# Lightweight Turso-only diagnostic: identifies which fields changed in the latest
+# route history entry without logging field values or sensitive session data.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/idle-source-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Compare latest route history snapshot to its predecessor
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!platform) throw new Error('Turso platform token missing');
+            const headers={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('Turso hostname missing');
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json();
+            const dbToken=tokenJson.jwt;
+            if(!tokenRes.ok||!dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
+            console.log(`::add-mask::${dbToken}`);
+            async function query(sql){
+              const response=await fetch(`https://${hostname}/v2/pipeline`,{
+                method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+              });
+              const payload=await response.json();
+              const item=payload?.results?.[0];
+              if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+              return item?.response?.result;
+            }
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const rows=result=>(result?.rows||[]).map(row=>row.map(decode));
+            const latestRows=rows(await query("SELECT route_id,event_type,snapshot_at,payload_json FROM ms_route_history WHERE hub='NE1' ORDER BY snapshot_at DESC LIMIT 1"));
+            const latest=latestRows[0];
+            if(!latest) throw new Error('No NE1 history row found');
+            const [routeId,eventType,snapshotAt,payloadJson]=latest;
+            console.log(`LATEST_EVENT_TYPE=${eventType||'-'}`);
+            console.log(`LATEST_SNAPSHOT_AT=${snapshotAt||'-'}`);
+            const safeRouteFingerprint=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(routeId||'')));
+            console.log(`LATEST_ROUTE_FINGERPRINT=${[...new Uint8Array(safeRouteFingerprint)].slice(0,8).map(x=>x.toString(16).padStart(2,'0')).join('')}`);
+            if(eventType==='FIRST_SEEN'||eventType==='REMOVED'){
+              console.log(`CHANGE_CLASS=${eventType}`);
+              console.log('D1_QUERIES=0');
+              return;
+            }
+            const esc=String(routeId).replaceAll("'","''");
+            const timeEsc=String(snapshotAt).replaceAll("'","''");
+            const previousRows=rows(await query(`SELECT payload_json,snapshot_at FROM ms_route_history WHERE hub='NE1' AND route_id='${esc}' AND snapshot_at<'${timeEsc}' ORDER BY snapshot_at DESC LIMIT 1`));
+            const previous=previousRows[0];
+            if(!previous){
+              console.log('CHANGE_CLASS=UPDATED_WITHOUT_PREVIOUS_HISTORY');
+              console.log('D1_QUERIES=0');
+              return;
+            }
+            let current={}, prior={};
+            try{ current=JSON.parse(String(payloadJson||'{}')); }catch{}
+            try{ prior=JSON.parse(String(previous[0]||'{}')); }catch{}
+            const keys=[...new Set([...Object.keys(prior),...Object.keys(current)])].sort();
+            const changed=keys.filter(key=>JSON.stringify(prior[key]??null)!==JSON.stringify(current[key]??null));
+            console.log(`PREVIOUS_SNAPSHOT_AT=${previous[1]||'-'}`);
+            console.log(`CHANGED_KEY_COUNT=${changed.length}`);
+            console.log(`CHANGED_KEYS=${changed.join(',')||'-'}`);
+            const internalOnly=changed.every(key=>['syncedAt','syncedBy'].includes(key));
+            console.log(`INTERNAL_ONLY_CHANGE=${internalOnly}`);
+            console.log('VALUES_LOGGED=0');
+            console.log('D1_QUERIES=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

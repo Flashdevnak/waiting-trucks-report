@@ -22,7 +22,7 @@ jobs:
   dry-run:
     runs-on: ubuntu-latest
     env:
-      CUTOVER_VERSION: 20260903-01
+      CUTOVER_VERSION: 20260903-02
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,8 +56,8 @@ jobs:
             [browser.includes(`${expected}/api`), 'Browser Cron targets promoted Turso Worker'],
             [browser.includes('/api/bootstrap-connector'), 'Browser connector bootstrap route remains available behind secret gate'],
             [browser.includes('CONNECTOR_BOOTSTRAP_SECRET'), 'Browser bootstrap remains secret-gated'],
-            [sw.includes(`VERSION="${process.env.CUTOVER_VERSION}"`), 'service worker cutover version remains current'],
-            [version.version === process.env.CUTOVER_VERSION, 'version.json cutover version remains current'],
+            [sw.includes(`VERSION="${process.env.CUTOVER_VERSION}"`), 'service worker release version remains current'],
+            [version.version === process.env.CUTOVER_VERSION, 'version.json release version remains current'],
             [wrangler.includes('"main": "src/turso-index.js"'), 'promoted Worker entrypoint is Turso'],
             [wrangler.includes('"DB_BACKEND": "turso"'), 'promoted Worker backend is Turso'],
             [!wrangler.includes('d1_databases'), 'promoted Worker config has no D1 binding'],

@@ -53,19 +53,23 @@ jobs:
             const pagesJs=await map.pagesJs.text();
             const health=await map.health.json();
             const browserBody=await map.browser.json();
-            const api=`${worker}/api`;
             for(const [name,html] of [['worker',workerHtml],['pages',pagesHtml]])
               if(!html.includes('ms.js')) throw new Error(`${name} ms.html does not load ms.js`);
             for(const [name,js] of [['worker',workerJs],['pages',pagesJs]]){
-              if(!js.includes(api)) throw new Error(`${name} ms.js target mismatch`);
               if(!/pollMs:\s*4000/.test(js)) throw new Error(`${name} polling is not 4000 ms`);
               if(!js.includes('const preserveObservedCompletion =')) throw new Error(`${name} completed view stability missing`);
+              if(js.includes('waiting-trucks-report.alert-squid-6738.chatgpt.site')) throw new Error(`${name} still references OLD API`);
             }
+            if(!workerJs.includes('window.location.origin}/api')) throw new Error('Worker same-origin API routing missing');
+            if(!pagesJs.includes('hostname.endsWith("github.io")')) throw new Error('GitHub Pages host routing missing');
+            if(!pagesJs.includes(worker)) throw new Error('GitHub Pages promoted Worker origin missing');
             if(!health?.ok) throw new Error(`Worker health failed: ${JSON.stringify(health)}`);
             if(!browserBody?.ok) throw new Error(`Browser health failed: ${JSON.stringify(browserBody)}`);
             console.log('WORKER_MS_PAGE=PASS');
+            console.log('WORKER_SAME_ORIGIN_API=PASS');
             console.log('GITHUB_PAGES_MS_PAGE=PASS');
-            console.log('PROMOTED_TURSO_API_TARGET=PASS');
+            console.log('GITHUB_PAGES_PROMOTED_TURSO_ROUTE=PASS');
+            console.log('OLD_API_REFERENCE=0');
             console.log('FRONTEND_POLL_4S=PASS');
             console.log('COMPLETED_VIEW_STABILITY=PASS');
             console.log('WORKER_HEALTH=PASS');

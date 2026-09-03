@@ -22,7 +22,7 @@ jobs:
   dry-run:
     runs-on: ubuntu-latest
     env:
-      CUTOVER_VERSION: 20260903-02
+      CUTOVER_VERSION: 20260903-03
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,11 +31,13 @@ jobs:
       - name: Validate post-cutover source and safety invariants
         run: |
           node --check ms.js
+          node --check worker/src/index.js
           node --check cloudflare-browser-test/src/index.js
           git diff --check
           node <<'NODE'
           const fs = require('fs');
           const ms = fs.readFileSync('ms.js','utf8');
+          const worker = fs.readFileSync('worker/src/index.js','utf8');
           const style = fs.readFileSync('style.css','utf8');
           const browser = fs.readFileSync('cloudflare-browser-test/src/index.js','utf8');
           const sw = fs.readFileSync('sw.js','utf8');
@@ -44,6 +46,9 @@ jobs:
           const deploy = fs.readFileSync('.github/workflows/deploy-worker-dev.yml','utf8');
           const expected = 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
           const old = 'https://waiting-trucks-report.alert-squid-6738.chatgpt.site';
+          const archiveStart = worker.indexOf('async function msArchive(env, actor, hub)');
+          const archiveEnd = worker.indexOf('async function msCryptoKey', archiveStart);
+          const archive = archiveStart >= 0 && archiveEnd > archiveStart ? worker.slice(archiveStart, archiveEnd) : '';
           const checks = [
             [ms.includes(expected), 'GitHub Pages targets promoted Turso Worker'],
             [!ms.includes(old), 'root ms.js does not target OLD API'],
@@ -52,6 +57,10 @@ jobs:
             [ms.includes('msCompletedToday'), 'daily completed cache UI is integrated'],
             [ms.includes('const preserveObservedCompletion ='), 'completed view remains stable across live polls'],
             [ms.includes('DEV: archive stays lazy; live polling must never auto-read msArchive'), 'archive remains lazy during realtime polling'],
+            [ms.includes('apiGet("msArchiveTotal", { branch })'), 'accumulated card uses authoritative registry total'],
+            [worker.includes('action === "msArchiveTotal"'), 'Worker exposes lightweight accumulated total endpoint'],
+            [archive.includes('PARTITION BY route_id') && archive.includes('WHERE rn=1'), 'archive returns latest snapshot per route'],
+            [!archive.includes('LIMIT 10000'), 'archive has no newest-10000 truncation'],
             [style.includes('/* DEV mobile MS card spacing */'), 'mobile spacing is integrated'],
             [browser.includes(`${expected}/api`), 'Browser Cron targets promoted Turso Worker'],
             [browser.includes('/api/bootstrap-connector'), 'Browser connector bootstrap route remains available behind secret gate'],
@@ -62,6 +71,7 @@ jobs:
             [wrangler.includes('"DB_BACKEND": "turso"'), 'promoted Worker backend is Turso'],
             [!wrangler.includes('d1_databases'), 'promoted Worker config has no D1 binding'],
             [deploy.includes('Reject any remaining D1 binding before deploy'), 'normal DEV deploy rejects D1 rebinding'],
+            [deploy.includes('ms-archive-completeness.test.mjs'), 'normal DEV deploy gates complete accumulated archive'],
             [deploy.includes('TURSO_DATABASE_URL'), 'normal DEV deploy requires Turso credentials'],
           ];
           for (const [pass,label] of checks) {

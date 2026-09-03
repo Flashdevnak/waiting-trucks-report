@@ -1,0 +1,55 @@
+name: Fix Drop Point Contract Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-drop-point-contract-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Align tests with approved drop-point contract
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path='worker/tests/frontend-requirements.test.mjs';
+          let s=fs.readFileSync(path,'utf8');
+          s=s.replace(
+            'assert.match(ui.dropProgressHtml(drop), /ใช้เวลา 24 นาที · มาตรฐาน 30 นาที/);',
+            'assert.match(ui.dropProgressHtml(drop), /<strong>24 นาที<\\/strong>/);\n  assert.match(ui.dropProgressHtml(drop), /ตั้งแต่รถถึง · มาตรฐาน 30 นาที/);'
+          );
+          const anchor='test("Bangkok-normalized route times keep punctuality and waiting durations local", () => {';
+          if(!s.includes('drop late arrival shifts only the release countdown')){
+            const block=`test("drop late arrival shifts only the release countdown", () => {\n  const row = {\n    attendanceType: "จุดดรอป",\n    estimatedArrivalAt: "2026-09-03T14:00:00.000Z", // 21:00 Bangkok\n    actualArrivalAt: "2026-09-03T14:45:00.000Z", // 21:45 Bangkok\n    estimatedDepartureAt: "2026-09-03T15:00:00.000Z", // 22:00 Bangkok\n  };\n  const item = ui.departureCountdown(row, new Date("2026-09-03T14:58:00.000Z")); // 21:58 Bangkok\n  assert.equal(item.minutes, 47);\n  assert.equal(item.adjustedByLateMinutes, 45);\n  assert.match(item.label, /เหลือ 47 นาทีถึงกำหนดปล่อย/);\n  assert.match(item.label, /เพิ่ม 45 นาทีจากรถเข้าช้า/);\n  const onTime = ui.departureCountdown({ ...row, actualArrivalAt: row.estimatedArrivalAt }, new Date("2026-09-03T14:58:00.000Z"));\n  assert.equal(onTime.adjustedByLateMinutes, 0);\n  assert.equal(onTime.minutes, 2);\n});\n\n`;
+            if(!s.includes(anchor)) throw new Error('test insertion anchor missing');
+            s=s.replace(anchor,block+anchor);
+          }
+          const guard='assert.match(source, /pollMs:\\s*4000/);';
+          if(!s.includes('cancel button remains origin-only')){
+            if(!s.includes(guard)) throw new Error('source guard anchor missing');
+            s=s.replace(guard,`${guard}\n  // cancel button remains origin-only: destination and drop never expose it.\n  assert.doesNotMatch(source, /q\\.active && !isDestination\\(row\\)/);\n  assert.match(source, /q\\.active && isOrigin\\(row\\)/);`);
+          }
+          fs.writeFileSync(path,s);
+          NODE
+      - name: Run full Worker check
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+      - name: Commit tested contract
+        run: |
+          if git diff --quiet -- worker/tests/frontend-requirements.test.mjs; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add worker/tests/frontend-requirements.test.mjs
+          git commit -m "Test approved drop-point timing contract"
+          git push origin HEAD:main

@@ -85,64 +85,78 @@ jobs:
               return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
             };
 
-            const [liveResult,routeResult,preentryResult,busResult]=await Promise.all([
-              query("SELECT synced_at,rows_json FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+            const [metaResult,aggregateResult,routeResult,preentryResult,busResult]=await Promise.all([
+              query("SELECT synced_at,json_valid(rows_json),json_type(rows_json),json_array_length(rows_json) FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+              query(`
+                WITH cache AS (
+                  SELECT rows_json FROM ms_live_cache WHERE hub='NE1' LIMIT 1
+                ), items AS (
+                  SELECT
+                    trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.routeId'),json_extract(value,'$.route_id'),'')) AS row_id,
+                    lower(trim(COALESCE(json_extract(value,'$.attendanceType'),json_extract(value,'$.attendance_type'),''))) AS attendance,
+                    trim(COALESCE(json_extract(value,'$.actualArrivalAt'),json_extract(value,'$.actual_arrival_at'),'')) AS actual_arrival,
+                    trim(COALESCE(json_extract(value,'$.actualDepartureAt'),json_extract(value,'$.actual_departure_at'),'')) AS actual_departure,
+                    CAST(COALESCE(json_extract(value,'$.unloadingState'),json_extract(value,'$.unloading_state'),-1) AS INTEGER) AS unloading_state
+                  FROM cache, json_each(cache.rows_json)
+                )
+                SELECT
+                  COUNT(*) AS total,
+                  SUM(CASE WHEN row_id='' THEN 1 ELSE 0 END) AS missing_ids,
+                  COUNT(DISTINCT NULLIF(row_id,'')) AS distinct_ids,
+                  SUM(CASE WHEN actual_arrival='' THEN 1 ELSE 0 END) AS arrival_violations,
+                  SUM(CASE WHEN (attendance LIKE '%ปลายทาง%' OR attendance LIKE '%destination%') AND unloading_state=2 THEN 1 ELSE 0 END) AS destination_done_current,
+                  SUM(CASE WHEN (attendance LIKE '%จุดดรอป%' OR attendance LIKE '%ดรอป%' OR attendance LIKE '%drop%') AND unloading_state=2 AND actual_departure<>'' THEN 1 ELSE 0 END) AS drop_done_current,
+                  SUM(CASE WHEN (attendance LIKE '%ต้นทาง%' OR attendance LIKE '%origin%') AND actual_departure<>'' THEN 1 ELSE 0 END) AS origin_done_current,
+                  SUM(CASE WHEN NOT (
+                    attendance LIKE '%ปลายทาง%' OR attendance LIKE '%destination%' OR
+                    attendance LIKE '%จุดดรอป%' OR attendance LIKE '%ดรอป%' OR attendance LIKE '%drop%' OR
+                    attendance LIKE '%ต้นทาง%' OR attendance LIKE '%origin%'
+                  ) THEN 1 ELSE 0 END) AS unknown_attendance,
+                  SUM(CASE WHEN actual_arrival<>'' AND julianday('now')-julianday(actual_arrival)>0.5 THEN 1 ELSE 0 END) AS over_12h,
+                  SUM(CASE WHEN attendance LIKE '%ต้นทาง%' OR attendance LIKE '%origin%' THEN 1 ELSE 0 END) AS origin_count,
+                  SUM(CASE WHEN attendance LIKE '%ปลายทาง%' OR attendance LIKE '%destination%' THEN 1 ELSE 0 END) AS destination_count,
+                  SUM(CASE WHEN attendance LIKE '%จุดดรอป%' OR attendance LIKE '%ดรอป%' OR attendance LIKE '%drop%' THEN 1 ELSE 0 END) AS drop_count
+                FROM items
+              `),
               query("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
               query("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
               query("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
             ]);
-            const live=first(liveResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
-            if(!live.length) throw new Error('NE1 live cache missing');
+            const meta=first(metaResult), agg=first(aggregateResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
+            if(!meta.length) throw new Error('NE1 live cache missing');
+            if(Number(meta[1]||0)!==1 || String(meta[2]||'')!=='array')
+              throw new Error(`NE1 live cache JSON shape invalid valid=${meta[1]} type=${meta[2]}`);
             for(const [name,row] of Object.entries({route,preentry,bus})){
               if(String(row?.[1]||'')) throw new Error(`${name} session error: ${row[1]}`);
               const age=ageSeconds(row?.[0]);
               if(age<0||age>20*60) throw new Error(`${name} session stale: ${age}s`);
             }
-            let rows=[];
-            try{ rows=JSON.parse(String(live[1]||'[]')); }
-            catch{ throw new Error('ms_live_cache.rows_json is invalid JSON'); }
-            if(!Array.isArray(rows)) throw new Error('ms_live_cache.rows_json is not an array');
 
-            console.log(`LIVE_SNAPSHOT_AT=${live[0]||'-'}`);
-            console.log(`LIVE_SNAPSHOT_AGE_SECONDS=${ageSeconds(live[0])}`);
-            console.log(`LIVE_ROWS=${rows.length}`);
+            const total=Number(agg[0]||0);
+            console.log(`LIVE_SNAPSHOT_AT=${meta[0]||'-'}`);
+            console.log(`LIVE_SNAPSHOT_AGE_SECONDS=${ageSeconds(meta[0])}`);
+            console.log(`LIVE_ROWS=${total}`);
+            console.log('LIVE_CACHE_JSON_VALID=PASS');
             console.log('ALL_MS_SESSIONS_HEALTHY=PASS');
+            console.log('SENSITIVE_ROW_VALUES_LOGGED=0');
 
-            if(rows.length===0){
+            if(total===0){
               console.log('TRAFFIC_GATE=WAITING_FOR_TRAFFIC');
               console.log('QUEUE_RULES=NOT_APPLICABLE_YET');
               console.log('D1_QUERIES=0');
               return;
             }
 
-            const text=v=>String(v??'').trim();
-            const attendance=row=>text(row.attendanceType||row.attendance_type).toLowerCase();
-            const isDestination=row=>/ปลายทาง|destination/.test(attendance(row));
-            const isDrop=row=>/จุดดรอป|ดรอป|drop/.test(attendance(row));
-            const isOrigin=row=>/ต้นทาง|origin/.test(attendance(row));
-            const idOf=row=>text(row.id||row.routeId||row.route_id);
-            const actualArrival=row=>text(row.actualArrivalAt||row.actual_arrival_at);
-            const actualDeparture=row=>text(row.actualDepartureAt||row.actual_departure_at);
-            const unloadingState=row=>Number(row.unloadingState??row.unloading_state??-1);
-
-            const ids=rows.map(idOf);
-            const missingIds=ids.filter(id=>!id).length;
-            const duplicateIds=ids.length-new Set(ids).size;
-            const arrivalViolations=rows.filter(row=>!actualArrival(row)).length;
-            const destinationDoneStillCurrent=rows.filter(row=>isDestination(row)&&unloadingState(row)===2).length;
-            const dropDoneStillCurrent=rows.filter(row=>isDrop(row)&&unloadingState(row)===2&&actualDeparture(row)).length;
-            const originDoneStillCurrent=rows.filter(row=>isOrigin(row)&&actualDeparture(row)).length;
-            const unknownAttendance=rows.filter(row=>!isDestination(row)&&!isDrop(row)&&!isOrigin(row)).length;
-            const over12h=rows.filter(row=>{
-              const parsed=Date.parse(actualArrival(row));
-              return Number.isFinite(parsed)&&Date.now()-parsed>12*60*60*1000;
-            }).length;
-            const counts={
-              origin:rows.filter(isOrigin).length,
-              destination:rows.filter(isDestination).length,
-              drop:rows.filter(isDrop).length,
-              unknown:unknownAttendance,
-            };
+            const missingIds=Number(agg[1]||0);
+            const distinctIds=Number(agg[2]||0);
+            const duplicateIds=Math.max(0,total-missingIds-distinctIds);
+            const arrivalViolations=Number(agg[3]||0);
+            const destinationDoneStillCurrent=Number(agg[4]||0);
+            const dropDoneStillCurrent=Number(agg[5]||0);
+            const originDoneStillCurrent=Number(agg[6]||0);
+            const unknownAttendance=Number(agg[7]||0);
+            const over12h=Number(agg[8]||0);
+            const counts={origin:Number(agg[9]||0),destination:Number(agg[10]||0),drop:Number(agg[11]||0),unknown:unknownAttendance};
 
             console.log(`ATTENDANCE_COUNTS=${JSON.stringify(counts)}`);
             console.log(`MISSING_IDS=${missingIds}`);
@@ -152,7 +166,6 @@ jobs:
             console.log(`DROP_DONE_STILL_CURRENT=${dropDoneStillCurrent}`);
             console.log(`ORIGIN_DONE_STILL_CURRENT=${originDoneStillCurrent}`);
             console.log(`QUEUE_OVER_12H=${over12h}`);
-            console.log('SENSITIVE_ROW_VALUES_LOGGED=0');
 
             const violations={missingIds,duplicateIds,arrivalViolations,destinationDoneStillCurrent,dropDoneStillCurrent,originDoneStillCurrent,unknownAttendance,over12h};
             if(Object.values(violations).some(Number))

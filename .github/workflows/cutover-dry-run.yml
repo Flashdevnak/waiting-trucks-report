@@ -22,7 +22,7 @@ jobs:
   dry-run:
     runs-on: ubuntu-latest
     env:
-      CUTOVER_VERSION: 20260903-03
+      CUTOVER_VERSION: 20260903-04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,9 +46,9 @@ jobs:
           const deploy = fs.readFileSync('.github/workflows/deploy-worker-dev.yml','utf8');
           const expected = 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
           const old = 'https://waiting-trucks-report.alert-squid-6738.chatgpt.site';
-          const archiveStart = worker.indexOf('async function msArchive(env, actor, hub)');
-          const archiveEnd = worker.indexOf('async function msCryptoKey', archiveStart);
-          const archive = archiveStart >= 0 && archiveEnd > archiveStart ? worker.slice(archiveStart, archiveEnd) : '';
+          const dailyStart = worker.indexOf('async function msDailyArchive');
+          const dailyEnd = worker.indexOf('async function msArchiveTotal', dailyStart);
+          const daily = dailyStart >= 0 && dailyEnd > dailyStart ? worker.slice(dailyStart, dailyEnd) : '';
           const checks = [
             [ms.includes(expected), 'GitHub Pages targets promoted Turso Worker'],
             [!ms.includes(old), 'root ms.js does not target OLD API'],
@@ -56,11 +56,16 @@ jobs:
             [ms.includes('requestTimeoutMs: 32000'), 'realtime recovery is integrated'],
             [ms.includes('msCompletedToday'), 'daily completed cache UI is integrated'],
             [ms.includes('const preserveObservedCompletion ='), 'completed view remains stable across live polls'],
-            [ms.includes('DEV: archive stays lazy; live polling must never auto-read msArchive'), 'archive remains lazy during realtime polling'],
-            [ms.includes('apiGet("msArchiveTotal", { branch })'), 'accumulated card uses authoritative registry total'],
-            [worker.includes('action === "msArchiveTotal"'), 'Worker exposes lightweight accumulated total endpoint'],
-            [archive.includes('PARTITION BY route_id') && archive.includes('WHERE rn=1'), 'archive returns latest snapshot per route'],
-            [!archive.includes('LIMIT 10000'), 'archive has no newest-10000 truncation'],
+            [ms.includes('MS_DAILY_HISTORY_V1'), 'daily-history frontend contract is integrated'],
+            [ms.includes('apiGet("msDailyArchive"'), 'history reads use the daily Turso endpoint'],
+            [ms.includes('เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'), 'date selection alone does not read history'],
+            [ms.includes('function metricSourceRows()'), 'metric cards use today or the explicit searched range'],
+            [ms.includes('Export ช่วงวันที่'), 'full-history export is replaced by range export'],
+            [worker.includes('action === "msDailyArchive"'), 'Worker exposes daily-history endpoint'],
+            [worker.includes('MS_DAILY_HISTORY_V1: read-only daily history'), 'Worker daily history is explicitly read-only'],
+            [daily.includes('TURSO_DAILY_HISTORY') && daily.includes('upstreamMsCalls: 0') && daily.includes('historyWrites: 0'), 'daily history never refreshes MS or writes history'],
+            [!daily.includes('readMsRoutes(') && !daily.includes('syncMs(') && !daily.includes('refreshMsIfStale('), 'daily history cannot call upstream refresh paths'],
+            [daily.includes('31 * 86400000'), 'history search is limited to 31 days per request'],
             [style.includes('/* DEV mobile MS card spacing */'), 'mobile spacing is integrated'],
             [browser.includes(`${expected}/api`), 'Browser Cron targets promoted Turso Worker'],
             [browser.includes('/api/bootstrap-connector'), 'Browser connector bootstrap route remains available behind secret gate'],
@@ -71,7 +76,7 @@ jobs:
             [wrangler.includes('"DB_BACKEND": "turso"'), 'promoted Worker backend is Turso'],
             [!wrangler.includes('d1_databases'), 'promoted Worker config has no D1 binding'],
             [deploy.includes('Reject any remaining D1 binding before deploy'), 'normal DEV deploy rejects D1 rebinding'],
-            [deploy.includes('ms-archive-completeness.test.mjs'), 'normal DEV deploy gates complete accumulated archive'],
+            [deploy.includes('daily-history.test.mjs'), 'normal DEV deploy gates daily-history contract'],
             [deploy.includes('TURSO_DATABASE_URL'), 'normal DEV deploy requires Turso credentials'],
           ];
           for (const [pass,label] of checks) {

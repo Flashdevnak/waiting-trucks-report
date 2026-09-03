@@ -1,23 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  patchDevMsArchive,
-  patchDevMsMobileStyle,
-} from "../../worker/scripts/patch-dev-ms-archive.mjs";
-import { patchDevRealtimeFrontend } from "../dev-tools/patch-ms-realtime-recovery.mjs";
-import { patchDevSummaryFilter } from "../dev-tools/patch-ms-summary-filter.mjs";
-import {
-  patchMsRouteCancellationFrontend,
-  patchMsRouteCancellationStyle,
-} from "../dev-tools/patch-ms-route-cancellation-compat.mjs";
-import { patchMsNonDestinationCancellationFrontend } from "../dev-tools/patch-ms-cancel-nondestination.mjs";
-import { patchMsFastAllCancelledFrontend } from "../dev-tools/patch-ms-fast-all-cancelled-card.mjs";
-import {
-  patchMsSummaryPerformanceFrontend,
-  patchMsSummaryPerformanceStyle,
-} from "../dev-tools/patch-ms-summary-performance.mjs";
-import { patchMsOperatingDayFrontend } from "../dev-tools/patch-ms-operating-day.mjs";
+import { stageFrontend, stageStyle } from "../dev-tools/stage-dev-runtime.mjs";
 
 export const OLD_API_ORIGIN =
   "https://waiting-trucks-report.alert-squid-6738.chatgpt.site";
@@ -33,14 +17,7 @@ function replaceUnique(output, from, to, label) {
 }
 
 export function patchCutoverFrontend(msSource) {
-  let output = patchDevMsArchive(msSource);
-  output = patchDevRealtimeFrontend(output);
-  output = patchDevSummaryFilter(output);
-  output = patchMsRouteCancellationFrontend(output);
-  output = patchMsNonDestinationCancellationFrontend(output);
-  output = patchMsFastAllCancelledFrontend(output);
-  output = patchMsSummaryPerformanceFrontend(output);
-  output = patchMsOperatingDayFrontend(output);
+  let output = stageFrontend(msSource);
   output = replaceUnique(
     output,
     `CONFIG.apiUrl = \`${"${"}window.location.hostname.endsWith("github.io") ? "${OLD_API_ORIGIN}" : window.location.origin}/api\`;`,
@@ -98,13 +75,7 @@ export async function prepareCutover(rootDir, version) {
 
   await Promise.all([
     writeFile(msPath, patchCutoverFrontend(ms), "utf8"),
-    writeFile(
-      stylePath,
-      patchMsSummaryPerformanceStyle(
-        patchMsRouteCancellationStyle(patchDevMsMobileStyle(style)),
-      ),
-      "utf8",
-    ),
+    writeFile(stylePath, stageStyle(style), "utf8"),
     writeFile(browserPath, patchCutoverBrowser(browser), "utf8"),
     writeFile(swPath, bumpServiceWorker(sw, version), "utf8"),
     writeFile(

@@ -1,5 +1,6 @@
-execute=2026-09-03T09:33:46+07:00
+execute=2026-09-03T09:37:19+07:00
 backend=turso
 mode=guarded-deterministic
-attempt=4
+attempt=5
 handoff=turso-direct
+browser-propagation-wait=10s

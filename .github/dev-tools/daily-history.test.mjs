@@ -1,14 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const fromRoot = (...parts) => join(ROOT, ...parts);
 
 const [frontend, worker, html, sw, versionText, migration] = await Promise.all([
-  readFile("ms.js", "utf8"),
-  readFile("worker/src/index.js", "utf8"),
-  readFile("ms.html", "utf8"),
-  readFile("sw.js", "utf8"),
-  readFile("version.json", "utf8"),
-  readFile("worker/migrations/0010_ms_daily_history_read_index.sql", "utf8"),
+  readFile(fromRoot("ms.js"), "utf8"),
+  readFile(fromRoot("worker", "src", "index.js"), "utf8"),
+  readFile(fromRoot("ms.html"), "utf8"),
+  readFile(fromRoot("sw.js"), "utf8"),
+  readFile(fromRoot("version.json"), "utf8"),
+  readFile(
+    fromRoot("worker", "migrations", "0010_ms_daily_history_read_index.sql"),
+    "utf8",
+  ),
 ]);
 const version = JSON.parse(versionText);
 

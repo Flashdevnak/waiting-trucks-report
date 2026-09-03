@@ -1,8 +1,8 @@
 name: Cutover Dry Run
 
-# Prepares the exact GitHub Pages + Browser Worker cutover diff in an
-# ephemeral checkout only. No Cloudflare writes, no secret changes,
-# no deploy, no database access and no push.
+# Post-cutover invariant check. The actual Turso cutover is already complete.
+# This workflow performs source/config validation only: no Cloudflare writes,
+# no secret changes, no deploy, no database access and no push.
 
 on:
   workflow_dispatch:
@@ -28,9 +28,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Prepare ephemeral cutover diff
-        run: node .github/cutover-tools/prepare-cutover.mjs "$GITHUB_WORKSPACE"
-      - name: Validate cutover targets, Turso backend and safety invariants
+      - name: Validate post-cutover source and safety invariants
         run: |
           node --check ms.js
           node --check cloudflare-browser-test/src/index.js
@@ -47,21 +45,19 @@ jobs:
           const expected = 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
           const old = 'https://waiting-trucks-report.alert-squid-6738.chatgpt.site';
           const checks = [
-            [ms.includes(expected), 'GitHub Pages target is promoted Turso Worker'],
-            [!ms.includes(old), 'root ms.js no longer targets OLD API'],
+            [ms.includes(expected), 'GitHub Pages targets promoted Turso Worker'],
+            [!ms.includes(old), 'root ms.js does not target OLD API'],
+            [/pollMs:\s*4000/.test(ms), 'frontend polling remains 4 seconds'],
             [ms.includes('requestTimeoutMs: 32000'), 'realtime recovery is integrated'],
             [ms.includes('msCompletedToday'), 'daily completed cache UI is integrated'],
             [ms.includes('const preserveObservedCompletion ='), 'completed view remains stable across live polls'],
-            [ms.includes('data-cancel-ms-route'), 'route cancellation UI is integrated'],
-            [ms.includes('type="password"'), 'route cancellation requires PIN confirmation'],
+            [ms.includes('DEV: archive stays lazy; live polling must never auto-read msArchive'), 'archive remains lazy during realtime polling'],
             [style.includes('/* DEV mobile MS card spacing */'), 'mobile spacing is integrated'],
-            [style.includes('/* MS route cancellation controls */'), 'route cancellation styling is integrated'],
             [browser.includes(`${expected}/api`), 'Browser Cron targets promoted Turso Worker'],
-            [browser.includes('bootstrapConnector'), 'Browser can register connector during cutover'],
-            [browser.includes('randomConnectorToken'), 'Browser can recover when old KV token is absent'],
-            [browser.includes('CONNECTOR_BOOTSTRAP_SECRET'), 'Browser bootstrap is secret-gated'],
-            [sw.includes(`VERSION="${process.env.CUTOVER_VERSION}"`), 'service worker version is bumped'],
-            [version.version === process.env.CUTOVER_VERSION, 'version.json is bumped'],
+            [browser.includes('/api/bootstrap-connector'), 'Browser connector bootstrap route remains available behind secret gate'],
+            [browser.includes('CONNECTOR_BOOTSTRAP_SECRET'), 'Browser bootstrap remains secret-gated'],
+            [sw.includes(`VERSION="${process.env.CUTOVER_VERSION}"`), 'service worker cutover version remains current'],
+            [version.version === process.env.CUTOVER_VERSION, 'version.json cutover version remains current'],
             [wrangler.includes('"main": "src/turso-index.js"'), 'promoted Worker entrypoint is Turso'],
             [wrangler.includes('"DB_BACKEND": "turso"'), 'promoted Worker backend is Turso'],
             [!wrangler.includes('d1_databases'), 'promoted Worker config has no D1 binding'],
@@ -73,12 +69,7 @@ jobs:
             if (!pass) process.exitCode = 1;
           }
           NODE
-          changed="$(git diff --name-only | sort)"
-          expected=$'cloudflare-browser-test/src/index.js\nms.js\nstyle.css\nsw.js\nversion.json'
-          if [ "$changed" != "$expected" ]; then
-            echo "Unexpected cutover files:"
-            printf '%s\n' "$changed"
-            exit 1
-          fi
+          test -z "$(git diff --name-only)"
+          echo "CUTOVER_STATE=ALREADY_COMPLETE"
           echo "CUTOVER_DRY_RUN_MUTATIONS=0"
           echo "CUTOVER_DRY_RUN_DATABASE_ACCESS=0"

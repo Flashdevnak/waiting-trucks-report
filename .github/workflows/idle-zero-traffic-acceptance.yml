@@ -1,0 +1,189 @@
+name: Idle Zero-Traffic Acceptance
+
+# Post-cutover acceptance for periods when MS has no active trucks.
+# Reads Turso + Cloudflare metadata/analytics only. Never queries D1 directly.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/idle-zero-traffic-acceptance.yml
+
+permissions:
+  contents: read
+
+jobs:
+  idle-acceptance:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+    steps:
+      - name: Observe zero-traffic state across a Browser Cron interval
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG;
+            const db=process.env.TURSO_DATABASE;
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!platform) throw new Error('Turso platform token missing');
+            const headers={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('Turso hostname missing');
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json();
+            const dbToken=tokenJson.jwt;
+            if(!tokenRes.ok||!dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
+            console.log(`::add-mask::${dbToken}`);
+
+            async function query(sql){
+              const response=await fetch(`https://${hostname}/v2/pipeline`,{
+                method:'POST',
+                headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+              });
+              const payload=await response.json();
+              const item=payload?.results?.[0];
+              if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+              return item?.response?.result;
+            }
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const first=result=>(result?.rows?.[0]||[]).map(decode);
+            const age=value=>{
+              const parsed=Date.parse(String(value||''));
+              return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
+            };
+            async function snapshot(label){
+              const [liveResult,historyResult,routesResult,routeResult,preentryResult,busResult]=await Promise.all([
+                query("SELECT source_hash,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+                query("SELECT COUNT(*),COALESCE(MAX(snapshot_at),'') FROM ms_route_history WHERE hub='NE1'"),
+                query("SELECT COUNT(*),COALESCE(MAX(synced_at),'') FROM ms_routes WHERE hub='NE1'"),
+                query("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
+                query("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
+                query("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
+              ]);
+              const live=first(liveResult), history=first(historyResult), routes=first(routesResult);
+              const route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
+              const sessions={route,preentry,bus};
+              for(const [name,row] of Object.entries(sessions)){
+                if(String(row?.[1]||'')) throw new Error(`${label} ${name} session error: ${row[1]}`);
+                const successAge=age(row?.[0]);
+                if(successAge<0||successAge>20*60) throw new Error(`${label} ${name} last success stale: ${successAge}s`);
+              }
+              const snap={
+                sourceHash:String(live?.[0]||''),
+                syncedAt:String(live?.[1]||''),
+                liveRows:Number(live?.[2]||0),
+                historyCount:Number(history?.[0]||0),
+                historyMax:String(history?.[1]||''),
+                routesCount:Number(routes?.[0]||0),
+                routesMax:String(routes?.[1]||''),
+                routeSuccess:String(route?.[0]||''),
+                preentrySuccess:String(preentry?.[0]||''),
+                busSuccess:String(bus?.[0]||''),
+              };
+              console.log(`${label}=${JSON.stringify(snap)}`);
+              return snap;
+            }
+
+            const before=await snapshot('IDLE_BEFORE');
+            if(before.liveRows>0){
+              console.log('IDLE_GATE=TRAFFIC_ALREADY_PRESENT');
+              console.log('NEXT_GATE=LIVE_TRAFFIC_ACCEPTANCE');
+              console.log('D1_QUERIES=0');
+              return;
+            }
+
+            // One full 1-minute Browser Cron interval plus propagation margin.
+            await new Promise(resolve=>setTimeout(resolve,75_000));
+            const after=await snapshot('IDLE_AFTER');
+            if(after.liveRows>0){
+              console.log('IDLE_GATE=TRAFFIC_APPEARED_DURING_TEST');
+              console.log('NEXT_GATE=LIVE_TRAFFIC_ACCEPTANCE');
+              console.log('D1_QUERIES=0');
+              return;
+            }
+
+            if(after.historyCount!==before.historyCount)
+              throw new Error(`Idle history churn detected: ${before.historyCount} -> ${after.historyCount}`);
+            if(after.historyMax!==before.historyMax)
+              throw new Error(`Idle history snapshot changed: ${before.historyMax} -> ${after.historyMax}`);
+            if(after.sourceHash!==before.sourceHash)
+              throw new Error('Idle live-cache source hash changed with zero rows');
+            if(after.syncedAt!==before.syncedAt)
+              throw new Error(`Idle live-cache publication churn: ${before.syncedAt} -> ${after.syncedAt}`);
+
+            console.log('ZERO_TRAFFIC_ROWS=0');
+            console.log('IDLE_HISTORY_CHURN=0');
+            console.log('IDLE_LIVE_CACHE_CHURN=0');
+            console.log('ALL_MS_SESSIONS_HEALTHY=PASS');
+            console.log('IDLE_GATE=PASS');
+            console.log('D1_QUERIES=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Verify active Workers still expose zero D1 bindings
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            if(!account||!token) throw new Error('Cloudflare credentials missing');
+            const headers={Authorization:`Bearer ${token}`};
+            for(const name of ['waiting-trucks-report-api-dev','waiting-trucks-ms-browser-test']){
+              const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/script-settings`,{headers});
+              const payload=await response.json();
+              if(!response.ok||payload.success===false) throw new Error(`${name} settings HTTP ${response.status}`);
+              const bindings=Array.isArray(payload.result?.bindings)?payload.result.bindings:[];
+              const d1=bindings.filter(x=>x.type==='d1'||x.type==='d1_database');
+              if(d1.length) throw new Error(`${name} exposes D1 binding`);
+              console.log(`${name.toUpperCase().replaceAll('-','_')}_D1_BINDING=0`);
+            }
+            console.log('ACTIVE_D1_BINDINGS=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Verify recent D1 analytics remain zero without querying D1
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const endpoint='https://api.cloudflare.com/client/v4/graphql';
+            const accountTag=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            const databaseId=process.env.DEV_D1_DATABASE_ID;
+            const end=new Date(Date.now()-2*60_000);
+            const start=new Date(end.getTime()-10*60_000);
+            const query=`query($accountTag:String!,$databaseId:String!,$start:String!,$end:String!){viewer{accounts(filter:{accountTag:$accountTag}){d1AnalyticsAdaptiveGroups(limit:1000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){sum{rowsRead rowsWritten readQueries writeQueries}}}}}`;
+            const response=await fetch(endpoint,{
+              method:'POST',
+              headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+              body:JSON.stringify({query,variables:{accountTag,databaseId,start:start.toISOString(),end:end.toISOString()}}),
+            });
+            const payload=await response.json();
+            if(!response.ok||payload.errors?.length) throw new Error(JSON.stringify(payload.errors||payload));
+            const groups=payload.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups||[];
+            const total=groups.reduce((sum,g)=>({
+              rowsRead:sum.rowsRead+Number(g.sum?.rowsRead||0),
+              rowsWritten:sum.rowsWritten+Number(g.sum?.rowsWritten||0),
+              readQueries:sum.readQueries+Number(g.sum?.readQueries||0),
+              writeQueries:sum.writeQueries+Number(g.sum?.writeQueries||0),
+            }),{rowsRead:0,rowsWritten:0,readQueries:0,writeQueries:0});
+            console.log(`D1_ANALYTICS_WINDOW=${start.toISOString()}..${end.toISOString()}`);
+            console.log(`D1_RECENT_ROWS_READ=${total.rowsRead}`);
+            console.log(`D1_RECENT_ROWS_WRITTEN=${total.rowsWritten}`);
+            console.log(`D1_RECENT_READ_QUERIES=${total.readQueries}`);
+            console.log(`D1_RECENT_WRITE_QUERIES=${total.writeQueries}`);
+            if(total.rowsRead||total.rowsWritten||total.readQueries||total.writeQueries)
+              throw new Error(`Recent D1 activity is not zero: ${JSON.stringify(total)}`);
+            console.log('D1_RECENT_RUNTIME_ACTIVITY=0');
+            console.log('ANALYTICS_ONLY=true');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

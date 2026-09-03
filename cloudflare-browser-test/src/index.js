@@ -240,12 +240,33 @@ async function syncConfiguredHubs(env) {
         if (!connectorToken) return;
 
         let response = await sendConnectorSync(hub, connectorToken);
-        if (response.status === 401 && env.CONNECTOR_BOOTSTRAP_SECRET) {
-          if (await registerConnectorForCutover(env, hub, connectorToken))
+        let payload = await response.clone().json().catch(() => ({}));
+        if (
+          response.status === 401 &&
+          env.CONNECTOR_BOOTSTRAP_SECRET &&
+          payload?.code === "INVALID_CONNECTOR"
+        ) {
+          if (await registerConnectorForCutover(env, hub, connectorToken)) {
             response = await sendConnectorSync(hub, connectorToken);
+            payload = await response.clone().json().catch(() => ({}));
+          }
         }
-        if (response.status === 401 && !env.CONNECTOR_BOOTSTRAP_SECRET)
+        if (
+          response.status === 401 &&
+          !env.CONNECTOR_BOOTSTRAP_SECRET &&
+          payload?.code === "INVALID_CONNECTOR"
+        ) {
           await env.STATE.delete(`connector:${hub}`);
+        } else if (!response.ok) {
+          console.error(
+            JSON.stringify({
+              event: "connector_sync_blocked",
+              hub,
+              status: response.status,
+              code: payload?.code || "UNKNOWN",
+            }),
+          );
+        }
       } catch (error) {
         console.error(
           JSON.stringify({

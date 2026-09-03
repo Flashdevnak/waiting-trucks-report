@@ -1,0 +1,117 @@
+name: Release 04 Final Acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release-04-final-acceptance.yml
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      DEV_D1_DATABASE_ID: 798db282-46cd-4b2c-bfca-3d6d29596451
+      WORKER_BASE: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      PAGES_BASE: https://flashdevnak.github.io/waiting-trucks-report
+      MAIN_API: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api
+      BROWSER_API: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      RELEASE: 20260903-04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify primary Worker and Pages serve release 04
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const bust=Date.now();
+            async function get(url){const r=await fetch(`${url}?__accept=${bust}`,{cache:'no-store'});const t=await r.text();if(!r.ok)throw new Error(`${url} HTTP ${r.status}`);return t}
+            for(const [name,base] of [['WORKER',process.env.WORKER_BASE],['PAGES',process.env.PAGES_BASE]]){
+              const [html,js,sw]=await Promise.all([get(`${base}/ms.html`),get(`${base}/ms.js`),get(`${base}/sw.js`)]);
+              for(const marker of ['รายการรายวัน','วันนี้ หรือช่วงวันที่ที่กดค้นหา','Export ช่วงวันที่',`ms.js?v=${process.env.RELEASE}`])
+                if(!html.includes(marker)) throw new Error(`${name} ms.html missing ${marker}`);
+              if(html.includes('<span>รายการสะสม</span>')) throw new Error(`${name} still serves lifetime accumulated card`);
+              for(const marker of ['MS_DAILY_HISTORY_V1','pollMs: 4000','requestTimeoutMs: 32000','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา','function metricSourceRows()','DEV: archive stays lazy; live polling must never auto-read msArchive','const preserveObservedCompletion =','NON_JSON_RESPONSE','transportLastOkAt','CONFIG.apiUrl = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api"'])
+                if(!js.includes(marker)) throw new Error(`${name} ms.js missing ${marker}`);
+              if(js.includes('window.location.origin}/api')) throw new Error(`${name} same-origin API fallback remains`);
+              if(!sw.includes(`VERSION="${process.env.RELEASE}"`)) throw new Error(`${name} service worker release mismatch`);
+              console.log(`${name}_RELEASE=${process.env.RELEASE}`);
+              console.log(`${name}_DAILY_HISTORY=PASS`);
+              console.log(`${name}_POLL_MS=4000`);
+            }
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify API JSON contract and Cloudflare runtimes
+        run: |
+          node <<'NODE'
+          (async()=>{
+            for(const action of ['health','msRoutes','msCompletedToday','msDailyArchive','msConnectionStatus']){
+              const u=new URL(process.env.MAIN_API);u.searchParams.set('action',action);if(action!=='health')u.searchParams.set('branch','NE1');if(action==='msDailyArchive'){const d=new Date().toISOString().slice(0,10);u.searchParams.set('start',d);u.searchParams.set('end',d)}
+              const r=await fetch(u,{headers:{Accept:'application/json'},cache:'no-store'}),t=await r.text();
+              if(/^\s*</.test(t))throw new Error(`${action} returned HTML HTTP ${r.status}`);const j=JSON.parse(t);if(!j||typeof j!=='object')throw new Error(`${action} JSON missing`);console.log(`${action.toUpperCase()}_JSON=PASS HTTP_${r.status}`);
+            }
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,headers={Authorization:`Bearer ${token}`};
+            async function cf(script,path){const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}${path}`,{headers});const p=await r.json();if(!r.ok||p.success===false)throw new Error(`${script}${path} HTTP ${r.status}`);return p.result}
+            const browser='waiting-trucks-ms-browser-test',backend='waiting-trucks-report-api-dev';
+            const [bd,bs,bsec,wd,ws]=await Promise.all([cf(browser,'/deployments'),cf(browser,'/script-settings'),cf(browser,'/secrets'),cf(backend,'/deployments'),cf(backend,'/script-settings')]);
+            const active=r=>{const d=r?.deployments?.[0];return [...(d?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||'-'};
+            for(const [name,s] of [[browser,bs],[backend,ws]]){const bindings=Array.isArray(s?.bindings)?s.bindings:[];if(bindings.some(x=>x.type==='d1'||x.type==='d1_database'))throw new Error(`${name} has D1 binding`)}
+            if((Array.isArray(bsec)?bsec:[]).some(x=>x.name==='CONNECTOR_BOOTSTRAP_SECRET'))throw new Error('Browser bootstrap secret remains');
+            const cr=await fetch(`${process.env.BROWSER_API}/api/config`,{cache:'no-store'}),ct=await cr.text();if(/^\s*</.test(ct))throw new Error('Browser config returned HTML');const cj=JSON.parse(ct);if(!cr.ok)throw new Error(`Browser config HTTP ${cr.status}`);if(JSON.stringify(cj).includes('script.google.com'))throw new Error('Browser targets legacy API');
+            console.log(`ACTIVE_BROWSER_VERSION=${active(bd)}`);console.log(`ACTIVE_BACKEND_VERSION=${active(wd)}`);console.log('ACTIVE_D1_BINDINGS=0');console.log('BROWSER_BOOTSTRAP_SECRET=0');console.log('BACKEND_JSON_CONTRACT=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify Browser Cron remains every minute
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const cfg=fs.readFileSync('cloudflare-browser-test/wrangler.jsonc','utf8');
+          const source=fs.readFileSync('cloudflare-browser-test/src/index.js','utf8');
+          if(!cfg.includes('"* * * * *"'))throw new Error('Browser Cron is not every minute');
+          if(!source.includes('syncConfiguredHubs(env)'))throw new Error('scheduled Browser sync missing');
+          if(!source.includes('payload?.code === "INVALID_CONNECTOR"'))throw new Error('connector recovery guard missing');
+          console.log('BROWSER_CRON=* * * * *');console.log('BROWSER_CRON_1_MINUTE=PASS');console.log('CONNECTOR_RECOVERY_POLICY=PASS');
+          NODE
+
+      - name: Verify Turso sessions connector and live cache
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG,db=process.env.TURSO_DATABASE,ph={Authorization:`Bearer ${process.env.TURSO_PLATFORM_API_TOKEN}`};
+            const dr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:ph});const dj=await dr.json();if(!dr.ok)throw new Error(`Turso DB HTTP ${dr.status}`);const database=dj.database||dj,hostname=database.Hostname||database.hostname;
+            const tr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:ph});const tj=await tr.json();if(!tr.ok||!tj.jwt)throw new Error(`Turso token HTTP ${tr.status}`);const token=tj.jwt;console.log(`::add-mask::${token}`);
+            async function q(sql){const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});const p=await r.json();const i=p?.results?.[0];if(!r.ok||i?.type==='error')throw new Error(`Turso query failed: ${JSON.stringify(i?.error||p).slice(0,400)}`);return i?.response?.result}
+            const d=v=>v==null?null:(typeof v==='object'&&'value'in v?v.value:v),first=r=>(r?.rows?.[0]||[]).map(d),age=v=>{const t=Date.parse(String(v||''));return Number.isFinite(t)?Math.max(0,Math.round((Date.now()-t)/1000)):-1};
+            const [route,pre,bus,connector,live]=await Promise.all([
+              q("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
+              q("SELECT synced_at,json_valid(rows_json),json_type(rows_json),CASE WHEN json_type(rows_json)='object' THEN json_array_length(rows_json,'$.rows') ELSE json_array_length(rows_json) END,CASE WHEN json_type(rows_json)='object' THEN json_array_length(rows_json,'$.completedRows') ELSE 0 END FROM ms_live_cache WHERE hub='NE1' LIMIT 1")
+            ]);
+            for(const [name,r] of Object.entries({route,preentry:pre,bus})){const x=first(r),a=age(x[0]);if(String(x[1]||''))throw new Error(`${name} last_error=${x[1]}`);if(a<0||a>1200)throw new Error(`${name} stale ${a}s`);console.log(`${name.toUpperCase()}_SESSION_AGE_SECONDS=${a}`);console.log(`${name.toUpperCase()}_SESSION=PASS`)}
+            const c=first(connector);if(Number(c[0])!==1)throw new Error('connector inactive');console.log(`CONNECTOR_LAST_USED_AGE_SECONDS=${age(c[1])}`);console.log('CONNECTOR_ACTIVE=PASS');
+            const l=first(live);if(Number(l[1])!==1)throw new Error('live cache invalid');const la=age(l[0]);if(la<0||la>180)throw new Error(`live cache stale ${la}s`);console.log(`LIVE_CACHE_SYNC_AGE_SECONDS=${la}`);console.log(`LIVE_ROUTE_ROWS=${Number(l[3]||0)}`);console.log(`COMPLETED_CACHE_ROWS=${Number(l[4]||0)}`);console.log('TURSO_LIVE_CACHE=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Verify D1 remains inactive
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,databaseId=process.env.DEV_D1_DATABASE_ID,end=new Date(Date.now()-120000),start=new Date(Date.now()-720000);
+            const query=`query($accountTag:String!,$databaseId:String!,$start:String!,$end:String!){viewer{accounts(filter:{accountTag:$accountTag}){d1AnalyticsAdaptiveGroups(limit:1000,filter:{databaseId:$databaseId,datetime_geq:$start,datetime_leq:$end}){sum{rowsRead rowsWritten readQueries writeQueries}}}}}`;
+            const r=await fetch('https://api.cloudflare.com/client/v4/graphql',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({query,variables:{accountTag:account,databaseId,start:start.toISOString(),end:end.toISOString()}})});const p=await r.json();if(!r.ok||p.errors?.length)throw new Error(JSON.stringify(p.errors||p));const gs=p.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups||[];const t=gs.reduce((s,g)=>({rr:s.rr+Number(g.sum?.rowsRead||0),rw:s.rw+Number(g.sum?.rowsWritten||0),rq:s.rq+Number(g.sum?.readQueries||0),wq:s.wq+Number(g.sum?.writeQueries||0)}),{rr:0,rw:0,rq:0,wq:0});
+            console.log(`D1_ROWS_READ=${t.rr}`);console.log(`D1_ROWS_WRITTEN=${t.rw}`);console.log(`D1_READ_QUERIES=${t.rq}`);console.log(`D1_WRITE_QUERIES=${t.wq}`);if(Object.values(t).some(Number))throw new Error(`D1 activity not zero ${JSON.stringify(t)}`);console.log('D1_RUNTIME_ACTIVITY=0');console.log('RELEASE_04_FINAL_ACCEPTANCE=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

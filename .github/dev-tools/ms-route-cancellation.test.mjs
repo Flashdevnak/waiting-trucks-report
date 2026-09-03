@@ -95,6 +95,6 @@ test("cancellation migration is additive, HUB-scoped and indexed", () => {
 test("DEV staging and cutover both carry the cancellation UI", () => {
   assert.match(stage, /patchMsRouteCancellationFrontend/);
   assert.match(stage, /patchMsRouteCancellationWorker/);
-  assert.match(cutover, /patchMsRouteCancellationFrontend/);
-  assert.match(cutover, /patchMsRouteCancellationStyle/);
+  assert.match(cutover, /stageFrontend/);
+  assert.match(cutover, /stageStyle/);
 });

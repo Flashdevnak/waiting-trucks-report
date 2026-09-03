@@ -21,9 +21,9 @@ export function patchMsQuotaSafeLiveWorker(source) {
 
   output = replaceUnique(
     output,
-    `  const oldRows = (\n    await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")\n      .bind(branch)\n      .all()\n  ).results;\n  const oldById = new Map(oldRows.map((row) => [row.id, row]));`,
-    `  const cacheBaseline = Array.isArray(body.baselineRows)\n    ? body.baselineRows\n    : null;\n  const oldRows = cacheBaseline ||\n    (\n      await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")\n        .bind(branch)\n        .all()\n    ).results.map(output);\n  const oldById = new Map(oldRows.map((row) => [row.id, row]));`,
-    "use live-cache baseline before full route-table fallback",
+    `  const [oldRowsResult, cancellationResult] = await Promise.all([\n    env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?").bind(branch).all(),\n    env.DB.prepare(\n      "SELECT route_id,proof_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1",\n    )\n      .bind(branch)\n      .all(),\n  ]);\n  const oldRows = oldRowsResult.results;\n  const cancellationById = new Map(\n    cancellationResult.results.map((row) => [String(row.route_id), row]),\n  );\n  const oldById = new Map(oldRows.map((row) => [row.id, row]));`,
+    `  const cacheBaseline = Array.isArray(body.baselineRows)\n    ? body.baselineRows\n    : null;\n  const [oldRowsResult, cancellationResult] = await Promise.all([\n    cacheBaseline\n      ? Promise.resolve({ results: [] })\n      : env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?").bind(branch).all(),\n    env.DB.prepare(\n      "SELECT route_id,proof_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1",\n    )\n      .bind(branch)\n      .all(),\n  ]);\n  const oldRows = cacheBaseline || oldRowsResult.results.map(output);\n  const cancellationById = new Map(\n    cancellationResult.results.map((row) => [String(row.route_id), row]),\n  );\n  const oldById = new Map(oldRows.map((row) => [row.id, row]));`,
+    "use live-cache baseline while preserving cancellation overlay",
   );
 
   output = replaceUnique(

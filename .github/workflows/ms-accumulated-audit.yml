@@ -1,0 +1,69 @@
+name: MS Accumulated Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ms-accumulated-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+    steps:
+      - name: Compare authoritative accumulated route counts
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG,db=process.env.TURSO_DATABASE,platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            const ph={Authorization:`Bearer ${platform}`};
+            const dr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:ph});
+            const dj=await dr.json(); if(!dr.ok) throw new Error(`DB lookup HTTP ${dr.status}`);
+            const database=dj.database||dj, hostname=database.Hostname||database.hostname;
+            const tr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:ph});
+            const tj=await tr.json(); if(!tr.ok||!tj.jwt) throw new Error(`Token HTTP ${tr.status}`);
+            const token=tj.jwt; console.log(`::add-mask::${token}`);
+            async function q(sql){
+              const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});
+              const p=await r.json(); const item=p?.results?.[0];
+              if(!r.ok||item?.type==='error') throw new Error(JSON.stringify(item?.error||p).slice(0,500));
+              return item?.response?.result;
+            }
+            const d=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const row=r=>(r?.rows?.[0]||[]).map(d);
+            const counts=row(await q(`
+              WITH known AS (
+                SELECT route_id AS id FROM ms_route_history WHERE hub='NE1'
+                UNION
+                SELECT id FROM ms_routes WHERE hub='NE1'
+              )
+              SELECT
+                (SELECT COUNT(*) FROM ms_route_registry WHERE hub='NE1'),
+                (SELECT COUNT(DISTINCT route_id) FROM ms_route_history WHERE hub='NE1'),
+                (SELECT COUNT(DISTINCT id) FROM ms_routes WHERE hub='NE1'),
+                (SELECT COUNT(*) FROM known),
+                (SELECT COUNT(*) FROM known k LEFT JOIN ms_route_registry r ON r.hub='NE1' AND r.route_id=k.id WHERE r.route_id IS NULL),
+                (SELECT COUNT(*) FROM ms_route_history WHERE hub='NE1'),
+                (SELECT MIN(snapshot_at) FROM ms_route_history WHERE hub='NE1'),
+                (SELECT MAX(snapshot_at) FROM ms_route_history WHERE hub='NE1')
+            `));
+            const [registry,historyDistinct,currentDistinct,knownDistinct,registryMissing,snapshots,firstSnapshot,lastSnapshot]=counts;
+            console.log(`REGISTRY_COUNT=${registry}`);
+            console.log(`HISTORY_DISTINCT=${historyDistinct}`);
+            console.log(`CURRENT_DISTINCT=${currentDistinct}`);
+            console.log(`KNOWN_DISTINCT=${knownDistinct}`);
+            console.log(`REGISTRY_MISSING_KNOWN=${registryMissing}`);
+            console.log(`HISTORY_SNAPSHOTS=${snapshots}`);
+            console.log(`FIRST_HISTORY=${firstSnapshot||'-'}`);
+            console.log(`LAST_HISTORY=${lastSnapshot||'-'}`);
+            console.log(`ACCUMULATED_COUNT_MATCH=${Number(registry)===Number(knownDistinct)&&Number(registryMissing)===0?'PASS':'FAIL'}`);
+            console.log('D1_QUERIES=0');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

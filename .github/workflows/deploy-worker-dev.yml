@@ -1,7 +1,8 @@
 name: Deploy Worker DEV
 
-# DEV-only pipeline. Production remains on the legacy API until parity passes.
-# DEV runtime uses Turso; the legacy D1 binding remains only for the one-time migration/export path.
+# DEV-only pipeline. Production remains on the legacy API until coordinated cutover.
+# DEV runtime is Turso-only. The former D1 database is a frozen backup and is not
+# bound, queried, migrated or inspected by this normal deploy path.
 
 on:
   workflow_dispatch:
@@ -51,6 +52,20 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
       - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
+      - name: Reject any remaining D1 binding before deploy
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const text = fs.readFileSync('wrangler.dev.jsonc', 'utf8');
+          if (!text.includes('"main": "src/turso-index.js"'))
+            throw new Error('DEV entrypoint is not Turso');
+          if (!text.includes('"DB_BACKEND": "turso"'))
+            throw new Error('DEV DB_BACKEND is not Turso');
+          if (text.includes('d1_databases'))
+            throw new Error('D1 binding is forbidden in the normal DEV deploy config');
+          console.log('DEV_TURSO_CONFIG=PASS');
+          console.log('DEV_D1_CONFIG_BINDING=0');
+          NODE
       - name: Stage DEV frontend assets and worker patch
         run: |
           rm -rf .dev-assets
@@ -73,9 +88,56 @@ jobs:
             console.error(`Missing DEV Worker Turso secrets: ${missing.join(', ')}`);
             process.exit(2);
           }
+          console.log('DEV_TURSO_SECRETS=PASS');
           NODE
       - name: Deploy DEV Worker on Turso
         run: npx wrangler deploy --config wrangler.dev.jsonc
+      - name: Verify active Worker has zero D1 bindings
+        working-directory: .
+        run: |
+          node <<'NODE'
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const name='waiting-trucks-report-api-dev';
+          const headers={Authorization:`Bearer ${token}`};
+          const deploymentsRes=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/deployments`,{headers});
+          const deployments=await deploymentsRes.json();
+          if(!deploymentsRes.ok || !deployments.success)
+            throw new Error(`deployments HTTP ${deploymentsRes.status}: ${JSON.stringify(deployments.errors||deployments)}`);
+          const active=deployments.result?.deployments?.[0];
+          const versions=active?.versions||[];
+          if(!versions.length) throw new Error('No active Worker version returned');
+          const activeVersion=versions.sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id;
+          console.log(`ACTIVE_DEV_VERSION=${activeVersion}`);
+          console.log(`ACTIVE_DEPLOYED_AT=${active.created_on}`);
+          const settingsRes=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/script-settings`,{headers});
+          const settings=await settingsRes.json();
+          if(!settingsRes.ok || !settings.success) throw new Error(`settings HTTP ${settingsRes.status}`);
+          const bindings=settings.result?.bindings||[];
+          const hasD1=bindings.some(x=>x.type==='d1' || x.type==='d1_database');
+          const tursoSecrets=['TURSO_DATABASE_URL','TURSO_AUTH_TOKEN'];
+          const missing=tursoSecrets.filter(secret=>!bindings.some(x=>x.name===secret && x.type==='secret_text'));
+          console.log(`D1_BINDING_COUNT=${bindings.filter(x=>x.type==='d1'||x.type==='d1_database').length}`);
+          console.log(`TURSO_SECRET_BINDINGS=${tursoSecrets.length-missing.length}`);
+          if(hasD1) throw new Error('Active DEV Worker exposes a D1 binding');
+          if(missing.length) throw new Error(`Active DEV Worker misses Turso secrets: ${missing.join(',')}`);
+          console.log('WORKER_TURSO_BINDINGS_ONLY=PASS');
+          NODE
+      - name: Smoke DEV public health
+        working-directory: .
+        run: |
+          sleep 3
+          curl --fail --show-error --silent \
+            'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=health' \
+            | tee /tmp/dev-health.json
+          node <<'NODE'
+          const fs=require('node:fs');
+          const payload=JSON.parse(fs.readFileSync('/tmp/dev-health.json','utf8'));
+          if(!payload?.ok) throw new Error(`DEV health failed: ${JSON.stringify(payload)}`);
+          console.log('DEV_HEALTH=PASS');
+          console.log('DEV_DATABASE_BACKEND=TURSO');
+          console.log('DEV_D1_RUNTIME_BINDING=0');
+          NODE
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

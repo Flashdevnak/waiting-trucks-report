@@ -1,0 +1,337 @@
+name: Fix MS Archive Completeness
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-ms-archive-completeness.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply complete accumulated archive fix
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          function read(p){return fs.readFileSync(p,'utf8')}
+          function write(p,s){fs.writeFileSync(p,s)}
+          function replaceUnique(text,from,to,label){
+            const first=text.indexOf(from), last=text.lastIndexOf(from);
+            if(first<0||first!==last) throw new Error(`replace failed ${label} first=${first} last=${last}`);
+            return text.slice(0,first)+to+text.slice(first+from.length);
+          }
+          function replaceSection(text,startMarker,endMarker,replacement,label){
+            const start=text.indexOf(startMarker), end=text.indexOf(endMarker,start+startMarker.length);
+            if(start<0||end<0||text.indexOf(startMarker,start+1)>=0) throw new Error(`section failed ${label}`);
+            return text.slice(0,start)+replacement+text.slice(end);
+          }
+
+          let worker=read('worker/src/index.js');
+          worker=replaceUnique(worker,
+`  if (action === "msHistory")
+    return ok(`,
+`  if (action === "msArchiveTotal") {
+    const branch = pickBranch(actor, url.searchParams.get("branch"));
+    return ok(await msArchiveTotal(env, actor, branch));
+  }
+  if (action === "msHistory")
+    return ok(`,
+'worker archive total route');
+
+          const archiveFunction=`async function msArchiveTotal(env, actor, hub) {
+  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS total_distinct FROM ms_route_registry WHERE hub=?",
+  )
+    .bind(hub)
+    .first();
+  return { branch: hub, total: Number(row?.total_distinct) || 0 };
+}
+
+async function msArchive(env, actor, hub) {
+  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
+  const [historyResult, completionResult, distinctResult, currentResult] =
+    await Promise.all([
+      env.DB.prepare(
+        \`WITH ranked AS (
+          SELECT route_id,payload_json,snapshot_at,synced_by,
+            ROW_NUMBER() OVER (
+              PARTITION BY route_id
+              ORDER BY snapshot_at DESC
+            ) AS rn
+          FROM ms_route_history
+          WHERE hub=?
+        )
+        SELECT route_id,payload_json,snapshot_at,synced_by
+        FROM ranked
+        WHERE rn=1
+        ORDER BY snapshot_at DESC\`,
+      )
+        .bind(hub)
+        .all(),
+      env.DB.prepare(
+        \`WITH first_completion AS (
+          SELECT route_id,MIN(snapshot_at) AS first_snapshot_at
+          FROM ms_route_history
+          WHERE hub=?
+            AND COALESCE(
+              json_extract(
+                CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,
+                '$.unloadingCompletedAt'
+              ),
+              ''
+            )<>''
+          GROUP BY route_id
+        )
+        SELECT first_completion.route_id,history.synced_by
+        FROM first_completion
+        JOIN ms_route_history AS history
+          ON history.hub=?
+         AND history.route_id=first_completion.route_id
+         AND history.snapshot_at=first_completion.first_snapshot_at\`,
+      )
+        .bind(hub, hub)
+        .all(),
+      env.DB.prepare(
+        "SELECT COUNT(*) AS total_distinct FROM ms_route_registry WHERE hub=?",
+      )
+        .bind(hub)
+        .first(),
+      env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
+        .bind(hub)
+        .all(),
+    ]);
+
+  const completionObserved = new Map(
+    completionResult.results.map((item) => [
+      item.route_id,
+      item.synced_by !== "MS_RANGE",
+    ]),
+  );
+  const latest = new Map();
+  for (const item of historyResult.results) {
+    try {
+      const row = JSON.parse(item.payload_json || "{}");
+      if (!row || typeof row !== "object") continue;
+      row.id = row.id || item.route_id;
+      row.hub = row.hub || hub;
+      row.archivedAt = item.snapshot_at;
+      row.completionObservedLive = completionObserved.get(item.route_id) === true;
+      latest.set(item.route_id, row);
+    } catch {}
+  }
+
+  const current = currentResult.results.map(output);
+  for (const row of current) {
+    row.completionObservedLive = completionObserved.has(row.id)
+      ? completionObserved.get(row.id) === true
+      : row.syncedBy !== "MS_RANGE" && Boolean(row.unloadingCompletedAt);
+    latest.set(row.id, row);
+  }
+
+  const rows = [...latest.values()];
+  const totalDistinct = Math.max(
+    Number(distinctResult?.total_distinct) || 0,
+    rows.length,
+  );
+  const complete = rows.length >= totalDistinct;
+  return {
+    rows,
+    total: rows.length,
+    totalDistinct,
+    complete,
+    branch: hub,
+  };
+}
+
+`;
+          worker=replaceSection(worker,'async function msArchive(env, actor, hub) {','async function msCryptoKey(env)',archiveFunction,'worker msArchive');
+          write('worker/src/index.js',worker);
+
+          let ms=read('ms.js');
+          ms=replaceUnique(ms,'  archiveTotal: 0,\n  auth: loadAuth(),','  archiveTotal: 0,\n  archiveTotalLoaded: false,\n  auth: loadAuth(),','frontend total state');
+          ms=replaceUnique(ms,'let archiveLoadTimer = null;\nlet archiveLoadPromise = null;','let archiveLoadTimer = null;\nlet archiveLoadPromise = null;\nlet archiveTotalPromise = null;','frontend total promise');
+          ms=replaceUnique(ms,
+`function logout() {
+  state.auth = null;
+  state.rows = [];
+  localStorage.removeItem(AUTH_KEY);
+  authUi();
+  render();
+}`,
+`function logout() {
+  state.auth = null;
+  state.currentRows = [];
+  resetArchiveState();
+  localStorage.removeItem(AUTH_KEY);
+  authUi();
+  render();
+}`,
+'frontend logout clear');
+          ms=replaceUnique(ms,
+`    state.archiveTotal = Math.max(state.archiveTotal, state.archiveRows.length);
+    state.rows = state.archiveRows;`,
+`    state.archiveTotal = Math.max(state.archiveTotal, state.archiveRows.length);
+    if (!state.archiveTotalLoaded) void ensureArchiveTotalLoaded();
+    state.rows = state.archiveRows;`,
+'frontend auto total');
+          ms=replaceUnique(ms,
+`  state.archiveTotal = 0;
+  state.completedToday = 0;
+  state.archiveLoaded = false;`,
+`  state.archiveTotal = 0;
+  state.archiveTotalLoaded = false;
+  archiveTotalPromise = null;
+  state.completedToday = 0;
+  state.archiveLoaded = false;`,
+'frontend total reset');
+
+          const totalHelper=`async function ensureArchiveTotalLoaded() {
+  if (!state.auth) return false;
+  if (state.archiveTotalLoaded) return true;
+  const branch = state.branch;
+  if (archiveTotalPromise?.branch === branch) return archiveTotalPromise.promise;
+  const promise = (async () => {
+    try {
+      const result = await apiGet("msArchiveTotal", { branch });
+      if (state.branch !== branch) return false;
+      state.archiveTotal = Math.max(
+        Number(result?.total) || 0,
+        state.currentRows.length,
+      );
+      state.archiveTotalLoaded = true;
+      metrics();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      if (archiveTotalPromise?.promise === promise) archiveTotalPromise = null;
+    }
+  })();
+  archiveTotalPromise = { branch, promise };
+  return promise;
+}
+
+`;
+          ms=replaceUnique(ms,'async function ensureArchiveLoaded(userInitiated = false) {',totalHelper+'async function ensureArchiveLoaded(userInitiated = false) {','frontend total helper');
+          ms=replaceUnique(ms,
+`      state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+      state.archiveTotal = Number.isFinite(Number(archive?.totalDistinct))
+        ? Number(archive.totalDistinct)
+        : state.archiveRows.length;
+      state.archiveLoaded = true;`,
+`      const archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
+      const archiveTotal = Number.isFinite(Number(archive?.totalDistinct))
+        ? Number(archive.totalDistinct)
+        : archiveRows.length;
+      if (archive?.complete === false || archiveRows.length < archiveTotal)
+        throw new Error(
+          \`รายการสะสมไม่ครบ: ได้ \${nf.format(archiveRows.length)} จาก \${nf.format(archiveTotal)} รายการ\`,
+        );
+      state.archiveRows = archiveRows;
+      state.archiveTotal = archiveTotal;
+      state.archiveTotalLoaded = true;
+      state.archiveLoaded = true;`,
+'frontend strict archive completeness');
+          ms=replaceUnique(ms,
+`  if (state.archiveLoaded)
+    setMetric("metric-archive", state.archiveTotal ?? state.archiveRows.length);
+  else
+    el("metric-archive").textContent = "กดดู";`,
+`  if (state.archiveTotalLoaded)
+    setMetric("metric-archive", state.archiveTotal ?? state.archiveRows.length);
+  else
+    el("metric-archive").textContent = "…";`,
+'frontend authoritative card');
+          write('ms.js',ms);
+
+          let html=read('ms.html');
+          html=html.replace(/ms\.js\?v=[^"']+/,'ms.js?v=20260903-03');
+          write('ms.html',html);
+
+          for(const path of ['sw.js','version.json','.github/workflows/cutover-dry-run.yml','.github/workflows/go-live-preflight.yml']){
+            let text=read(path);
+            text=text.replaceAll('20260903-02','20260903-03');
+            if(path==='version.json'){
+              const parsed=JSON.parse(text);
+              parsed.updatedAt=new Date().toISOString();
+              text=JSON.stringify(parsed)+'\n';
+            }
+            write(path,text);
+          }
+
+          let deploy=read('.github/workflows/deploy-worker-dev.yml');
+          deploy=replaceUnique(deploy,
+'      - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs\n      - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs',
+'      - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs\n      - run: node --test ../.github/dev-tools/ms-archive-completeness.test.mjs\n      - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs',
+'deploy archive regression');
+          write('.github/workflows/deploy-worker-dev.yml',deploy);
+
+          fs.writeFileSync('.github/dev-tools/ms-archive-completeness.test.mjs',`import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import { stageWorker } from "./stage-dev-runtime.mjs";
+
+const root = new URL("../../", import.meta.url);
+const frontend = await readFile(new URL("ms.js", root), "utf8");
+const workerBase = await readFile(new URL("worker/src/index.js", root), "utf8");
+const worker = stageWorker(workerBase);
+
+test("accumulated card loads authoritative registry total without loading history", () => {
+  assert.match(frontend, /archiveTotalLoaded: false/);
+  assert.match(frontend, /apiGet\("msArchiveTotal", \{ branch \}\)/);
+  assert.match(frontend, /if \(!state\.archiveTotalLoaded\) void ensureArchiveTotalLoaded\(\)/);
+  assert.doesNotMatch(frontend, /metric-archive"\)\.textContent = "กดดู"/);
+  assert.match(frontend, /pollMs:\s*4000/);
+});
+
+test("archive returns the latest snapshot for every distinct route, not the newest 10000 snapshots", () => {
+  const start = worker.indexOf("async function msArchive(env, actor, hub)");
+  const end = worker.indexOf("async function msCryptoKey", start);
+  assert.ok(start >= 0 && end > start);
+  const section = worker.slice(start, end);
+  assert.match(section, /ROW_NUMBER\(\) OVER \(/);
+  assert.match(section, /PARTITION BY route_id/);
+  assert.match(section, /WHERE rn=1/);
+  assert.doesNotMatch(section, /LIMIT 10000/);
+  assert.match(section, /complete = rows\.length >= totalDistinct/);
+});
+
+test("frontend refuses a silently incomplete accumulated archive", () => {
+  assert.match(frontend, /archive\?\.complete === false \|\| archiveRows\.length < archiveTotal/);
+  assert.match(frontend, /รายการสะสมไม่ครบ/);
+});
+
+test("archive total endpoint remains lightweight", () => {
+  assert.match(worker, /action === "msArchiveTotal"/);
+  const start = worker.indexOf("async function msArchiveTotal");
+  const end = worker.indexOf("async function msArchive(env", start);
+  const section = worker.slice(start, end);
+  assert.match(section, /COUNT\(\*\) AS total_distinct FROM ms_route_registry/);
+  assert.doesNotMatch(section, /ms_route_history/);
+});
+`);
+          NODE
+
+          node --check ms.js
+          node --check worker/src/index.js
+          node --test .github/dev-tools/ms-archive-completeness.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          git diff --check
+      - name: Commit fix to main
+        run: |
+          git config user.name "Flashdevnak"
+          git config user.email "26nak.testdev@gmail.com"
+          git add ms.js ms.html sw.js version.json worker/src/index.js .github/dev-tools/ms-archive-completeness.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/cutover-dry-run.yml .github/workflows/go-live-preflight.yml
+          git commit -m "Make MS accumulated archive complete and authoritative"
+          git push origin main

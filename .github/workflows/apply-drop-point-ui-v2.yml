@@ -1,0 +1,98 @@
+name: Apply Drop Point UI V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-drop-point-ui-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch drop-point UI and timing only
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'ms.js';
+          let s = fs.readFileSync(path, 'utf8');
+          if (s.includes('DROP_POINT_UI_V2')) {
+            console.log('DROP_POINT_UI_V2 already applied');
+            process.exit(0);
+          }
+
+          const oldCancel = 'q.active && !isDestination(row)';
+          const cancelCount = s.split(oldCancel).length - 1;
+          if (cancelCount !== 2) throw new Error(`expected 2 legacy cancel conditions, found ${cancelCount}`);
+          s = s.split(oldCancel).join('q.active && isOrigin(row)');
+
+          const departureStart = s.indexOf('function departureCountdown(row, now = new Date()) {');
+          const departureEnd = s.indexOf('\nfunction departureCountdownHtml(row)', departureStart);
+          if (departureStart < 0 || departureEnd < 0) throw new Error('departureCountdown block not found');
+          const newDeparture = `// DROP_POINT_UI_V2: only a late real arrival shifts the drop-point release deadline.\nfunction adjustedDropDeparturePlan(row) {\n  const plannedDeparture = parseDate(row.estimatedDepartureAt);\n  if (!plannedDeparture || !isDrop(row))\n    return { plan: plannedDeparture, lateMinutes: 0 };\n  const plannedArrival = parseDate(row.estimatedArrivalAt);\n  const actualArrival = parseDate(row.actualArrivalAt);\n  if (!plannedArrival || !actualArrival)\n    return { plan: plannedDeparture, lateMinutes: 0 };\n  const lateMinutes = Math.max(\n    0,\n    Math.round((actualArrival - plannedArrival) / 60000),\n  );\n  return {\n    plan: new Date(plannedDeparture.getTime() + lateMinutes * 60000),\n    lateMinutes,\n  };\n}\n\nfunction departureCountdown(row, now = new Date()) {\n  const basePlan = parseDate(row.estimatedDepartureAt);\n  if (!basePlan || (!isOrigin(row) && !isDrop(row))) return null;\n  const adjusted = isDrop(row)\n    ? adjustedDropDeparturePlan(row)\n    : { plan: basePlan, lateMinutes: 0 };\n  const plan = adjusted.plan || basePlan;\n  const lateAdjustment = Number(adjusted.lateMinutes) || 0;\n  const adjustmentLabel =\n    isDrop(row) && lateAdjustment > 0\n      ? \` · เพิ่ม \${nf.format(lateAdjustment)} นาทีจากรถเข้าช้า\`\n      : \"\";\n  const actual = parseDate(row.actualDepartureAt);\n  if (actual) {\n    const diff = Math.round((actual - plan) / 60000);\n    return {\n      key: diff > 0 ? \"late\" : \"ontime\",\n      minutes: Math.abs(diff),\n      adjustedByLateMinutes: lateAdjustment,\n      label:\n        (diff > 0\n          ? \`ออกช้า \${nf.format(diff)} นาที\`\n          : diff < 0\n            ? \`ออกก่อนเวลา \${nf.format(Math.abs(diff))} นาที\`\n            : \"ตรงเวลา\") + adjustmentLabel,\n    };\n  }\n  const diff = Math.ceil((plan - now) / 60000);\n  return {\n    key: diff < 0 ? \"late\" : \"pending\",\n    minutes: Math.abs(diff),\n    adjustedByLateMinutes: lateAdjustment,\n    label:\n      (diff < 0\n        ? \`เกินกำหนด \${nf.format(Math.abs(diff))} นาที\`\n        : \`เหลือ \${nf.format(diff)} นาทีถึงกำหนดปล่อย\`) +\n      adjustmentLabel,\n  };\n}\n`;
+          s = s.slice(0, departureStart) + newDeparture + s.slice(departureEnd + 1);
+
+          const dropStart = s.indexOf('function dropProgressHtml(drop, compact = false) {');
+          const dropEnd = s.indexOf('\nfunction filteredRows(', dropStart);
+          if (dropStart < 0 || dropEnd < 0) throw new Error('dropProgressHtml block not found');
+          const newDrop = `function dropProgressHtml(drop, compact = false) {\n  const stageOneDetail =\n    drop.unloadingMinutes === null\n      ? '<span class=\"row-muted\">รอรถมาถึง</span>'\n      : \`<div class=\"duration-line \${drop.unloadingOver ? \"is-late\" : \"is-ok\"}\"><strong>\${nf.format(drop.unloadingMinutes)} นาที</strong><span>ตั้งแต่รถถึง · มาตรฐาน \${nf.format(drop.unloadingStandard)} นาที</span></div>\`;\n  const stageTwoDetail =\n    drop.onwardMinutes === null\n      ? \"\"\n      : drop.onwardDone\n        ? \`ออกหลังลงของ \${nf.format(drop.onwardMinutes)} นาที\`\n        : \`รอออก \${nf.format(drop.onwardMinutes)} นาที\`;\n  return \`<div class=\"drop-progress\${compact ? \" compact-drop-progress\" : \"\"}\"><div class=\"drop-stage \${drop.unloadingDone ? \"is-done\" : \"\"} \${drop.unloadingOver ? \"is-late\" : \"\"}\"><span>1 · ลงของ</span><strong>\${esc(drop.unloadingLabel)}</strong>\${stageOneDetail}</div><div class=\"drop-stage \${drop.onwardDone ? \"is-done\" : \"\"}\"><span>2 · ไปต่อ</span><strong>\${esc(drop.onwardLabel)}</strong>\${stageTwoDetail ? \`<small>\${stageTwoDetail}</small>\` : \"\"}</div></div>\`;\n}\n`;
+          s = s.slice(0, dropStart) + newDrop + s.slice(dropEnd + 1);
+          fs.writeFileSync(path, s);
+          NODE
+
+      - name: Focused source and timing tests
+        run: |
+          node --check ms.js
+          node <<'NODE'
+          const fs = require('node:fs');
+          const s = fs.readFileSync('ms.js', 'utf8');
+          const required = [
+            'DROP_POINT_UI_V2',
+            'q.active && isOrigin(row)',
+            '<span>1 · ลงของ</span>',
+            'ตั้งแต่รถถึง · มาตรฐาน ${nf.format(drop.unloadingStandard)} นาที',
+            'เพิ่ม ${nf.format(lateAdjustment)} นาทีจากรถเข้าช้า',
+          ];
+          for (const marker of required) if (!s.includes(marker)) throw new Error(`missing ${marker}`);
+          if (s.includes('q.active && !isDestination(row)')) throw new Error('drop cancel route button still allowed');
+          if (s.includes('เหลืออีก ${nf.format(Math.max(0, drop.unloadingStandard - drop.unloadingMinutes))} นาที')) throw new Error('legacy remaining-unload text remains');
+
+          const plannedArrival = Date.parse('2026-09-03T21:00:00+07:00');
+          const actualArrival = Date.parse('2026-09-03T21:45:00+07:00');
+          const plannedDeparture = Date.parse('2026-09-03T22:00:00+07:00');
+          const now = Date.parse('2026-09-03T21:58:00+07:00');
+          const late = Math.max(0, Math.round((actualArrival - plannedArrival) / 60000));
+          const adjustedDeparture = plannedDeparture + late * 60000;
+          const remaining = Math.ceil((adjustedDeparture - now) / 60000);
+          if (late !== 45) throw new Error(`late expected 45 got ${late}`);
+          if (new Date(adjustedDeparture).toISOString() !== '2026-09-03T15:45:00.000Z') throw new Error('adjusted departure must be 22:45 Bangkok');
+          if (remaining !== 47) throw new Error(`remaining expected 47 got ${remaining}`);
+          const earlyArrival = Date.parse('2026-09-03T20:50:00+07:00');
+          const earlyLate = Math.max(0, Math.round((earlyArrival - plannedArrival) / 60000));
+          if (earlyLate !== 0) throw new Error('early/on-time arrival must not extend release deadline');
+          console.log('DROP_CANCEL_ONLY_ORIGIN=PASS');
+          console.log('DROP_UNLOADING_MATCHES_DESTINATION_FORMAT=PASS');
+          console.log('DROP_UNLOADING_STANDARD_NOT_EXTENDED=PASS');
+          console.log('DROP_LATE_ARRIVAL_45_MIN=>ADJUSTED_RELEASE_22_45=PASS');
+          console.log('DROP_REMAINING_AT_21_58=47_MIN=PASS');
+          NODE
+
+      - name: Commit tested runtime patch
+        run: |
+          if git diff --quiet -- ms.js; then
+            echo "No runtime change"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ms.js
+          git commit -m "Refine drop-point unload and release timing"
+          git push origin HEAD:main

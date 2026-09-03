@@ -25,79 +25,90 @@ jobs:
       PUBLIC_VERSION: https://flashdevnak.github.io/waiting-trucks-report/version.json
       MAIN_API: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api
       BROWSER_API: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      RELEASE: 20260903-03
     steps:
-      - name: Verify public frontend release
+      - name: Verify public release and 4-second live contract
         run: |
           node <<'NODE'
           (async()=>{
             const bust=Date.now();
-            async function text(url){const r=await fetch(`${url}?__preflight=${bust}`,{cache:'no-store'});const b=await r.text();if(!r.ok)throw new Error(`${url} HTTP ${r.status}`);return b}
-            const [html,js,vt]=await Promise.all([text(process.env.PUBLIC_MS),text(process.env.PUBLIC_JS),text(process.env.PUBLIC_VERSION)]);
-            const v=JSON.parse(vt);
-            for(const marker of ['LIVE_RESILIENCE_V1','pollMs: 4000','DEV: archive stays lazy','apiGet("msCompletedToday"','CONFIG.apiUrl = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api"','NON_JSON_RESPONSE','transportLastOkAt'])
-              if(!js.includes(marker)) throw new Error(`public ms.js missing ${marker}`);
+            async function get(url){const r=await fetch(`${url}?__preflight=${bust}`,{cache:'no-store'});const t=await r.text();if(!r.ok)throw new Error(`${url} HTTP ${r.status}`);return t}
+            const [html,js,versionText]=await Promise.all([get(process.env.PUBLIC_MS),get(process.env.PUBLIC_JS),get(process.env.PUBLIC_VERSION)]);
+            const version=JSON.parse(versionText);
+            const markers=[
+              'LIVE_RESILIENCE_V1','pollMs: 4000','requestTimeoutMs: 32000',
+              'DEV: archive stays lazy; live polling must never auto-read msArchive',
+              'apiGet("msArchiveTotal", { branch })','archiveTotalLoaded: false',
+              'รายการสะสมไม่ครบ','const preserveObservedCompletion =',
+              'CONFIG.apiUrl = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api"',
+              'NON_JSON_RESPONSE','transportLastOkAt'
+            ];
+            for(const marker of markers) if(!js.includes(marker)) throw new Error(`public ms.js missing ${marker}`);
             if(js.includes('window.location.origin}/api')) throw new Error('same-origin API fallback remains');
-            if(v.version!=='20260903-02') throw new Error(`public version=${v.version}`);
-            if(!html.includes('ms.js')) throw new Error('ms.html does not load ms.js');
-            console.log(`PUBLIC_VERSION=${v.version}`);
-            console.log('PUBLIC_FRONTEND_HARDENED=PASS');
+            if(version.version!==process.env.RELEASE) throw new Error(`public version=${version.version}, expected=${process.env.RELEASE}`);
+            if(!html.includes(`ms.js?v=${process.env.RELEASE}`)) throw new Error('ms.html cache-bust version mismatch');
+            console.log(`PUBLIC_VERSION=${version.version}`);
             console.log('PUBLIC_POLL_MS=4000');
+            console.log('PUBLIC_ARCHIVE_TOTAL_AUTHORITATIVE=PASS');
             console.log('PUBLIC_ARCHIVE_LAZY=PASS');
+            console.log('PUBLIC_TRANSPORT_RESILIENCE=PASS');
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
 
-      - name: Verify live API JSON contract
+      - name: Verify API and Cloudflare runtimes
         run: |
           node <<'NODE'
           (async()=>{
-            for(const action of ['msRoutes','msCompletedToday','msConnectionStatus']){
+            const health=new URL(process.env.MAIN_API);health.searchParams.set('action','health');
+            const hr=await fetch(health,{headers:{Accept:'application/json'},cache:'no-store'}),ht=await hr.text();
+            if(/^\s*</.test(ht)) throw new Error('health returned HTML'); const hj=JSON.parse(ht); if(!hr.ok||!hj?.ok) throw new Error(`health HTTP ${hr.status}`);
+            for(const action of ['msRoutes','msCompletedToday','msArchiveTotal','msConnectionStatus']){
               const u=new URL(process.env.MAIN_API);u.searchParams.set('action',action);u.searchParams.set('branch','NE1');
-              const r=await fetch(u,{headers:{Accept:'application/json'},cache:'no-store'});const b=await r.text();
-              if(/^\s*</.test(b)) throw new Error(`${action} returned HTML HTTP ${r.status}`);
-              let j;try{j=JSON.parse(b)}catch{throw new Error(`${action} invalid JSON HTTP ${r.status}`)}
-              if(!j||typeof j!=='object') throw new Error(`${action} JSON envelope missing`);
+              const r=await fetch(u,{headers:{Accept:'application/json'},cache:'no-store'}),t=await r.text();
+              if(/^\s*</.test(t)) throw new Error(`${action} returned HTML HTTP ${r.status}`);
+              const j=JSON.parse(t); if(!j||typeof j!=='object') throw new Error(`${action} JSON envelope missing`);
               console.log(`${action.toUpperCase()}_JSON=PASS HTTP_${r.status}`);
             }
-            console.log('BACKEND_API_REACHABLE=PASS');
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,headers={Authorization:`Bearer ${token}`};
+            async function cf(script,path){const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}${path}`,{headers});const p=await r.json();if(!r.ok||p.success===false)throw new Error(`${script}${path} HTTP ${r.status}`);return p.result}
+            const browser='waiting-trucks-ms-browser-test',backend='waiting-trucks-report-api-dev';
+            const [bd,bs,bsec,wd,ws]=await Promise.all([cf(browser,'/deployments'),cf(browser,'/script-settings'),cf(browser,'/secrets'),cf(backend,'/deployments'),cf(backend,'/script-settings')]);
+            const active=r=>{const d=r?.deployments?.[0];return [...(d?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||'-'};
+            for(const [name,s] of [[browser,bs],[backend,ws]]){const bindings=Array.isArray(s?.bindings)?s.bindings:[];if(bindings.some(x=>x.type==='d1'||x.type==='d1_database'))throw new Error(`${name} has D1 binding`)}
+            if((Array.isArray(bsec)?bsec:[]).some(x=>x.name==='CONNECTOR_BOOTSTRAP_SECRET')) throw new Error('Browser bootstrap secret remains');
+            const cr=await fetch(`${process.env.BROWSER_API}/api/config`,{cache:'no-store'}),ct=await cr.text();if(/^\s*</.test(ct))throw new Error('Browser config returned HTML');const cj=JSON.parse(ct);if(!cr.ok)throw new Error(`Browser config HTTP ${cr.status}`);if(JSON.stringify(cj).includes('script.google.com'))throw new Error('Browser targets legacy API');
+            console.log(`ACTIVE_BROWSER_VERSION=${active(bd)}`);
+            console.log(`ACTIVE_BACKEND_VERSION=${active(wd)}`);
+            console.log('ACTIVE_D1_BINDINGS=0');
+            console.log('BROWSER_BOOTSTRAP_SECRET=0');
             console.log('BACKEND_JSON_CONTRACT=PASS');
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
 
-      - name: Verify Cloudflare Worker runtimes
+      - name: Verify sessions, live cache and accumulated completeness in Turso
         run: |
           node <<'NODE'
           (async()=>{
-            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN;
-            const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
-            async function get(script,path){const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}${path}`,{headers});const p=await r.json().catch(()=>({}));if(!r.ok||p.success===false)throw new Error(`${script}${path} HTTP ${r.status}`);return p.result}
-            const browser='waiting-trucks-ms-browser-test',backend='waiting-trucks-report-api-dev';
-            const [bd,bs,bsec,wd,ws]=await Promise.all([get(browser,'/deployments'),get(browser,'/script-settings'),get(browser,'/secrets'),get(backend,'/deployments'),get(backend,'/script-settings')]);
-            const version=r=>{const d=r?.deployments?.[0];return [...(d?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||''};
-            for(const [name,s] of [[browser,bs],[backend,ws]]){const bindings=Array.isArray(s?.bindings)?s.bindings:[];if(bindings.some(x=>x.type==='d1'||x.type==='d1_database'))throw new Error(`${name} has D1 binding`)}
-            if((Array.isArray(bsec)?bsec:[]).some(x=>x.name==='CONNECTOR_BOOTSTRAP_SECRET'))throw new Error('Browser bootstrap secret remains');
-            const cr=await fetch(`${process.env.BROWSER_API}/api/config`,{cache:'no-store'});const ct=await cr.text();if(/^\s*</.test(ct))throw new Error('Browser config returned HTML');const cj=JSON.parse(ct);if(!cr.ok)throw new Error(`Browser config HTTP ${cr.status}`);if(JSON.stringify(cj).includes('script.google.com'))throw new Error('Browser targets legacy API');
-            console.log(`ACTIVE_BROWSER_VERSION=${version(bd)||'-'}`);
-            console.log(`ACTIVE_BACKEND_VERSION=${version(wd)||'-'}`);
-            console.log('ACTIVE_D1_BINDINGS=0');
-            console.log('BROWSER_BOOTSTRAP_SECRET=0');
-            console.log('BROWSER_CONFIG=PASS');
-          })().catch(e=>{console.error(e);process.exit(1)});
-          NODE
-
-      - name: Verify all NE1 MS sessions and Turso live cache
-        run: |
-          node <<'NODE'
-          (async()=>{
-            const org=process.env.TURSO_ORG,db=process.env.TURSO_DATABASE,platform=process.env.TURSO_PLATFORM_API_TOKEN,ph={Authorization:`Bearer ${process.env.TURSO_PLATFORM_API_TOKEN}`};
+            const org=process.env.TURSO_ORG,db=process.env.TURSO_DATABASE,ph={Authorization:`Bearer ${process.env.TURSO_PLATFORM_API_TOKEN}`};
             const dr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:ph});const dj=await dr.json();if(!dr.ok)throw new Error(`Turso DB HTTP ${dr.status}`);const database=dj.database||dj,hostname=database.Hostname||database.hostname;
-            const tr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:ph});const tj=await tr.json();if(!tr.ok||!tj.jwt)throw new Error(`Turso token HTTP ${tr.status}`);const dbToken=tj.jwt;console.log(`::add-mask::${dbToken}`);
-            async function q(sql){const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});const p=await r.json();const i=p?.results?.[0];if(!r.ok||i?.type==='error')throw new Error(`Turso query failed ${r.status}: ${JSON.stringify(i?.error||p).slice(0,300)}`);return i?.response?.result}
+            const tr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:ph});const tj=await tr.json();if(!tr.ok||!tj.jwt)throw new Error(`Turso token HTTP ${tr.status}`);const token=tj.jwt;console.log(`::add-mask::${token}`);
+            async function q(sql){const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});const p=await r.json();const i=p?.results?.[0];if(!r.ok||i?.type==='error')throw new Error(`Turso query failed: ${JSON.stringify(i?.error||p).slice(0,400)}`);return i?.response?.result}
             const d=v=>v==null?null:(typeof v==='object'&&'value'in v?v.value:v),first=r=>(r?.rows?.[0]||[]).map(d),age=v=>{const t=Date.parse(String(v||''));return Number.isFinite(t)?Math.max(0,Math.round((Date.now()-t)/1000)):-1};
-            const [rr,pr,br,cr,lr]=await Promise.all([
-              q("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),q("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),q("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),q("SELECT active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),q("SELECT synced_at,json_valid(rows_json),json_type(rows_json),CASE WHEN json_type(rows_json)='object' THEN json_array_length(rows_json,'$.rows') ELSE json_array_length(rows_json) END,CASE WHEN json_type(rows_json)='object' THEN json_array_length(rows_json,'$.completedRows') ELSE 0 END FROM ms_live_cache WHERE hub='NE1' LIMIT 1")]);
-            for(const [name,r] of Object.entries({route:rr,preentry:pr,bus:br})){const row=first(r),a=age(row[0]);if(String(row[1]||''))throw new Error(`${name} last_error=${row[1]}`);if(a<0||a>1200)throw new Error(`${name} stale ${a}s`);console.log(`${name.toUpperCase()}_SESSION_AGE_SECONDS=${a}`);console.log(`${name.toUpperCase()}_SESSION=PASS`)}
-            const c=first(cr);if(Number(c[0]||0)!==1)throw new Error('connector inactive');console.log(`CONNECTOR_LAST_USED_AGE_SECONDS=${age(c[1])}`);console.log('CONNECTOR_ACTIVE=PASS');
-            const l=first(lr);if(Number(l[1]||0)!==1)throw new Error('live cache JSON invalid');console.log(`LIVE_CACHE_SYNC_AGE_SECONDS=${age(l[0])}`);console.log(`LIVE_CACHE_FORMAT=${l[2]}`);console.log(`LIVE_ROUTE_ROWS=${Number(l[3]||0)}`);console.log(`COMPLETED_CACHE_ROWS=${Number(l[4]||0)}`);console.log('LIVE_CACHE=PASS');console.log('SENSITIVE_ROW_VALUES_LOGGED=0');console.log('D1_QUERIES=0');
+            const [route,pre,bus,connector,live,counts]=await Promise.all([
+              q("SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
+              q("SELECT active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
+              q("SELECT synced_at,json_valid(rows_json),json_type(rows_json),CASE WHEN json_type(rows_json)='object' THEN json_array_length(rows_json,'$.rows') ELSE json_array_length(rows_json) END,CASE WHEN json_type(rows_json)='object' THEN json_array_length(rows_json,'$.completedRows') ELSE 0 END FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+              q("WITH latest AS (SELECT route_id,ROW_NUMBER() OVER(PARTITION BY route_id ORDER BY snapshot_at DESC,rowid DESC) rn FROM ms_route_history WHERE hub='NE1'), known AS (SELECT route_id id FROM ms_route_history WHERE hub='NE1' UNION SELECT id FROM ms_routes WHERE hub='NE1') SELECT (SELECT COUNT(*) FROM ms_route_registry WHERE hub='NE1'),(SELECT COUNT(DISTINCT route_id) FROM ms_route_history WHERE hub='NE1'),(SELECT COUNT(*) FROM latest WHERE rn=1),(SELECT COUNT(*) FROM known),(SELECT COUNT(*) FROM known k LEFT JOIN ms_route_registry r ON r.hub='NE1' AND r.route_id=k.id WHERE r.route_id IS NULL)")
+            ]);
+            for(const [name,r] of Object.entries({route,preentry:pre,bus})){const x=first(r),a=age(x[0]);if(String(x[1]||''))throw new Error(`${name} last_error=${x[1]}`);if(a<0||a>1200)throw new Error(`${name} stale ${a}s`);console.log(`${name.toUpperCase()}_SESSION_AGE_SECONDS=${a}`);console.log(`${name.toUpperCase()}_SESSION=PASS`)}
+            const c=first(connector);if(Number(c[0])!==1)throw new Error('connector inactive');console.log(`CONNECTOR_LAST_USED_AGE_SECONDS=${age(c[1])}`);console.log('CONNECTOR_ACTIVE=PASS');
+            const l=first(live);if(Number(l[1])!==1)throw new Error('live cache invalid');if(age(l[0])>180)throw new Error(`live cache stale ${age(l[0])}s`);console.log(`LIVE_CACHE_SYNC_AGE_SECONDS=${age(l[0])}`);console.log(`LIVE_ROUTE_ROWS=${Number(l[3]||0)}`);console.log(`COMPLETED_CACHE_ROWS=${Number(l[4]||0)}`);
+            const x=first(counts).map(Number),[registry,historyDistinct,latestDistinct,knownDistinct,missing]=x;
+            console.log(`ACCUMULATED_REGISTRY=${registry}`);console.log(`ACCUMULATED_HISTORY_DISTINCT=${historyDistinct}`);console.log(`ACCUMULATED_LATEST_ROWS=${latestDistinct}`);console.log(`ACCUMULATED_KNOWN_DISTINCT=${knownDistinct}`);console.log(`ACCUMULATED_REGISTRY_MISSING=${missing}`);
+            if(registry!==historyDistinct||registry!==latestDistinct||registry!==knownDistinct||missing!==0)throw new Error(`accumulated mismatch ${JSON.stringify({registry,historyDistinct,latestDistinct,knownDistinct,missing})}`);
+            console.log('ACCUMULATED_COMPLETENESS=PASS');console.log('SENSITIVE_ROW_VALUES_LOGGED=0');console.log('D1_QUERIES=0');
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
 

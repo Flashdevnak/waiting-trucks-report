@@ -1,4 +1,5 @@
-execute=2026-09-03T09:20:00+07:00
+execute=2026-09-03T09:33:46+07:00
 backend=turso
 mode=guarded-deterministic
-attempt=3
+attempt=4
+handoff=turso-direct

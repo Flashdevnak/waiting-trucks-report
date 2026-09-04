@@ -14,6 +14,9 @@
     "MS_BRANCH": "NE1",
     "DB_BACKEND": "turso"
   },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "durable_objects": {
     "bindings": [
       {

@@ -1,0 +1,48 @@
+name: Test Tail Final Browser Cron
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-tail-final-browser-cron.yml
+
+permissions:
+  contents: read
+
+jobs:
+  tail:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+      - name: Tail Browser TEST scheduled cycles read-only
+        working-directory: cloudflare-browser-test
+        run: |
+          set +e
+          timeout 145s npx wrangler tail waiting-trucks-ms-browser-test --config wrangler.jsonc --format json > /tmp/browser-tail.log 2>&1
+          rc=$?
+          set -e
+          echo "TAIL_EXIT=$rc"
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('/tmp/browser-tail.log').read_text(errors='replace') if Path('/tmp/browser-tail.log').exists() else ''
+          keep=[]
+          needles=['connector_sync_blocked','connector_sync_error','tbr_shadow_error','tbr_shadow_health','scheduled','cron','DEV service binding','INVALID_CONNECTOR']
+          for line in text.splitlines():
+              if any(x in line for x in needles):
+                  keep.append(line[:4000])
+          print('SAFE_RELEVANT_LOG_LINES_BEGIN')
+          print('\n'.join(keep[-160:]) if keep else 'NO_RELEVANT_EVENT_LINES')
+          print('SAFE_RELEVANT_LOG_LINES_END')
+          print('MUTATIONS=0')
+          print('PRODUCTION_TOUCHED=NO')
+          PY

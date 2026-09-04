@@ -1,0 +1,29 @@
+name: Test Dispatch Browser Connector Repair
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-repair-20260904
+    paths:
+      - .github/workflows/test-dispatch-repair-browser-connector.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch TEST-only Browser connector repair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/actions/workflows/repair-browser-connector.yml/dispatches \
+            -f ref=main
+          echo "TEST_REPAIR_DISPATCHED=PASS"
+          echo "TARGET_WORKFLOW=repair-browser-connector.yml"
+          echo "TARGET_REF=main"
+          echo "PRODUCTION_TOUCHED=NO"

@@ -1,4 +1,10 @@
 import puppeteer from "@cloudflare/puppeteer";
+import {
+  observeTbrShadow,
+  readTbrShadowReport,
+  tbrShadowPage,
+} from "./tbr-shadow.js";
+import { handleConnectionErrorRequest } from "./connection-error.js";
 
 const MS_URL = "https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance";
 const API_URL =
@@ -12,6 +18,18 @@ export default {
     if (url.pathname === "/") return page(url);
     if (url.pathname === "/api/config")
       return reply({ ok: true, pinConfigured: Boolean(env.TEST_PIN) });
+    // TBR_SHADOW_REPORT_V1: KV-only readout for the hidden TBR shadow test.
+    if (url.pathname === "/shadow-tbr")
+      return tbrShadowPage(
+        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),
+      );
+    if (url.pathname === "/api/shadow-tbr")
+      return reply(
+        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),
+      );
+    // MS_CONNECTION_ERROR_KV_V1: HAR/MS connection errors live in Browser KV only.
+    if (url.pathname === "/api/connection-error")
+      return handleConnectionErrorRequest(request, env, url);
     if (!url.pathname.startsWith("/api/"))
       return reply({ ok: false, message: "Not found" }, 404);
     try {
@@ -266,6 +284,21 @@ async function syncConfiguredHubs(env) {
               code: payload?.code || "UNKNOWN",
             }),
           );
+        }
+        // TBR_SHADOW_OBSERVER_V1: observe the already-returned BusTime feed only.
+        // This writes event changes to Browser KV and never writes Turso.
+        if (response.ok) {
+          try {
+            await observeTbrShadow(env, hub, payload?.data || {});
+          } catch (shadowError) {
+            console.error(
+              JSON.stringify({
+                event: "tbr_shadow_error",
+                hub,
+                message: shadowError?.message || String(shadowError),
+              }),
+            );
+          }
         }
       } catch (error) {
         console.error(

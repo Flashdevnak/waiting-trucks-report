@@ -44,6 +44,7 @@ import {
 } from "./apply-ms-daily-history.mjs";
 import { patchMsQuotaSafeLiveWorker } from "./patch-ms-quota-safe-live.mjs";
 import { patchMsTbrShadowFeedWorker } from "./patch-ms-tbr-shadow-feed.mjs";
+import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -71,6 +72,7 @@ export function stageFrontend(source) {
   output = patchMsCompletedViewStabilityFrontend(output);
   output = patchMsLiveResilienceFrontend(output);
   output = patchMsDailyHistoryFrontend(output);
+  output = patchMsConnectionErrorKvFrontend(output);
   return output;
 }
 

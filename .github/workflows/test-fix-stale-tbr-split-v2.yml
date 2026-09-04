@@ -1,0 +1,177 @@
+name: Test Fix Stale TBR Split v2
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-fix-stale-tbr-split-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-test-only:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+    steps:
+      - name: Checkout TBR TEST branch
+        uses: actions/checkout@v4
+      - name: Checkout latest main separately for DEV
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install DEV dependencies
+        working-directory: main-src/worker
+        run: npm ci --no-audit --no-fund
+
+      - name: Stage DEV TEST split shadow runtime
+        working-directory: main-src/worker
+        run: |
+          rm -rf .dev-assets
+          mkdir -p .dev-assets
+          cp ../ms.html ../ms.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
+          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
+          node ../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs src/index.js
+          node ../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs src/index.js
+          node --check src/index.js
+          grep -q 'TBR_SHADOW_READONLY_V1' src/index.js
+          grep -q 'TBR_SHADOW_SPLIT_V2' src/index.js
+          grep -q 'shadowPart = text(body.shadowPart' src/index.js
+          grep -q 'tursoPointReadsPerCron: 4' src/index.js
+          ! grep -q 'd1_databases' wrangler.dev.jsonc
+          echo 'DEV_SPLIT_STATIC=PASS'
+          echo 'DEV_D1_BINDING=0'
+
+      - name: Deploy DEV TEST only
+        working-directory: main-src/worker
+        run: |
+          grep -q '"name": "waiting-trucks-report-api-dev"' wrangler.dev.jsonc
+          npx wrangler deploy --config wrangler.dev.jsonc | tee /tmp/dev-v2.log
+          grep -q 'waiting-trucks-report-api-dev' /tmp/dev-v2.log
+          echo 'DEV_TEST_SPLIT_DEPLOY=PASS'
+
+      - name: Check DEV TEST health
+        run: |
+          sleep 5
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.DEV_ORIGIN;
+            if(!origin.includes('waiting-trucks-report-api-dev.26nak-testdev.workers.dev')) throw new Error('Refusing non-DEV origin');
+            const r=await fetch(origin+'/api?action=health',{cache:'no-store'});
+            const j=await r.json().catch(()=>({}));
+            if(!r.ok||j?.ok!==true) throw new Error('DEV health failed '+r.status);
+            console.log('DEV_TEST_HEALTH=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Install Browser TEST dependencies
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Stage Browser TEST split and stale runtime
+        working-directory: cloudflare-browser-test
+        run: |
+          node scripts/patch-connector-recovery.mjs src/index.js
+          node scripts/patch-tbr-actual-arrival.mjs src/tbr-shadow.js
+          node scripts/patch-tbr-route-dedupe.mjs src/tbr-shadow.js
+          node scripts/normalize-tbr-inbound-anchor.mjs src/tbr-shadow.js
+          node scripts/patch-tbr-inbound-quota.mjs src/index.js src/tbr-shadow.js
+          node scripts/patch-tbr-stale-split-browser-v2.mjs src/index.js src/tbr-shadow.js src/connection-error.js
+          node --check src/index.js
+          node --check src/tbr-shadow.js
+          node --check src/connection-error.js
+          grep -q 'TBR_STALE_SPLIT_BROWSER_V2' src/index.js
+          grep -q 'TBR_STALE_SPLIT_BROWSER_V2' src/tbr-shadow.js
+          grep -q 'SHADOW_READONLY_SPLIT_V2' src/index.js
+          grep -q 'STALE · ข้อมูลหยุดอัปเดตเกิน 7 นาที' src/tbr-shadow.js
+          grep -q 'recordConnectionErrorKv' src/index.js
+          grep -q '"service": "waiting-trucks-report-api-dev"' wrangler.jsonc
+          ! grep -q 'd1_databases' wrangler.jsonc
+          echo 'BROWSER_SPLIT_STALE_STATIC=PASS'
+
+      - name: Regression STALE and failure transition
+        working-directory: cloudflare-browser-test
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const mod=await import('./src/tbr-shadow.js?stale='+Date.now());
+            const store=new Map();
+            const env={STATE:{async get(k){return store.get(k)??null},async put(k,v){store.set(k,String(v))},async delete(k){store.delete(k)}}};
+            const t0=Date.parse('2026-09-04T12:00:00Z');
+            const quota={mode:'SHADOW_READONLY_SPLIT_V2',tursoPointReadsPerCron:4,tursoWritesPerCron:0,routeTableReads:0,routeTableWrites:0,historyReads:0,historyWrites:0,liveCacheReads:0,liveCacheWrites:0,preEntryCalls:0};
+            let result=await mod.observeTbrShadow(env,'NE1',{tbrShadowFeed:[],rows:[],shadowQuota:quota},t0);
+            if(result.sourceChanged!==true) throw new Error('Initial source transition not detected');
+            let report=await mod.readTbrShadowReport(env,'NE1');
+            if(report.observerStatus!=='STALE') {
+              // read uses real clock, and the fixed synthetic timestamp is intentionally old.
+              throw new Error('Old heartbeat must render STALE: '+JSON.stringify(report));
+            }
+            result=await mod.observeTbrShadow(env,'NE1',{},Date.now());
+            if(result.sourceAvailable!==false||result.sourceChanged!==true) throw new Error('Failure transition not detected');
+            report=await mod.readTbrShadowReport(env,'NE1');
+            if(report.observerStatus!=='WAITING_SOURCE') throw new Error('Fresh source failure must render WAITING_SOURCE');
+            console.log('TBR_STALE_STATUS=PASS');
+            console.log('TBR_FAILURE_TRANSITION=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Deploy Browser TEST only
+        working-directory: cloudflare-browser-test
+        run: |
+          grep -q '"name": "waiting-trucks-ms-browser-test"' wrangler.jsonc
+          grep -q '"keep_vars": true' wrangler.jsonc
+          npx wrangler deploy --config wrangler.jsonc | tee /tmp/browser-v2.log
+          grep -q 'waiting-trucks-ms-browser-test' /tmp/browser-v2.log
+          grep -q 'waiting-trucks-report-api-dev' /tmp/browser-v2.log
+          grep -q 'schedule: \* \* \* \* \*' /tmp/browser-v2.log
+          ! grep -q 'D1' /tmp/browser-v2.log
+          echo 'BROWSER_TEST_SPLIT_DEPLOY=PASS'
+
+      - name: Wait for real cron and require fresh LIVE split v2
+        run: |
+          sleep 150
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            if(!origin.includes('waiting-trucks-ms-browser-test.26nak-testdev.workers.dev')) throw new Error('Refusing non-test Browser origin');
+            const [r,e]=await Promise.all([
+              fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'}),
+              fetch(origin+'/api/connection-error?hub=NE1',{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'}),
+            ]);
+            const s=await r.json().catch(()=>({}));
+            const err=await e.json().catch(()=>({}));
+            const age=Date.now()-Date.parse(String(s?.lastAttemptAt||''));
+            const records=Array.isArray(s?.records)?s.records:[];
+            console.log('LIVE_STATUS='+String(s?.observerStatus));
+            console.log('LIVE_LAST_ATTEMPT='+String(s?.lastAttemptAt));
+            console.log('LIVE_AGE_SECONDS='+(Number.isFinite(age)?Math.round(age/1000):'-'));
+            console.log('LIVE_FEED='+String(s?.feedCount));
+            console.log('LIVE_ROWS='+String(s?.rowCount));
+            console.log('LIVE_QUOTA='+JSON.stringify(s?.shadowQuota||{}));
+            console.log('LIVE_ERROR='+JSON.stringify(err));
+            if(!r.ok||s?.ok!==true) throw new Error('Shadow endpoint failed');
+            if(s?.observerStatus!=='LIVE'||s?.sourceAvailable!==true) throw new Error('Shadow is not LIVE: '+JSON.stringify({status:s?.observerStatus,lastSkip:s?.lastSkip,error:err}));
+            if(!Number.isFinite(age)||age>7*60*1000) throw new Error('Shadow heartbeat is stale');
+            const q=s?.shadowQuota||{};
+            if(q.mode!=='SHADOW_READONLY_SPLIT_V2'||q.tursoPointReadsPerCron!==4||q.tursoWritesPerCron!==0) throw new Error('Split quota contract failed: '+JSON.stringify(q));
+            if([q.routeTableReads,q.routeTableWrites,q.historyReads,q.historyWrites,q.liveCacheReads,q.liveCacheWrites,q.preEntryCalls].some(Number)) throw new Error('Forbidden persistence touched: '+JSON.stringify(q));
+            if(records.some(x=>!['ปลายทาง','จุดดรอป'].includes(x?.attendanceType))) throw new Error('Origin leaked into Shadow');
+            if(err?.data && !err.data.recoveredAt) throw new Error('Connection error remains active: '+JSON.stringify(err.data));
+            console.log('LIVE_SPLIT_V2=PASS');
+            console.log('LIVE_HEARTBEAT_FRESH=PASS');
+            console.log('LIVE_DEST_DROP_ONLY=PASS');
+            console.log('LIVE_DB_WRITES=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

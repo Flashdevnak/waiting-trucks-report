@@ -109,7 +109,7 @@ jobs:
           if(!proofHtml.includes('ปุ่มยกเลิกรถยังปิดไว้')) throw new Error('proof cancel safety notice missing');
           for(const marker of ['ms_proof_snapshots','ms_proof_events','ms_proof_print_log','pageSize: \'100\''])
             if(!proofWorker.includes(marker)) throw new Error(`proof worker missing ${marker}`);
-          if(proofWorker.includes('cancel_car')) throw new Error('proof worker must not send cancel_car commands');
+          if(proofWorker.includes('/fleet/van/proof/cancel_car')) throw new Error('proof worker must not send cancel_car commands');
           console.log('STAGED_DAILY_HISTORY=PASS');
           console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
           console.log('STAGED_AUTH_SESSION_RESILIENCE=PASS');

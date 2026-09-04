@@ -35,7 +35,7 @@ jobs:
         run: |
           node scripts/patch-connector-recovery.mjs src/index.js
           node --check src/index.js
-      - name: Validate Browser recovery policy and config
+      - name: Validate Browser recovery policy, test routes and config
         run: |
           npm run check
           node --check src/index.js
@@ -47,17 +47,23 @@ jobs:
           if(!source.includes(api)) throw new Error('Browser MAIN_API is not promoted Turso API');
           if(!source.includes('payload?.code === "INVALID_CONNECTOR"')) throw new Error('Browser does not distinguish invalid connector from expired MS session');
           if(!source.includes('connector_sync_blocked')) throw new Error('Browser missing retained-connector diagnostic');
+          if(!source.includes('TBR_SHADOW_OBSERVER_V1')) throw new Error('Browser TBR shadow observer route patch missing');
+          if(!source.includes('TBR_SHADOW_REPORT_V1') || !source.includes('/api/shadow-tbr') || !source.includes('/shadow-tbr'))
+            throw new Error('Browser TBR shadow report routes missing');
+          if(!source.includes('MS_CONNECTION_ERROR_KV_V1') || !source.includes('/api/connection-error'))
+            throw new Error('Browser connection-error KV route missing');
           if(/response\.status === 401 && !env\.CONNECTOR_BOOTSTRAP_SECRET\)\s*\n\s*await env\.STATE\.delete/.test(source))
             throw new Error('Browser still deletes connector on every backend 401');
           if(!config.includes('"* * * * *"')) throw new Error('Browser cron is not every minute');
           if(/d1_databases/.test(config)) throw new Error('Browser Worker must not bind D1');
           console.log('BROWSER_CONNECTOR_RECOVERY_POLICY=PASS');
+          console.log('BROWSER_TEST_ROUTES_STAGE=PASS');
           console.log('BROWSER_CRON_ONE_MINUTE=PASS');
           console.log('BROWSER_D1_BINDING_CONFIG=0');
           NODE
       - name: Deploy Browser Worker
         run: npx wrangler deploy --config wrangler.jsonc
-      - name: Verify Browser Worker runtime
+      - name: Verify Browser Worker runtime and test routes
         run: |
           node <<'NODE'
           const account=process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -87,4 +93,28 @@ jobs:
           console.log('BROWSER_RUNTIME_D1_BINDING=0');
           console.log('BROWSER_BOOTSTRAP_SECRET=0');
           NODE
-          curl --fail --show-error --silent 'https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev/api/config'
+          node <<'NODE'
+          const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          async function json(path){
+            const response=await fetch(origin+path,{headers:{accept:'application/json'},cache:'no-store'});
+            const body=await response.json().catch(()=>({}));
+            if(!response.ok || body?.ok===false) throw new Error(`${path} HTTP ${response.status}: ${JSON.stringify(body)}`);
+            return body;
+          }
+          (async()=>{
+            await json('/api/config');
+            const shadow=await json('/api/shadow-tbr?hub=NE1');
+            if(shadow?.shadowOnly!==true || shadow?.tursoReads!==0 || shadow?.tursoWrites!==0)
+              throw new Error('TBR shadow runtime contract mismatch');
+            const connection=await json('/api/connection-error?hub=NE1');
+            if(!Object.prototype.hasOwnProperty.call(connection,'data'))
+              throw new Error('Connection error KV runtime contract mismatch');
+            const page=await fetch(origin+'/shadow-tbr?hub=NE1',{cache:'no-store'});
+            const html=await page.text();
+            if(!page.ok || !html.includes('TBR Shadow Test'))
+              throw new Error(`Shadow page HTTP ${page.status}`);
+            console.log('BROWSER_TEST_ROUTES_RUNTIME=PASS');
+            console.log('TBR_SHADOW_TURSO_READS=0');
+            console.log('TBR_SHADOW_TURSO_WRITES=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

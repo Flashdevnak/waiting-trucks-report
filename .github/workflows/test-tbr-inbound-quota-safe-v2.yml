@@ -1,0 +1,149 @@
+name: Test TBR Inbound Quota Safe v2
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-tbr-inbound-quota-safe-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  browser-only:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Confirm DEV TEST health only
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const url=process.env.DEV_ORIGIN+'/api?action=health';
+            if(!url.includes('waiting-trucks-report-api-dev.26nak-testdev.workers.dev')) throw new Error('Refusing non-DEV origin');
+            const r=await fetch(url,{headers:{'cache-control':'no-store'},cache:'no-store'});
+            const j=await r.json().catch(()=>({}));
+            if(!r.ok||j?.ok!==true) throw new Error(`DEV health failed HTTP ${r.status}`);
+            console.log('DEV_TEST_HEALTH=PASS');
+            console.log('DEV_MUTATIONS_THIS_WORKFLOW=0');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Install Browser TEST dependencies
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Apply quota-safe inbound Browser TEST runtime
+        working-directory: cloudflare-browser-test
+        run: |
+          node scripts/patch-connector-recovery.mjs src/index.js
+          node scripts/patch-tbr-actual-arrival.mjs src/tbr-shadow.js
+          node scripts/patch-tbr-route-dedupe.mjs src/tbr-shadow.js
+          node scripts/normalize-tbr-inbound-anchor.mjs src/tbr-shadow.js
+          node scripts/patch-tbr-inbound-quota.mjs src/index.js src/tbr-shadow.js
+          node --check src/index.js
+          node --check src/tbr-shadow.js
+          grep -q 'TBR_INBOUND_QUOTA_V1' src/index.js
+          grep -q 'TBR_INBOUND_QUOTA_V1' src/tbr-shadow.js
+          grep -q 'shadowOnly: true' src/index.js
+          grep -q 'ปลายทาง + จุดดรอป' src/tbr-shadow.js
+          grep -q '"service": "waiting-trucks-report-api-dev"' wrangler.jsonc
+          ! grep -q 'd1_databases' wrangler.jsonc
+          echo 'BROWSER_INBOUND_QUOTA_STAGE=PASS'
+
+      - name: Regression destination plus drop only
+        working-directory: cloudflare-browser-test
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const mod=await import('./src/tbr-shadow.js?quota='+Date.now());
+            const store=new Map();
+            const env={STATE:{async get(k){return store.get(k)??null},async put(k,v){store.set(k,String(v))},async delete(k){store.delete(k)}}};
+            const now=Date.parse('2026-09-04T14:00:00Z');
+            const feed=[
+              {proofId:'DEST001',scheduleTbrArrivalAt:'2026-09-04T13:58:00Z',scheduleKitArrivalAt:'2026-09-04T14:08:00Z'},
+              {proofId:'DROP001',scheduleTbrArrivalAt:'2026-09-04T13:57:00Z',scheduleKitArrivalAt:'2026-09-04T14:07:00Z'},
+              {proofId:'ORIGIN01',scheduleTbrArrivalAt:'2026-09-04T13:56:00Z',scheduleKitArrivalAt:'2026-09-04T14:06:00Z'},
+            ];
+            const quota={mode:'SHADOW_READONLY_V1',tursoPointReadsPerCron:3,tursoWritesPerCron:0,routeTableReads:0,routeTableWrites:0,historyReads:0,historyWrites:0,liveCacheReads:0,liveCacheWrites:0,preEntryCalls:0};
+            await mod.observeTbrShadow(env,'NE1',{tbrShadowFeed:feed,rows:[
+              {proofId:'DEST001',attendanceType:'ปลายทาง',actualArrivalAt:''},
+              {proofId:'DROP001',attendanceType:'จุดดรอป',actualArrivalAt:''},
+              {proofId:'ORIGIN01',attendanceType:'ต้นทาง',actualArrivalAt:''},
+            ],shadowQuota:quota},now);
+            let report=await mod.readTbrShadowReport(env,'NE1');
+            if(report.total!==2||report.pending!==2) throw new Error('Inbound candidate count wrong: '+JSON.stringify(report));
+            const types=report.records.map(x=>x.attendanceType).sort();
+            if(JSON.stringify(types)!==JSON.stringify(['จุดดรอป','ปลายทาง'])) throw new Error('Origin leaked into TBR Shadow: '+JSON.stringify(types));
+            if(report.shadowQuota?.mode!=='SHADOW_READONLY_V1'||report.shadowQuota?.tursoWritesPerCron!==0) throw new Error('Quota metadata missing');
+            const html=await mod.tbrShadowPage(report).text();
+            if(!html.includes('ปลายทาง + จุดดรอป')||html.includes('>ต้นทาง<')) throw new Error('Inbound scope UI regression');
+            await mod.observeTbrShadow(env,'NE1',{tbrShadowFeed:feed,rows:[
+              {proofId:'DEST001',attendanceType:'ปลายทาง',actualArrivalAt:'2026-09-04T14:03:00Z'},
+              {proofId:'DROP001',attendanceType:'จุดดรอป',actualArrivalAt:'2026-09-04T14:04:00Z'},
+              {proofId:'ORIGIN01',attendanceType:'ต้นทาง',actualArrivalAt:'2026-09-04T14:02:00Z'},
+            ],shadowQuota:quota},now+5*60000);
+            report=await mod.readTbrShadowReport(env,'NE1');
+            if(report.confirmed!==2||report.pending!==0) throw new Error('Inbound confirmation regression: '+JSON.stringify(report));
+            if(report.records.some(x=>x.attendanceType==='ต้นทาง')) throw new Error('Origin confirmed in TBR Shadow');
+            console.log('TBR_DESTINATION_INCLUDED=PASS');
+            console.log('TBR_DROP_INCLUDED=PASS');
+            console.log('TBR_ORIGIN_EXCLUDED=PASS');
+            console.log('TBR_QUOTA_METADATA=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Deploy Browser TEST only
+        working-directory: cloudflare-browser-test
+        run: |
+          grep -q '"name": "waiting-trucks-ms-browser-test"' wrangler.jsonc
+          grep -q '"keep_vars": true' wrangler.jsonc
+          npx wrangler deploy --config wrangler.jsonc | tee /tmp/browser-quota-deploy.log
+          grep -q 'waiting-trucks-ms-browser-test' /tmp/browser-quota-deploy.log
+          grep -q 'waiting-trucks-report-api-dev' /tmp/browser-quota-deploy.log
+          grep -q 'schedule: \* \* \* \* \*' /tmp/browser-quota-deploy.log
+          ! grep -q 'D1' /tmp/browser-quota-deploy.log
+          echo 'BROWSER_TEST_QUOTA_SAFE_DEPLOY=PASS'
+
+      - name: Verify real cron quota-safe inbound scope
+        run: |
+          sleep 135
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            if(!origin.includes('waiting-trucks-ms-browser-test.26nak-testdev.workers.dev')) throw new Error('Refusing non-test Browser origin');
+            const r=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const s=await r.json().catch(()=>({}));
+            const records=Array.isArray(s?.records)?s.records:[];
+            const types=[...new Set(records.map(x=>x?.attendanceType).filter(Boolean))];
+            console.log(`LIVE_HTTP=${r.status}`);
+            console.log(`LIVE_OBSERVER=${s?.observerStatus||'-'}`);
+            console.log(`LIVE_FEED=${s?.feedCount??'-'}`);
+            console.log(`LIVE_INBOUND_ROUTE_ROWS=${s?.rowCount??'-'}`);
+            console.log(`LIVE_TOTAL=${s?.total??'-'}`);
+            console.log(`LIVE_PENDING=${s?.pending??'-'}`);
+            console.log(`LIVE_CONFIRMED=${s?.confirmed??'-'}`);
+            console.log(`LIVE_SCOPE_TYPES=${types.join(',')||'-'}`);
+            console.log(`LIVE_QUOTA_MODE=${s?.shadowQuota?.mode||'-'}`);
+            console.log(`LIVE_TURSO_POINT_READS_PER_CRON=${s?.shadowQuota?.tursoPointReadsPerCron??'-'}`);
+            console.log(`LIVE_TURSO_WRITES_PER_CRON=${s?.shadowQuota?.tursoWritesPerCron??'-'}`);
+            if(!r.ok||s?.ok!==true||s?.observerStatus!=='LIVE'||s?.sourceAvailable!==true) throw new Error('TBR observer not LIVE');
+            if(Number(s?.feedCount||0)<=0||Number(s?.rowCount||0)<=0) throw new Error('Inbound TBR/Route source is empty');
+            if(records.some(x=>!['ปลายทาง','จุดดรอป'].includes(x?.attendanceType))) throw new Error('Non-inbound record leaked into Shadow: '+JSON.stringify(records));
+            const q=s?.shadowQuota||{};
+            if(q.mode!=='SHADOW_READONLY_V1'||q.tursoPointReadsPerCron!==3||q.tursoWritesPerCron!==0) throw new Error('Live quota contract failed: '+JSON.stringify(q));
+            if([q.routeTableReads,q.routeTableWrites,q.historyReads,q.historyWrites,q.liveCacheReads,q.liveCacheWrites,q.preEntryCalls].some(Number)) throw new Error('Live Shadow path touched forbidden persistence/source: '+JSON.stringify(q));
+            console.log('LIVE_TBR_DEST_DROP_ONLY=PASS');
+            console.log('LIVE_SHADOW_QUOTA_SAFE=PASS');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

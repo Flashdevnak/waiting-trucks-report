@@ -1,0 +1,113 @@
+name: Test Browser Cron Health
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-repair-20260904
+    paths:
+      - cloudflare-browser-test/scripts/patch-cron-health.mjs
+      - .github/workflows/test-browser-cron-health.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-cron:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      BROWSER_SCRIPT: waiting-trucks-ms-browser-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+      - name: Patch TEST-only cron health instrumentation
+        working-directory: cloudflare-browser-test
+        run: node scripts/patch-cron-health.mjs
+      - name: Safety-check TEST target
+        working-directory: cloudflare-browser-test
+        run: |
+          grep -q '"name": "waiting-trucks-ms-browser-test"' wrangler.jsonc
+          grep -q '"* * * * *"' wrangler.jsonc
+          ! grep -q 'd1_databases' wrangler.jsonc
+          grep -q '/api/cron-health' src/index.js
+          grep -q 'runScheduledCycle' src/index.js
+          echo 'TEST_TARGET_GUARD=PASS'
+          echo 'D1_BINDING=0'
+      - name: Deploy Browser TEST once
+        working-directory: cloudflare-browser-test
+        run: |
+          sed 's/"keep_vars": true/"keep_vars": false/' wrangler.jsonc > wrangler.cron-health.jsonc
+          npx wrangler deploy --config wrangler.cron-health.jsonc
+          echo 'BROWSER_TEST_CRON_HEALTH_DEPLOY=PASS'
+      - name: Verify active TEST runtime and no bootstrap binding
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            const script=process.env.BROWSER_SCRIPT;
+            if(script!=='waiting-trucks-ms-browser-test') throw new Error('Refusing non-test Browser Worker');
+            const headers={Authorization:`Bearer ${token}`};
+            const base=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}`;
+            async function get(path){const r=await fetch(base+path,{headers});const b=await r.json().catch(()=>({}));if(!r.ok||b.success===false) throw new Error(`${path} HTTP ${r.status}`);return b.result;}
+            const [settings,deployments]=await Promise.all([get('/settings'),get('/deployments')]);
+            const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
+            if(bindings.some(x=>x.name==='CONNECTOR_BOOTSTRAP_SECRET')) throw new Error('Temporary bootstrap binding remains');
+            if(bindings.some(x=>x.type==='d1'||x.type==='d1_database')) throw new Error('Browser TEST unexpectedly binds D1');
+            const active=deployments?.deployments?.[0];
+            const version=[...(active?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||'';
+            console.log(`ACTIVE_BROWSER_VERSION=${version||'-'}`);
+            console.log('BROWSER_BOOTSTRAP_BINDING=0');
+            console.log('BROWSER_TEST_D1_BINDING=0');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+      - name: Confirm diagnostic endpoint is active
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            for(let i=1;i<=12;i++){
+              const r=await fetch(`${origin}/api/cron-health`,{headers:{'cache-control':'no-store'},cache:'no-store'});
+              const b=await r.json().catch(()=>({}));
+              console.log(`CRON_HEALTH_ENDPOINT_ATTEMPT_${i}_HTTP=${r.status}`);
+              if(r.ok&&b?.ok===true&&b?.testOnly===true){console.log(`CRON_HEALTH_INITIAL=${JSON.stringify(b)}`);return;}
+              await new Promise(x=>setTimeout(x,5000));
+            }
+            throw new Error('Cron health endpoint never became active');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+      - name: Allow Cloudflare cron trigger propagation and require heartbeat
+        run: |
+          sleep 960
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            const healthRes=await fetch(`${origin}/api/cron-health`,{headers:{'cache-control':'no-store'},cache:'no-store'});
+            const health=await healthRes.json().catch(()=>({}));
+            console.log(`CRON_HEALTH_FINAL=${JSON.stringify(health)}`);
+            if(!healthRes.ok||health?.ok!==true) throw new Error('Cron health endpoint failed');
+            if(!health?.lastScheduledAt||Number(health?.runCount||0)<1) throw new Error(`CLOUDFLARE_SCHEDULED_NOT_FIRING: ${JSON.stringify(health)}`);
+            if(!health?.hubs?.includes('NE1')) throw new Error(`NE1 missing from Browser TEST hubs: ${JSON.stringify(health)}`);
+            if(health?.hasConnectorNE1!==true) throw new Error(`NE1 connector missing after cron: ${JSON.stringify(health)}`);
+            if(health?.lastError) throw new Error(`Browser TEST scheduled cycle error: ${health.lastError}`);
+            console.log('BROWSER_TEST_CRON_HEARTBEAT=PASS');
+            console.log('BROWSER_TEST_CONNECTOR_PRESENT=PASS');
+
+            const shadowRes=await fetch(`${origin}/api/shadow-tbr?hub=NE1`,{headers:{'cache-control':'no-store'},cache:'no-store'});
+            const shadow=await shadowRes.json().catch(()=>({}));
+            console.log(`TBR_SHADOW_FINAL=${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,feedCount:shadow?.feedCount,rowCount:shadow?.rowCount,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt,total:shadow?.total,pending:shadow?.pending,confirmed:shadow?.confirmed,expired:shadow?.expired,tursoReads:shadow?.tursoReads,tursoWrites:shadow?.tursoWrites})}`);
+            if(!shadowRes.ok||shadow?.ok!==true) throw new Error('TBR shadow endpoint failed');
+            if(shadow?.tursoReads!==0||shadow?.tursoWrites!==0) throw new Error('TBR shadow unexpectedly uses Turso');
+            if(shadow?.observerStatus!=='LIVE'||shadow?.sourceAvailable!==true||!shadow?.lastObservedAt) throw new Error(`TBR_SHADOW_NOT_LIVE: ${JSON.stringify(shadow)}`);
+            console.log('TBR_OBSERVER_LIVE=PASS');
+            console.log('END_TO_END_TEST_CHAIN=PASS');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

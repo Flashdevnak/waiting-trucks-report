@@ -326,7 +326,27 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
     let record = state.records[id];
 
     if (!record) {
-      if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;
+      // TBR_SAME_CRON_TIMESTAMP_V1: the first observer cycle may see both TBR and
+      // Route actual arrival. Preserve a valid TBR-before-Route observation by
+      // comparing source timestamps instead of requiring an earlier pending cycle.
+      if (now - tbrMs > SHADOW_PENDING_MS) continue;
+      if (routeActualMs !== null) {
+        if (tbrMs >= routeActualMs) continue;
+        record = {
+          status: "confirmed",
+          tbrAt: new Date(tbrMs).toISOString(),
+          kitAt: iso(item?.scheduleKitArrivalAt),
+          firstSeenAt: nowIso,
+          confirmedAt: nowIso,
+          routeActualArrivalAt: new Date(routeActualMs).toISOString(),
+          routeSeen,
+          attendanceType,
+          leadMinutes: Math.round((routeActualMs - tbrMs) / 60000),
+        };
+        state.records[id] = record;
+        changed = true;
+        continue;
+      }
       record = {
         status: "pending",
         tbrAt: new Date(tbrMs).toISOString(),

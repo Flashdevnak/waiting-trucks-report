@@ -2,6 +2,7 @@ const SHADOW_VERSION = 1;
 const SHADOW_PENDING_MS = 12 * 60 * 60 * 1000;
 const SHADOW_RETAIN_MS = 3 * 24 * 60 * 60 * 1000;
 const SHADOW_TTL_SECONDS = 7 * 24 * 60 * 60;
+const SHADOW_HEALTH_WRITE_MS = 5 * 60 * 1000;
 
 function normalizeProof(value) {
   return String(value || "").trim().toUpperCase().replace(/\s+/g, "");
@@ -28,17 +29,24 @@ async function shadowId(value) {
     .slice(0, 24);
 }
 
-function freshState(hub, nowIso) {
+function freshState(hub) {
   return {
     version: SHADOW_VERSION,
     hub,
-    startedAt: nowIso,
-    updatedAt: nowIso,
+    startedAt: "",
+    updatedAt: "",
+    healthUpdatedAt: "",
+    lastAttemptAt: "",
+    lastObservedAt: "",
+    sourceAvailable: null,
+    feedCount: null,
+    rowCount: null,
+    lastSkip: "",
     records: {},
   };
 }
 
-function parseState(raw, hub, nowIso) {
+function parseState(raw, hub) {
   try {
     const parsed = JSON.parse(raw || "null");
     if (
@@ -49,7 +57,7 @@ function parseState(raw, hub, nowIso) {
     )
       return parsed;
   } catch {}
-  return freshState(hub, nowIso);
+  return freshState(hub);
 }
 
 function summary(state) {
@@ -68,6 +76,12 @@ function summary(state) {
       : null,
     maxLeadMinutes: leads.length ? Math.max(...leads) : null,
   };
+}
+
+function observerStatus(state) {
+  if (state?.sourceAvailable === true) return "LIVE";
+  if (state?.sourceAvailable === false) return "WAITING_SOURCE";
+  return "NEVER_OBSERVED";
 }
 
 function cleanHub(value) {
@@ -100,12 +114,17 @@ function displayTime(value) {
   }).format(date);
 }
 
+function healthLabel(status) {
+  if (status === "LIVE") return "LIVE · รับข้อมูลจาก DEV แล้ว";
+  if (status === "WAITING_SOURCE") return "รอ source จาก DEV";
+  return "ยังไม่เคยได้รับรอบ Cron";
+}
+
 export async function readTbrShadowReport(env, hubValue = "NE1") {
   const hub = cleanHub(hubValue);
-  const nowIso = new Date().toISOString();
   const key = `shadow:tbr:v1:${hub}`;
   const raw = env?.STATE ? await env.STATE.get(key) : null;
-  const state = parseState(raw, hub, nowIso);
+  const state = parseState(raw, hub);
   const stats = summary(state);
   const records = Object.entries(state.records || {})
     .map(([id, item]) => ({
@@ -129,8 +148,16 @@ export async function readTbrShadowReport(env, hubValue = "NE1") {
     tursoWrites: 0,
     hub,
     key,
-    startedAt: state.startedAt,
-    updatedAt: state.updatedAt,
+    observerStatus: observerStatus(state),
+    sourceAvailable: state.sourceAvailable ?? null,
+    lastAttemptAt: String(state.lastAttemptAt || ""),
+    lastObservedAt: String(state.lastObservedAt || ""),
+    healthUpdatedAt: String(state.healthUpdatedAt || ""),
+    feedCount: Number.isFinite(Number(state.feedCount)) ? Number(state.feedCount) : null,
+    rowCount: Number.isFinite(Number(state.rowCount)) ? Number(state.rowCount) : null,
+    lastSkip: String(state.lastSkip || ""),
+    startedAt: String(state.startedAt || ""),
+    updatedAt: String(state.updatedAt || ""),
     ...stats,
     records,
   };
@@ -149,22 +176,73 @@ export function tbrShadowPage(report) {
     })
     .join("");
   const body = rows || '<tr><td colspan="6" class="empty">ยังไม่มี TBR candidate ที่ต้องบันทึกใน Shadow</td></tr>';
+  const status = String(report?.observerStatus || "NEVER_OBSERVED");
+  const statusClass = status === "LIVE" ? "live" : status === "WAITING_SOURCE" ? "wait" : "never";
   return new Response(
-    `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>TBR Shadow ${escapeHtml(report?.hub || "")}</title><style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f7fb;color:#18212f}.wrap{max-width:1180px;margin:28px auto;padding:0 16px}.head{display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap}.sub{color:#667085}.cards{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:18px 0}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:14px}.card b{display:block;font-size:24px;margin-top:6px}.table{overflow:auto;background:white;border:1px solid #e5e7eb;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:780px}th,td{padding:11px 12px;border-bottom:1px solid #eef1f5;text-align:center;font-size:14px}th{background:#f8fafc}.empty{padding:28px;color:#667085}.safe{font-size:13px;color:#067647;background:#ecfdf3;border-radius:999px;padding:7px 10px}.foot{margin-top:12px;color:#667085;font-size:13px}@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}}</style></head><body><div class="wrap"><div class="head"><div><h1>TBR Shadow Test · ${escapeHtml(report?.hub || "")}</h1><div class="sub">ทดลองจับคิวจาก TBR ก่อน Route · ไม่กระทบคิวจริง</div></div><div class="safe">Turso Read 0 · Write 0 สำหรับหน้ารายงานนี้</div></div><div class="cards"><div class="card">ทั้งหมด<b>${escapeHtml(report?.total ?? 0)}</b></div><div class="card">รอ Route<b>${escapeHtml(report?.pending ?? 0)}</b></div><div class="card">ยืนยันแล้ว<b>${escapeHtml(report?.confirmed ?? 0)}</b></div><div class="card">หมดเวลา<b>${escapeHtml(report?.expired ?? 0)}</b></div><div class="card">เร็วขึ้นเฉลี่ย<b>${report?.averageLeadMinutes == null ? "-" : `${escapeHtml(report.averageLeadMinutes)} นาที`}</b></div><div class="card">เร็วสุด<b>${report?.maxLeadMinutes == null ? "-" : `${escapeHtml(report.maxLeadMinutes)} นาที`}</b></div></div><div class="table"><table><thead><tr><th>Shadow ID</th><th>สถานะ</th><th>TBR</th><th>KIT</th><th>ยืนยัน/หมดเวลา</th><th>รู้เร็วขึ้น</th></tr></thead><tbody>${body}</tbody></table></div><div class="foot">อัปเดต Shadow ล่าสุด: ${escapeHtml(displayTime(report?.updatedAt))} · หน้านี้รีเฟรชทุก 60 วินาที · ID ถูก hash ไม่แสดงบาร์โค้ดจริง</div></div></body></html>`,
+    `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>TBR Shadow ${escapeHtml(report?.hub || "")}</title><style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f7fb;color:#18212f}.wrap{max-width:1180px;margin:28px auto;padding:0 16px}.head{display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap}.sub{color:#667085}.health{margin:14px 0;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;line-height:1.65}.health b{display:inline-block;margin-right:8px}.live{color:#067647}.wait{color:#b54708}.never{color:#667085}.cards{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:18px 0}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:14px}.card b{display:block;font-size:24px;margin-top:6px}.table{overflow:auto;background:white;border:1px solid #e5e7eb;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:780px}th,td{padding:11px 12px;border-bottom:1px solid #eef1f5;text-align:center;font-size:14px}th{background:#f8fafc}.empty{padding:28px;color:#667085}.safe{font-size:13px;color:#067647;background:#ecfdf3;border-radius:999px;padding:7px 10px}.foot{margin-top:12px;color:#667085;font-size:13px}@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}}</style></head><body><div class="wrap"><div class="head"><div><h1>TBR Shadow Test · ${escapeHtml(report?.hub || "")}</h1><div class="sub">ทดลองจับคิวจาก TBR ก่อน Route · ไม่กระทบคิวจริง</div></div><div class="safe">Turso Read 0 · Write 0 สำหรับหน้ารายงานนี้</div></div><div class="health ${escapeHtml(statusClass)}"><b>Observer: ${escapeHtml(healthLabel(status))}</b> · ตรวจ source ล่าสุด ${escapeHtml(displayTime(report?.lastAttemptAt))} · รับข้อมูลสำเร็จล่าสุด ${escapeHtml(displayTime(report?.lastObservedAt))} · TBR feed ${escapeHtml(report?.feedCount ?? "-")} · Route rows ${escapeHtml(report?.rowCount ?? "-")}${report?.lastSkip ? ` · ${escapeHtml(report.lastSkip)}` : ""}</div><div class="cards"><div class="card">ทั้งหมด<b>${escapeHtml(report?.total ?? 0)}</b></div><div class="card">รอ Route<b>${escapeHtml(report?.pending ?? 0)}</b></div><div class="card">ยืนยันแล้ว<b>${escapeHtml(report?.confirmed ?? 0)}</b></div><div class="card">หมดเวลา<b>${escapeHtml(report?.expired ?? 0)}</b></div><div class="card">เร็วขึ้นเฉลี่ย<b>${report?.averageLeadMinutes == null ? "-" : `${escapeHtml(report.averageLeadMinutes)} นาที`}</b></div><div class="card">เร็วสุด<b>${report?.maxLeadMinutes == null ? "-" : `${escapeHtml(report.maxLeadMinutes)} นาที`}</b></div></div><div class="table"><table><thead><tr><th>Shadow ID</th><th>สถานะ</th><th>TBR</th><th>KIT</th><th>ยืนยัน/หมดเวลา</th><th>รู้เร็วขึ้น</th></tr></thead><tbody>${body}</tbody></table></div><div class="foot">อัปเดต Shadow KV ล่าสุด: ${escapeHtml(displayTime(report?.updatedAt))} · หน้านี้รีเฟรชทุก 60 วินาที · ID ถูก hash ไม่แสดงบาร์โค้ดจริง</div></div></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
+}
+
+async function persistHealth(env, key, state, nowIso) {
+  state.healthUpdatedAt = nowIso;
+  state.updatedAt = nowIso;
+  if (!state.startedAt) state.startedAt = nowIso;
+  await env.STATE.put(key, JSON.stringify(state), {
+    expirationTtl: SHADOW_TTL_SECONDS,
+  });
 }
 
 export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now()) {
   const hub = String(hubValue || "").trim().toUpperCase();
   if (!hub || !env?.STATE) return { changed: false, skipped: "missing_state" };
-  if (!Array.isArray(live?.tbrShadowFeed) || !Array.isArray(live?.rows))
-    return { changed: false, skipped: "source_unavailable" };
 
   const now = Number(nowValue) || Date.now();
   const nowIso = new Date(now).toISOString();
   const key = `shadow:tbr:v1:${hub}`;
-  const state = parseState(await env.STATE.get(key), hub, nowIso);
+  const state = parseState(await env.STATE.get(key), hub);
+  const feedAvailable = Array.isArray(live?.tbrShadowFeed);
+  const rowsAvailable = Array.isArray(live?.rows);
+  const sourceAvailable = feedAvailable && rowsAvailable;
+  const feedCount = feedAvailable ? live.tbrShadowFeed.length : null;
+  const rowCount = rowsAvailable ? live.rows.length : null;
+  const previousHealthAt = validTime(state.healthUpdatedAt);
+  const heartbeatDue = previousHealthAt === null || now - previousHealthAt >= SHADOW_HEALTH_WRITE_MS;
+  const healthChanged =
+    state.sourceAvailable !== sourceAvailable ||
+    state.feedCount !== feedCount ||
+    state.rowCount !== rowCount ||
+    String(state.lastSkip || "") !== (sourceAvailable ? "" : "source_unavailable");
+
+  state.lastAttemptAt = nowIso;
+  state.sourceAvailable = sourceAvailable;
+  state.feedCount = feedCount;
+  state.rowCount = rowCount;
+  state.lastSkip = sourceAvailable ? "" : "source_unavailable";
+
+  if (!sourceAvailable) {
+    if (healthChanged || heartbeatDue) {
+      await persistHealth(env, key, state, nowIso);
+      console.log(JSON.stringify({
+        event: "tbr_shadow_health",
+        hub,
+        observerStatus: observerStatus(state),
+        sourceAvailable: false,
+        feedCount,
+        rowCount,
+      }));
+    }
+    return {
+      changed: false,
+      key,
+      observerStatus: observerStatus(state),
+      sourceAvailable: false,
+      skipped: "source_unavailable",
+      ...summary(state),
+    };
+  }
+
+  state.lastObservedAt = nowIso;
   const routeByProof = new Map();
   for (const route of live.rows) {
     const proof = normalizeProof(route?.proofId);
@@ -233,17 +311,34 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
     }
   }
 
-  if (changed) {
-    state.updatedAt = nowIso;
-    await env.STATE.put(key, JSON.stringify(state), {
-      expirationTtl: SHADOW_TTL_SECONDS,
-    });
+  if (changed || healthChanged || heartbeatDue) {
+    await persistHealth(env, key, state, nowIso);
     const result = summary(state);
-    console.log(JSON.stringify({ event: "tbr_shadow_changed", hub, ...result }));
-    return { changed: true, key, ...result };
+    console.log(JSON.stringify({
+      event: changed ? "tbr_shadow_changed" : "tbr_shadow_health",
+      hub,
+      observerStatus: observerStatus(state),
+      sourceAvailable: true,
+      feedCount,
+      rowCount,
+      ...result,
+    }));
+    return {
+      changed,
+      key,
+      observerStatus: observerStatus(state),
+      sourceAvailable: true,
+      ...result,
+    };
   }
 
-  return { changed: false, key, ...summary(state) };
+  return {
+    changed: false,
+    key,
+    observerStatus: observerStatus(state),
+    sourceAvailable: true,
+    ...summary(state),
+  };
 }
 
 export { summary as summarizeTbrShadow };

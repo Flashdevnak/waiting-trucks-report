@@ -1,1 +1,0 @@
-AUTH_SESSION_RESILIENCE_V1 verified: 100 concurrent device sessions, 180-day TTL, transient Turso auth outages do not invalidate persisted sessions.

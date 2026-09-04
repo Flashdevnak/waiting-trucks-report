@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const SHADOW_MARKER = "TBR_SHADOW_OBSERVER_V1";
 const SHADOW_REPORT_MARKER = "TBR_SHADOW_REPORT_V1";
+const CONNECTION_ERROR_MARKER = "MS_CONNECTION_ERROR_KV_V1";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -10,6 +11,30 @@ function replaceUnique(output, from, to, label) {
   if (first < 0 || first !== last)
     throw new Error(`Browser connector patch failed: ${label}`);
   return output.replace(from, to);
+}
+
+function ensureConnectionErrorRoute(source) {
+  let output = String(source || "");
+  if (output.includes(CONNECTION_ERROR_MARKER)) return output;
+
+  if (!output.includes('import { handleConnectionErrorRequest } from "./connection-error.js";')) {
+    const importAnchor = 'import { observeTbrShadow, readTbrShadowReport, tbrShadowPage } from "./tbr-shadow.js";';
+    output = replaceUnique(
+      output,
+      importAnchor,
+      `${importAnchor}\nimport { handleConnectionErrorRequest } from "./connection-error.js";`,
+      "add Browser KV connection error import",
+    );
+  }
+
+  const routeAnchor = `    if (url.pathname === "/api/shadow-tbr")\n      return reply(\n        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),\n      );\n    if (!url.pathname.startsWith("/api/"))`;
+  const routeBlock = `    if (url.pathname === "/api/shadow-tbr")\n      return reply(\n        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),\n      );\n    // ${CONNECTION_ERROR_MARKER}: HAR/MS connection errors live in Browser KV only.\n    if (url.pathname === "/api/connection-error")\n      return handleConnectionErrorRequest(request, env, url);\n    if (!url.pathname.startsWith("/api/"))`;
+  return replaceUnique(
+    output,
+    routeAnchor,
+    routeBlock,
+    "add Browser KV connection error route",
+  );
 }
 
 function patchTbrShadowObserver(source) {
@@ -51,7 +76,7 @@ function patchTbrShadowObserver(source) {
     );
   }
 
-  return output;
+  return ensureConnectionErrorRoute(output);
 }
 
 export function patchConnectorRecovery(source) {

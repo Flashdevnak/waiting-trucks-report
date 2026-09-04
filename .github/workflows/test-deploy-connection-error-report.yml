@@ -1,0 +1,95 @@
+name: Test Deploy Connection Error Report
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-deploy-connection-error-report.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Stage clean Browser runtime and ERROR report
+        working-directory: cloudflare-browser-test
+        run: |
+          node scripts/patch-connector-recovery.mjs src/index.js
+          node --check src/index.js
+          node --check src/connection-error.js
+          grep -q 'BROWSER_DEV_SERVICE_BINDING_V1' src/index.js
+          grep -q 'TBR_SHADOW_OBSERVER_V1' src/index.js
+          grep -q 'Connection Error Test' src/connection-error.js
+          grep -q 'meta http-equiv="refresh" content="60"' src/connection-error.js
+          grep -q '"service": "waiting-trucks-report-api-dev"' wrangler.jsonc
+          ! grep -q 'BROWSER_CRON_TRACE_V1' src/index.js
+          ! grep -q 'd1_databases' wrangler.jsonc
+          echo 'ERROR_REPORT_STAGE=PASS'
+
+      - name: Deploy Browser TEST only
+        working-directory: cloudflare-browser-test
+        run: |
+          sed 's/"keep_vars": true/"keep_vars": false/' wrangler.jsonc > wrangler.error-report.jsonc
+          npx wrangler deploy --config wrangler.error-report.jsonc | tee /tmp/browser-deploy.log
+          grep -q 'waiting-trucks-report-api-dev' /tmp/browser-deploy.log
+          grep -q 'schedule: \* \* \* \* \*' /tmp/browser-deploy.log
+          ! grep -q 'D1' /tmp/browser-deploy.log
+          echo 'BROWSER_TEST_ERROR_REPORT_DEPLOY=PASS'
+
+      - name: Verify TBR-style ERROR page and preserve JSON API
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            if(!origin.includes('waiting-trucks-ms-browser-test.26nak-testdev.workers.dev')) throw new Error('Refusing non-test origin');
+            let htmlRes, html='';
+            for(let i=1;i<=12;i++){
+              htmlRes=await fetch(origin+'/api/connection-error?hub=NE1',{headers:{accept:'text/html','cache-control':'no-store'},cache:'no-store'});
+              html=await htmlRes.text();
+              if(htmlRes.ok&&html.includes('Connection Error Test · NE1')) break;
+              await new Promise(r=>setTimeout(r,5000));
+            }
+            if(!htmlRes?.ok) throw new Error(`ERROR HTML HTTP ${htmlRes?.status}`);
+            if(!html.includes('Connection Error Test · NE1')) throw new Error('ERROR report heading missing');
+            if(!html.includes('content="60"')) throw new Error('ERROR report 60s refresh missing');
+            if(!html.includes('Turso Read 0 · Write 0')) throw new Error('ERROR report KV-only safety badge missing');
+
+            const jsonRes=await fetch(origin+'/api/connection-error?hub=NE1',{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const json=await jsonRes.json().catch(()=>({}));
+            if(!jsonRes.ok||json?.ok!==true||!('data' in json)) throw new Error(`ERROR JSON API changed: HTTP ${jsonRes.status}`);
+            const ct=String(jsonRes.headers.get('content-type')||'');
+            if(!ct.includes('application/json')) throw new Error(`ERROR JSON content type changed: ${ct}`);
+
+            const shadowRes=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const shadow=await shadowRes.json().catch(()=>({}));
+            if(!shadowRes.ok||shadow?.ok!==true||shadow?.observerStatus!=='LIVE'||shadow?.sourceAvailable!==true) throw new Error(`TBR Shadow regressed: ${JSON.stringify(shadow)}`);
+            if(shadow?.tursoReads!==0||shadow?.tursoWrites!==0) throw new Error('TBR Shadow unexpectedly uses Turso');
+
+            console.log(`ERROR_HTML_HTTP=${htmlRes.status}`);
+            console.log(`ERROR_JSON_HTTP=${jsonRes.status}`);
+            console.log(`ERROR_JSON_DATA=${json.data===null?'null':'record'}`);
+            console.log('ERROR_REPORT_TBR_STYLE=PASS');
+            console.log('ERROR_REPORT_REFRESH_60S=PASS');
+            console.log('ERROR_JSON_API_PRESERVED=PASS');
+            console.log('TBR_SHADOW_STILL_LIVE=PASS');
+            console.log(`TBR_FEED_COUNT=${shadow?.feedCount ?? '-'}`);
+            console.log(`TBR_ROUTE_ROWS=${shadow?.rowCount ?? '-'}`);
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

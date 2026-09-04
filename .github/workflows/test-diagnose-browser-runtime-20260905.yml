@@ -1,0 +1,116 @@
+name: Test Diagnose Browser Runtime 20260905
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-diagnose-browser-runtime-20260905.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_SCRIPT: waiting-trucks-ms-browser-test
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Read active Browser TEST deployment and bindings only
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            const script=process.env.BROWSER_SCRIPT;
+            if(script!=='waiting-trucks-ms-browser-test') throw new Error('Refusing non-test Worker');
+            const headers={Authorization:`Bearer ${token}`};
+            const base=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}`;
+            async function get(path){
+              const response=await fetch(base+path,{headers});
+              const body=await response.json().catch(()=>({}));
+              if(!response.ok||body.success===false) throw new Error(`${path} HTTP ${response.status}: ${JSON.stringify(body.errors||body)}`);
+              return body.result;
+            }
+            const [settings,deployments]=await Promise.all([get('/settings'),get('/deployments')]);
+            const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
+            const safeBindings=bindings.map((b)=>({
+              name:String(b?.name||''),
+              type:String(b?.type||''),
+              namespace_id:String(b?.namespace_id||b?.namespaceId||''),
+              service:String(b?.service||''),
+            }));
+            const active=deployments?.deployments?.[0]||{};
+            const versions=[...(active?.versions||[])].map(v=>({version_id:v.version_id,percentage:v.percentage}));
+            console.log('ACTIVE_DEPLOYMENT='+JSON.stringify({id:active.id||'',created_on:active.created_on||'',versions}));
+            console.log('SAFE_BINDINGS='+JSON.stringify(safeBindings));
+            console.log('HAS_STATE='+(safeBindings.some(b=>b.name==='STATE')));
+            console.log('HAS_DEV_API='+(safeBindings.some(b=>b.name==='DEV_API'&&b.service==='waiting-trucks-report-api-dev')));
+            console.log('D1_BINDINGS='+safeBindings.filter(b=>/d1/i.test(b.type)).length);
+            console.log('CLOUDFLARE_READ_ONLY=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Read Browser TEST reports before tail
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            for(const path of ['/api/shadow-tbr?hub=NE1','/api/connection-error?hub=NE1']){
+              const r=await fetch(origin+path,{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+              const j=await r.json().catch(()=>({}));
+              console.log(`BEFORE ${path} HTTP=${r.status} BODY=${JSON.stringify(j)}`);
+            }
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Tail current Browser TEST scheduled runtime read-only
+        working-directory: cloudflare-browser-test
+        run: |
+          set +e
+          timeout 135s npx wrangler tail waiting-trucks-ms-browser-test --config wrangler.jsonc --format json > /tmp/browser-current-tail.log 2>&1
+          rc=$?
+          set -e
+          echo "TAIL_EXIT=$rc"
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('/tmp/browser-current-tail.log').read_text(errors='replace') if Path('/tmp/browser-current-tail.log').exists() else ''
+          keep=[]
+          needles=['scheduled','connector_sync','tbr_shadow','cron','WAITING_SOURCE','STALE','NO_CONNECTOR','source_unavailable']
+          for line in text.splitlines():
+              if any(n.lower() in line.lower() for n in needles):
+                  keep.append(line[:4000])
+          print('SAFE_TAIL_BEGIN')
+          print('\n'.join(keep[-120:]) if keep else 'NO_RELEVANT_TAIL_LINES')
+          print('SAFE_TAIL_END')
+          PY
+
+      - name: Read Browser TEST reports after two cron windows
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            const r=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const shadow=await r.json().catch(()=>({}));
+            const e=await fetch(origin+'/api/connection-error?hub=NE1',{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const err=await e.json().catch(()=>({}));
+            console.log('AFTER_SHADOW_HTTP='+r.status);
+            console.log('AFTER_SHADOW='+JSON.stringify({ok:shadow?.ok,observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt,healthUpdatedAt:shadow?.healthUpdatedAt,updatedAt:shadow?.updatedAt,feedCount:shadow?.feedCount,rowCount:shadow?.rowCount,lastSkip:shadow?.lastSkip,total:shadow?.total,shadowQuota:shadow?.shadowQuota}));
+            console.log('AFTER_ERROR_HTTP='+e.status);
+            console.log('AFTER_ERROR='+JSON.stringify(err));
+            console.log('MUTATIONS=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

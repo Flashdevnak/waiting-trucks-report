@@ -1,0 +1,146 @@
+name: Test Fix TBR Same Cron
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-fix-tbr-same-cron.yml
+
+permissions:
+  contents: write
+
+env:
+  BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+  BROWSER_SCRIPT: waiting-trucks-ms-browser-test
+
+jobs:
+  fix-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/tbr-shadow-final-20260904
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Patch same-cron TBR-before-Route logic in source
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path='cloudflare-browser-test/src/tbr-shadow.js';
+          let s=fs.readFileSync(path,'utf8');
+          if(s.includes('TBR_SAME_CRON_TIMESTAMP_V1')) {
+            console.log('TBR_SAME_CRON_TIMESTAMP_V1=ALREADY_PRESENT');
+            process.exit(0);
+          }
+          const old=`    if (!record) {\n      if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;\n      record = {\n        status: \"pending\",\n        tbrAt: new Date(tbrMs).toISOString(),\n        kitAt: iso(item?.scheduleKitArrivalAt),\n        firstSeenAt: nowIso,\n        confirmedAt: \"\",\n        routeActualArrivalAt: \"\",\n        routeSeen,\n        attendanceType,\n        leadMinutes: null,\n      };\n      state.records[id] = record;\n      changed = true;\n      continue;\n    }`;
+          const next=`    if (!record) {\n      // TBR_SAME_CRON_TIMESTAMP_V1: the first observer cycle may see both TBR and\n      // Route actual arrival. Preserve a valid TBR-before-Route observation by\n      // comparing source timestamps instead of requiring an earlier pending cycle.\n      if (now - tbrMs > SHADOW_PENDING_MS) continue;\n      if (routeActualMs !== null) {\n        if (tbrMs >= routeActualMs) continue;\n        record = {\n          status: \"confirmed\",\n          tbrAt: new Date(tbrMs).toISOString(),\n          kitAt: iso(item?.scheduleKitArrivalAt),\n          firstSeenAt: nowIso,\n          confirmedAt: nowIso,\n          routeActualArrivalAt: new Date(routeActualMs).toISOString(),\n          routeSeen,\n          attendanceType,\n          leadMinutes: Math.round((routeActualMs - tbrMs) / 60000),\n        };\n        state.records[id] = record;\n        changed = true;\n        continue;\n      }\n      record = {\n        status: \"pending\",\n        tbrAt: new Date(tbrMs).toISOString(),\n        kitAt: iso(item?.scheduleKitArrivalAt),\n        firstSeenAt: nowIso,\n        confirmedAt: \"\",\n        routeActualArrivalAt: \"\",\n        routeSeen,\n        attendanceType,\n        leadMinutes: null,\n      };\n      state.records[id] = record;\n      changed = true;\n      continue;\n    }`;
+          if(!s.includes(old)) throw new Error('same-cron patch anchor not found');
+          s=s.replace(old,next);
+          fs.writeFileSync(path,s);
+          console.log('TBR_SAME_CRON_TIMESTAMP_V1=PATCHED');
+          NODE
+          node --check cloudflare-browser-test/src/tbr-shadow.js
+
+      - name: Regression test same-cron timestamp ordering
+        run: |
+          node --input-type=module <<'NODE'
+          import { observeTbrShadow, readTbrShadowReport } from './cloudflare-browser-test/src/tbr-shadow.js';
+          class KV {
+            constructor(){this.m=new Map()}
+            async get(k){return this.m.get(k)??null}
+            async put(k,v){this.m.set(k,v)}
+          }
+          const quota={mode:'SHADOW_READONLY_SPLIT_V2',tursoPointReadsPerCron:4,tursoWritesPerCron:0};
+          async function runCase(name,tbr,actual,type='ปลายทาง'){
+            const STATE=new KV();
+            const now=Date.parse('2026-09-05T02:00:00+07:00');
+            const live={
+              shadowQuota:quota,
+              tbrShadowFeed:[{proofId:name,scheduleTbrArrivalAt:tbr,scheduleKitArrivalAt:''}],
+              rows:[{proofId:name,attendanceType:type,actualArrivalAt:actual}],
+            };
+            await observeTbrShadow({STATE},'NE1',live,now);
+            return readTbrShadowReport({STATE},'NE1');
+          }
+          const earlier=await runCase('SAMECRON-A','2026-09-05T01:16:05+07:00','2026-09-05T01:16:35+07:00');
+          if(earlier.total!==1||earlier.confirmed!==1) throw new Error('TBR earlier than Route in same cron was not confirmed');
+          if(earlier.records[0]?.leadMinutes!==1 && earlier.records[0]?.leadMinutes!==0) throw new Error('Unexpected same-cron lead calculation');
+          const later=await runCase('SAMECRON-B','2026-09-05T01:16:35+07:00','2026-09-05T01:16:05+07:00');
+          if(later.total!==0) throw new Error('TBR after Route must not enter Shadow');
+          const origin=await runCase('SAMECRON-C','2026-09-05T01:16:05+07:00','2026-09-05T01:17:05+07:00','ต้นทาง');
+          if(origin.total!==0) throw new Error('Origin route entered inbound Shadow');
+          const drop=await runCase('SAMECRON-D','2026-09-05T01:16:05+07:00','2026-09-05T01:20:05+07:00','จุดดรอป');
+          if(drop.total!==1||drop.confirmed!==1) throw new Error('Drop route same-cron capture failed');
+          console.log('SAME_CRON_TBR_BEFORE_ROUTE=PASS');
+          console.log('TBR_AFTER_ROUTE_EXCLUDED=PASS');
+          console.log('ORIGIN_EXCLUDED=PASS');
+          console.log('DROP_INCLUDED=PASS');
+          NODE
+
+      - name: Commit permanent Browser TEST source fix
+        run: |
+          if git diff --quiet -- cloudflare-browser-test/src/tbr-shadow.js; then
+            echo 'SOURCE_ALREADY_COMMITTED=PASS'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add cloudflare-browser-test/src/tbr-shadow.js
+            git commit -m 'Capture TBR before Route within same cron cycle'
+            git push origin HEAD:test/tbr-shadow-final-20260904
+            echo 'SOURCE_FIX_COMMITTED=PASS'
+          fi
+
+      - name: Safety check TEST-only deployment
+        run: |
+          grep -q '"name": "waiting-trucks-ms-browser-test"' cloudflare-browser-test/wrangler.jsonc
+          grep -q '"service": "waiting-trucks-report-api-dev"' cloudflare-browser-test/wrangler.jsonc
+          ! grep -q 'd1_databases' cloudflare-browser-test/wrangler.jsonc
+          grep -q 'TBR_SAME_CRON_TIMESTAMP_V1' cloudflare-browser-test/src/tbr-shadow.js
+          grep -q 'SHADOW_READONLY_SPLIT_V2' cloudflare-browser-test/src/index.js
+          echo 'TEST_TARGET_ONLY=PASS'
+          echo 'PRODUCTION_TOUCHED=NO'
+
+      - name: Deploy Browser TEST fixed runtime
+        working-directory: cloudflare-browser-test
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler deploy --config wrangler.jsonc
+          echo 'BROWSER_TEST_DEPLOY=PASS'
+
+      - name: Wait for cron and verify live exact-case recovery
+        run: |
+          sleep 140
+          node <<'NODE'
+          const crypto=require('node:crypto');
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            const r=await fetch(`${origin}/api/shadow-tbr?hub=NE1`,{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const j=await r.json().catch(()=>({}));
+            const expected=crypto.createHash('sha256').update('BFV1TBXK63').digest('hex').slice(0,12);
+            console.log(`SHADOW_HTTP=${r.status}`);
+            console.log(`OBSERVER=${j?.observerStatus||'-'}`);
+            console.log(`MODE=${j?.shadowQuota?.mode||'-'}`);
+            console.log(`TBR_FEED=${j?.feedCount??'-'}`);
+            console.log(`ROUTE_ROWS=${j?.rowCount??'-'}`);
+            console.log(`TOTAL=${j?.total??'-'}`);
+            console.log(`CONFIRMED=${j?.confirmed??'-'}`);
+            console.log(`BFV_EXPECTED_SHADOW_ID=${expected}`);
+            const hit=(j?.records||[]).find(x=>x?.id===expected);
+            console.log(`BFV_CAPTURED=${Boolean(hit)}`);
+            if(hit) console.log(`BFV_STATUS=${hit.status} BFV_LEAD=${hit.leadMinutes}`);
+            if(!r.ok||j?.observerStatus!=='LIVE'||j?.sourceAvailable!==true) throw new Error('Browser TBR observer not LIVE after deploy');
+            if(j?.shadowQuota?.mode!=='SHADOW_READONLY_SPLIT_V2') throw new Error('Split V2 runtime not active');
+            if(!hit) throw new Error('BFV1TBXK63 still missing after same-cron timestamp fix');
+            if(hit.status!=='confirmed') throw new Error(`BFV1TBXK63 not confirmed: ${hit.status}`);
+            console.log('LIVE_BFV_SAME_CRON_CAPTURE=PASS');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

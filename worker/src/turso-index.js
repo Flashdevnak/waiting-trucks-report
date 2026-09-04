@@ -3,10 +3,13 @@ import { databaseEnv } from "./turso-d1.js";
 import { maybeHandleProofRequest, runProofScheduled } from "./proof-control.js";
 import { maybeHandleProofLiveV2 } from "./proof-live-v2.js";
 import { maybeHandleProofPreview } from "./proof-preview.js";
+import { maybeHandleProofEditor } from "./proof-editor.js";
 
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
+    const proofEditorResponse = await maybeHandleProofEditor(request, runtimeEnv, ctx, worker);
+    if (proofEditorResponse) return proofEditorResponse;
     const proofPreviewResponse = await maybeHandleProofPreview(request, runtimeEnv, ctx, worker);
     if (proofPreviewResponse) return proofPreviewResponse;
     const proofV2Response = await maybeHandleProofLiveV2(request, runtimeEnv, ctx, worker, maybeHandleProofRequest);

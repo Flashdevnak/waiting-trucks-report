@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +46,13 @@ import {
 import { patchMsQuotaSafeLiveWorker } from "./patch-ms-quota-safe-live.mjs";
 import { patchMsTbrShadowFeedWorker } from "./patch-ms-tbr-shadow-feed.mjs";
 import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
+
+const devTbrReadonlyPatch = fileURLToPath(
+  new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
+);
+const devTbrSplitV2Patch = fileURLToPath(
+  new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs", import.meta.url),
+);
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -124,6 +132,16 @@ if (invokedPath) {
       "Usage: node stage-dev-runtime.mjs <staged-ms.js> <worker-index.js>",
     );
   await stageDevRuntime(frontendTarget, workerTarget);
+  // TBR Shadow is DEV/Browser-Test-only. Keep these two quota-safe patches in
+  // the normal DEV staging path so a later main deploy cannot overwrite the
+  // tested Split V2 contract with the older full connectorSync implementation.
+  execFileSync(process.execPath, [devTbrReadonlyPatch, workerTarget], {
+    stdio: "inherit",
+  });
+  execFileSync(process.execPath, [devTbrSplitV2Patch, workerTarget], {
+    stdio: "inherit",
+  });
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
+  console.log("Staged DEV TBR Shadow runtime: SHADOW_READONLY_SPLIT_V2");
 }

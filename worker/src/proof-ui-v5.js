@@ -1,4 +1,4 @@
-const VERSION = '20260905-05';
+const VERSION = '20260905-06';
 
 export async function maybeHandleProofUiV5(request, env, ctx, baseWorker) {
   const url = new URL(request.url);
@@ -24,7 +24,7 @@ export async function maybeHandleProofUiV5(request, env, ctx, baseWorker) {
   return new Response(html, { status: upstream.status, headers });
 }
 
-const PROOF_V5_JS = String.raw`(()=>{
+function proofV5Client() {
   const start=()=>{
     const P=window.ProofV2;
     if(!P||typeof P.groupRouteCard!=='function'||typeof P.openEditor!=='function')return setTimeout(start,25);
@@ -91,9 +91,9 @@ const PROOF_V5_JS = String.raw`(()=>{
           if(!input||input.dataset.v5==='1')return;
           input.dataset.v5='1';
           const wrap=input.parentElement;
-          const row=document.createElement('div');row.className='proof-search-row';
-          wrap.insertBefore(row,input);row.appendChild(input);
-          const button=document.createElement('button');button.type='button';button.className='btn btn-header proof-search-now';button.textContent='ค้นหา';row.appendChild(button);
+          const searchRow=document.createElement('div');searchRow.className='proof-search-row';
+          wrap.insertBefore(searchRow,input);searchRow.appendChild(input);
+          const button=document.createElement('button');button.type='button';button.className='btn btn-header proof-search-now';button.textContent='ค้นหา';searchRow.appendChild(button);
           const run=()=>{const q=String(input.value||'').trim();if(q.length<2){input.focus();return;}P.searchEditorOptions(kind,q);};
           button.onclick=run;
           input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();run();}});
@@ -120,4 +120,6 @@ const PROOF_V5_JS = String.raw`(()=>{
     P.render();
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(start,0),{once:true});else setTimeout(start,0);
-})();`;
+}
+
+const PROOF_V5_JS = `(${proofV5Client.toString()})();`;

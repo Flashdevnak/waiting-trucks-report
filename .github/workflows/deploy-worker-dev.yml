@@ -16,6 +16,7 @@ on:
       - ms.js
       - proof.html
       - proof.js
+      - 'proof-v2-*.js'
       - style.css
       - sw.js
       - favicon.svg
@@ -81,20 +82,27 @@ jobs:
           rm -rf .dev-assets
           mkdir -p .dev-assets
           cp ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
           node --check .dev-assets/ms.js
           node --check .dev-assets/proof.js
+          node --check .dev-assets/proof-v2-core.js
+          node --check .dev-assets/proof-v2-ui.js
+          node --check .dev-assets/proof-v2-actions.js
           node --check src/index.js
           node --check src/turso-d1.js
           node --check src/turso-index.js
           node --check src/proof-control.js
+          node --check src/proof-live-v2.js
           node <<'NODE'
           const fs=require('node:fs');
           const front=fs.readFileSync('.dev-assets/ms.js','utf8');
           const proofFront=fs.readFileSync('.dev-assets/proof.js','utf8');
           const proofHtml=fs.readFileSync('.dev-assets/proof.html','utf8');
           const proofWorker=fs.readFileSync('src/proof-control.js','utf8');
+          const proofV2=fs.readFileSync('src/proof-live-v2.js','utf8');
+          const proofV2Front=fs.readFileSync('.dev-assets/proof-v2-core.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-ui.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-actions.js','utf8');
           const worker=fs.readFileSync('src/index.js','utf8');
           for(const marker of ['MS_DAILY_HISTORY_V1','pollMs: 4000','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
             if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
@@ -106,16 +114,21 @@ jobs:
           if(!worker.includes('AUTH_VERIFY_UNAVAILABLE')) throw new Error('staged worker lost transient auth outage handling');
           for(const marker of ['/api/proof/routes','/api/proof/profile','/api/proof/print','pollMs: 30_000'])
             if(!proofFront.includes(marker)) throw new Error(`proof frontend missing ${marker}`);
+          for(const marker of ['/api/proof/routes-v2','/api/proof/ack','standbyLeadMinutes:60','lineMode'])
+            if(!proofV2Front.includes(marker)) throw new Error(`proof V2 frontend missing ${marker}`);
+          for(const marker of ['/fleet/van/proof/find','estimate_end_time','estimate_start_time','ms_proof_details_v2'])
+            if(!proofV2.includes(marker)) throw new Error(`proof V2 worker missing ${marker}`);
           if(!proofHtml.includes('ปุ่มยกเลิกรถยังปิดไว้')) throw new Error('proof cancel safety notice missing');
           for(const marker of ['ms_proof_snapshots','ms_proof_events','ms_proof_print_log','pageSize: \'100\''])
             if(!proofWorker.includes(marker)) throw new Error(`proof worker missing ${marker}`);
-          if(proofWorker.includes('/fleet/van/proof/cancel_car')) throw new Error('proof worker must not send cancel_car commands');
+          if(proofWorker.includes('/fleet/van/proof/cancel_car') || proofV2.includes('/fleet/van/proof/cancel_car')) throw new Error('proof worker must not send cancel_car commands');
           console.log('STAGED_DAILY_HISTORY=PASS');
           console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
           console.log('STAGED_AUTH_SESSION_RESILIENCE=PASS');
           console.log('STAGED_AUTH_TRANSIENT_OUTAGE_HANDLING=PASS');
           console.log('STAGED_POLL_MS=4000');
           console.log('STAGED_PROOF_CONTROL=PASS');
+          console.log('STAGED_PROOF_V2=PASS');
           console.log('STAGED_PROOF_CANCEL_COMMANDS=0');
           NODE
       - name: Verify Turso and auth secrets exist on DEV Worker

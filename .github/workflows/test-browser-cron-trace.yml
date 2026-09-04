@@ -1,0 +1,66 @@
+name: Test Browser Cron Trace
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-browser-cron-trace.yml
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+      - name: Stage service binding and cron trace
+        working-directory: cloudflare-browser-test
+        run: |
+          node scripts/patch-connector-recovery.mjs src/index.js
+          node scripts/patch-cron-trace.mjs src/index.js
+          node --check src/index.js
+          grep -q 'BROWSER_DEV_SERVICE_BINDING_V1' src/index.js
+          grep -q 'BROWSER_CRON_TRACE_V1' src/index.js
+          grep -q '"service": "waiting-trucks-report-api-dev"' wrangler.jsonc
+          ! grep -q 'd1_databases' wrangler.jsonc
+          echo 'TRACE_STAGE=PASS'
+      - name: Deploy Browser TEST trace only
+        working-directory: cloudflare-browser-test
+        run: |
+          sed 's/"keep_vars": true/"keep_vars": false/' wrangler.jsonc > wrangler.trace.jsonc
+          npx wrangler deploy --config wrangler.trace.jsonc
+          echo 'BROWSER_TEST_TRACE_DEPLOY=PASS'
+      - name: Wait one real cron cycle
+        run: sleep 90
+      - name: Read safe cron trace and TBR Shadow
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            if(!origin.includes('waiting-trucks-ms-browser-test.26nak-testdev.workers.dev')) throw new Error('Refusing non-test origin');
+            const [healthRes,shadowRes]=await Promise.all([
+              fetch(origin+'/api/cron-health',{headers:{'cache-control':'no-store'},cache:'no-store'}),
+              fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{'cache-control':'no-store'},cache:'no-store'}),
+            ]);
+            const health=await healthRes.json().catch(()=>({}));
+            const shadow=await shadowRes.json().catch(()=>({}));
+            console.log(`CRON_HEALTH=${JSON.stringify(health)}`);
+            console.log(`TBR_SHADOW=${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,feedCount:shadow?.feedCount,rowCount:shadow?.rowCount,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt,total:shadow?.total,pending:shadow?.pending,confirmed:shadow?.confirmed,expired:shadow?.expired,tursoReads:shadow?.tursoReads,tursoWrites:shadow?.tursoWrites})}`);
+            console.log('PRODUCTION_TOUCHED=NO');
+            if(!healthRes.ok||health?.ok!==true||health?.testOnly!==true) throw new Error('Cron trace endpoint failed');
+            if(!health?.lastScheduledAt||Number(health?.runCount||0)<1) throw new Error('Scheduled handler did not trace a cycle');
+            if(!shadowRes.ok||shadow?.ok!==true) throw new Error('Shadow endpoint failed');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

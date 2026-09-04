@@ -142,6 +142,41 @@ function connectionErrorPage(hub, data) {
   );
 }
 
+// TBR_STALE_SPLIT_BROWSER_V2: internal Browser TEST error state helpers. Same-error repeats do not write KV.
+export async function recordConnectionErrorKv(env, input = {}) {
+  const hub = normalizeHub(input.hub);
+  if (!hub || !env?.STATE) return { changed: false, data: null };
+  const source = normalizeSource(input.source);
+  const classified = classify(input.code, input.message);
+  const message = clean(input.message, 240);
+  const key = keyFor(hub);
+  let current = null;
+  try { current = JSON.parse((await env.STATE.get(key)) || "null"); } catch {}
+  if (
+    current && !current.recoveredAt &&
+    current.source === source && current.code === classified.code &&
+    current.label === classified.label && current.message === message
+  ) return { changed: false, data: current };
+  const record = {
+    version: VERSION, hub, source, code: classified.code, label: classified.label,
+    message, occurredAt: new Date().toISOString(), recoveredAt: "",
+  };
+  await env.STATE.put(key, JSON.stringify(record), { expirationTtl: TTL_SECONDS });
+  return { changed: true, data: record };
+}
+
+export async function recordConnectionRecoveredKv(env, input = {}) {
+  const hub = normalizeHub(input.hub);
+  if (!hub || !env?.STATE) return { changed: false, data: null };
+  const key = keyFor(hub);
+  let record = null;
+  try { record = JSON.parse((await env.STATE.get(key)) || "null"); } catch {}
+  if (!record || record.recoveredAt) return { changed: false, data: record };
+  record.recoveredAt = new Date().toISOString();
+  await env.STATE.put(key, JSON.stringify(record), { expirationTtl: TTL_SECONDS });
+  return { changed: true, data: record };
+}
+
 export async function handleConnectionErrorRequest(request, env, url) {
   if (request.method === "OPTIONS")
     return new Response(null, { status: 204, headers: corsHeaders(request) });

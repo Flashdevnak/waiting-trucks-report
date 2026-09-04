@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 const SHADOW_MARKER = "TBR_SHADOW_OBSERVER_V1";
 const SHADOW_REPORT_MARKER = "TBR_SHADOW_REPORT_V1";
 const CONNECTION_ERROR_MARKER = "MS_CONNECTION_ERROR_KV_V1";
+const DEV_SERVICE_BINDING_MARKER = "BROWSER_DEV_SERVICE_BINDING_V1";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -79,6 +80,38 @@ function patchTbrShadowObserver(source) {
   return ensureConnectionErrorRoute(output);
 }
 
+function patchDevServiceBinding(source) {
+  let output = String(source || "");
+  if (output.includes(DEV_SERVICE_BINDING_MARKER)) return output;
+
+  output = replaceUnique(
+    output,
+    `    const saved = await saveToMain(pairing, hub, credentials);`,
+    `    const saved = await saveToMain(env, pairing, hub, credentials);`,
+    "pass env into saveToMain",
+  );
+
+  const oldSave = `async function saveToMain(pairing, hub, credentials) {\n  const response = await fetch(MAIN_API, {\n    method: "POST",\n    headers: { "content-type": "application/json" },\n    body: JSON.stringify({\n      action: "completeMsPairing",\n      pairing,\n      hub,\n      ...credentials,\n    }),\n  });\n  const json = await response.json().catch(() => ({}));\n  if (!response.ok || json.ok === false || !json.data?.connectorToken)\n    throw new Error(json.message || "บันทึก Session เข้าระบบหลักไม่สำเร็จ");\n  return json.data;\n}`;
+  const newSave = `// ${DEV_SERVICE_BINDING_MARKER}: Browser TEST calls DEV Worker through a service binding.\n// Same-account Worker-to-Worker public workers.dev fetches are intentionally avoided.\nasync function mainApiFetch(env, payload) {\n  if (!env?.DEV_API?.fetch) throw new Error("DEV service binding missing");\n  const request = new Request(MAIN_API, {\n    method: "POST",\n    headers: { "content-type": "application/json" },\n    body: JSON.stringify(payload),\n  });\n  return env.DEV_API.fetch(request);\n}\n\nasync function saveToMain(env, pairing, hub, credentials) {\n  const response = await mainApiFetch(env, {\n    action: "completeMsPairing",\n    pairing,\n    hub,\n    ...credentials,\n  });\n  const json = await response.json().catch(() => ({}));\n  if (!response.ok || json.ok === false || !json.data?.connectorToken)\n    throw new Error(json.message || "บันทึก Session เข้าระบบหลักไม่สำเร็จ");\n  return json.data;\n}`;
+  output = replaceUnique(output, oldSave, newSave, "route saveToMain via DEV service binding");
+
+  const oldRegister = `async function registerConnectorForCutover(env, hub, connectorToken) {\n  if (!env.CONNECTOR_BOOTSTRAP_SECRET) return false;\n  const response = await fetch(MAIN_API, {\n    method: "POST",\n    headers: { "content-type": "application/json" },\n    body: JSON.stringify({\n      action: "bootstrapConnector",\n      hub,\n      connectorToken,\n      bootstrapSecret: env.CONNECTOR_BOOTSTRAP_SECRET,\n    }),\n  });\n  return response.ok;\n}`;
+  const newRegister = `async function registerConnectorForCutover(env, hub, connectorToken) {\n  if (!env.CONNECTOR_BOOTSTRAP_SECRET) return false;\n  const response = await mainApiFetch(env, {\n    action: "bootstrapConnector",\n    hub,\n    connectorToken,\n    bootstrapSecret: env.CONNECTOR_BOOTSTRAP_SECRET,\n  });\n  return response.ok;\n}`;
+  output = replaceUnique(output, oldRegister, newRegister, "route bootstrapConnector via DEV service binding");
+
+  const oldSync = `async function sendConnectorSync(hub, connectorToken) {\n  return fetch(MAIN_API, {\n    method: "POST",\n    headers: { "content-type": "application/json" },\n    body: JSON.stringify({ action: "connectorSync", hub, connectorToken }),\n  });\n}`;
+  const newSync = `async function sendConnectorSync(env, hub, connectorToken) {\n  return mainApiFetch(env, { action: "connectorSync", hub, connectorToken });\n}`;
+  output = replaceUnique(output, oldSync, newSync, "route connectorSync via DEV service binding");
+
+  const callNeedle = "sendConnectorSync(hub, connectorToken)";
+  const callCount = output.split(callNeedle).length - 1;
+  if (callCount < 2)
+    throw new Error("Browser connector patch failed: connectorSync call sites");
+  output = output.replaceAll(callNeedle, "sendConnectorSync(env, hub, connectorToken)");
+
+  return output;
+}
+
 export function patchConnectorRecovery(source) {
   const text = String(source || "");
   let output = text;
@@ -95,7 +128,7 @@ export function patchConnectorRecovery(source) {
     output = output.replace(oldBlock, newBlock);
   }
 
-  return patchTbrShadowObserver(output);
+  return patchDevServiceBinding(patchTbrShadowObserver(output));
 }
 
 export async function patchConnectorRecoveryFile(target) {

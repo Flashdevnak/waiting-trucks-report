@@ -38,17 +38,19 @@ jobs:
           grep -q 'BROWSER_DEV_SERVICE_BINDING_V1' src/index.js
           grep -q 'TBR_ROUTE_ACTUAL_ARRIVAL_V2' src/tbr-shadow.js
           grep -q 'routeActualMs !== null' src/tbr-shadow.js
+          grep -q 'TBR_LEAD_NULL_V1' src/tbr-shadow.js
           grep -q 'Cron ทุก 1 นาที' src/tbr-shadow.js
           grep -q '"service": "waiting-trucks-report-api-dev"' wrangler.jsonc
           ! grep -q 'd1_databases' wrangler.jsonc
           echo 'TBR_ACTUAL_ARRIVAL_STAGE=PASS'
+          echo 'TBR_PENDING_LEAD_STAGE=PASS'
 
       - name: Regression test Route row vs actual arrival
         working-directory: cloudflare-browser-test
         run: |
           node <<'NODE'
           (async()=>{
-            const {observeTbrShadow,readTbrShadowReport}=await import('./src/tbr-shadow.js?test='+Date.now());
+            const {observeTbrShadow,readTbrShadowReport,tbrShadowPage}=await import('./src/tbr-shadow.js?test='+Date.now());
             const store=new Map();
             const env={STATE:{
               async get(k){return store.get(k)??null},
@@ -58,23 +60,29 @@ jobs:
             const now=Date.parse('2026-09-04T14:00:00Z');
             const feed=[{proofId:'TEST001',scheduleTbrArrivalAt:'2026-09-04T13:58:00Z',scheduleKitArrivalAt:'2026-09-04T14:08:00Z'}];
 
-            // A Route row can already exist for the day's schedule; without actualArrivalAt it must still be a TBR candidate.
             await observeTbrShadow(env,'NE1',{tbrShadowFeed:feed,rows:[{proofId:'TEST001',actualArrivalAt:''}]},now);
             let report=await readTbrShadowReport(env,'NE1');
             if(report.total!==1||report.pending!==1||report.confirmed!==0)
               throw new Error('Scheduled Route row incorrectly suppresses TBR candidate: '+JSON.stringify(report));
+            if(report.records[0]?.leadMinutes!==null)
+              throw new Error('Pending TBR leadMinutes must be null: '+JSON.stringify(report.records[0]));
+            const pendingHtml=await tbrShadowPage(report).text();
+            if(pendingHtml.includes('<td>0 นาที</td>'))
+              throw new Error('Pending TBR page incorrectly renders 0 minutes');
             console.log('SCHEDULED_ROUTE_WITHOUT_ACTUAL=PENDING_PASS');
+            console.log('PENDING_LEAD_NULL=PASS');
 
-            // Only a real actual arrival confirms it.
             await observeTbrShadow(env,'NE1',{tbrShadowFeed:feed,rows:[{proofId:'TEST001',actualArrivalAt:'2026-09-04T14:04:00Z'}]},now+5*60000);
             report=await readTbrShadowReport(env,'NE1');
             if(report.total!==1||report.pending!==0||report.confirmed!==1)
               throw new Error('Actual arrival did not confirm TBR candidate: '+JSON.stringify(report));
             if(report.records[0]?.routeActualArrivalAt!=='2026-09-04T14:04:00.000Z')
               throw new Error('Actual arrival timestamp not preserved');
+            if(report.records[0]?.leadMinutes!==6)
+              throw new Error('Confirmed leadMinutes should be 6: '+JSON.stringify(report.records[0]));
             console.log('ACTUAL_ROUTE_ARRIVAL=CONFIRMED_PASS');
+            console.log('CONFIRMED_LEAD_MINUTES=PASS');
 
-            // If actual arrival already existed before the observer first saw TBR, it is not an early candidate.
             const store2=new Map();
             const env2={STATE:{async get(k){return store2.get(k)??null},async put(k,v){store2.set(k,String(v))},async delete(k){store2.delete(k)}}};
             await observeTbrShadow(env2,'NE1',{tbrShadowFeed:feed,rows:[{proofId:'TEST001',actualArrivalAt:'2026-09-04T13:59:00Z'}]},now);
@@ -120,8 +128,11 @@ jobs:
             if(Number(s?.feedCount||0)<=0) throw new Error('No real TBR feed received');
             if(Number(s?.rowCount||0)<=0) throw new Error('No real Route rows received');
             if(Number(s?.total||0)<=0) throw new Error(`REAL_TBR_CANDIDATES_STILL_ZERO: ${JSON.stringify({feed:s?.feedCount,rows:s?.rowCount,total:s?.total,pending:s?.pending,confirmed:s?.confirmed,expired:s?.expired,lastObservedAt:s?.lastObservedAt})}`);
+            const pendingRecords=Array.isArray(s?.records)?s.records.filter(x=>x?.status==='pending'):[];
+            if(pendingRecords.some(x=>x?.leadMinutes!==null)) throw new Error('Live pending TBR leadMinutes is not null: '+JSON.stringify(pendingRecords));
             if(s?.tursoReads!==0||s?.tursoWrites!==0) throw new Error('TBR Shadow unexpectedly uses Turso');
             console.log('REAL_TBR_CANDIDATES_VISIBLE=PASS');
+            console.log('LIVE_PENDING_LEAD_NULL=PASS');
             console.log('TBR_SHADOW_TURSO_IO=0');
             console.log('PRODUCTION_TOUCHED=NO');
           })().catch(e=>{console.error(e);process.exit(1)});

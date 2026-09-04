@@ -43,6 +43,8 @@ jobs:
           cache-dependency-path: worker/package-lock.json
       - run: npm ci
       - run: npm run check
+      - name: Verify 100-device 180-day auth session resilience
+        run: node --test tests/auth-session-resilience.test.mjs
       - run: node --test tests/dev-archive-patch.test.mjs
       - run: node --test ../.github/dev-tools/ms-realtime-recovery.test.mjs
       - run: node --test ../.github/dev-tools/ms-summary-filter.test.mjs
@@ -90,8 +92,12 @@ jobs:
           if(!worker.includes('upstreamMsCalls: 0') || !worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
           if(!worker.includes('MS_QUOTA_SAFE_LIVE_V1')) throw new Error('staged worker missing quota-safe live contract');
           if(!worker.includes('baselineRows: (currentCache || cache)?.rows || null')) throw new Error('staged worker does not pass live-cache baseline');
+          if(!worker.includes('AUTH_SESSION_RESILIENCE_V1')) throw new Error('staged worker lost auth-session resilience contract');
+          if(!worker.includes('AUTH_VERIFY_UNAVAILABLE')) throw new Error('staged worker lost transient auth outage handling');
           console.log('STAGED_DAILY_HISTORY=PASS');
           console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
+          console.log('STAGED_AUTH_SESSION_RESILIENCE=PASS');
+          console.log('STAGED_AUTH_TRANSIENT_OUTAGE_HANDLING=PASS');
           console.log('STAGED_POLL_MS=4000');
           NODE
       - name: Verify Turso and auth secrets exist on DEV Worker

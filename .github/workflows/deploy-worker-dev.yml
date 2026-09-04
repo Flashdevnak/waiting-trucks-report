@@ -94,18 +94,20 @@ jobs:
           console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
           console.log('STAGED_POLL_MS=4000');
           NODE
-      - name: Verify Turso secrets exist on DEV Worker
+      - name: Verify Turso and auth secrets exist on DEV Worker
         run: |
           npx wrangler secret list --config wrangler.dev.jsonc > /tmp/worker-secrets.json
           node <<'NODE'
           const fs = require('node:fs');
           const text = fs.readFileSync('/tmp/worker-secrets.json', 'utf8');
-          const missing = ['TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN'].filter((name) => !text.includes(name));
+          const required = ['TURSO_DATABASE_URL','TURSO_AUTH_TOKEN','AUTH_SECRET','PASSWORD_PEPPER'];
+          const missing = required.filter((name) => !text.includes(name));
           if (missing.length) {
-            console.error(`Missing DEV Worker Turso secrets: ${missing.join(', ')}`);
+            console.error(`Missing required DEV Worker secrets: ${missing.join(', ')}`);
             process.exit(2);
           }
           console.log('DEV_TURSO_SECRETS=PASS');
+          console.log('DEV_AUTH_SECRETS=PASS');
           NODE
       - name: Deploy DEV Worker on Turso
         run: npx wrangler deploy --config wrangler.dev.jsonc
@@ -136,6 +138,7 @@ jobs:
           if(d1Bindings.length) throw new Error('Active DEV Worker exposes a D1 binding');
           console.log('WORKER_D1_BINDING_ZERO=PASS');
           console.log('TURSO_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
+          console.log('AUTH_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           NODE
       - name: Smoke DEV public health
         working-directory: .

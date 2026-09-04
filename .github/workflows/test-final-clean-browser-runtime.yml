@@ -1,0 +1,115 @@
+name: Test Final Clean Browser Runtime
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-final-clean-browser-runtime.yml
+
+permissions:
+  contents: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+      - name: Stage only permanent Browser TEST runtime fix
+        working-directory: cloudflare-browser-test
+        run: |
+          node scripts/patch-connector-recovery.mjs src/index.js
+          node --check src/index.js
+          grep -q 'BROWSER_DEV_SERVICE_BINDING_V1' src/index.js
+          grep -q 'TBR_SHADOW_OBSERVER_V1' src/index.js
+          grep -q '"service": "waiting-trucks-report-api-dev"' wrangler.jsonc
+          ! grep -q 'BROWSER_CRON_TRACE_V1' src/index.js
+          ! grep -q 'd1_databases' wrangler.jsonc
+          echo 'CLEAN_RUNTIME_STAGE=PASS'
+      - name: Deploy clean Browser TEST only
+        working-directory: cloudflare-browser-test
+        run: |
+          date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/deploy-start
+          sed 's/"keep_vars": true/"keep_vars": false/' wrangler.jsonc > wrangler.final-clean.jsonc
+          npx wrangler deploy --config wrangler.final-clean.jsonc | tee /tmp/browser-deploy.log
+          grep -q 'waiting-trucks-report-api-dev' /tmp/browser-deploy.log
+          grep -q 'schedule: \* \* \* \* \*' /tmp/browser-deploy.log
+          ! grep -q 'D1' /tmp/browser-deploy.log
+          echo 'BROWSER_TEST_CLEAN_DEPLOY=PASS'
+      - name: Confirm temporary bootstrap and trace are closed
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            if(!origin.includes('waiting-trucks-ms-browser-test.26nak-testdev.workers.dev')) throw new Error('Refusing non-test origin');
+            let traceStatus=0;
+            for(let i=1;i<=12;i++){
+              const r=await fetch(origin+'/api/cron-health',{headers:{'cache-control':'no-store'},cache:'no-store'});
+              traceStatus=r.status;
+              if(r.status===404) break;
+              await new Promise(x=>setTimeout(x,5000));
+            }
+            if(traceStatus!==404) throw new Error(`Temporary cron trace still active: HTTP ${traceStatus}`);
+            const bootstrap=await fetch(origin+'/api/bootstrap-connector',{
+              method:'POST',headers:{'content-type':'application/json','cache-control':'no-store'},
+              body:JSON.stringify({hub:'NE1',connectorToken:'x'.repeat(64),bootstrapSecret:'closed'}),
+            });
+            const body=await bootstrap.json().catch(()=>({}));
+            if(bootstrap.ok||body?.ok!==false) throw new Error('Bootstrap endpoint unexpectedly accepted after cleanup');
+            console.log(`CRON_TRACE_HTTP=${traceStatus}`);
+            console.log(`BOOTSTRAP_CLOSED_HTTP=${bootstrap.status}`);
+            console.log('TEMP_DIAGNOSTICS_REMOVED=PASS');
+            console.log('BOOTSTRAP_CLOSED=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+      - name: Wait for two clean runtime cron opportunities
+        run: sleep 130
+      - name: Require clean runtime TBR Shadow LIVE with fresh real data
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            const deployStart=Date.parse(fs.readFileSync('/tmp/deploy-start','utf8').trim());
+            const response=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{'cache-control':'no-store'},cache:'no-store'});
+            const shadow=await response.json().catch(()=>({}));
+            const observed=Date.parse(shadow?.lastObservedAt||'');
+            console.log(`HTTP=${response.status}`);
+            console.log(`TBR_OBSERVER_STATUS=${shadow?.observerStatus||'-'}`);
+            console.log(`TBR_SOURCE_AVAILABLE=${String(shadow?.sourceAvailable)}`);
+            console.log(`TBR_FEED_COUNT=${shadow?.feedCount ?? '-'}`);
+            console.log(`TBR_ROUTE_ROWS=${shadow?.rowCount ?? '-'}`);
+            console.log(`TBR_LAST_ATTEMPT_AT=${shadow?.lastAttemptAt||'-'}`);
+            console.log(`TBR_LAST_OBSERVED_AT=${shadow?.lastObservedAt||'-'}`);
+            console.log(`TBR_TOTAL=${shadow?.total ?? '-'}`);
+            console.log(`TBR_PENDING=${shadow?.pending ?? '-'}`);
+            console.log(`TBR_CONFIRMED=${shadow?.confirmed ?? '-'}`);
+            console.log(`TBR_EXPIRED=${shadow?.expired ?? '-'}`);
+            console.log(`TBR_TURSO_READS=${shadow?.tursoReads ?? '-'}`);
+            console.log(`TBR_TURSO_WRITES=${shadow?.tursoWrites ?? '-'}`);
+            if(!response.ok||shadow?.ok!==true) throw new Error('TBR Shadow endpoint failed');
+            if(shadow?.shadowOnly!==true) throw new Error('TBR is not shadow-only');
+            if(shadow?.observerStatus!=='LIVE'||shadow?.sourceAvailable!==true) throw new Error(`TBR not LIVE: ${JSON.stringify(shadow)}`);
+            if(!Number.isFinite(observed)||observed < deployStart) throw new Error('TBR observation is not fresh after clean deploy');
+            if(Number(shadow?.feedCount||0)<=0||Number(shadow?.rowCount||0)<=0) throw new Error('Clean runtime did not receive real DEV rows/TBR feed');
+            if(shadow?.tursoReads!==0||shadow?.tursoWrites!==0) throw new Error('TBR Shadow unexpectedly uses Turso');
+            console.log('CLEAN_BROWSER_CRON=PASS');
+            console.log('BROWSER_SERVICE_BINDING=PASS');
+            console.log('CONNECTOR_RETENTION=PASS');
+            console.log('TBR_OBSERVER_LIVE=PASS');
+            console.log('TBR_REAL_DATA=PASS');
+            console.log('TBR_SHADOW_TURSO_IO=0');
+            console.log('FINAL_TEST_RUNTIME_READY=PASS');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

@@ -118,3 +118,24 @@ jobs:
             console.log('TBR_SHADOW_TURSO_WRITES=0');
           })().catch((error)=>{console.error(error);process.exit(1);});
           NODE
+      - name: Verify TBR observer after scheduled cron
+        run: |
+          sleep 75
+          node <<'NODE'
+          const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          (async()=>{
+            const response=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json'},cache:'no-store'});
+            const shadow=await response.json().catch(()=>({}));
+            console.log(`TBR_OBSERVER_STATUS=${shadow?.observerStatus||'-'}`);
+            console.log(`TBR_SOURCE_AVAILABLE=${String(shadow?.sourceAvailable)}`);
+            console.log(`TBR_FEED_COUNT=${shadow?.feedCount ?? '-'}`);
+            console.log(`TBR_ROUTE_ROWS=${shadow?.rowCount ?? '-'}`);
+            console.log(`TBR_LAST_OBSERVED_AT=${shadow?.lastObservedAt||'-'}`);
+            if(!response.ok || shadow?.ok===false) throw new Error(`Shadow health HTTP ${response.status}: ${JSON.stringify(shadow)}`);
+            if(shadow?.tursoReads!==0 || shadow?.tursoWrites!==0) throw new Error('Shadow health unexpectedly uses Turso');
+            if(shadow?.observerStatus!=='LIVE' || shadow?.sourceAvailable!==true || !shadow?.lastObservedAt)
+              throw new Error(`TBR observer is not LIVE after cron: ${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,lastSkip:shadow?.lastSkip,feedCount:shadow?.feedCount,rowCount:shadow?.rowCount,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt})}`);
+            console.log('TBR_OBSERVER_LIVE=PASS');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

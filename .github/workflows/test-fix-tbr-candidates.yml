@@ -1,0 +1,128 @@
+name: Test Fix TBR Candidates
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-fix-tbr-candidates.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Apply TEST-only runtime fixes
+        working-directory: cloudflare-browser-test
+        run: |
+          node scripts/patch-connector-recovery.mjs src/index.js
+          node scripts/patch-tbr-actual-arrival.mjs src/tbr-shadow.js
+          node --check src/index.js
+          node --check src/tbr-shadow.js
+          node --check src/connection-error.js
+          grep -q 'BROWSER_DEV_SERVICE_BINDING_V1' src/index.js
+          grep -q 'TBR_ROUTE_ACTUAL_ARRIVAL_V2' src/tbr-shadow.js
+          grep -q 'routeActualMs !== null' src/tbr-shadow.js
+          grep -q 'Cron ทุก 1 นาที' src/tbr-shadow.js
+          grep -q '"service": "waiting-trucks-report-api-dev"' wrangler.jsonc
+          ! grep -q 'd1_databases' wrangler.jsonc
+          echo 'TBR_ACTUAL_ARRIVAL_STAGE=PASS'
+
+      - name: Regression test Route row vs actual arrival
+        working-directory: cloudflare-browser-test
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const {observeTbrShadow,readTbrShadowReport}=await import('./src/tbr-shadow.js?test='+Date.now());
+            const store=new Map();
+            const env={STATE:{
+              async get(k){return store.get(k)??null},
+              async put(k,v){store.set(k,String(v))},
+              async delete(k){store.delete(k)},
+            }};
+            const now=Date.parse('2026-09-04T14:00:00Z');
+            const feed=[{proofId:'TEST001',scheduleTbrArrivalAt:'2026-09-04T13:58:00Z',scheduleKitArrivalAt:'2026-09-04T14:08:00Z'}];
+
+            // A Route row can already exist for the day's schedule; without actualArrivalAt it must still be a TBR candidate.
+            await observeTbrShadow(env,'NE1',{tbrShadowFeed:feed,rows:[{proofId:'TEST001',actualArrivalAt:''}]},now);
+            let report=await readTbrShadowReport(env,'NE1');
+            if(report.total!==1||report.pending!==1||report.confirmed!==0)
+              throw new Error('Scheduled Route row incorrectly suppresses TBR candidate: '+JSON.stringify(report));
+            console.log('SCHEDULED_ROUTE_WITHOUT_ACTUAL=PENDING_PASS');
+
+            // Only a real actual arrival confirms it.
+            await observeTbrShadow(env,'NE1',{tbrShadowFeed:feed,rows:[{proofId:'TEST001',actualArrivalAt:'2026-09-04T14:04:00Z'}]},now+5*60000);
+            report=await readTbrShadowReport(env,'NE1');
+            if(report.total!==1||report.pending!==0||report.confirmed!==1)
+              throw new Error('Actual arrival did not confirm TBR candidate: '+JSON.stringify(report));
+            if(report.records[0]?.routeActualArrivalAt!=='2026-09-04T14:04:00.000Z')
+              throw new Error('Actual arrival timestamp not preserved');
+            console.log('ACTUAL_ROUTE_ARRIVAL=CONFIRMED_PASS');
+
+            // If actual arrival already existed before the observer first saw TBR, it is not an early candidate.
+            const store2=new Map();
+            const env2={STATE:{async get(k){return store2.get(k)??null},async put(k,v){store2.set(k,String(v))},async delete(k){store2.delete(k)}}};
+            await observeTbrShadow(env2,'NE1',{tbrShadowFeed:feed,rows:[{proofId:'TEST001',actualArrivalAt:'2026-09-04T13:59:00Z'}]},now);
+            const report2=await readTbrShadowReport(env2,'NE1');
+            if(report2.total!==0) throw new Error('Already-arrived Route was incorrectly counted as early TBR candidate');
+            console.log('ALREADY_ARRIVED_NOT_EARLY=PASS');
+            console.log('TBR_CANDIDATE_REGRESSION=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Deploy Browser TEST only
+        working-directory: cloudflare-browser-test
+        run: |
+          sed 's/"keep_vars": true/"keep_vars": false/' wrangler.jsonc > wrangler.tbr-fix.jsonc
+          npx wrangler deploy --config wrangler.tbr-fix.jsonc | tee /tmp/browser-deploy.log
+          grep -q 'waiting-trucks-report-api-dev' /tmp/browser-deploy.log
+          grep -q 'schedule: \* \* \* \* \*' /tmp/browser-deploy.log
+          ! grep -q 'D1' /tmp/browser-deploy.log
+          echo 'BROWSER_TEST_TBR_FIX_DEPLOY=PASS'
+
+      - name: Wait for live cron and require real TBR candidates
+        run: |
+          sleep 95
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            if(!origin.includes('waiting-trucks-ms-browser-test.26nak-testdev.workers.dev')) throw new Error('Refusing non-test origin');
+            const r=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const s=await r.json().catch(()=>({}));
+            console.log(`HTTP=${r.status}`);
+            console.log(`OBSERVER=${s?.observerStatus||'-'}`);
+            console.log(`SOURCE_AVAILABLE=${String(s?.sourceAvailable)}`);
+            console.log(`TBR_FEED=${s?.feedCount ?? '-'}`);
+            console.log(`ROUTE_ROWS=${s?.rowCount ?? '-'}`);
+            console.log(`TOTAL=${s?.total ?? '-'}`);
+            console.log(`PENDING=${s?.pending ?? '-'}`);
+            console.log(`CONFIRMED=${s?.confirmed ?? '-'}`);
+            console.log(`EXPIRED=${s?.expired ?? '-'}`);
+            console.log(`UPDATED_AT=${s?.updatedAt||'-'}`);
+            console.log(`LAST_OBSERVED_AT=${s?.lastObservedAt||'-'}`);
+            if(!r.ok||s?.ok!==true) throw new Error('TBR Shadow endpoint failed');
+            if(s?.observerStatus!=='LIVE'||s?.sourceAvailable!==true) throw new Error('TBR observer is not LIVE');
+            if(Number(s?.feedCount||0)<=0) throw new Error('No real TBR feed received');
+            if(Number(s?.rowCount||0)<=0) throw new Error('No real Route rows received');
+            if(Number(s?.total||0)<=0) throw new Error(`REAL_TBR_CANDIDATES_STILL_ZERO: ${JSON.stringify({feed:s?.feedCount,rows:s?.rowCount,total:s?.total,pending:s?.pending,confirmed:s?.confirmed,expired:s?.expired,lastObservedAt:s?.lastObservedAt})}`);
+            if(s?.tursoReads!==0||s?.tursoWrites!==0) throw new Error('TBR Shadow unexpectedly uses Turso');
+            console.log('REAL_TBR_CANDIDATES_VISIBLE=PASS');
+            console.log('TBR_SHADOW_TURSO_IO=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

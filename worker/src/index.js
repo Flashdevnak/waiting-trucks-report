@@ -335,33 +335,72 @@ async function login(body, env) {
   };
 }
 
+// AUTH_SESSION_RESILIENCE_V1: sessions are stateless and valid for 180 days.
+// A transient DB/Turso failure must never be mislabeled as INVALID_SESSION,
+// because clients intentionally remove their persisted token on INVALID_SESSION.
 async function verify(token, env) {
+  const [payload, signature] = String(token || "").split(".");
+  if (!payload || !signature)
+    fail("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", "INVALID_SESSION", 401);
+
+  let signatureValid = false;
   try {
-    const [payload, signature] = String(token || "").split(".");
-    if (
-      !payload ||
-      !signature ||
-      !(await equal(signature, await hmac(payload, env.AUTH_SECRET)))
-    )
-      throw 0;
-    const actor = JSON.parse(new TextDecoder().decode(unb64(payload)));
-    if (Date.now() > Number(actor.expiresAt)) throw 0;
-    const user = await env.DB.prepare(
+    signatureValid = await equal(signature, await hmac(payload, env.AUTH_SECRET));
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "auth_signature_verify_unavailable",
+        message: error?.message || String(error),
+      }),
+    );
+    fail(
+      "ระบบยืนยันสิทธิ์ขัดข้องชั่วคราว กรุณาลองใหม่",
+      "AUTH_VERIFY_UNAVAILABLE",
+      503,
+    );
+  }
+  if (!signatureValid)
+    fail("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", "INVALID_SESSION", 401);
+
+  let actor;
+  try {
+    actor = JSON.parse(new TextDecoder().decode(unb64(payload)));
+  } catch {
+    fail("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", "INVALID_SESSION", 401);
+  }
+  if (!actor?.username || Date.now() > Number(actor.expiresAt))
+    fail("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", "INVALID_SESSION", 401);
+
+  let user;
+  try {
+    user = await env.DB.prepare(
       "SELECT username,role,branches,active FROM users WHERE username=?",
     )
       .bind(actor.username)
       .first();
-    if (!user || user.active !== 1 || user.role !== actor.role) throw 0;
-    return {
-      username: user.username,
-      role: user.role,
-      branches: branchList(user.branches),
-    };
-  } catch {
-    fail("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", "INVALID_SESSION", 401);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "auth_verify_unavailable",
+        username: String(actor.username || "").slice(0, 30),
+        message: error?.message || String(error),
+      }),
+    );
+    fail(
+      "ระบบยืนยันสิทธิ์ขัดข้องชั่วคราว กรุณาลองใหม่",
+      "AUTH_VERIFY_UNAVAILABLE",
+      503,
+    );
   }
-}
 
+  if (!user || user.active !== 1 || user.role !== actor.role)
+    fail("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", "INVALID_SESSION", 401);
+  return {
+    username: user.username,
+    role: user.role,
+    branches: branchList(user.branches),
+  };
+}
 async function scoped(env, table, actor, order = "", limit = 0) {
   const allowed =
     actor.role === "admin" || actor.branches.includes("*")

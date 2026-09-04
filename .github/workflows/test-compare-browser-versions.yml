@@ -1,0 +1,41 @@
+name: Test Compare Browser Versions
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-compare-browser-versions.yml
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Compare known-good and current Browser TEST versions only
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            const script='waiting-trucks-ms-browser-test';
+            const headers={Authorization:`Bearer ${token}`};
+            const root=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}`;
+            async function get(url){const r=await fetch(url,{headers});const b=await r.json().catch(()=>({}));console.log('HTTP '+r.status+' '+url.split('/').slice(-2).join('/'));if(!r.ok||b.success===false)return {error:b.errors||b};return b.result;}
+            const ids=['2b2529a7-a1f1-418b-a3bb-fe321e7f2ff9','d554d64b-23f6-45c6-a28d-2ec29dfe59ed'];
+            for(const id of ids){
+              const v=await get(`${root}/versions/${id}`);
+              const bindings=(v?.resources?.bindings||v?.bindings||[]).map(b=>({name:b.name||'',type:b.type||'',namespace_id:b.namespace_id||b.namespaceId||'',service:b.service||''}));
+              console.log('VERSION '+id+' '+JSON.stringify({created_on:v?.metadata?.created_on||v?.created_on||'',source:v?.metadata?.source||'',tag:v?.metadata?.tag||'',bindings,error:v?.error||null}));
+            }
+            const deps=await get(`${root}/deployments`);
+            console.log('DEPLOYMENT_HISTORY='+JSON.stringify((deps?.deployments||[]).slice(0,8).map(d=>({id:d.id,created_on:d.created_on,versions:d.versions}))));
+            console.log('MUTATIONS=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

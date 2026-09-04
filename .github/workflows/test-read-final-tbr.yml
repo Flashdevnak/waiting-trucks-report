@@ -16,8 +16,9 @@ jobs:
     env:
       BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
     steps:
-      - name: Read Browser TEST TBR runtime only
+      - name: Wait for real Browser TEST cron then read TBR runtime only
         run: |
+          sleep 90
           node <<'NODE'
           (async()=>{
             const origin=process.env.BROWSER_ORIGIN;

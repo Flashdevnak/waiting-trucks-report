@@ -1,0 +1,137 @@
+name: Test Finalize TBR Shadow
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-repair-20260904
+    paths:
+      - .github/workflows/test-finalize-tbr-shadow.yml
+
+permissions:
+  contents: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      BROWSER_SCRIPT: waiting-trucks-ms-browser-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Preflight Browser TEST bindings only
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            const script=process.env.BROWSER_SCRIPT;
+            if(script!=='waiting-trucks-ms-browser-test') throw new Error('Refusing non-test Browser Worker');
+            const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}/settings`,{headers:{Authorization:`Bearer ${token}`}});
+            const body=await response.json().catch(()=>({}));
+            if(!response.ok||body.success===false) throw new Error(`Browser TEST settings HTTP ${response.status}`);
+            const bindings=Array.isArray(body.result?.bindings)?body.result.bindings:[];
+            const d1=bindings.filter(x=>x.type==='d1'||x.type==='d1_database');
+            if(d1.length) throw new Error('Browser TEST unexpectedly exposes D1');
+            const variableBindings=bindings.filter(x=>['plain_text','secret_text'].includes(String(x.type||'')));
+            const unexpected=variableBindings.filter(x=>x.name!=='CONNECTOR_BOOTSTRAP_SECRET');
+            if(unexpected.length) throw new Error(`Refusing cleanup because unrelated Browser variables exist: ${unexpected.map(x=>x.name).join(',')}`);
+            console.log(`BOOTSTRAP_BINDING_BEFORE=${bindings.some(x=>x.name==='CONNECTOR_BOOTSTRAP_SECRET')}`);
+            console.log('BROWSER_TEST_D1_BINDING=0');
+            console.log('PREFLIGHT_TEST_ONLY=PASS');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Remove temporary bootstrap binding from Browser TEST
+        working-directory: cloudflare-browser-test
+        run: |
+          sed 's/"keep_vars": true/"keep_vars": false/' wrangler.jsonc > wrangler.cleanup.jsonc
+          grep -q '"name": "waiting-trucks-ms-browser-test"' wrangler.cleanup.jsonc
+          grep -q '"keep_vars": false' wrangler.cleanup.jsonc
+          npx wrangler deploy --config wrangler.cleanup.jsonc
+          echo "BROWSER_TEST_CLEAN_DEPLOY=PASS"
+
+      - name: Verify Browser TEST cleanup and active version
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            const script=process.env.BROWSER_SCRIPT;
+            const headers={Authorization:`Bearer ${token}`};
+            const base=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}`;
+            async function get(path){
+              const response=await fetch(base+path,{headers});
+              const body=await response.json().catch(()=>({}));
+              if(!response.ok||body.success===false) throw new Error(`${path} HTTP ${response.status}: ${JSON.stringify(body.errors||body)}`);
+              return body.result;
+            }
+            const [settings,deployments]=await Promise.all([get('/settings'),get('/deployments')]);
+            const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
+            if(bindings.some(x=>x.name==='CONNECTOR_BOOTSTRAP_SECRET')) throw new Error('Temporary Browser bootstrap binding still active after clean deploy');
+            if(bindings.some(x=>x.type==='d1'||x.type==='d1_database')) throw new Error('Browser TEST unexpectedly exposes D1');
+            const active=deployments?.deployments?.[0];
+            const version=[...(active?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||'';
+            console.log(`ACTIVE_BROWSER_VERSION=${version||'-'}`);
+            console.log('BROWSER_BOOTSTRAP_BINDING=0');
+            console.log('BROWSER_TEST_D1_BINDING=0');
+            console.log('BROWSER_TEST_RUNTIME_CLEAN=PASS');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Prove bootstrap endpoint is closed
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            if(!origin.includes('waiting-trucks-ms-browser-test.26nak-testdev.workers.dev')) throw new Error('Refusing non-test Browser origin');
+            const response=await fetch(`${origin}/api/bootstrap-connector`,{
+              method:'POST',headers:{'content-type':'application/json'},
+              body:JSON.stringify({hub:'NE1',connectorToken:'x'.repeat(32),bootstrapSecret:'invalid-after-cleanup'}),
+            });
+            const body=await response.json().catch(()=>({}));
+            if(response.ok||body?.ok!==false) throw new Error('Bootstrap endpoint unexpectedly accepted after cleanup');
+            console.log(`BOOTSTRAP_ENDPOINT_HTTP=${response.status}`);
+            console.log('BOOTSTRAP_ENDPOINT_CLOSED=PASS');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Wait for real Browser cron and verify TBR observer LIVE
+        run: |
+          sleep 95
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            const response=await fetch(`${origin}/api/shadow-tbr?hub=NE1`,{headers:{accept:'application/json'},cache:'no-store'});
+            const shadow=await response.json().catch(()=>({}));
+            console.log(`TBR_OBSERVER_STATUS=${shadow?.observerStatus||'-'}`);
+            console.log(`TBR_SOURCE_AVAILABLE=${String(shadow?.sourceAvailable)}`);
+            console.log(`TBR_FEED_COUNT=${shadow?.feedCount ?? '-'}`);
+            console.log(`TBR_ROUTE_ROWS=${shadow?.rowCount ?? '-'}`);
+            console.log(`TBR_LAST_ATTEMPT_AT=${shadow?.lastAttemptAt||'-'}`);
+            console.log(`TBR_LAST_OBSERVED_AT=${shadow?.lastObservedAt||'-'}`);
+            console.log(`TBR_TOTAL=${shadow?.total ?? '-'}`);
+            console.log(`TBR_PENDING=${shadow?.pending ?? '-'}`);
+            console.log(`TBR_CONFIRMED=${shadow?.confirmed ?? '-'}`);
+            console.log(`TBR_EXPIRED=${shadow?.expired ?? '-'}`);
+            console.log(`TBR_SHADOW_TURSO_READS=${shadow?.tursoReads ?? '-'}`);
+            console.log(`TBR_SHADOW_TURSO_WRITES=${shadow?.tursoWrites ?? '-'}`);
+            if(!response.ok||shadow?.ok===false) throw new Error(`Shadow health HTTP ${response.status}`);
+            if(shadow?.shadowOnly!==true) throw new Error('TBR report is not shadow-only');
+            if(shadow?.tursoReads!==0||shadow?.tursoWrites!==0) throw new Error('TBR Shadow unexpectedly uses Turso');
+            if(shadow?.observerStatus!=='LIVE'||shadow?.sourceAvailable!==true||!shadow?.lastObservedAt)
+              throw new Error(`TBR observer not LIVE: ${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,lastSkip:shadow?.lastSkip,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt,feedCount:shadow?.feedCount,rowCount:shadow?.rowCount})}`);
+            console.log('TBR_OBSERVER_LIVE=PASS');
+            console.log('TBR_SHADOW_ONLY=PASS');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

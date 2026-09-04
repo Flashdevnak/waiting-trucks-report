@@ -1,0 +1,49 @@
+name: Test Read Final TBR Runtime
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-read-final-tbr.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    env:
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+    steps:
+      - name: Read Browser TEST TBR runtime only
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.BROWSER_ORIGIN;
+            if(!origin.includes('waiting-trucks-ms-browser-test.26nak-testdev.workers.dev')) throw new Error('Refusing non-test origin');
+            const response=await fetch(`${origin}/api/shadow-tbr?hub=NE1`,{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const shadow=await response.json().catch(()=>({}));
+            console.log(`HTTP=${response.status}`);
+            console.log(`TBR_OBSERVER_STATUS=${shadow?.observerStatus||'-'}`);
+            console.log(`TBR_SOURCE_AVAILABLE=${String(shadow?.sourceAvailable)}`);
+            console.log(`TBR_FEED_COUNT=${shadow?.feedCount ?? '-'}`);
+            console.log(`TBR_ROUTE_ROWS=${shadow?.rowCount ?? '-'}`);
+            console.log(`TBR_LAST_ATTEMPT_AT=${shadow?.lastAttemptAt||'-'}`);
+            console.log(`TBR_LAST_OBSERVED_AT=${shadow?.lastObservedAt||'-'}`);
+            console.log(`TBR_TOTAL=${shadow?.total ?? '-'}`);
+            console.log(`TBR_PENDING=${shadow?.pending ?? '-'}`);
+            console.log(`TBR_CONFIRMED=${shadow?.confirmed ?? '-'}`);
+            console.log(`TBR_EXPIRED=${shadow?.expired ?? '-'}`);
+            console.log(`TBR_TURSO_READS=${shadow?.tursoReads ?? '-'}`);
+            console.log(`TBR_TURSO_WRITES=${shadow?.tursoWrites ?? '-'}`);
+            console.log('MUTATIONS=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+            if(!response.ok||shadow?.ok===false) throw new Error('Shadow endpoint failed');
+            if(shadow?.tursoReads!==0||shadow?.tursoWrites!==0) throw new Error('Shadow unexpectedly uses Turso');
+            if(shadow?.observerStatus!=='LIVE'||shadow?.sourceAvailable!==true||!shadow?.lastObservedAt)
+              throw new Error(`TBR not LIVE: ${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,lastSkip:shadow?.lastSkip,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt,feedCount:shadow?.feedCount,rowCount:shadow?.rowCount})}`);
+            console.log('TBR_OBSERVER_LIVE=PASS');
+            console.log('END_TO_END_TEST_CHAIN=PASS');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

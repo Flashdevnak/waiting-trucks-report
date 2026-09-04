@@ -1,9 +1,18 @@
 import worker, * as workerModule from "./index.js";
 import { databaseEnv } from "./turso-d1.js";
+import { maybeHandleProofRequest, runProofScheduled } from "./proof-control.js";
 
 export default {
-  fetch(request, env, ctx) {
-    return worker.fetch(request, databaseEnv(env), ctx);
+  async fetch(request, env, ctx) {
+    const runtimeEnv = databaseEnv(env);
+    const proofResponse = await maybeHandleProofRequest(request, runtimeEnv, ctx, worker);
+    if (proofResponse) return proofResponse;
+    return worker.fetch(request, runtimeEnv, ctx);
+  },
+
+  async scheduled(controller, env, ctx) {
+    const runtimeEnv = databaseEnv(env);
+    ctx.waitUntil(runProofScheduled(runtimeEnv));
   },
 };
 

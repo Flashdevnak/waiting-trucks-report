@@ -14,6 +14,8 @@ on:
       - .github/dev-tools/**
       - ms.html
       - ms.js
+      - proof.html
+      - proof.js
       - style.css
       - sw.js
       - favicon.svg
@@ -68,23 +70,31 @@ jobs:
             throw new Error('DEV DB_BACKEND is not Turso');
           if (text.includes('d1_databases'))
             throw new Error('D1 binding is forbidden in the normal DEV deploy config');
+          if (!text.includes('"crons": ["* * * * *"]'))
+            throw new Error('DEV proof snapshot cron is missing');
           console.log('DEV_TURSO_CONFIG=PASS');
           console.log('DEV_D1_CONFIG_BINDING=0');
+          console.log('DEV_PROOF_CRON=1_MINUTE');
           NODE
       - name: Stage DEV frontend assets and worker patch
         run: |
           rm -rf .dev-assets
           mkdir -p .dev-assets
-          cp ../ms.html ../ms.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
           node --check .dev-assets/ms.js
+          node --check .dev-assets/proof.js
           node --check src/index.js
           node --check src/turso-d1.js
           node --check src/turso-index.js
+          node --check src/proof-control.js
           node <<'NODE'
           const fs=require('node:fs');
           const front=fs.readFileSync('.dev-assets/ms.js','utf8');
+          const proofFront=fs.readFileSync('.dev-assets/proof.js','utf8');
+          const proofHtml=fs.readFileSync('.dev-assets/proof.html','utf8');
+          const proofWorker=fs.readFileSync('src/proof-control.js','utf8');
           const worker=fs.readFileSync('src/index.js','utf8');
           for(const marker of ['MS_DAILY_HISTORY_V1','pollMs: 4000','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
             if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
@@ -94,11 +104,19 @@ jobs:
           if(!worker.includes('baselineRows: (currentCache || cache)?.rows || null')) throw new Error('staged worker does not pass live-cache baseline');
           if(!worker.includes('AUTH_SESSION_RESILIENCE_V1')) throw new Error('staged worker lost auth-session resilience contract');
           if(!worker.includes('AUTH_VERIFY_UNAVAILABLE')) throw new Error('staged worker lost transient auth outage handling');
+          for(const marker of ['/api/proof/routes','/api/proof/profile','/api/proof/print','pollMs: 30_000'])
+            if(!proofFront.includes(marker)) throw new Error(`proof frontend missing ${marker}`);
+          if(!proofHtml.includes('ปุ่มยกเลิกรถยังปิดไว้')) throw new Error('proof cancel safety notice missing');
+          for(const marker of ['ms_proof_snapshots','ms_proof_events','ms_proof_print_log','pageSize: \'100\''])
+            if(!proofWorker.includes(marker)) throw new Error(`proof worker missing ${marker}`);
+          if(proofWorker.includes('/fleet/van/proof/cancel_car')) throw new Error('proof worker must not send cancel_car commands');
           console.log('STAGED_DAILY_HISTORY=PASS');
           console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
           console.log('STAGED_AUTH_SESSION_RESILIENCE=PASS');
           console.log('STAGED_AUTH_TRANSIENT_OUTAGE_HANDLING=PASS');
           console.log('STAGED_POLL_MS=4000');
+          console.log('STAGED_PROOF_CONTROL=PASS');
+          console.log('STAGED_PROOF_CANCEL_COMMANDS=0');
           NODE
       - name: Verify Turso and auth secrets exist on DEV Worker
         run: |
@@ -146,18 +164,22 @@ jobs:
           console.log('TURSO_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           console.log('AUTH_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           NODE
-      - name: Smoke DEV public health
+      - name: Smoke DEV public health and proof page
         working-directory: .
         run: |
           sleep 3
           curl --fail --show-error --silent \
             'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=health' \
             | tee /tmp/dev-health.json
+          curl --fail --show-error --silent \
+            'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/proof.html' \
+            | grep -q 'จัดการเส้นทางเดินรถ MS'
           node <<'NODE'
           const fs=require('node:fs');
           const payload=JSON.parse(fs.readFileSync('/tmp/dev-health.json','utf8'));
           if(!payload?.ok) throw new Error(`DEV health failed: ${JSON.stringify(payload)}`);
           console.log('DEV_HEALTH=PASS');
+          console.log('DEV_PROOF_PAGE=PASS');
           console.log('DEV_DATABASE_BACKEND=TURSO');
           console.log('DEV_D1_RUNTIME_BINDING=0');
           NODE

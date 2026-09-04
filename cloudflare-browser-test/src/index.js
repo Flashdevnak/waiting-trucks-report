@@ -4,7 +4,11 @@ import {
   readTbrShadowReport,
   tbrShadowPage,
 } from "./tbr-shadow.js";
-import { handleConnectionErrorRequest } from "./connection-error.js";
+import {
+  handleConnectionErrorRequest,
+  recordConnectionErrorKv,
+  recordConnectionRecoveredKv,
+} from "./connection-error.js";
 
 const MS_URL = "https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance";
 const API_URL =
@@ -131,7 +135,7 @@ async function status(env, sessionId, body) {
   const probe = credentials ? await probeMs(credentials) : null;
   const result = await inspect(tab, probe);
   if (probe?.ok && credentials) {
-    const saved = await saveToMain(pairing, hub, credentials);
+    const saved = await saveToMain(env, pairing, hub, credentials);
     await rememberConnector(env, hub, saved.connectorToken);
     result.savedToMain = true;
     result.apiMessage = `บันทึก Session ของ ${hub} เข้าระบบจริงแล้ว`;
@@ -154,16 +158,24 @@ function requirePairing(body) {
   return { pairing, hub };
 }
 
-async function saveToMain(pairing, hub, credentials) {
-  const response = await fetch(MAIN_API, {
+// BROWSER_DEV_SERVICE_BINDING_V1: Browser TEST calls DEV Worker through a service binding.
+// Same-account Worker-to-Worker public workers.dev fetches are intentionally avoided.
+async function mainApiFetch(env, payload) {
+  if (!env?.DEV_API?.fetch) throw new Error("DEV service binding missing");
+  const request = new Request(MAIN_API, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      action: "completeMsPairing",
-      pairing,
-      hub,
-      ...credentials,
-    }),
+    body: JSON.stringify(payload),
+  });
+  return env.DEV_API.fetch(request);
+}
+
+async function saveToMain(env, pairing, hub, credentials) {
+  const response = await mainApiFetch(env, {
+    action: "completeMsPairing",
+    pairing,
+    hub,
+    ...credentials,
   });
   const json = await response.json().catch(() => ({}));
   if (!response.ok || json.ok === false || !json.data?.connectorToken)
@@ -213,26 +225,72 @@ function randomConnectorToken() {
 
 async function registerConnectorForCutover(env, hub, connectorToken) {
   if (!env.CONNECTOR_BOOTSTRAP_SECRET) return false;
-  const response = await fetch(MAIN_API, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      action: "bootstrapConnector",
-      hub,
-      connectorToken,
-      bootstrapSecret: env.CONNECTOR_BOOTSTRAP_SECRET,
-    }),
+  const response = await mainApiFetch(env, {
+    action: "bootstrapConnector",
+    hub,
+    connectorToken,
+    bootstrapSecret: env.CONNECTOR_BOOTSTRAP_SECRET,
   });
   return response.ok;
 }
 
-async function sendConnectorSync(hub, connectorToken) {
-  return fetch(MAIN_API, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ action: "connectorSync", hub, connectorToken }),
+// TBR_INBOUND_QUOTA_V1: Browser TEST requests the DEV read-only shadow snapshot only.
+// TBR_STALE_SPLIT_BROWSER_V2: Route and TBR/BusTime use separate DEV Worker invocations.
+// This prevents one growing operating day from hitting a single-invocation subrequest ceiling.
+async function sendConnectorPart(env, hub, connectorToken, shadowPart) {
+  return mainApiFetch(env, {
+    action: "connectorSync",
+    hub, connectorToken, shadowOnly: true, shadowPart,
   });
 }
+
+async function connectorPartPayload(response) {
+  return response.clone().json().catch(() => ({}));
+}
+
+function connectorPartFailure(part, response, payload) {
+  const originalCode = String(payload?.code || "");
+  const code = originalCode === "INVALID_CONNECTOR"
+    ? originalCode
+    : originalCode || `TBR_${part.toUpperCase()}_HTTP_${response.status}`;
+  const message = String(payload?.message || `${part} source ตอบกลับ HTTP ${response.status}`);
+  return new Response(JSON.stringify({ ok: false, code, message, sourcePart: part }), {
+    status: response.status || 503,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+async function sendConnectorSync(env, hub, connectorToken) {
+  const [routeResponse, busResponse] = await Promise.all([
+    sendConnectorPart(env, hub, connectorToken, "routes"),
+    sendConnectorPart(env, hub, connectorToken, "bus"),
+  ]);
+  const [routePayload, busPayload] = await Promise.all([
+    connectorPartPayload(routeResponse),
+    connectorPartPayload(busResponse),
+  ]);
+  if (!routeResponse.ok) return connectorPartFailure("routes", routeResponse, routePayload);
+  if (!busResponse.ok) return connectorPartFailure("bus", busResponse, busPayload);
+  const rows = Array.isArray(routePayload?.data?.rows) ? routePayload.data.rows : [];
+  const tbrShadowFeed = Array.isArray(busPayload?.data?.tbrShadowFeed)
+    ? busPayload.data.tbrShadowFeed : [];
+  return new Response(JSON.stringify({
+    ok: true,
+    data: {
+      status: "shadow_readonly_split",
+      syncedAt: new Date().toISOString(),
+      changes: 0, rows, tbrShadowFeed,
+      shadowQuota: {
+        mode: "SHADOW_READONLY_SPLIT_V2",
+        tursoPointReadsPerCron: 4, tursoWritesPerCron: 0,
+        routeTableReads: 0, routeTableWrites: 0,
+        historyReads: 0, historyWrites: 0,
+        liveCacheReads: 0, liveCacheWrites: 0, preEntryCalls: 0,
+      },
+    },
+  }), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });
+}
+
 
 async function syncConfiguredHubs(env) {
   const storedHubs = JSON.parse((await env.STATE.get("hubs")) || "[]");
@@ -257,7 +315,7 @@ async function syncConfiguredHubs(env) {
         }
         if (!connectorToken) return;
 
-        let response = await sendConnectorSync(hub, connectorToken);
+        let response = await sendConnectorSync(env, hub, connectorToken);
         let payload = await response.clone().json().catch(() => ({}));
         if (
           response.status === 401 &&
@@ -265,7 +323,7 @@ async function syncConfiguredHubs(env) {
           payload?.code === "INVALID_CONNECTOR"
         ) {
           if (await registerConnectorForCutover(env, hub, connectorToken)) {
-            response = await sendConnectorSync(hub, connectorToken);
+            response = await sendConnectorSync(env, hub, connectorToken);
             payload = await response.clone().json().catch(() => ({}));
           }
         }
@@ -285,11 +343,27 @@ async function syncConfiguredHubs(env) {
             }),
           );
         }
-        // TBR_SHADOW_OBSERVER_V1: observe the already-returned BusTime feed only.
-        // This writes event changes to Browser KV and never writes Turso.
+        if (!response.ok) {
+          try {
+            const failedShadow = await observeTbrShadow(env, hub, {});
+            if (failedShadow?.sourceChanged) {
+              const failureCode = String(payload?.code || `HTTP_${response.status}`);
+              const failureSource = failureCode.includes("BUS") ? "busTime" : "routes";
+              await recordConnectionErrorKv(env, {
+                hub, source: failureSource, code: failureCode,
+                message: payload?.message || `DEV Shadow ตอบกลับ HTTP ${response.status}`,
+              });
+            }
+          } catch (healthError) {
+            console.error(JSON.stringify({ event: "tbr_shadow_failure_health_error", hub, message: healthError?.message || String(healthError) }));
+          }
+        }
+        // TBR_SHADOW_OBSERVER_V1: observe the combined read-only source only.
         if (response.ok) {
           try {
-            await observeTbrShadow(env, hub, payload?.data || {});
+            const observedShadow = await observeTbrShadow(env, hub, payload?.data || {});
+            if (observedShadow?.sourceChanged)
+              await recordConnectionRecoveredKv(env, { hub });
           } catch (shadowError) {
             console.error(
               JSON.stringify({

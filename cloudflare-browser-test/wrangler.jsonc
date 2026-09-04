@@ -9,6 +9,12 @@
     "binding": "BROWSER",
   },
   "kv_namespaces": [{ "binding": "STATE" }],
+  "services": [
+    {
+      "binding": "DEV_API",
+      "service": "waiting-trucks-report-api-dev",
+    },
+  ],
   "triggers": { "crons": ["* * * * *"] },
   "observability": {
     "enabled": true,

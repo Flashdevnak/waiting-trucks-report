@@ -1,0 +1,65 @@
+name: TBR Test Runtime Regression
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - cloudflare-browser-test/**
+      - .github/dev-tools/stage-dev-runtime.mjs
+      - .github/workflows/tbr-test-runtime-regression.yml
+  pull_request:
+    paths:
+      - cloudflare-browser-test/**
+      - .github/dev-tools/stage-dev-runtime.mjs
+      - .github/workflows/tbr-test-runtime-regression.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test-runtime-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify persisted Browser TEST Split V2 source
+        working-directory: cloudflare-browser-test
+        run: |
+          npm install --no-audit --no-fund
+          node --check src/index.js
+          node --check src/tbr-shadow.js
+          node --check src/connection-error.js
+          grep -q 'TBR_STALE_SPLIT_BROWSER_V2' src/index.js
+          grep -q 'SHADOW_READONLY_SPLIT_V2' src/index.js
+          grep -q 'STALE · ข้อมูลหยุดอัปเดตเกิน 7 นาที' src/tbr-shadow.js
+          grep -q 'recordConnectionErrorKv' src/index.js
+          grep -q '"binding": "DEV_API"' wrangler.jsonc
+          grep -q '"service": "waiting-trucks-report-api-dev"' wrangler.jsonc
+          ! grep -q 'd1_databases' wrangler.jsonc
+          npx wrangler deploy --dry-run --config wrangler.jsonc >/tmp/tbr-browser-dry-run.log
+          grep -q 'waiting-trucks-report-api-dev' /tmp/tbr-browser-dry-run.log
+          echo 'PERSISTED_BROWSER_SPLIT_V2=PASS'
+          echo 'BROWSER_TEST_D1_BINDING=0'
+
+      - name: Verify normal DEV staging preserves Split V2
+        working-directory: worker
+        run: |
+          npm ci --no-audit --no-fund
+          rm -rf .dev-assets
+          mkdir -p .dev-assets
+          cp ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
+          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
+          node --check src/index.js
+          grep -q 'TBR_SHADOW_READONLY_V1' src/index.js
+          grep -q 'TBR_SHADOW_SPLIT_V2' src/index.js
+          grep -q 'shadowPart = text(body.shadowPart' src/index.js
+          grep -q 'tursoPointReadsPerCron: 4' src/index.js
+          ! grep -q 'd1_databases' wrangler.dev.jsonc
+          echo 'NORMAL_DEV_STAGING_SPLIT_V2=PASS'
+          echo 'DEV_D1_BINDING=0'
+          echo 'PRODUCTION_TOUCHED=NO'

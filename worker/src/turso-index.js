@@ -2,10 +2,13 @@ import worker, * as workerModule from "./index.js";
 import { databaseEnv } from "./turso-d1.js";
 import { maybeHandleProofRequest, runProofScheduled } from "./proof-control.js";
 import { maybeHandleProofLiveV2 } from "./proof-live-v2.js";
+import { maybeHandleProofPreview } from "./proof-preview.js";
 
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
+    const proofPreviewResponse = await maybeHandleProofPreview(request, runtimeEnv, ctx, worker);
+    if (proofPreviewResponse) return proofPreviewResponse;
     const proofV2Response = await maybeHandleProofLiveV2(request, runtimeEnv, ctx, worker, maybeHandleProofRequest);
     if (proofV2Response) return proofV2Response;
     const proofResponse = await maybeHandleProofRequest(request, runtimeEnv, ctx, worker);

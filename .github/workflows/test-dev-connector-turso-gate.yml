@@ -1,0 +1,94 @@
+name: Test DEV Connector Turso Gate
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-repair-20260904
+    paths:
+      - .github/workflows/test-dev-connector-turso-gate.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      DEV_API: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api
+    steps:
+      - name: Create isolated DEV connector token and pair hash in Turso DEV
+        run: |
+          umask 077
+          openssl rand -hex 32 > /tmp/dev-connector-token
+          echo "::add-mask::$(cat /tmp/dev-connector-token)"
+          node <<'NODE'
+          const fs=require('node:fs');
+          const {createHash}=require('node:crypto');
+          (async()=>{
+            const connectorToken=fs.readFileSync('/tmp/dev-connector-token','utf8').trim();
+            console.log(`::add-mask::${connectorToken}`);
+            const tokenHash=createHash('sha256').update(connectorToken).digest('hex');
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            const org=process.env.TURSO_ORG;
+            const db=process.env.TURSO_DATABASE;
+            if(db!=='waiting-trucks-dev-turso-20260902192750') throw new Error('Refusing non-DEV Turso database');
+            const headers={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json().catch(()=>({}));
+            if(!dbRes.ok) throw new Error(`DEV Turso lookup HTTP ${dbRes.status}`);
+            const info=dbJson.database||dbJson;
+            const hostname=info.Hostname||info.hostname;
+            if(!hostname) throw new Error('DEV Turso hostname missing');
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json().catch(()=>({}));
+            const dbToken=tokenJson.jwt;
+            if(!tokenRes.ok||!dbToken) throw new Error(`DEV Turso auth token HTTP ${tokenRes.status}`);
+            console.log(`::add-mask::${dbToken}`);
+            const now=new Date().toISOString();
+            const sql=`INSERT INTO ms_connector_tokens(hub,token_hash,created_at,last_used_at,active) VALUES('NE1','${tokenHash}','${now}','',1) ON CONFLICT(hub) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at,last_used_at='',active=1`;
+            const response=await fetch(`https://${hostname}/v2/pipeline`,{
+              method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+            });
+            const payload=await response.json().catch(()=>({}));
+            const item=payload?.results?.[0];
+            if(!response.ok||item?.type==='error') throw new Error(`DEV Turso connector write failed: ${JSON.stringify(item?.error||payload)}`);
+            console.log('DEV_TURSO_CONNECTOR_HASH=PASS');
+            console.log('D1_QUERIES=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Call active DEV Worker connectorSync with Turso-paired token
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          (async()=>{
+            const connectorToken=fs.readFileSync('/tmp/dev-connector-token','utf8').trim();
+            console.log(`::add-mask::${connectorToken}`);
+            const api=process.env.DEV_API;
+            if(!api.includes('waiting-trucks-report-api-dev.26nak-testdev.workers.dev')) throw new Error('Refusing non-DEV API');
+            const response=await fetch(api,{
+              method:'POST',headers:{'content-type':'application/json'},
+              body:JSON.stringify({action:'connectorSync',hub:'NE1',connectorToken}),
+            });
+            const body=await response.json().catch(()=>({}));
+            const code=String(body?.code||body?.data?.code||'');
+            console.log(`DEV_CONNECTOR_HTTP=${response.status}`);
+            console.log(`DEV_CONNECTOR_OK=${String(body?.ok)}`);
+            console.log(`DEV_CONNECTOR_CODE=${code||'-'}`);
+            console.log(`DEV_HAS_ROWS=${Array.isArray(body?.data?.rows)}`);
+            console.log(`DEV_HAS_TBR_SHADOW_FEED=${Array.isArray(body?.data?.tbrShadowFeed)}`);
+            console.log(`DEV_ROW_COUNT=${Array.isArray(body?.data?.rows)?body.data.rows.length:'-'}`);
+            console.log(`DEV_TBR_FEED_COUNT=${Array.isArray(body?.data?.tbrShadowFeed)?body.data.tbrShadowFeed.length:'-'}`);
+            if(code==='INVALID_CONNECTOR') throw new Error('ACTIVE_DEV_REJECTS_TURSO_CONNECTOR');
+            if(!response.ok||body?.ok===false) throw new Error(`DEV connectorSync failed: HTTP ${response.status} CODE=${code||'-'}`);
+            if(!Array.isArray(body?.data?.rows)) throw new Error('DEV connectorSync missing rows array');
+            if(!Array.isArray(body?.data?.tbrShadowFeed)) throw new Error('DEV connectorSync missing tbrShadowFeed array');
+            console.log('ACTIVE_DEV_TURSO_CONNECTOR=PASS');
+            console.log('ACTIVE_DEV_TBR_SOURCE_CONTRACT=PASS');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

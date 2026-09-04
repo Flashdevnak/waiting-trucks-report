@@ -1,0 +1,45 @@
+name: Test Read Browser Deployment Now
+
+on:
+  push:
+    branches:
+      - test/tbr-shadow-final-20260904
+    paths:
+      - .github/workflows/test-read-browser-deployment-now.yml
+
+permissions:
+  contents: read
+
+jobs:
+  read-now:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+    steps:
+      - name: Read live Browser TEST deployment, bindings and reports only
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const token=process.env.CLOUDFLARE_API_TOKEN;
+            const script='waiting-trucks-ms-browser-test';
+            const headers={Authorization:`Bearer ${token}`};
+            const base=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${script}`;
+            async function cf(path){const r=await fetch(base+path,{headers});const b=await r.json().catch(()=>({}));if(!r.ok||b.success===false)throw new Error(`${path} ${r.status} ${JSON.stringify(b.errors||b)}`);return b.result;}
+            const [settings,deployments]=await Promise.all([cf('/settings'),cf('/deployments')]);
+            const bindings=(settings?.bindings||[]).map(b=>({name:b.name||'',type:b.type||'',namespace_id:b.namespace_id||b.namespaceId||'',service:b.service||''}));
+            const active=(deployments?.deployments||[])[0]||{};
+            console.log('ACTIVE='+JSON.stringify({id:active.id||'',created_on:active.created_on||'',versions:active.versions||[]}));
+            console.log('BINDINGS='+JSON.stringify(bindings));
+            const origin=process.env.BROWSER_ORIGIN;
+            for(const path of ['/api/shadow-tbr?hub=NE1','/api/connection-error?hub=NE1']){
+              const r=await fetch(origin+path,{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+              const j=await r.json().catch(()=>({}));
+              console.log(`REPORT ${path} HTTP=${r.status} BODY=${JSON.stringify(j)}`);
+            }
+            console.log('MUTATIONS=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

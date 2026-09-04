@@ -1,0 +1,41 @@
+name: Provision Proof Turso
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/provision-proof-turso.yml
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG_SLUG: flashdevnak
+      TURSO_DATABASE_NAME: waiting-trucks-proof-dev
+      TURSO_WORKER_SECRETS_FILE: /tmp/proof-turso-secrets.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Create dedicated Proof Turso database only
+        id: turso
+        run: node .github/turso-tools/provision-only.mjs
+      - name: Discard generated database token after verification
+        run: |
+          test -s "$TURSO_WORKER_SECRETS_FILE"
+          rm -f "$TURSO_WORKER_SECRETS_FILE"
+          echo "PROOF_TURSO_TOKEN_EXPOSED=NO"
+      - name: Summary
+        run: |
+          echo "TURSO_DATABASE=${{ steps.turso.outputs.turso_database_name }}"
+          echo "TURSO_HOSTNAME=${{ steps.turso.outputs.turso_hostname }}"
+          echo "TURSO_PRIMARY=${{ steps.turso.outputs.turso_primary }}"
+          echo "CLOUDFLARE_TOUCHED=NO"
+          echo "WORKER_DEPLOYED=NO"
+          echo "D1_TOUCHED=NO"
+          echo "EXISTING_TURSO_TOUCHED=NO"

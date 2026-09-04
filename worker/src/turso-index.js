@@ -4,10 +4,16 @@ import { maybeHandleProofRequest, runProofScheduled } from "./proof-control.js";
 import { maybeHandleProofLiveV2 } from "./proof-live-v2.js";
 import { maybeHandleProofPreview } from "./proof-preview.js";
 import { maybeHandleProofEditor } from "./proof-editor.js";
+import { maybeHandleProofPlateSearchV5 } from "./proof-plate-search-v5.js";
+import { maybeHandleProofUiV5 } from "./proof-ui-v5.js";
 
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
+    const proofUiV5Response = await maybeHandleProofUiV5(request, runtimeEnv, ctx, worker);
+    if (proofUiV5Response) return proofUiV5Response;
+    const proofPlateV5Response = await maybeHandleProofPlateSearchV5(request, runtimeEnv, ctx, worker);
+    if (proofPlateV5Response) return proofPlateV5Response;
     const proofEditorResponse = await maybeHandleProofEditor(request, runtimeEnv, ctx, worker);
     if (proofEditorResponse) return proofEditorResponse;
     const proofPreviewResponse = await maybeHandleProofPreview(request, runtimeEnv, ctx, worker);

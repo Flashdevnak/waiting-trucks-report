@@ -14,46 +14,58 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Capture safe Proof and TBR live state read-only
+      - name: Allow DEV and Browser deploy plus cron recovery
+        run: sleep 150
+      - name: Capture safe live fields only
+        shell: bash
         run: |
-          node <<'NODE'
-          const fs=require('node:fs');
-          const dev='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
-          const browser='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
-          const markers=['HAR สำหรับปริ้นบาร์โค้ดรถ','proof-print-har-save','HAR เส้นทาง MS','HAR บันทึกแล้วและ Proof Session ใช้งานได้','proof-print-har-file-name'];
-          async function ft(url){try{const r=await fetch(url,{cache:'no-store',headers:{'cache-control':'no-cache'}});return {status:r.status,text:await r.text()};}catch(e){return {status:0,text:'',error:String(e?.message||e)}}}
-          async function fj(url){const x=await ft(url);let data=null;try{data=JSON.parse(x.text||'null')}catch{}return {...x,data};}
-          const proof=await ft(dev+'/proof-v5.js?v=safe-diag');
-          const shadow=await fj(browser+'/api/shadow-tbr?hub=NE1');
-          const conn=await fj(browser+'/api/connection-error?hub=NE1');
-          const s=shadow.data||{}; const c=conn.data?.data||conn.data||{};
-          const lines=[
-            'CHECKED_AT='+new Date().toISOString(),
-            'READ_ONLY=YES',
-            'PRODUCTION_TOUCHED=NO',
-            'PROOF_HTTP='+proof.status,
-            'PROOF_MISSING_MARKERS='+markers.filter(m=>!(proof.text||'').includes(m)).join('|'),
-            'SHADOW_HTTP='+shadow.status,
-            'TBR_OBSERVER='+String(s.observerStatus||''),
-            'TBR_SOURCE_AVAILABLE='+String(s.sourceAvailable===true),
-            'TBR_FEED='+String(Number(s.feedCount||0)),
-            'TBR_ROUTE_ROWS='+String(Number(s.rowCount||0)),
-            'TBR_HEARTBEAT='+String(s.heartbeatAt||s.heartbeat_at||s.lastHeartbeatAt||''),
-            'TBR_MODE='+String(s.shadowQuota?.mode||''),
-            'TBR_SOURCE_ERROR_CODE='+String(s.sourceErrorCode||s.errorCode||s.code||''),
-            'TBR_SOURCE_ERROR_MESSAGE='+String(s.sourceErrorMessage||s.errorMessage||s.message||'').slice(0,240).replace(/[\r\n]/g,' '),
-            'CONNECTION_HTTP='+String(conn.status),
-            'CONNECTION_ERROR_CODE='+String(c.code||c.errorCode||''),
-            'CONNECTION_ERROR_MESSAGE='+String(c.message||c.errorMessage||'').slice(0,240).replace(/[\r\n]/g,' '),
-            'CONNECTION_RECOVERED_AT='+String(c.recoveredAt||'')
-          ];
-          fs.writeFileSync('.github/dev-tools/proof-tbr-live-diagnostic.txt',lines.join('\n')+'\n');
-          NODE
+          set +e
+          DEV='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev'
+          BROWSER='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev'
+          proof_http=$(curl -sS --max-time 20 -o /tmp/proof.js -w '%{http_code}' "$DEV/proof-v5.js?v=stable-diag")
+          shadow_http=$(curl -sS --max-time 20 -o /tmp/shadow.json -w '%{http_code}' "$BROWSER/api/shadow-tbr?hub=NE1")
+          conn_http=$(curl -sS --max-time 20 -o /tmp/conn.json -w '%{http_code}' "$BROWSER/api/connection-error?hub=NE1")
+          printf 'CHECKED_AT=%s\n' "$(date -u +%FT%TZ)" > .github/dev-tools/proof-tbr-live-diagnostic.txt
+          printf 'READ_ONLY=YES\nPRODUCTION_TOUCHED=NO\n' >> .github/dev-tools/proof-tbr-live-diagnostic.txt
+          printf 'PROOF_HTTP=%s\nSHADOW_HTTP=%s\nCONNECTION_HTTP=%s\n' "$proof_http" "$shadow_http" "$conn_http" >> .github/dev-tools/proof-tbr-live-diagnostic.txt
+          if [ -s /tmp/proof.js ]; then
+            missing=''
+            for m in 'HAR สำหรับปริ้นบาร์โค้ดรถ' 'proof-print-har-save' 'HAR เส้นทาง MS' 'HAR บันทึกแล้วและ Proof Session ใช้งานได้' 'proof-print-har-file-name'; do
+              grep -Fq "$m" /tmp/proof.js || missing="${missing}${m}|"
+            done
+            printf 'PROOF_MISSING_MARKERS=%s\n' "$missing" >> .github/dev-tools/proof-tbr-live-diagnostic.txt
+          fi
+          if jq -e . /tmp/shadow.json >/dev/null 2>&1; then
+            jq -r '[
+              "TBR_OBSERVER="+(.observerStatus // ""|tostring),
+              "TBR_SOURCE_AVAILABLE="+(.sourceAvailable // ""|tostring),
+              "TBR_FEED="+(.feedCount // ""|tostring),
+              "TBR_ROUTE_ROWS="+(.rowCount // ""|tostring),
+              "TBR_LAST_ATTEMPT="+(.lastAttemptAt // ""|tostring),
+              "TBR_LAST_OBSERVED="+(.lastObservedAt // ""|tostring),
+              "TBR_LAST_SKIP="+(.lastSkip // ""|tostring),
+              "TBR_ROUTE_FALLBACK="+(.routeFallback // ""|tostring),
+              "TBR_ROUTE_ERROR_CODE="+(.routeSourceError.code // ""|tostring),
+              "TBR_ROUTE_ERROR_STATUS="+(.routeSourceError.status // ""|tostring),
+              "TBR_MODE="+(.shadowQuota.mode // ""|tostring)
+            ]|.[]' /tmp/shadow.json >> .github/dev-tools/proof-tbr-live-diagnostic.txt
+          else
+            printf 'TBR_JSON=INVALID_OR_EMPTY\n' >> .github/dev-tools/proof-tbr-live-diagnostic.txt
+          fi
+          if jq -e . /tmp/conn.json >/dev/null 2>&1; then
+            jq -r '(.data // .) as $d | [
+              "CONNECTION_CODE="+($d.code // $d.errorCode // ""|tostring),
+              "CONNECTION_SOURCE="+($d.source // ""|tostring),
+              "CONNECTION_RECOVERED_AT="+($d.recoveredAt // ""|tostring)
+            ]|.[]' /tmp/conn.json >> .github/dev-tools/proof-tbr-live-diagnostic.txt
+          else
+            printf 'CONNECTION_JSON=INVALID_OR_EMPTY\n' >> .github/dev-tools/proof-tbr-live-diagnostic.txt
+          fi
       - name: Commit safe diagnostic only
         run: |
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
           git add .github/dev-tools/proof-tbr-live-diagnostic.txt
-          git commit -m 'Capture safe Proof TBR live diagnostic'
+          git commit -m 'Capture stable safe Proof TBR live diagnostic'
           git pull --rebase origin main
           git push origin HEAD:main

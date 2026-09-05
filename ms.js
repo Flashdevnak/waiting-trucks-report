@@ -137,6 +137,8 @@ document.addEventListener("DOMContentLoaded", () => {
   clock();
   authUi();
   loadData();
+  handleMsEntryHash();
+  window.addEventListener("hashchange", handleMsEntryHash);
 });
 
 function loadAuth() {
@@ -148,6 +150,12 @@ function loadAuth() {
   return null;
 }
 
+function handleMsEntryHash() {
+  if (location.hash !== "#connection") return;
+  if (!state.auth) { if (!el("login-dialog").open) el("login-dialog").showModal(); return; }
+  history.replaceState(null, "", location.pathname + location.search);
+  openMsConnection();
+}
 function clock() {
   el("live-clock").textContent =
     `เวลารายงานแบบเรียลไทม์ · ${dtf.format(new Date())} น.`;
@@ -201,6 +209,7 @@ async function login(event) {
     el("login-dialog").close();
     authUi();
     await loadData();
+    handleMsEntryHash();
     toast("เข้าสู่ระบบแล้ว");
   } catch (error) {
     el("login-error").textContent = error.message;

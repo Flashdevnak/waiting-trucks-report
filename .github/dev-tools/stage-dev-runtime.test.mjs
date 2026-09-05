@@ -177,3 +177,13 @@ test("DEV deploy uses the idempotent staging entrypoint and daily-history gate",
     /node scripts\/patch-dev-ms-archive\.mjs \.dev-assets\/ms\.js src\/index\.js/,
   );
 });
+
+
+test("DEV header polish keeps refresh beside online, readable menus, password and HAR entry", () => {
+  const styled = stageStyle(styleSource);
+  assert.match(styled, /DEV_HEADER_POLISH_V3/);
+  assert.match(styled, /dev-shell-refresh\{order:2/);
+  assert.match(styled, /dev-shell-status\{order:1/);
+  assert.match(styled, /a>b\{font-size:15px/);
+  assert.match(styled, /badge-online/);
+});

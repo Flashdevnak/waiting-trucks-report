@@ -111,14 +111,31 @@ document.addEventListener("DOMContentLoaded", () => {
   refreshStatusUi();
   authUi();
   loadData();
-  if (location.hash === "#settings" && state.auth?.role === "admin")
-    setTimeout(openSettings, 0);
+  handleEntryHash();
+  window.addEventListener("hashchange", handleEntryHash);
   setInterval(
     () => state.view === "active" && state.auth && loadData(true),
     CONFIG.pollMs,
   );
   setInterval(render, 60000);
 });
+function clearEntryHash() {
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+}
+function handleEntryHash() {
+  if (location.hash === "#settings") {
+    if (state.auth?.role === "admin") { clearEntryHash(); setTimeout(openSettings, 0); }
+    return;
+  }
+  if (location.hash !== "#password") return;
+  if (state.auth) {
+    clearEntryHash();
+    if (!el("password-dialog").open) el("password-dialog").showModal();
+    return;
+  }
+  state.afterUnlock = () => { clearEntryHash(); if (!el("password-dialog").open) el("password-dialog").showModal(); };
+  if (!el("pin-dialog").open) el("pin-dialog").showModal();
+}
 function clock() {
   el("live-clock").textContent =
     `เวลารายงานแบบเรียลไทม์ · ${dtf.format(new Date())} น.`;

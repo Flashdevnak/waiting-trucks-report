@@ -260,15 +260,25 @@ function connectorPartFailure(part, response, payload) {
   });
 }
 
+// TBR_ROUTE_503_RETRY_V1: retry only transient Route transport failures.
+async function sendConnectorPartResilient(env, hub, connectorToken, part) {
+  let response = await sendConnectorPart(env, hub, connectorToken, part);
+  let payload = await connectorPartPayload(response);
+  if (part === "routes" && [502, 503, 504].includes(response.status)) {
+    await wait(450);
+    response = await sendConnectorPart(env, hub, connectorToken, part);
+    payload = await connectorPartPayload(response);
+  }
+  return { response, payload };
+}
+
 async function sendConnectorSync(env, hub, connectorToken) {
-  const [routeResponse, busResponse] = await Promise.all([
-    sendConnectorPart(env, hub, connectorToken, "routes"),
-    sendConnectorPart(env, hub, connectorToken, "bus"),
+  const [routeResult, busResult] = await Promise.all([
+    sendConnectorPartResilient(env, hub, connectorToken, "routes"),
+    sendConnectorPartResilient(env, hub, connectorToken, "bus"),
   ]);
-  const [routePayload, busPayload] = await Promise.all([
-    connectorPartPayload(routeResponse),
-    connectorPartPayload(busResponse),
-  ]);
+  const routeResponse = routeResult.response, routePayload = routeResult.payload;
+  const busResponse = busResult.response, busPayload = busResult.payload;
   if (!routeResponse.ok) return connectorPartFailure("routes", routeResponse, routePayload);
   if (!busResponse.ok) return connectorPartFailure("bus", busResponse, busPayload);
   const rows = Array.isArray(routePayload?.data?.rows) ? routePayload.data.rows : [];

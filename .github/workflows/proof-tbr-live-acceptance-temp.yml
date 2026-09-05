@@ -10,48 +10,33 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-live-source:
+  diagnose-browser-cron:
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Read current TBR live health safely
+      - name: Capture only safe Browser cron events
+        working-directory: cloudflare-browser-test
         run: |
+          npm install --no-audit --no-fund >/dev/null 2>&1
+          timeout 90s npx wrangler tail waiting-trucks-ms-browser-test --format=json > /tmp/browser-tail.log 2>&1 || true
           node <<'NODE'
-          const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
-          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-          async function read(path){
-            const response=await fetch(origin+path,{headers:{accept:'application/json'},cache:'no-store'});
-            const body=await response.json().catch(()=>({}));
-            return {status:response.status,body};
+          const fs=require('node:fs');
+          const raw=fs.readFileSync('/tmp/browser-tail.log','utf8').split(/\r?\n/);
+          let count=0;
+          for(const line of raw){
+            if(!/(connector_sync_|tbr_shadow_|tbr_route_|Exception|error)/i.test(line)) continue;
+            const safe=line
+              .replace(/(session|token|authorization|cookie|device)[^,}\]]*/ig,'$1:[REDACTED]')
+              .slice(0,1200);
+            console.log(safe); count++;
           }
-          for(let attempt=1;attempt<=3;attempt++){
-            const shadow=await read('/api/shadow-tbr?hub=NE1');
-            const connection=await read('/api/connection-error?hub=NE1');
-            const s=shadow.body||{}, i=connection.body?.data||null;
-            console.log(JSON.stringify({
-              attempt,
-              shadowHttp:shadow.status,
-              observerStatus:s.observerStatus||'',
-              sourceAvailable:s.sourceAvailable??null,
-              lastAttemptAt:s.lastAttemptAt||'',
-              lastObservedAt:s.lastObservedAt||'',
-              lastSkip:s.lastSkip||'',
-              feedCount:s.feedCount??null,
-              rowCount:s.rowCount??null,
-              routeFallback:Boolean(s.routeFallback),
-              routeSourceCode:s.routeSourceError?.code||'',
-              incidentSource:i?.source||'',
-              incidentCode:i?.code||'',
-              incidentRecoveredAt:i?.recoveredAt||'',
-              tursoReads:s.tursoReads,
-              tursoWrites:s.tursoWrites,
-            }));
-            if(s.observerStatus==='LIVE'&&s.sourceAvailable===true&&s.lastObservedAt) break;
-            if(attempt<3) await sleep(15000);
-          }
+          console.log(`SAFE_EVENT_LINES=${count}`);
           console.log('READ_ONLY=YES');
           console.log('MS_MUTATION_TESTED=NO');
           console.log('PRODUCTION_TOUCHED=NO');

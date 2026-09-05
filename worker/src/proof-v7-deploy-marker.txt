@@ -1,0 +1,3 @@
+Proof session UI publish marker
+Version: 20260905-08
+Purpose: trigger DEV Worker deployment from current main after the static proof/session controls were published.

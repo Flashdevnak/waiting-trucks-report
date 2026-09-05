@@ -39,15 +39,19 @@ jobs:
         run: |
           npm run check
           node --check src/index.js
+          node --check src/tbr-shadow.js
           node <<'NODE'
           const fs=require('node:fs');
           const source=fs.readFileSync('src/index.js','utf8');
+          const shadow=fs.readFileSync('src/tbr-shadow.js','utf8');
           const config=fs.readFileSync('wrangler.jsonc','utf8');
           const api='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api';
           if(!source.includes(api)) throw new Error('Browser MAIN_API is not promoted Turso API');
           if(!source.includes('payload?.code === "INVALID_CONNECTOR"')) throw new Error('Browser does not distinguish invalid connector from expired MS session');
           if(!source.includes('connector_sync_blocked')) throw new Error('Browser missing retained-connector diagnostic');
           if(!source.includes('TBR_SHADOW_OBSERVER_V1')) throw new Error('Browser TBR shadow observer route patch missing');
+          if(!shadow.includes('TBR_SAME_CRON_TIMESTAMP_V1')) throw new Error('Browser TBR same-cron timestamp fix missing');
+          if(shadow.includes('if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;')) throw new Error('Browser TBR old same-cron discard logic returned');
           if(!source.includes('TBR_SHADOW_REPORT_V1') || !source.includes('/api/shadow-tbr') || !source.includes('/shadow-tbr'))
             throw new Error('Browser TBR shadow report routes missing');
           if(!source.includes('MS_CONNECTION_ERROR_KV_V1') || !source.includes('/api/connection-error'))
@@ -57,9 +61,30 @@ jobs:
           if(!config.includes('"* * * * *"')) throw new Error('Browser cron is not every minute');
           if(/d1_databases/.test(config)) throw new Error('Browser Worker must not bind D1');
           console.log('BROWSER_CONNECTOR_RECOVERY_POLICY=PASS');
+          console.log('BROWSER_TBR_SAME_CRON_GATE=PASS');
           console.log('BROWSER_TEST_ROUTES_STAGE=PASS');
           console.log('BROWSER_CRON_ONE_MINUTE=PASS');
           console.log('BROWSER_D1_BINDING_CONFIG=0');
+          NODE
+      - name: Regression test TBR same-cron ordering before deploy
+        run: |
+          node --input-type=module <<'NODE'
+          import { observeTbrShadow, readTbrShadowReport } from './src/tbr-shadow.js';
+          class KV {
+            constructor(){ this.m=new Map(); }
+            async get(k){ return this.m.get(k) ?? null; }
+            async put(k,v){ this.m.set(k,v); }
+          }
+          const STATE=new KV();
+          const now=Date.parse('2026-09-05T09:50:00+07:00');
+          await observeTbrShadow({STATE},'NE1',{
+            shadowQuota:{mode:'SHADOW_READONLY_SPLIT_V2',tursoPointReadsPerCron:4,tursoWritesPerCron:0},
+            tbrShadowFeed:[{proofId:'DEPLOY-GATE',scheduleTbrArrivalAt:'2026-09-05T09:48:05+07:00',scheduleKitArrivalAt:''}],
+            rows:[{proofId:'DEPLOY-GATE',attendanceType:'ปลายทาง',actualArrivalAt:'2026-09-05T09:48:35+07:00'}],
+          },now);
+          const report=await readTbrShadowReport({STATE},'NE1');
+          if(report.total!==1 || report.confirmed!==1) throw new Error('same-cron deploy regression failed');
+          console.log('BROWSER_TBR_SAME_CRON_BEHAVIOR=PASS');
           NODE
       - name: Deploy Browser Worker
         run: npx wrangler deploy --config wrangler.jsonc

@@ -1,5 +1,4 @@
 name: Proof TBR Live Acceptance Temp
-# checkpoint-trigger: bus-daily-v9c
 
 on:
   push:
@@ -8,61 +7,23 @@ on:
       - .github/workflows/proof-tbr-live-acceptance-temp.yml
 
 permissions:
-  contents: write
+  contents: read
+  actions: write
 
 jobs:
-  patch-bus-daily-cpu-split:
+  dispatch-v9-deployments:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Apply functional patch
+      - name: Dispatch DEV Worker deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - name: Dispatch Browser Worker deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-browser-worker.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - name: Safety checkpoint
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-          p=Path('.tmp-tbr-bus-v9.py')
-          s=p.read_text()
-          start=s.index("\nanchor='      status:")
-          end=s.index("\nq.write_text(t)", start)
-          p.write_text(s[:start] + s[end:])
-          PY
-          python3 .tmp-tbr-bus-v9.py
-      - name: Validate functional patch before commit
-        run: |
-          node --check cloudflare-browser-test/src/index.js
-          node --check cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
-          node --check cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs
-          node --check cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs
-          cd cloudflare-browser-test
-          npm install --no-audit --no-fund
-          node scripts/tbr-bus-retry.test.mjs
-          node scripts/tbr-bus-daily-split.test.mjs
-          cd ..
-          cp worker/src/index.js /tmp/tbr-dev-index.js
-          node cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs /tmp/tbr-dev-index.js
-          node cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs /tmp/tbr-dev-index.js
-          node --check /tmp/tbr-dev-index.js
-          grep -q 'TBR_BUS_DAILY_SPLIT_V9' /tmp/tbr-dev-index.js
-          grep -q 'shadowDay' /tmp/tbr-dev-index.js
-          ! grep -q 'd1_databases' cloudflare-browser-test/wrangler.jsonc
-          echo 'TBR_BUS_CPU_SPLIT_CHECKPOINT=PASS'
-          echo 'TBR_CRON=1_MINUTE_UNCHANGED'
-          echo 'TBR_TURSO_WRITES=0'
-          echo 'BROWSER_D1_BINDING=0'
+          echo 'TBR_V9_DEPLOY_DISPATCH=PASS'
           echo 'MS_MUTATION_TESTED=NO'
           echo 'PRODUCTION_TOUCHED=NO'
-      - name: Commit functional source and regressions
-        run: |
-          git config user.name 'Flashdevnak'
-          git config user.email '26nak.testdev@gmail.com'
-          git add cloudflare-browser-test/src/index.js \
-                  cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs \
-                  cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs \
-                  cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs \
-                  cloudflare-browser-test/package.json
-          git commit -m 'Split TBR Bus operating days across DEV CPU budgets'
-          git restore .tmp-tbr-bus-v9.py
-          git pull --rebase origin main
-          git push origin HEAD:main

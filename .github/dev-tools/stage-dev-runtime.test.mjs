@@ -193,3 +193,12 @@ test("DEV header V5 keeps spacious menu icons and groups status with refresh at 
   assert.match(styled, /dev-shell-status>\.badge-online::before/);
   assert.match(styled, /summary::after\{content:"⌄"/);
 });
+
+
+test("DEV tools empty-state is event-driven and cannot self-trigger an attribute observer loop", async () => {
+  const source = await readFile(new URL(".github/dev-tools/stage-dev-runtime.mjs", root), "utf8");
+  assert.match(source, /DEV_TOOLS_SAFE_EMPTY_V7/);
+  assert.match(source, /details\.addEventListener\('toggle'/);
+  assert.doesNotMatch(source, /new MutationObserver\(sync\)\.observe\(header/);
+  assert.doesNotMatch(source, /attributeFilter:\['class','style','hidden'\]/);
+});

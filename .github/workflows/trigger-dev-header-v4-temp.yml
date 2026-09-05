@@ -1,5 +1,5 @@
 name: Trigger DEV Header V4 Temp
-# trigger: run-v4c-runner
+# trigger: live-verify-v4
 
 on:
   push:
@@ -8,14 +8,42 @@ on:
       - .github/workflows/trigger-dev-header-v4-temp.yml
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
-  dispatch:
+  live-verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch minimal DEV Header V4 runner
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run dev-header-ui-v4c-runner-temp.yml --repo "$GITHUB_REPOSITORY" --ref main
+      - name: Verify DEV header V4 live on all pages
+        run: |
+          node <<'NODE'
+          const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+          const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
+          async function text(path){
+            const response=await fetch(`${base}/${path}`,{cache:'no-store',headers:{'cache-control':'no-cache'}});
+            const body=await response.text();
+            if(!response.ok) throw new Error(`${path} HTTP ${response.status}`);
+            return body;
+          }
+          for(const page of pages){
+            const html=await text(page);
+            const header=html.match(/<header class="site-header dev-unified-header"[\s\S]*?<\/header>/)?.[0]||'';
+            if(!header) throw new Error(`${page}: DEV header missing`);
+            if(!html.includes('DEV_EXCLUSIVE_DROPDOWNS_V4')) throw new Error(`${page}: exclusive dropdown behavior missing`);
+            if(!header.includes('dev-nav-svg')) throw new Error(`${page}: SVG nav icons missing`);
+            for(const legacy of ['🚚','🧾','⏱','▦','⚙','●']) if(header.includes(legacy)) throw new Error(`${page}: legacy icon remains: ${legacy}`);
+            if((header.match(/<details class="app-nav">/g)||[]).length!==3) throw new Error(`${page}: expected 3 header dropdowns`);
+            console.log(`DEV_HEADER_V4_PAGE=${page}:PASS`);
+          }
+          const css=await text('style.css?v=20260905-dev-shell-v3');
+          for(const marker of ['DEV_HEADER_INTERACTION_V4','app-nav-menu a>b{font-size:16px','app-nav>summary>span:nth-child(2){font-weight:900;font-size:16px','summary::after{content:"⌄"']){
+            if(!css.includes(marker)) throw new Error(`live CSS missing ${marker}`);
+          }
+          console.log('DEV_HEADER_V4_LIVE=PASS');
+          console.log('DEV_DROPDOWN_EXCLUSIVE_LIVE=PASS');
+          console.log('DEV_HEADER_SVG_ICONS_LIVE=PASS');
+          console.log('DEV_HEADER_TEXT_SIZE_LIVE=PASS');
+          console.log('READ_ONLY=YES');
+          console.log('MS_MUTATION_TESTED=NO');
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE

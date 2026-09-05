@@ -58,6 +58,9 @@ function freshState(hub) {
     rowCount: null,
     lastSkip: "",
     shadowQuota: null,
+    routeFallback: false,
+    routeFallbackAt: "",
+    routeSourceError: null,
     records: {},
   };
 }
@@ -191,6 +194,9 @@ export async function readTbrShadowReport(env, hubValue = "NE1") {
     rowCount: Number.isFinite(Number(state.rowCount)) ? Number(state.rowCount) : null,
     lastSkip: String(state.lastSkip || ""),
     shadowQuota: state.shadowQuota && typeof state.shadowQuota === "object" ? state.shadowQuota : null,
+    routeFallback: Boolean(state.routeFallback),
+    routeFallbackAt: String(state.routeFallbackAt || ""),
+    routeSourceError: state.routeSourceError && typeof state.routeSourceError === "object" ? state.routeSourceError : null,
     startedAt: String(state.startedAt || ""),
     updatedAt: String(state.updatedAt || ""),
     ...stats,
@@ -214,9 +220,10 @@ export function tbrShadowPage(report) {
     .join("");
   const body = rows || '<tr><td colspan="7" class="empty">ยังไม่มี TBR candidate ปลายทาง/จุดดรอปที่ต้องบันทึกใน Shadow</td></tr>';
   const status = String(report?.observerStatus || "NEVER_OBSERVED");
-  const statusClass = status === "LIVE" ? "live" : status === "STALE" ? "stale" : status === "WAITING_SOURCE" ? "wait" : "never";
+  const statusClass = report?.routeFallback ? "degraded" : status === "LIVE" ? "live" : status === "STALE" ? "stale" : status === "WAITING_SOURCE" ? "wait" : "never";
+  const healthText = report?.routeFallback ? "LIVE · TBR สด / Route ใช้ snapshot ล่าสุดชั่วคราว" : healthLabel(status);
   return new Response(
-    `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>TBR Shadow ${escapeHtml(report?.hub || "")}</title><style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f7fb;color:#18212f}.wrap{max-width:1180px;margin:28px auto;padding:0 16px}.head{display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap}.sub{color:#667085}.health{margin:14px 0;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;line-height:1.65}.health b{display:inline-block;margin-right:8px}.live{color:#067647}.stale{color:#b42318;background:#fff7f6;border-color:#fecdca}.wait{color:#b54708}.never{color:#667085}.cards{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:18px 0}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:14px}.card b{display:block;font-size:24px;margin-top:6px}.table{overflow:auto;background:white;border:1px solid #e5e7eb;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:780px}th,td{padding:11px 12px;border-bottom:1px solid #eef1f5;text-align:center;font-size:14px}th{background:#f8fafc}.empty{padding:28px;color:#667085}.safe{font-size:13px;color:#067647;background:#ecfdf3;border-radius:999px;padding:7px 10px}.foot{margin-top:12px;color:#667085;font-size:13px}@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}}</style></head><body><div class="wrap"><div class="head"><div><h1>TBR Shadow Test · ${escapeHtml(report?.hub || "")}</h1><div class="sub">ทดลองจับ TBR รถเข้า: ปลายทาง + จุดดรอป · ไม่เอาต้นทาง · ไม่กระทบคิวจริง</div></div><div class="safe">Shadow report Turso 0/0 · Source ${escapeHtml(report?.shadowQuota?.mode || "-")} · point read/cron ${escapeHtml(report?.shadowQuota?.tursoPointReadsPerCron ?? "-")} · write/cron ${escapeHtml(report?.shadowQuota?.tursoWritesPerCron ?? "-")}</div></div><div class="health ${escapeHtml(statusClass)}"><b>Observer: ${escapeHtml(healthLabel(status))}</b> · Cron ทุก 1 นาที · Heartbeat KV ล่าสุด ${escapeHtml(displayTime(report?.lastObservedAt))} · TBR feed ${escapeHtml(report?.feedCount ?? "-")} · Route rows ${escapeHtml(report?.rowCount ?? "-")}${report?.lastSkip ? ` · ${escapeHtml(report.lastSkip)}` : ""}</div><div class="cards"><div class="card">ทั้งหมด<b>${escapeHtml(report?.total ?? 0)}</b></div><div class="card">รอ Route<b>${escapeHtml(report?.pending ?? 0)}</b></div><div class="card">ยืนยันแล้ว<b>${escapeHtml(report?.confirmed ?? 0)}</b></div><div class="card">หมดเวลา<b>${escapeHtml(report?.expired ?? 0)}</b></div><div class="card">เร็วขึ้นเฉลี่ย<b>${report?.averageLeadMinutes == null ? "-" : `${escapeHtml(report.averageLeadMinutes)} นาที`}</b></div><div class="card">เร็วสุด<b>${report?.maxLeadMinutes == null ? "-" : `${escapeHtml(report.maxLeadMinutes)} นาที`}</b></div></div><div class="table"><table><thead><tr><th>Shadow ID</th><th>ประเภทงาน</th><th>สถานะ</th><th>TBR</th><th>KIT</th><th>ยืนยัน/หมดเวลา</th><th>รู้เร็วขึ้น</th></tr></thead><tbody>${body}</tbody></table></div><div class="foot">อัปเดต Shadow KV ล่าสุด: ${escapeHtml(displayTime(report?.updatedAt))} · หน้านี้รีเฟรชทุก 60 วินาที · Heartbeat KV ถูก throttle สูงสุด 5 นาทีเพื่อลด quota · รายการ TBR เปลี่ยนจะบันทึกทันที · ID ถูก hash ไม่แสดงบาร์โค้ดจริง</div></div></body></html>`,
+    `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>TBR Shadow ${escapeHtml(report?.hub || "")}</title><style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f7fb;color:#18212f}.wrap{max-width:1180px;margin:28px auto;padding:0 16px}.head{display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap}.sub{color:#667085}.health{margin:14px 0;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;line-height:1.65}.health b{display:inline-block;margin-right:8px}.live{color:#067647}.stale{color:#b42318;background:#fff7f6;border-color:#fecdca}.wait{color:#b54708}.degraded{color:#b54708;background:#fffaeb;border-color:#fedf89}.never{color:#667085}.cards{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:18px 0}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:14px}.card b{display:block;font-size:24px;margin-top:6px}.table{overflow:auto;background:white;border:1px solid #e5e7eb;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:780px}th,td{padding:11px 12px;border-bottom:1px solid #eef1f5;text-align:center;font-size:14px}th{background:#f8fafc}.empty{padding:28px;color:#667085}.safe{font-size:13px;color:#067647;background:#ecfdf3;border-radius:999px;padding:7px 10px}.foot{margin-top:12px;color:#667085;font-size:13px}@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}}</style></head><body><div class="wrap"><div class="head"><div><h1>TBR Shadow Test · ${escapeHtml(report?.hub || "")}</h1><div class="sub">ทดลองจับ TBR รถเข้า: ปลายทาง + จุดดรอป · ไม่เอาต้นทาง · ไม่กระทบคิวจริง</div></div><div class="safe">Shadow report Turso 0/0 · Source ${escapeHtml(report?.shadowQuota?.mode || "-")} · point read/cron ${escapeHtml(report?.shadowQuota?.tursoPointReadsPerCron ?? "-")} · write/cron ${escapeHtml(report?.shadowQuota?.tursoWritesPerCron ?? "-")}</div></div><div class="health ${escapeHtml(statusClass)}"><b>Observer: ${escapeHtml(healthText)}</b> · Cron ทุก 1 นาที · Heartbeat KV ล่าสุด ${escapeHtml(displayTime(report?.lastObservedAt))} · TBR feed ${escapeHtml(report?.feedCount ?? "-")} · Route rows ${escapeHtml(report?.rowCount ?? "-")}${report?.lastSkip ? ` · ${escapeHtml(report.lastSkip)}` : ""}</div><div class="cards"><div class="card">ทั้งหมด<b>${escapeHtml(report?.total ?? 0)}</b></div><div class="card">รอ Route<b>${escapeHtml(report?.pending ?? 0)}</b></div><div class="card">ยืนยันแล้ว<b>${escapeHtml(report?.confirmed ?? 0)}</b></div><div class="card">หมดเวลา<b>${escapeHtml(report?.expired ?? 0)}</b></div><div class="card">เร็วขึ้นเฉลี่ย<b>${report?.averageLeadMinutes == null ? "-" : `${escapeHtml(report.averageLeadMinutes)} นาที`}</b></div><div class="card">เร็วสุด<b>${report?.maxLeadMinutes == null ? "-" : `${escapeHtml(report.maxLeadMinutes)} นาที`}</b></div></div><div class="table"><table><thead><tr><th>Shadow ID</th><th>ประเภทงาน</th><th>สถานะ</th><th>TBR</th><th>KIT</th><th>ยืนยัน/หมดเวลา</th><th>รู้เร็วขึ้น</th></tr></thead><tbody>${body}</tbody></table></div><div class="foot">อัปเดต Shadow KV ล่าสุด: ${escapeHtml(displayTime(report?.updatedAt))} · หน้านี้รีเฟรชทุก 60 วินาที · Heartbeat KV ถูก throttle สูงสุด 5 นาทีเพื่อลด quota · รายการ TBR เปลี่ยนจะบันทึกทันที · ID ถูก hash ไม่แสดงบาร์โค้ดจริง</div></div></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
 }
@@ -239,6 +246,7 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
   const key = `shadow:tbr:v1:${hub}`;
   const state = parseState(await env.STATE.get(key), hub);
   const previousSourceAvailable = state.sourceAvailable;
+  const previousRouteFallback = Boolean(state.routeFallback);
   const feedAvailable = Array.isArray(live?.tbrShadowFeed);
   const rowsAvailable = Array.isArray(live?.rows);
   const sourceAvailable = feedAvailable && rowsAvailable;
@@ -248,6 +256,10 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
     live?.shadowQuota && typeof live.shadowQuota === "object"
       ? live.shadowQuota
       : null;
+  const routeFallback = sourceAvailable && live?.routeFallback === true;
+  const routeFallbackAt = routeFallback ? iso(live?.routeFallbackAt) : "";
+  const routeSourceError = routeFallback && live?.routeSourceError && typeof live.routeSourceError === "object"
+    ? { code: String(live.routeSourceError.code || ""), message: String(live.routeSourceError.message || "") } : null;
   const previousHealthAt = validTime(state.healthUpdatedAt);
   const heartbeatDue = previousHealthAt === null || now - previousHealthAt >= SHADOW_HEALTH_WRITE_MS;
   const healthChanged =
@@ -255,14 +267,20 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
     state.feedCount !== feedCount ||
     state.rowCount !== rowCount ||
     JSON.stringify(state.shadowQuota || null) !== JSON.stringify(shadowQuota || null) ||
-    String(state.lastSkip || "") !== (sourceAvailable ? "" : "source_unavailable");
+    Boolean(state.routeFallback) !== routeFallback ||
+    String(state.routeFallbackAt || "") !== routeFallbackAt ||
+    JSON.stringify(state.routeSourceError || null) !== JSON.stringify(routeSourceError || null) ||
+    String(state.lastSkip || "") !== (sourceAvailable ? (routeFallback ? "route_fallback" : "") : "source_unavailable");
 
   state.lastAttemptAt = nowIso;
   state.sourceAvailable = sourceAvailable;
   state.feedCount = feedCount;
   state.rowCount = rowCount;
   state.shadowQuota = shadowQuota;
-  state.lastSkip = sourceAvailable ? "" : "source_unavailable";
+  state.routeFallback = routeFallback;
+  state.routeFallbackAt = routeFallbackAt;
+  state.routeSourceError = routeSourceError;
+  state.lastSkip = sourceAvailable ? (routeFallback ? "route_fallback" : "") : "source_unavailable";
 
   if (!sourceAvailable) {
     if (healthChanged || heartbeatDue) {
@@ -282,6 +300,7 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
       observerStatus: observerStatus(state),
       sourceAvailable: false,
       sourceChanged: previousSourceAvailable !== false,
+      routeFallbackChanged: previousRouteFallback !== routeFallback,
       skipped: "source_unavailable",
       ...summary(state),
     };
@@ -423,6 +442,7 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
       observerStatus: observerStatus(state),
       sourceAvailable: true,
       sourceChanged: previousSourceAvailable !== true,
+    routeFallbackChanged: previousRouteFallback !== routeFallback,
       ...result,
     };
   }

@@ -16,6 +16,14 @@ const API_URL =
 const MAIN_API =
   "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 
+// TBR_ROUTE_STALE_FALLBACK_V6: preserve the last successful compact Route snapshot
+// in Browser KV. A transient 502/503/504 can use it for up to 30 minutes while
+// the current Bus/TBR feed continues. Snapshot writes are throttled to 5 minutes.
+const TBR_ROUTE_CACHE_VERSION = 1;
+const TBR_ROUTE_CACHE_HEARTBEAT_MS = 5 * 60 * 1000;
+const TBR_ROUTE_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
+const TBR_ROUTE_CACHE_TTL_SECONDS = 2 * 60 * 60;
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -248,51 +256,110 @@ async function connectorPartPayload(response) {
   return response.clone().json().catch(() => ({}));
 }
 
-function connectorPartFailure(part, response, payload) {
+function connectorPartError(part, response, payload) {
   const originalCode = String(payload?.code || "");
   const code = originalCode === "INVALID_CONNECTOR"
     ? originalCode
     : originalCode || `TBR_${part.toUpperCase()}_HTTP_${response.status}`;
   const message = String(payload?.message || `${part} source ตอบกลับ HTTP ${response.status}`);
-  return new Response(JSON.stringify({ ok: false, code, message, sourcePart: part }), {
-    status: response.status || 503,
+  return { code, message, sourcePart: part, status: response.status || 503 };
+}
+
+function connectorPartFailure(part, response, payload) {
+  const error = connectorPartError(part, response, payload);
+  return new Response(JSON.stringify({ ok: false, code: error.code, message: error.message, sourcePart: part }), {
+    status: error.status,
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
 
 // TBR_ROUTE_503_RETRY_V1: retry only transient Route transport failures.
 async function sendConnectorPartResilient(env, hub, connectorToken, part) {
+  let attempts = 1;
   let response = await sendConnectorPart(env, hub, connectorToken, part);
   let payload = await connectorPartPayload(response);
   if (part === "routes" && [502, 503, 504].includes(response.status)) {
     await wait(450);
+    attempts = 2;
     response = await sendConnectorPart(env, hub, connectorToken, part);
     payload = await connectorPartPayload(response);
   }
-  return { response, payload };
+  return { response, payload, attempts };
 }
 
-async function sendConnectorSync(env, hub, connectorToken) {
+function tbrRouteCacheKey(hub) {
+  return `shadow:tbr:route-source:v1:${hub}`;
+}
+
+function parseTbrRouteCache(raw, hub) {
+  try {
+    const data = JSON.parse(raw || "null");
+    if (data?.version === TBR_ROUTE_CACHE_VERSION && data?.hub === hub && Array.isArray(data?.rows)) return data;
+  } catch {}
+  return null;
+}
+
+async function readTbrRouteCache(env, hub, now = Date.now()) {
+  if (!env?.STATE) return null;
+  const data = parseTbrRouteCache(await env.STATE.get(tbrRouteCacheKey(hub)), hub);
+  const lastSuccess = Date.parse(String(data?.lastSuccessAt || ""));
+  if (!data || !Number.isFinite(lastSuccess)) return null;
+  const ageMs = Math.max(0, now - lastSuccess);
+  if (ageMs > TBR_ROUTE_CACHE_MAX_AGE_MS) return null;
+  return { rows: data.rows, lastSuccessAt: data.lastSuccessAt, ageSeconds: Math.round(ageMs / 1000) };
+}
+
+async function refreshTbrRouteCache(env, hub, rows, now = Date.now()) {
+  if (!env?.STATE || !Array.isArray(rows)) return { written: false };
+  const key = tbrRouteCacheKey(hub);
+  const current = parseTbrRouteCache(await env.STATE.get(key), hub);
+  const previousAt = Date.parse(String(current?.lastSuccessAt || ""));
+  if (Number.isFinite(previousAt) && now - previousAt < TBR_ROUTE_CACHE_HEARTBEAT_MS)
+    return { written: false, lastSuccessAt: current.lastSuccessAt };
+  const lastSuccessAt = new Date(now).toISOString();
+  await env.STATE.put(key, JSON.stringify({ version: TBR_ROUTE_CACHE_VERSION, hub, lastSuccessAt, rows }), {
+    expirationTtl: TBR_ROUTE_CACHE_TTL_SECONDS,
+  });
+  return { written: true, lastSuccessAt };
+}
+
+export async function sendConnectorSync(env, hub, connectorToken) {
   const [routeResult, busResult] = await Promise.all([
     sendConnectorPartResilient(env, hub, connectorToken, "routes"),
     sendConnectorPartResilient(env, hub, connectorToken, "bus"),
   ]);
   const routeResponse = routeResult.response, routePayload = routeResult.payload;
   const busResponse = busResult.response, busPayload = busResult.payload;
-  if (!routeResponse.ok) return connectorPartFailure("routes", routeResponse, routePayload);
+  let rows = [];
+  let routeFallback = null;
+  let routeSourceError = null;
+  if (routeResponse.ok) {
+    rows = Array.isArray(routePayload?.data?.rows) ? routePayload.data.rows : [];
+    await refreshTbrRouteCache(env, hub, rows);
+  } else {
+    routeSourceError = connectorPartError("routes", routeResponse, routePayload);
+    routeFallback = await readTbrRouteCache(env, hub);
+    if (!routeFallback) return connectorPartFailure("routes", routeResponse, routePayload);
+    rows = routeFallback.rows;
+  }
   if (!busResponse.ok) return connectorPartFailure("bus", busResponse, busPayload);
-  const rows = Array.isArray(routePayload?.data?.rows) ? routePayload.data.rows : [];
   const tbrShadowFeed = Array.isArray(busPayload?.data?.tbrShadowFeed)
     ? busPayload.data.tbrShadowFeed : [];
+  const pointReads = 2 * (Number(routeResult.attempts || 1) + Number(busResult.attempts || 1));
   return new Response(JSON.stringify({
     ok: true,
     data: {
-      status: "shadow_readonly_split",
+      status: routeFallback ? "shadow_readonly_split_route_fallback" : "shadow_readonly_split",
       syncedAt: new Date().toISOString(),
       changes: 0, rows, tbrShadowFeed,
+      routeFallback: Boolean(routeFallback),
+      routeFallbackAt: routeFallback?.lastSuccessAt || "",
+      routeFallbackAgeSeconds: routeFallback?.ageSeconds ?? null,
+      routeSourceError: routeSourceError ? { code: routeSourceError.code, message: routeSourceError.message } : null,
       shadowQuota: {
         mode: "SHADOW_READONLY_SPLIT_V2",
-        tursoPointReadsPerCron: 4, tursoWritesPerCron: 0,
+        normalTursoPointReadsPerCron: 4, tursoPointReadsPerCron: pointReads, tursoWritesPerCron: 0,
+        browserKvRouteCacheReadsPerCron: 1, browserKvRouteCacheWritesMaxPerDay: 288,
         routeTableReads: 0, routeTableWrites: 0,
         historyReads: 0, historyWrites: 0,
         liveCacheReads: 0, liveCacheWrites: 0, preEntryCalls: 0,
@@ -300,7 +367,6 @@ async function sendConnectorSync(env, hub, connectorToken) {
     },
   }), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });
 }
-
 
 async function syncConfiguredHubs(env) {
   const storedHubs = JSON.parse((await env.STATE.get("hubs")) || "[]");
@@ -372,8 +438,16 @@ async function syncConfiguredHubs(env) {
         if (response.ok) {
           try {
             const observedShadow = await observeTbrShadow(env, hub, payload?.data || {});
-            if (observedShadow?.sourceChanged)
+            if (payload?.data?.routeFallback) {
+              const routeError = payload?.data?.routeSourceError || {};
+              await recordConnectionErrorKv(env, {
+                hub, source: "routes", code: routeError.code || "TBR_ROUTES_FALLBACK",
+                message: routeError.message || "Route source สะดุดชั่วคราว · ใช้ snapshot ล่าสุด",
+              });
+              console.warn(JSON.stringify({ event: "tbr_route_snapshot_fallback", hub, cachedAt: payload?.data?.routeFallbackAt || "" }));
+            } else if (observedShadow?.sourceChanged || observedShadow?.routeFallbackChanged) {
               await recordConnectionRecoveredKv(env, { hub });
+            }
           } catch (shadowError) {
             console.error(
               JSON.stringify({

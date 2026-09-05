@@ -214,18 +214,25 @@ test("DEV Proof connection exposes print HAR upload in the shared MS connection 
   const stagedFrontend = stageFrontend(frontendSource);
 
   assert.match(stagedProofHtml, /id="proof-session-btn" class="btn btn-header header-link" href="ms\.html#connection"/);
-  assert.match(stagedMsHtml, /DEV_PROOF_HAR_CONNECTION_V8/);
+  assert.match(stagedMsHtml, /DEV_PROOF_HAR_CONNECTION_V9/);
   assert.match(stagedMsHtml, /id="ms-har-proof"/);
   assert.match(stagedMsHtml, /id="ms-har-proof-save"/);
   assert.match(stagedMsHtml, /อัปไฟล์ปริ้นบาร์รถ/);
   assert.match(stagedMsHtml, /ไม่เก็บไฟล์ HAR ทั้งไฟล์/);
+  assert.match(stagedMsHtml, /อัปโหลด HAR ทั้ง 4 แหล่ง/);
+  assert.match(stagedMsHtml, /data-source-status="proof"/);
+  assert.match(stagedMsHtml, /4\. ปริ้นบาร์โค้ดรถ/);
+  assert.match(stagedMsHtml, /https:\/\/ms\.flashexpress\.com\/#\/sendoutlets\/storeLine/);
+  assert.match(stagedMsHtml, /ทั้ง 4 หน้าด้านล่าง/);
 
-  assert.match(stagedFrontend, /DEV_PROOF_HAR_CONNECTION_FRONTEND_V8/);
+  assert.match(stagedFrontend, /DEV_PROOF_HAR_CONNECTION_FRONTEND_V9/);
   assert.match(stagedFrontend, /async function saveProofHarConnection/);
   assert.match(stagedFrontend, /host\.endsWith\("flashexpress\.com"\)/);
   assert.match(stagedFrontend, /header\("x-fle-session-id"\)/);
   assert.match(stagedFrontend, /header\("x-device-id"\)/);
   assert.match(stagedFrontend, /apiPost\("saveMsConnection", \{ hub, sessionId, deviceId \}\)/);
+  assert.match(stagedFrontend, /key === "proof" \? status\.routes : status\[key\]/);
+  assert.match(stagedFrontend, /"ms-har-bustime", "ms-har-proof"/);
   assert.match(stagedFrontend, /pollMs:\s*4000/);
   assert.equal(stageFrontend(stagedFrontend), stagedFrontend);
 });

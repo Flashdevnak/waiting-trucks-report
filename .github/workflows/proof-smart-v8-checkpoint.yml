@@ -1,0 +1,157 @@
+name: Proof Smart V8 Checkpoint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/proof-smart-v8-checkpoint.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch Proof-only Smart V8 checkpoint
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const read=p=>fs.readFileSync(p,'utf8');
+          const write=(p,s)=>fs.writeFileSync(p,s);
+          const must=(ok,msg)=>{if(!ok)throw new Error(msg)};
+
+          // proof.html only: clearer HAR entry, smart-search copy and checkpoint marker.
+          {
+            let s=read('proof.html');
+            s=s.replace('<title>จัดการเส้นทางเดินรถ MS</title>','<title>ปริ้นบาร์โค้ดรถ MS</title>');
+            if(!s.includes("data-proof-checkpoint='PROOF_SMART_V8'")) s=s.replace("<body class='ms-page proof-page'>","<body class='ms-page proof-page' data-proof-checkpoint='PROOF_SMART_V8'>");
+            s=s.replace(/proof-v2-core\.js\?v=20260905-03/g,'proof-v2-core.js?v=20260905-04');
+            s=s.replace(/proof-v2-ui\.js\?v=20260905-03/g,'proof-v2-ui.js?v=20260905-04');
+            s=s.replace(/proof-v2-actions\.js\?v=20260905-03/g,'proof-v2-actions.js?v=20260905-04');
+            s=s.replace(/proof-v5\.js\?v=20260905-08/g,'proof-v5.js?v=20260905-10');
+            s=s.replace('ใช้ข้อมูลและการเชื่อมต่อชุดเดียวกับหน้าติดตามรถ MS ตรวจข้อมูลก่อนเปิดบาร์โค้ดและปริ้น PDF','ใช้ HAR/Session ไฟล์เดียวกับหน้าเส้นทาง MS • ตรวจทะเบียน คนขับ และสิทธิ์ล่าสุดก่อนเปิดบาร์โค้ดหรือปริ้น PDF');
+            s=s.replace("placeholder='สาขา เส้นทาง ทะเบียน คนขับ เบอร์โทร หรือบาร์โค้ดรถ'","placeholder='เส้นทาง สาขา ทะเบียน คนขับ เบอร์โทร หรือบาร์โค้ด • พิมพ์มี/ไม่มีขีดก็ได้'");
+            const anchor="</section>        <section id='alert-panel'";
+            if(!s.includes("id='proof-connection-strip'")){
+              must(s.includes(anchor),'proof heading anchor missing');
+              s=s.replace(anchor,`</section>        <section id='proof-connection-strip' class='proof-connection-strip' data-proof-har='shared'><div class='proof-connection-copy'><small>การเชื่อมต่อ MS</small><strong id='proof-connection-title'>HAR/Session เดียวกับหน้าเส้นทาง MS</strong><span id='proof-connection-detail'>ไฟล์ HAR อ่านในเครื่อง และส่งเฉพาะ Session ID + Device ID ไปเก็บแบบเข้ารหัส</span></div><button id='proof-connection-upload' class='btn btn-accent' type='button'>อัปโหลด HAR / ตรวจ Session</button></section>        <section id='alert-panel'`);
+            }
+            write('proof.html',s);
+          }
+
+          // Main Proof search: punctuation/spacing tolerant, tokenized and fully local (zero network).
+          {
+            let s=read('proof-v2-ui.js');
+            const start=s.indexOf('P.filteredRows=()=>{');
+            const end=s.indexOf('}; P.renderMetrics=',start);
+            must(start>=0&&end>start,'filteredRows block missing');
+            const block=`P.smartSearchNormalize=v=>String(v??'').normalize('NFKC').toLowerCase().replace(/[\\s\\-–—_/.()[\\]{}:;,'\"\x60~!@#$%^&*+=?<>|\\\\]+/g,''); /* PROOF_SMART_SEARCH_V8 */ P.rowSearchText=row=>[row.lineName,row.lineTypeText,row.lineModeText,row.plateNumber,row.plateTypeText,row.driver,row.driverPhone,row.proofId,row.proofStateText,row.destinationCode,row.destinationName,P.standbyText(row)].join(' '); P.filteredRows=()=>{const s=P.state,tokens=String(s.query||'').trim().split(/\\s+/).map(P.smartSearchNormalize).filter(Boolean);return s.rows.filter(row=>{if(s.stateFilter!=='all'&&String(row.proofState??'')!==s.stateFilter)return false;if(s.lineType!=='all'&&P.lineTypeKey(row)!==s.lineType)return false;if(s.lineMode!=='all'&&P.lineModeKey(row)!==s.lineMode)return false;if(s.vehicle!=='all'&&P.vehicleKey(row)!==s.vehicle)return false;if(!tokens.length)return true;const hay=P.smartSearchNormalize(P.rowSearchText(row));return tokens.every(token=>hay.includes(token));}).sort((a,b)=>{const aa=P.alertForRow(a),bb=P.alertForRow(b);if(Boolean(aa)!==Boolean(bb))return bb?1:-1;if(Number(a.proofState)===1&&Number(b.proofState)!==1)return -1;if(Number(b.proofState)===1&&Number(a.proofState)!==1)return 1;return P.destinationKey(a).localeCompare(P.destinationKey(b),'th')||(Number(a.plannedDepartureTime??a.startTime)||0)-(Number(b.plannedDepartureTime??b.startTime)||0);})}`;
+            s=s.slice(0,start)+block+s.slice(end+2);
+            write('proof-v2-ui.js',s);
+          }
+
+          // Editor search: manual only + 5 minute browser cache + exact/prefix ranking. Reduces MS calls.
+          {
+            let s=read('proof-v2-actions.js');
+            s=s.replace('let searchTimer=null;','let searchTimer=null;\n  const editorSearchCache=new Map(); const EDITOR_SEARCH_CACHE_MS=5*60_000; // PROOF_EDITOR_SEARCH_CACHE_V8');
+            const qStart=s.indexOf('P.queueEditorSearch=');
+            const qEnd=s.indexOf('P.choosePlate=',qStart);
+            must(qStart>=0&&qEnd>qStart,'editor search block missing');
+            const block=`P.editorSearchNorm=v=>String(v??'').normalize('NFKC').toLowerCase().replace(/[\\s\\-–—_/.()[\\]{}:;,'\"\x60~!@#$%^&*+=?<>|\\\\]+/g,'');\n  P.queueEditorSearch=(kind,value)=>{clearTimeout(searchTimer);const q=String(value||'').trim(),target=P.el(kind==='plate'?'proof-editor-plate-results':'proof-editor-driver-results');if(q.length<2){target.innerHTML=\`<div class='proof-option-hint'>พิมพ์อย่างน้อย 2 ตัวเพื่อค้นหา</div>\`;return;}target.innerHTML=\`<div class='proof-option-hint'>พร้อมค้นหา • กด Enter หรือปุ่ม “ค้นหา” เพื่อลดการเรียก MS</div>\`;};\n  P.renderEditorSearchItems=(kind,target,items,q)=>{const nq=P.editorSearchNorm(q),score=item=>{const raw=kind==='plate'?(item.plateNumber||item.label||''):\`${'${'}item.name||''} ${'${'}item.phone||''}\`,n=P.editorSearchNorm(raw);return n===nq?4:n.startsWith(nq)?3:n.includes(nq)?2:1;};const sorted=[...items].sort((a,b)=>score(b)-score(a)||String(kind==='plate'?(a.plateNumber||a.label||''):(a.name||'')).localeCompare(String(kind==='plate'?(b.plateNumber||b.label||''):(b.name||'')),'th'));if(!sorted.length){target.innerHTML=\`<div class='proof-option-hint'>ไม่พบข้อมูลใน MS • ลองพิมพ์ทะเบียนโดยไม่ใส่ขีด/เว้นวรรค หรือค้นเบอร์เป็นตัวเลขล้วน</div>\`;return;}target.innerHTML=\`<div class='proof-option-hint'>พบ ${'${'}P.nf.format(sorted.length)} รายการ • ผลตรงที่สุดอยู่ด้านบน</div>\`+sorted.map(item=>kind==='plate'?\`<button type='button' class='proof-option' data-editor-plate='${'${'}P.escAttr(item.id)}' data-label='${'${'}P.escAttr(item.label||item.plateNumber||'')}'><span>🚚</span><div><strong>${'${'}P.esc(item.plateNumber||item.label||'—')}</strong><small>${'${'}P.esc(item.plateTypeText||'')}</small></div></button>\`:\`<button type='button' class='proof-option' data-editor-driver='${'${'}P.escAttr(item.id)}' data-name='${'${'}P.escAttr(item.name||'')}' data-phone='${'${'}P.escAttr(item.phone||'')}'><span>👤</span><div><strong>${'${'}P.esc(item.name||'—')}</strong><small>${'${'}P.esc(item.phone||'ไม่มีเบอร์')}${'${'}item.auditStateText?\` • ${'${'}P.esc(item.auditStateText)}\`:''}</small></div></button>\`).join('');};\n  P.searchEditorOptions=async(kind,q)=>{const s=P.editorState;if(!s||!P.state.auth)return;const target=P.el(kind==='plate'?'proof-editor-plate-results':'proof-editor-driver-results'),path=kind==='plate'?'/api/proof/plate-options':'/api/proof/driver-options',clean=String(q||'').trim();if(clean.length<2)return;const cacheKey=[P.state.branch,s.detail.lineId,s.detail.departureDate,kind,P.editorSearchNorm(clean)].join('|'),cached=editorSearchCache.get(cacheKey);if(cached&&Date.now()-cached.at<EDITOR_SEARCH_CACHE_MS){P.renderEditorSearchItems(kind,target,cached.items,clean);return;}target.innerHTML=\`<div class='proof-option-hint'>กำลังค้นหาจาก MS…</div>\`;try{const d=await P.apiGet(path,{token:P.state.auth.token,branch:P.state.branch,lineId:s.detail.lineId,departureDate:s.detail.departureDate,q:clean}),items=Array.isArray(d.items)?d.items:[];editorSearchCache.set(cacheKey,{at:Date.now(),items});if(editorSearchCache.size>80)editorSearchCache.delete(editorSearchCache.keys().next().value);P.renderEditorSearchItems(kind,target,items,clean);}catch(e){target.innerHTML=\`<div class='proof-option-error'>${'${'}P.esc(e.message||'ค้นหาไม่สำเร็จ')}</div>\`;}};\n  `;
+            s=s.slice(0,qStart)+block+s.slice(qEnd);
+            write('proof-v2-actions.js',s);
+          }
+
+          // Plate search V8: preserve MS rules, tolerate formatting, dedupe/rank, no background traffic.
+          {
+            let s=read('worker/src/proof-plate-search-v5.js');
+            const start=s.indexOf('async function readPlateOptions(credentials, detail, q) {');
+            const end=s.indexOf('\nfunction plateDisplay',start);
+            must(start>=0&&end>start,'plate search function missing');
+            const block=`function normalizePlateSearch(v) { return text(v, 120).normalize('NFKC').toLowerCase().replace(/[\\s\\-–—_/.()[\\]{}]+/g, ''); }\nfunction plateSearchVariants(q) { const raw=text(q,80), noProvince=raw.replace(/\\([^)]*\\)/g,'').trim(), compact=raw.replace(/[\\s\\-–—_/.()[\\]{}]+/g,''); return [...new Set([raw,noProvince,compact].filter(x=>x.length>=2))]; }\nfunction plateTypeValue(x) { const vo=x?.fleet_company_car_type_vo||{}; return String(vo.car_type??x?.type??''); }\nfunction plateItems(data) { return Array.isArray(data)?data:Array.isArray(data?.items)?data.items:[]; }\nfunction rankPlateItems(items,q,requiredType) { const nq=normalizePlateSearch(q),seen=new Set(),out=[]; for(const item of items){ if(requiredType&&plateTypeValue(item)&&plateTypeValue(item)!==String(requiredType))continue; const key=String(item?.id??'')||normalizePlateSearch(item?.plate_number||item?.label); if(!key||seen.has(key))continue; seen.add(key); out.push(item); } const score=x=>{const n=normalizePlateSearch(x?.plate_number||x?.label);return n===nq?4:n.startsWith(nq)?3:n.includes(nq)?2:1;}; return out.sort((a,b)=>score(b)-score(a)).slice(0,50); }\nasync function fetchPlateSearch(credentials, endpoint, params) { const url=new URL(endpoint); for(const [key,value] of Object.entries(params)) url.searchParams.set(key,value); const response=await fetch(url,{headers:msHeaders(credentials)}); const payload=await readMsJson(response,'MS_PLATE_LIST_ERROR'); return plateItems(payload.data); }\nasync function readPlateOptions(credentials, detail, q) {\n  const fleetId=String(detail.fleet_id||''), requiredType=msPlateTypeFilter(detail), variants=plateSearchVariants(q);\n  const primary='https://ms-api.flashexpress.com/gw/fms/ms/car/car/info';\n  const fallback=\`https://ms-api.flashexpress.com/gw/nws/staff/ms/fleet/van/${'${'}encodeURIComponent(fleetId)}\`;\n  let lastError=null, anySuccess=false;\n  for(const variant of variants){\n    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}\n  }\n  try{const items=await fetchPlateSearch(credentials,fallback,{fleetId,id:'',plateNumber:variants[0]||q,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}\n  if(requiredType){try{const items=await fetchPlateSearch(credentials,primary,{fleetId,id:'',plateNumber:variants[0]||q,pageSize:'50',pageNum:'1',plateType:''});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}}\n  if(!anySuccess&&lastError)throw lastError;\n  return [];\n}\n// PROOF_PLATE_SEARCH_V8: all fallbacks above run only after a user search; no polling/background call is added.\n`;
+            s=s.slice(0,start)+block+s.slice(end);
+            write('worker/src/proof-plate-search-v5.js',s);
+          }
+
+          // Driver query cleanup/dedupe: still one on-demand MS request.
+          {
+            let s=read('worker/src/proof-editor.js');
+            const start=s.indexOf('async function readDriverOptions(credentials,detail,q){');
+            const end=s.indexOf('\n\nasync function readPlateOptions',start);
+            must(start>=0&&end>start,'driver search function missing');
+            const block=`async function readDriverOptions(credentials,detail,q){\n  const url=new URL('https://ms-api.flashexpress.com/gw/fms/ms/driver/list');\n  url.searchParams.set('fleetId',String(detail.fleet_id||''));\n  url.searchParams.set('carType','');\n  const raw=text(q,80),digits=raw.replace(/\\D/g,''),query=(digits.length>=4&&digits.length>=raw.replace(/\\s/g,'').length-2)?digits:raw;\n  if(query)url.searchParams.set('nameOrMobile',query); else if(detail.fms_driver_id!=null)url.searchParams.set('driverId',String(detail.fms_driver_id));\n  const payload=await readMsJson(await fetch(url,{headers:msHeaders(credentials)}),'MS_DRIVER_LIST_ERROR');\n  const items=Array.isArray(payload.data)?payload.data:Array.isArray(payload.data?.items)?payload.data.items:[],seen=new Set(),out=[];\n  for(const item of items){const key=String(item?.driver_id??'')||\`${'${'}text(item?.driver_name,180)}|${'${'}text(item?.mobile,40)}\`;if(!key||seen.has(key))continue;seen.add(key);out.push(item);}\n  return out; // PROOF_DRIVER_SEARCH_V8: one user-triggered MS request, no background search.\n}`;
+            s=s.slice(0,start)+block+s.slice(end);
+            write('worker/src/proof-editor.js',s);
+          }
+
+          // Proof runtime: in-page HAR upload button, newest MS credentials in HAR, no navigation away.
+          {
+            let s=read('worker/src/proof-ui-v5.js');
+            s=s.replace("const VERSION = '20260905-09';","const VERSION = '20260905-10';");
+            s=s.replace('if (window.__PROOF_V7_READY__) return;\n    window.__PROOF_V7_READY__ = true;','if (window.__PROOF_V8_READY__) return;\n    window.__PROOF_V8_READY__ = true; // PROOF_HAR_UPLOAD_V8');
+            const exStart=s.indexOf('    const extractHar = async file => {');
+            const exEnd=s.indexOf('    const renderSession = error => {',exStart);
+            must(exStart>=0&&exEnd>exStart,'extractHar block missing');
+            const extract=`    const extractHar = async file => {\n      if (!file) throw new Error('กรุณาเลือกไฟล์ HAR');\n      let har; try { har = JSON.parse(await file.text()); } catch { throw new Error('อ่านไฟล์ HAR ไม่ได้'); }\n      const entries = Array.isArray(har?.log?.entries) ? [...har.log.entries].reverse() : [];\n      for (const entry of entries) {\n        let host = ''; try { host = new URL(entry?.request?.url || '').hostname.toLowerCase(); } catch {}\n        if (!host.endsWith('flashexpress.com')) continue;\n        const hs = entry?.request?.headers || [];\n        const get = name => String(hs.find(h => String(h?.name || '').toLowerCase() === name)?.value || '').trim();\n        const sessionId = get('x-fle-session-id'), deviceId = get('x-device-id');\n        if (sessionId && deviceId) return { sessionId, deviceId, msRequestCount: entries.filter(x => { try { return new URL(x?.request?.url || '').hostname.toLowerCase().endsWith('flashexpress.com'); } catch { return false; } }).length };\n      }\n      throw new Error('ไฟล์ HAR ไม่มี Session ID หรือ Device ID ของ MS');\n    };\n`;
+            s=s.slice(0,exStart)+extract+s.slice(exEnd);
+            s=s.replace("document.getElementById('proof-session-status').textContent = 'Session นี้ใช้ทั้งดูข้อมูล Proof และสร้าง PDF จาก MS';","document.getElementById('proof-session-status').textContent = 'HAR ไฟล์เดียวกับหน้าเส้นทาง MS • เลือกไฟล์แล้วระบบจะอ่าน Session ในเครื่อง';");
+            s=s.replace("const sessionNavButton = document.getElementById('proof-session-btn'); if (sessionNavButton) sessionNavButton.onclick = openSession;","const sessionNavButton = document.getElementById('proof-session-btn'); if (sessionNavButton) sessionNavButton.onclick = e => { e?.preventDefault?.(); openSession(); }; const stripButton=document.getElementById('proof-connection-upload'); if(stripButton) stripButton.onclick=openSession;");
+            s=s.replace("<p class=\"proof-session-note\">ใช้ตัวเชื่อมต่อ MS ชุดเดียวกับหน้าติดตามรถของ HUB นี้ เมื่อเชื่อมแล้วจะใช้ทั้งอ่านข้อมูล แก้ข้อมูลที่ MS อนุญาต และปริ้น PDF</p>","<p class=\"proof-session-note\"><b>HAR ไฟล์เดียวกับหน้าเส้นทาง MS</b> • ระบบอ่านไฟล์ในเบราว์เซอร์และส่งเฉพาะ Session ID + Device ID ไปเก็บแบบเข้ารหัส ไม่เก็บไฟล์ HAR ทั้งไฟล์</p>");
+            s=s.replace("<details class=\"proof-session-har\"><summary>หรืออัปโหลด HAR จาก MS</summary><p>ระบบอ่าน Session ID และ Device ID แล้วบันทึกผ่านตัวเชื่อมเดิมของ HUB</p><input id=\"proof-session-har\" type=\"file\" accept=\".har,application/json\"><button id=\"proof-session-save\" class=\"btn btn-accent btn-full\" type=\"button\">ทดสอบและบันทึก Session</button></details>","<div class=\"proof-har-upload\"><div><strong>อัปโหลด HAR</strong><small>ใช้ไฟล์เดียวกับหน้าเส้นทาง MS</small></div><label class=\"btn btn-accent proof-har-pick\">เลือกไฟล์ HAR<input id=\"proof-session-har\" type=\"file\" accept=\".har,application/json\" hidden></label><span id=\"proof-session-file-name\">ยังไม่ได้เลือกไฟล์</span><button id=\"proof-session-save\" class=\"btn btn-header btn-full\" type=\"button\" disabled>ตรวจและบันทึก HAR</button></div>");
+            s=s.replace("document.getElementById('proof-session-close').onclick = closeSession; document.getElementById('proof-session-test').onclick = () => testSession(true); document.getElementById('proof-session-qr').onclick = pair; document.getElementById('proof-session-save').onclick = saveHar; document.getElementById('proof-session-dialog').oncancel = e => { e.preventDefault(); closeSession(); };","document.getElementById('proof-session-close').onclick = closeSession; document.getElementById('proof-session-test').onclick = () => testSession(true); document.getElementById('proof-session-qr').onclick = pair; document.getElementById('proof-session-save').onclick = saveHar; const harInput=document.getElementById('proof-session-har'),harSave=document.getElementById('proof-session-save'),harName=document.getElementById('proof-session-file-name'); harInput.onchange=()=>{const f=harInput.files?.[0];harName.textContent=f?f.name:'ยังไม่ได้เลือกไฟล์';harSave.disabled=!f;}; document.getElementById('proof-session-dialog').oncancel = e => { e.preventDefault(); closeSession(); };");
+            s=s.replace("const cur = document.getElementById('proof-session-current'); if (cur) cur.textContent = ready ? `พร้อม • ${P.state.profile?.name || 'บัญชี MS'}` : (error?.message || 'ยังไม่ได้ตรวจ Session');","const cur = document.getElementById('proof-session-current'); if (cur) cur.textContent = ready ? `พร้อม • ${P.state.profile?.name || 'บัญชี MS'}` : (error?.message || 'ยังไม่ได้ตรวจ Session'); const stripTitle=document.getElementById('proof-connection-title'),stripDetail=document.getElementById('proof-connection-detail'); if(stripTitle) stripTitle.textContent=ready?'HAR/Session พร้อมใช้งาน':'HAR/Session เดียวกับหน้าเส้นทาง MS'; if(stripDetail) stripDetail.textContent=ready?`${P.state.profile?.name || 'บัญชี MS'} • พร้อมตรวจข้อมูลและปริ้น`:(error?.message||'กดอัปโหลด HAR / ตรวจ Session ได้จากหน้านี้');");
+            s=s.replace("    const th = document.querySelector('.proof-table thead tr');","    document.addEventListener('keydown',e=>{if(e.key==='/'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)){e.preventDefault();P.el('search-input')?.focus();}});\n    const th = document.querySelector('.proof-table thead tr');");
+            s=s.replace(".proof-session-panel{display:flex;align-items:center;justify-content:space-between;gap:12px", ".proof-connection-strip{display:flex;align-items:center;justify-content:space-between;gap:14px;border:1px solid #d8d8d2;border-left:6px solid #ffd400;background:#fff;border-radius:8px;padding:11px 13px;margin:0 0 14px}.proof-connection-copy{display:grid;gap:2px;min-width:0}.proof-connection-copy small{font-size:10px;color:#777;font-weight:800}.proof-connection-copy strong{font-size:14px}.proof-connection-copy span{font-size:11px;color:#666}.proof-har-upload{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border:1px solid #ddd;background:#fafaf7;border-radius:7px;padding:10px;margin-top:10px}.proof-har-upload>div{display:grid}.proof-har-upload small,#proof-session-file-name{font-size:10px;color:#777}.proof-har-pick{cursor:pointer}.proof-har-upload .btn-full,#proof-session-file-name{grid-column:1/-1}@media(max-width:760px){.proof-connection-strip{align-items:stretch;flex-direction:column}.proof-connection-strip .btn{width:100%}.proof-har-upload{grid-template-columns:1fr}}\n      .proof-session-panel{display:flex;align-items:center;justify-content:space-between;gap:12px");
+            write('worker/src/proof-ui-v5.js',s);
+          }
+
+          // DEV staging: only Proof tool entry changes from navigation link to an in-page HAR button.
+          {
+            let s=read('.github/dev-tools/stage-dev-runtime.mjs');
+            const old="'<a id=\"proof-session-btn\" class=\"btn btn-header header-link hidden\" href=\"ms.html#connection\">การเชื่อมต่อ MS (QR/HAR)</a>',";
+            const neu="'<button id=\"proof-session-btn\" class=\"btn btn-header hidden\" type=\"button\">อัปโหลด HAR / เชื่อมต่อ MS</button>',";
+            must(s.includes(old),'Proof staged HAR link missing');
+            s=s.replace(old,neu);
+            write('.github/dev-tools/stage-dev-runtime.mjs',s);
+          }
+
+          // Persistent Proof-only contract test.
+          const test=`import assert from 'node:assert/strict';\nimport { readFile } from 'node:fs/promises';\nimport test from 'node:test';\nconst root=new URL('../../',import.meta.url);\nconst files=Object.fromEntries(await Promise.all(['proof.html','proof-v2-core.js','proof-v2-ui.js','proof-v2-actions.js','worker/src/proof-control.js','worker/src/proof-editor.js','worker/src/proof-plate-search-v5.js','worker/src/proof-ui-v5.js','.github/dev-tools/stage-dev-runtime.mjs'].map(async p=>[p,await readFile(new URL(p,root),'utf8')])));\ntest('Proof Smart V8 stays quota safe and HAR stays shared',()=>{\n assert.match(files['proof.html'],/PROOF_SMART_V8/); assert.match(files['proof.html'],/proof-connection-upload/); assert.match(files['proof.html'],/HAR\\/Session ไฟล์เดียวกับหน้าเส้นทาง MS/);\n assert.match(files['proof-v2-ui.js'],/PROOF_SMART_SEARCH_V8/); assert.match(files['proof-v2-actions.js'],/PROOF_EDITOR_SEARCH_CACHE_V8/); assert.match(files['proof-v2-actions.js'],/กด Enter หรือปุ่ม “ค้นหา”/);\n assert.match(files['worker/src/proof-plate-search-v5.js'],/PROOF_PLATE_SEARCH_V8/); assert.match(files['worker/src/proof-plate-search-v5.js'],/pageSize:'50'/);\n assert.match(files['worker/src/proof-editor.js'],/PROOF_DRIVER_SEARCH_V8/); assert.match(files['worker/src/proof-ui-v5.js'],/PROOF_HAR_UPLOAD_V8/); assert.match(files['worker/src/proof-ui-v5.js'],/entries.*reverse/);\n assert.match(files['.github/dev-tools/stage-dev-runtime.mjs'],/proof-session-btn.*อัปโหลด HAR \/ เชื่อมต่อ MS/); assert.doesNotMatch(files['.github/dev-tools/stage-dev-runtime.mjs'],/proof-session-btn[^\\n]+ms\\.html#connection/);\n assert.match(files['proof-v2-core.js'],/pollMs:60_000/); assert.match(files['worker/src/proof-control.js'],/PROOF_REFRESH_MS = 60_000/);\n assert.doesNotMatch(files['worker/src/proof-plate-search-v5.js'],/setInterval|scheduled|cron/i); assert.doesNotMatch(files['worker/src/proof-editor.js'],/cancel_car/);\n});\n`;
+          write('worker/tests/proof-smart-v8.test.mjs',test);
+          NODE
+      - name: Syntax and Proof contract tests
+        run: |
+          node --check proof-v2-ui.js
+          node --check proof-v2-actions.js
+          node --check worker/src/proof-editor.js
+          node --check worker/src/proof-plate-search-v5.js
+          node --check worker/src/proof-ui-v5.js
+          cd worker
+          npm ci
+          npm run check
+          node --test tests/proof-smart-v8.test.mjs
+          node --test tests/auth-session-resilience.test.mjs
+      - name: Scope guard
+        run: |
+          git diff --name-only
+          node <<'NODE'
+          const {execFileSync}=require('node:child_process');
+          const allowed=new Set(['proof.html','proof-v2-ui.js','proof-v2-actions.js','worker/src/proof-editor.js','worker/src/proof-plate-search-v5.js','worker/src/proof-ui-v5.js','.github/dev-tools/stage-dev-runtime.mjs','worker/tests/proof-smart-v8.test.mjs']);
+          const changed=execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim().split(/\r?\n/).filter(Boolean);
+          const bad=changed.filter(x=>!allowed.has(x)); if(bad.length)throw new Error(`Out-of-scope files: ${bad.join(', ')}`);
+          if(!changed.length)throw new Error('No Proof changes produced');
+          console.log('PROOF_SCOPE_ONLY=PASS');
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE
+      - name: Commit Proof checkpoint
+        run: |
+          git config user.name 'Flashdevnak'
+          git config user.email '26nak.testdev@gmail.com'
+          git add proof.html proof-v2-ui.js proof-v2-actions.js worker/src/proof-editor.js worker/src/proof-plate-search-v5.js worker/src/proof-ui-v5.js .github/dev-tools/stage-dev-runtime.mjs worker/tests/proof-smart-v8.test.mjs
+          git commit -m 'Complete Proof Smart V8 search and HAR UX'
+          git push origin HEAD:main

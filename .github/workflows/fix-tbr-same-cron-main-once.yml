@@ -1,0 +1,189 @@
+name: Fix TBR Same Cron Main Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-tbr-same-cron-main-once.yml
+
+permissions:
+  contents: write
+
+env:
+  BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+
+jobs:
+  repair-test-runtime:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Capture live baseline
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          (async()=>{
+            const r=await fetch(process.env.BROWSER_ORIGIN+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json','cache-control':'no-cache'},cache:'no-store'});
+            const j=await r.json().catch(()=>({}));
+            if(!r.ok) throw new Error(`baseline HTTP ${r.status}`);
+            fs.writeFileSync('/tmp/tbr-before.json',JSON.stringify(j));
+            console.log(`BEFORE_OBSERVER=${j.observerStatus||'-'}`);
+            console.log(`BEFORE_LAST_OBSERVED_AT=${j.lastObservedAt||'-'}`);
+            console.log(`BEFORE_FEED=${j.feedCount??'-'}`);
+            console.log(`BEFORE_ROUTE_ROWS=${j.rowCount??'-'}`);
+            console.log(`BEFORE_TOTAL=${j.total??'-'}`);
+            console.log(`BEFORE_PENDING=${j.pending??'-'}`);
+            console.log(`BEFORE_CONFIRMED=${j.confirmed??'-'}`);
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+
+      - name: Patch permanent same-cron behavior and regression gates
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+
+          const shadowPath='cloudflare-browser-test/src/tbr-shadow.js';
+          let shadow=fs.readFileSync(shadowPath,'utf8');
+          if(!shadow.includes('TBR_SAME_CRON_TIMESTAMP_V1')) {
+            const old=`    if (!record) {\n      if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;\n      record = {\n        status: \"pending\",\n        tbrAt: new Date(tbrMs).toISOString(),\n        kitAt: iso(item?.scheduleKitArrivalAt),\n        firstSeenAt: nowIso,\n        confirmedAt: \"\",\n        routeActualArrivalAt: \"\",\n        routeSeen,\n        attendanceType,\n        leadMinutes: null,\n      };\n      state.records[id] = record;\n      changed = true;\n      continue;\n    }`;
+            const next=`    if (!record) {\n      // TBR_SAME_CRON_TIMESTAMP_V1: the first observer cycle may see both TBR and\n      // Route actual arrival. Preserve a valid TBR-before-Route observation by\n      // comparing source timestamps instead of requiring an earlier pending cycle.\n      if (now - tbrMs > SHADOW_PENDING_MS) continue;\n      if (routeActualMs !== null) {\n        if (tbrMs >= routeActualMs) continue;\n        record = {\n          status: \"confirmed\",\n          tbrAt: new Date(tbrMs).toISOString(),\n          kitAt: iso(item?.scheduleKitArrivalAt),\n          firstSeenAt: nowIso,\n          confirmedAt: nowIso,\n          routeActualArrivalAt: new Date(routeActualMs).toISOString(),\n          routeSeen,\n          attendanceType,\n          leadMinutes: Math.round((routeActualMs - tbrMs) / 60000),\n        };\n        state.records[id] = record;\n        changed = true;\n        continue;\n      }\n      record = {\n        status: \"pending\",\n        tbrAt: new Date(tbrMs).toISOString(),\n        kitAt: iso(item?.scheduleKitArrivalAt),\n        firstSeenAt: nowIso,\n        confirmedAt: \"\",\n        routeActualArrivalAt: \"\",\n        routeSeen,\n        attendanceType,\n        leadMinutes: null,\n      };\n      state.records[id] = record;\n      changed = true;\n      continue;\n    }`;
+            if(!shadow.includes(old)) throw new Error('same-cron source anchor not found');
+            shadow=shadow.replace(old,next);
+            fs.writeFileSync(shadowPath,shadow);
+          }
+
+          const regressionPath='.github/workflows/tbr-test-runtime-regression.yml';
+          let regression=fs.readFileSync(regressionPath,'utf8');
+          const regressionAnchor="          grep -q 'STALE · ข้อมูลหยุดอัปเดตเกิน 7 นาที' src/tbr-shadow.js\n";
+          const regressionGuard="          grep -q 'TBR_SAME_CRON_TIMESTAMP_V1' src/tbr-shadow.js\n          ! grep -Fq 'if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;' src/tbr-shadow.js\n";
+          if(!regression.includes("grep -q 'TBR_SAME_CRON_TIMESTAMP_V1' src/tbr-shadow.js")) {
+            if(!regression.includes(regressionAnchor)) throw new Error('runtime regression anchor not found');
+            regression=regression.replace(regressionAnchor,regressionAnchor+regressionGuard);
+            fs.writeFileSync(regressionPath,regression);
+          }
+
+          const deployPath='.github/workflows/deploy-browser-worker.yml';
+          let deploy=fs.readFileSync(deployPath,'utf8');
+          const deployAnchor="          const source=fs.readFileSync('src/index.js','utf8');\n          const config=fs.readFileSync('wrangler.jsonc','utf8');\n";
+          const deployNext="          const source=fs.readFileSync('src/index.js','utf8');\n          const shadow=fs.readFileSync('src/tbr-shadow.js','utf8');\n          const config=fs.readFileSync('wrangler.jsonc','utf8');\n";
+          if(!deploy.includes("const shadow=fs.readFileSync('src/tbr-shadow.js','utf8');")) {
+            if(!deploy.includes(deployAnchor)) throw new Error('deploy gate source anchor not found');
+            deploy=deploy.replace(deployAnchor,deployNext);
+          }
+          const deployCheckAnchor="          if(!source.includes('TBR_SHADOW_OBSERVER_V1')) throw new Error('Browser TBR shadow observer route patch missing');\n";
+          const deployCheck="          if(!shadow.includes('TBR_SAME_CRON_TIMESTAMP_V1')) throw new Error('Browser TBR same-cron timestamp fix missing');\n          if(shadow.includes('if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;')) throw new Error('Browser TBR old same-cron discard logic returned');\n";
+          if(!deploy.includes("Browser TBR same-cron timestamp fix missing")) {
+            if(!deploy.includes(deployCheckAnchor)) throw new Error('deploy gate check anchor not found');
+            deploy=deploy.replace(deployCheckAnchor,deployCheckAnchor+deployCheck);
+          }
+          fs.writeFileSync(deployPath,deploy);
+
+          console.log('TBR_SAME_CRON_SOURCE_PATCH=PASS');
+          console.log('TBR_REGRESSION_GATE_PATCH=PASS');
+          console.log('BROWSER_DEPLOY_GATE_PATCH=PASS');
+          NODE
+          node --check cloudflare-browser-test/src/tbr-shadow.js
+          grep -q 'TBR_SAME_CRON_TIMESTAMP_V1' cloudflare-browser-test/src/tbr-shadow.js
+          ! grep -Fq 'if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;' cloudflare-browser-test/src/tbr-shadow.js
+
+      - name: Regression test same-cron ordering
+        run: |
+          node --input-type=module <<'NODE'
+          import { observeTbrShadow, readTbrShadowReport } from './cloudflare-browser-test/src/tbr-shadow.js';
+          class KV { constructor(){this.m=new Map()} async get(k){return this.m.get(k)??null} async put(k,v){this.m.set(k,v)} }
+          const quota={mode:'SHADOW_READONLY_SPLIT_V2',tursoPointReadsPerCron:4,tursoWritesPerCron:0};
+          async function runCase(name,tbr,actual,type='ปลายทาง'){
+            const STATE=new KV();
+            const now=Date.parse('2026-09-05T09:50:00+07:00');
+            await observeTbrShadow({STATE},'NE1',{
+              shadowQuota:quota,
+              tbrShadowFeed:[{proofId:name,scheduleTbrArrivalAt:tbr,scheduleKitArrivalAt:''}],
+              rows:[{proofId:name,attendanceType:type,actualArrivalAt:actual}],
+            },now);
+            return readTbrShadowReport({STATE},'NE1');
+          }
+          const earlier=await runCase('SAMECRON-A','2026-09-05T09:48:05+07:00','2026-09-05T09:48:35+07:00');
+          if(earlier.total!==1||earlier.confirmed!==1) throw new Error('same-cron TBR-before-Route was discarded');
+          const later=await runCase('SAMECRON-B','2026-09-05T09:48:35+07:00','2026-09-05T09:48:05+07:00');
+          if(later.total!==0) throw new Error('TBR after Route must be excluded');
+          const origin=await runCase('SAMECRON-C','2026-09-05T09:48:05+07:00','2026-09-05T09:49:05+07:00','ต้นทาง');
+          if(origin.total!==0) throw new Error('origin route entered inbound shadow');
+          const drop=await runCase('SAMECRON-D','2026-09-05T09:48:05+07:00','2026-09-05T09:49:05+07:00','จุดดรอป');
+          if(drop.total!==1||drop.confirmed!==1) throw new Error('drop same-cron capture failed');
+          console.log('SAME_CRON_TBR_BEFORE_ROUTE=PASS');
+          console.log('TBR_AFTER_ROUTE_EXCLUDED=PASS');
+          console.log('ORIGIN_EXCLUDED=PASS');
+          console.log('DROP_INCLUDED=PASS');
+          NODE
+
+      - name: Commit permanent fix and remove one-shot workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/fix-tbr-same-cron-main-once.yml
+          git add cloudflare-browser-test/src/tbr-shadow.js .github/workflows/tbr-test-runtime-regression.yml .github/workflows/deploy-browser-worker.yml
+          git commit -m 'Prevent TBR same-cron regression'
+          git push origin HEAD:main
+          echo 'PERMANENT_MAIN_FIX_COMMITTED=PASS'
+
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Safety check TEST-only target
+        run: |
+          grep -q '"name": "waiting-trucks-ms-browser-test"' cloudflare-browser-test/wrangler.jsonc
+          grep -q '"service": "waiting-trucks-report-api-dev"' cloudflare-browser-test/wrangler.jsonc
+          ! grep -q 'd1_databases' cloudflare-browser-test/wrangler.jsonc
+          grep -q 'TBR_SAME_CRON_TIMESTAMP_V1' cloudflare-browser-test/src/tbr-shadow.js
+          grep -q 'SHADOW_READONLY_SPLIT_V2' cloudflare-browser-test/src/index.js
+          echo 'TEST_TARGET_ONLY=PASS'
+          echo 'PRODUCTION_TOUCHED=NO'
+
+      - name: Deploy fixed Browser TEST runtime
+        working-directory: cloudflare-browser-test
+        run: |
+          npx wrangler deploy --config wrangler.jsonc
+          echo 'BROWSER_TEST_DEPLOY=PASS'
+
+      - name: Wait for scheduled cron and verify fresh pull
+        run: |
+          sleep 140
+          node <<'NODE'
+          const fs=require('node:fs');
+          (async()=>{
+            const before=JSON.parse(fs.readFileSync('/tmp/tbr-before.json','utf8'));
+            const r=await fetch(process.env.BROWSER_ORIGIN+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json','cache-control':'no-cache'},cache:'no-store'});
+            const j=await r.json().catch(()=>({}));
+            console.log(`AFTER_HTTP=${r.status}`);
+            console.log(`AFTER_OBSERVER=${j.observerStatus||'-'}`);
+            console.log(`AFTER_LAST_OBSERVED_AT=${j.lastObservedAt||'-'}`);
+            console.log(`AFTER_MODE=${j?.shadowQuota?.mode||'-'}`);
+            console.log(`AFTER_FEED=${j.feedCount??'-'}`);
+            console.log(`AFTER_ROUTE_ROWS=${j.rowCount??'-'}`);
+            console.log(`AFTER_TOTAL=${j.total??'-'}`);
+            console.log(`AFTER_PENDING=${j.pending??'-'}`);
+            console.log(`AFTER_CONFIRMED=${j.confirmed??'-'}`);
+            if(!r.ok||j?.observerStatus!=='LIVE'||j?.sourceAvailable!==true) throw new Error('Browser TBR observer is not LIVE');
+            if(j?.shadowQuota?.mode!=='SHADOW_READONLY_SPLIT_V2') throw new Error('Split V2 runtime not active');
+            if(j?.tursoReads!==0||j?.tursoWrites!==0) throw new Error('Shadow report unexpectedly uses Turso');
+            const b=Date.parse(before.lastObservedAt||'');
+            const a=Date.parse(j.lastObservedAt||'');
+            if(!Number.isFinite(a)||!Number.isFinite(b)||a<=b) throw new Error(`cron heartbeat did not advance: before=${before.lastObservedAt} after=${j.lastObservedAt}`);
+            if(Number(j.feedCount||0)<=0) throw new Error('TBR feed is empty after repair');
+            if(Number(j.rowCount||0)<=0) throw new Error('Route rows are empty after repair');
+            if(Number(j.total||0)<Number(before.total||0)) throw new Error('Shadow record total unexpectedly decreased');
+            console.log('LIVE_CRON_ADVANCED=PASS');
+            console.log('LIVE_TBR_PULL=PASS');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

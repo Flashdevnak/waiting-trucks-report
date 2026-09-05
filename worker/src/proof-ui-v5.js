@@ -129,7 +129,7 @@ const PROOF_V6_JS = String.raw`(()=>{
     const heading=document.querySelector('.proof-heading p');if(heading)heading.textContent='ดูรถที่ต้องจัดการ ตรวจทะเบียน/คนขับตามสิทธิ์ MS และปริ้นบาร์โค้ดด้วย Session ของ HUB';
     if(P.el('refresh-btn'))P.el('refresh-btn').textContent='รีเฟรชข้อมูล';
 
-    const style=document.createElement('style');style.id='proof-v6-style';style.textContent=`
+    const style=document.createElement('style');style.id='proof-v6-style';style.textContent=\`
       .proof-session-panel{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#fff;border:1px solid #deded8;border-left:6px solid #d19f00;padding:12px 14px;margin:0 0 14px}.proof-session-panel small{display:block;color:#777;font-size:11px}.proof-session-panel strong{display:block;font-size:15px;margin-top:2px}.proof-session-panel span{display:block;color:#666;font-size:12px;margin-top:3px}.proof-session-panel.is-ready{border-left-color:#16803c;background:#f7fff9}.proof-session-panel.is-error{border-left-color:#b3261e;background:#fff8f7}
       .proof-group{border-radius:5px!important}.proof-group-head{border-radius:0!important;padding:11px 12px!important}.proof-group-body{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:10px;padding:10px;background:#f3f3f1}
       .proof-ms-card{background:#fff;border:1px solid #d8d8d2;border-radius:8px;overflow:hidden;min-width:0}.proof-ms-card.needs-action{border-color:#d8bd4c}.proof-ms-card-topline{height:6px;background:#151515}.proof-ms-card-head{text-align:center;padding:13px 14px 12px}.proof-ms-card-badges{display:flex;gap:8px;justify-content:center;margin-bottom:8px}.proof-ms-dark-badge,.proof-ms-vehicle-badge{display:inline-flex;align-items:center;justify-content:center;min-height:30px;padding:5px 11px;border-radius:4px;font-size:12px;font-weight:900}.proof-ms-dark-badge{background:#151515;color:#fff}.proof-ms-vehicle-badge{background:#e9ece9;color:#202020;border:1px solid #a8aaa5}.proof-ms-card-head h3{font-size:15px;line-height:1.45;margin:0;word-break:break-word}.proof-ms-card-head p{display:flex;justify-content:center;gap:6px;flex-wrap:wrap;margin:7px 0 0;color:#767676;font-size:11px}
@@ -141,7 +141,7 @@ const PROOF_V6_JS = String.raw`(()=>{
       @media(max-width:900px){.proof-group-body{grid-template-columns:1fr}.proof-desktop{display:none!important}.proof-mobile{display:block!important}.proof-mobile .proof-ms-card{margin-bottom:10px}}
       @media(max-width:760px){.proof-session-panel{align-items:flex-start}.proof-ms-card-head{padding:12px 10px 10px}.proof-ms-section,.proof-ms-driver-strip{margin-left:9px;margin-right:9px}.proof-ms-card-footer{padding-left:9px;padding-right:9px}.proof-editor-card,.proof-session-card{padding:11px}.proof-editor-section-head{display:block!important}.proof-session-actions{grid-template-columns:1fr 1fr}}
       @media(max-width:430px){.proof-session-panel{display:block}.proof-session-panel button{margin-top:8px;width:100%}.proof-ms-driver-strip{grid-template-columns:1fr}.proof-ms-driver-strip>div+div{border-left:0;border-top:1px solid #dddcd7}.proof-session-actions{grid-template-columns:1fr}}
-    `;document.head.appendChild(style);
+    \`;document.head.appendChild(style);
     renderSession();P.render();
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(start,0),{once:true});else setTimeout(start,0);

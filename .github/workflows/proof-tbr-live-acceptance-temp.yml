@@ -1,5 +1,5 @@
 name: Proof TBR Live Acceptance Temp
-# checkpoint-trigger: bus-daily-v9b
+# checkpoint-trigger: bus-daily-v9c
 
 on:
   push:
@@ -63,5 +63,6 @@ jobs:
                   cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs \
                   cloudflare-browser-test/package.json
           git commit -m 'Split TBR Bus operating days across DEV CPU budgets'
+          git restore .tmp-tbr-bus-v9.py
           git pull --rebase origin main
           git push origin HEAD:main

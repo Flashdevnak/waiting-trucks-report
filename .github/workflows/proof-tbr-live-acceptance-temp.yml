@@ -7,53 +7,52 @@ on:
       - .github/workflows/proof-tbr-live-acceptance-temp.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-confirmed-bus-503:
+  diagnose-live-source:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Patch confirmed transient Bus recovery only
-        env:
-          BUS_TEST_B64: aW1wb3J0IHsgc2VuZENvbm5lY3RvclN5bmMgfSBmcm9tICIuLi9zcmMvaW5kZXguanMiOwoKY2xhc3MgS1YgewogIGNvbnN0cnVjdG9yKCkgeyB0aGlzLm0gPSBuZXcgTWFwKCk7IH0KICBhc3luYyBnZXQoa2V5KSB7IHJldHVybiB0aGlzLm0uZ2V0KGtleSkgPz8gbnVsbDsgfQogIGFzeW5jIHB1dChrZXksIHZhbHVlKSB7IHRoaXMubS5zZXQoa2V5LCB2YWx1ZSk7IH0KfQoKY29uc3QgbWFrZSA9IChib2R5LCBzdGF0dXMgPSAyMDApID0+IG5ldyBSZXNwb25zZShKU09OLnN0cmluZ2lmeShib2R5KSwgewogIHN0YXR1cywKICBoZWFkZXJzOiB7ICJjb250ZW50LXR5cGUiOiAiYXBwbGljYXRpb24vanNvbiIgfSwKfSk7CgpsZXQgYnVzQ2FsbHMgPSAwOwpjb25zdCBERVZfQVBJID0gewogIGZldGNoOiBhc3luYyAocmVxdWVzdCkgPT4gewogICAgY29uc3QgYm9keSA9IGF3YWl0IHJlcXVlc3QuanNvbigpOwogICAgaWYgKGJvZHkuc2hhZG93UGFydCA9PT0gInJvdXRlcyIpIHsKICAgICAgcmV0dXJuIG1ha2UoeyBvazogdHJ1ZSwgZGF0YTogeyByb3dzOiBbeyBwcm9vZklkOiAiQlVTLVJFVFJZIiwgYXR0ZW5kYW5jZVR5cGU6ICLguJvguKXguLLguKLguJfguLLguIciLCBhY3R1YWxBcnJpdmFsQXQ6ICIiIH1dIH0gfSk7CiAgICB9CiAgICBidXNDYWxscyArPSAxOwogICAgaWYgKGJ1c0NhbGxzID09PSAxKSByZXR1cm4gbWFrZSh7IG9rOiBmYWxzZSwgY29kZTogIlRCUl9CVVNfSFRUUF81MDMiLCBtZXNzYWdlOiAidHJhbnNpZW50IiB9LCA1MDMpOwogICAgcmV0dXJuIG1ha2UoeyBvazogdHJ1ZSwgZGF0YTogeyB0YnJTaGFkb3dGZWVkOiBbeyBwcm9vZklkOiAiQlVTLVJFVFJZIiwgc2NoZWR1bGVUYnJBcnJpdmFsQXQ6ICIyMDI2LTA5LTA1VDIzOjAwOjAwKzA3OjAwIiB9XSB9IH0pOwogIH0sCn07Cgpjb25zdCByZXNwb25zZSA9IGF3YWl0IHNlbmRDb25uZWN0b3JTeW5jKHsgU1RBVEU6IG5ldyBLVigpLCBERVZfQVBJIH0sICJORTEiLCAiY29ubmVjdG9yLXRva2VuIik7CmNvbnN0IHBheWxvYWQgPSBhd2FpdCByZXNwb25zZS5qc29uKCk7CmlmICghcmVzcG9uc2Uub2spIHRocm93IG5ldyBFcnJvcigidHJhbnNpZW50IEJ1cyA1MDMgc3RpbGwgYmxhbmtlZCB0aGUgY29tYmluZWQgc291cmNlIik7CmlmIChidXNDYWxscyAhPT0gMikgdGhyb3cgbmV3IEVycm9yKGBCdXMgdHJhbnNpZW50IHJldHJ5IGNvdW50IG1pc21hdGNoOiAke2J1c0NhbGxzfWApOwppZiAocGF5bG9hZD8uZGF0YT8ucm93cz8ubGVuZ3RoICE9PSAxIHx8IHBheWxvYWQ/LmRhdGE/LnRiclNoYWRvd0ZlZWQ/Lmxlbmd0aCAhPT0gMSkgdGhyb3cgbmV3IEVycm9yKCJCdXMgcmV0cnkgZGlkIG5vdCBwcmVzZXJ2ZSBjb21iaW5lZCBSb3V0ZS9UQlIgc291cmNlIik7CmlmIChwYXlsb2FkPy5kYXRhPy5zaGFkb3dRdW90YT8ubm9ybWFsVHVyc29Qb2ludFJlYWRzUGVyQ3JvbiAhPT0gNCkgdGhyb3cgbmV3IEVycm9yKCJzdGVhZHktc3RhdGUgVHVyc28gcXVvdGEgbWFya2VyIGNoYW5nZWQiKTsKaWYgKHBheWxvYWQ/LmRhdGE/LnNoYWRvd1F1b3RhPy50dXJzb1BvaW50UmVhZHNQZXJDcm9uICE9PSA2KSB0aHJvdyBuZXcgRXJyb3IoInRyYW5zaWVudCByZXRyeSBhY2NvdW50aW5nIG11c3QgcmVwb3J0IDYgcG9pbnQgcmVhZHMgZm9yIHRoaXMgZmFpbGVkLW9uY2UgY2FzZSIpOwppZiAocGF5bG9hZD8uZGF0YT8uc2hhZG93UXVvdGE/LnR1cnNvV3JpdGVzUGVyQ3JvbiAhPT0gMCkgdGhyb3cgbmV3IEVycm9yKCJCdXMgcmV0cnkgbXVzdCBub3QgYWRkIFR1cnNvIHdyaXRlcyIpOwpjb25zb2xlLmxvZygiVEJSX0JVU181MDNfUkVUUlk9UEFTUyIpOwpjb25zb2xlLmxvZygiVEJSX0JVU19SRVRSWV9DQUxMUz0yIik7CmNvbnNvbGUubG9nKCJUQlJfTk9STUFMX1RVUlNPX1BPSU5UX1JFQURTPTQiKTsKY29uc29sZS5sb2coIlRCUl9UUkFOU0lFTlRfUE9JTlRfUkVBRFM9NiIpOwpjb25zb2xlLmxvZygiVEJSX1RVUlNPX1dSSVRFUz0wIik7Cg==
+      - name: Read current TBR live health safely
         run: |
-          python3 <<'PY'
-          import base64, os
-          from pathlib import Path
-          index = Path('cloudflare-browser-test/src/index.js')
-          source = index.read_text()
-          old_comment = '// TBR_ROUTE_503_RETRY_V1: retry only transient Route transport failures.'
-          new_comment = '// TBR_ROUTE_503_RETRY_V1 / TBR_BUS_503_RETRY_V7: retry transient Route/Bus transport failures once; steady state remains one call per part.'
-          old_gate = 'if (part === "routes" && [502, 503, 504].includes(response.status)) {'
-          new_gate = 'if (["routes", "bus"].includes(part) && [502, 503, 504].includes(response.status)) {'
-          if old_comment not in source or old_gate not in source:
-              raise SystemExit('confirmed Bus retry patch target not found')
-          index.write_text(source.replace(old_comment, new_comment, 1).replace(old_gate, new_gate, 1))
-          Path('cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs').write_bytes(base64.b64decode(os.environ['BUS_TEST_B64']))
-          PY
-      - name: Validate patch before commit
-        working-directory: cloudflare-browser-test
-        run: |
-          npm install --no-audit --no-fund
-          node --check src/index.js
-          node --check scripts/tbr-bus-retry.test.mjs
-          grep -q 'TBR_BUS_503_RETRY_V7' src/index.js
-          grep -Fq '["routes", "bus"].includes(part) && [502, 503, 504].includes(response.status)' src/index.js
-          node scripts/tbr-bus-retry.test.mjs
-          ! grep -q 'd1_databases' wrangler.jsonc
-          echo 'BUS_TRANSIENT_RETRY_PATCH=PASS'
-          echo 'STEADY_STATE_EXTRA_CALLS=0'
-          echo 'BROWSER_D1_BINDING=0'
-          echo 'PRODUCTION_TOUCHED=NO'
-      - name: Commit source and regression only
-        run: |
-          git config user.name 'Flashdevnak'
-          git config user.email '26nak.testdev@gmail.com'
-          git add cloudflare-browser-test/src/index.js cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs
-          git commit -m 'Retry transient TBR Bus source failures'
-          git pull --rebase origin main
-          git push origin HEAD:main
+          node <<'NODE'
+          const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function read(path){
+            const response=await fetch(origin+path,{headers:{accept:'application/json'},cache:'no-store'});
+            const body=await response.json().catch(()=>({}));
+            return {status:response.status,body};
+          }
+          for(let attempt=1;attempt<=3;attempt++){
+            const shadow=await read('/api/shadow-tbr?hub=NE1');
+            const connection=await read('/api/connection-error?hub=NE1');
+            const s=shadow.body||{}, i=connection.body?.data||null;
+            console.log(JSON.stringify({
+              attempt,
+              shadowHttp:shadow.status,
+              observerStatus:s.observerStatus||'',
+              sourceAvailable:s.sourceAvailable??null,
+              lastAttemptAt:s.lastAttemptAt||'',
+              lastObservedAt:s.lastObservedAt||'',
+              lastSkip:s.lastSkip||'',
+              feedCount:s.feedCount??null,
+              rowCount:s.rowCount??null,
+              routeFallback:Boolean(s.routeFallback),
+              routeSourceCode:s.routeSourceError?.code||'',
+              incidentSource:i?.source||'',
+              incidentCode:i?.code||'',
+              incidentRecoveredAt:i?.recoveredAt||'',
+              tursoReads:s.tursoReads,
+              tursoWrites:s.tursoWrites,
+            }));
+            if(s.observerStatus==='LIVE'&&s.sourceAvailable===true&&s.lastObservedAt) break;
+            if(attempt<3) await sleep(15000);
+          }
+          console.log('READ_ONLY=YES');
+          console.log('MS_MUTATION_TESTED=NO');
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE

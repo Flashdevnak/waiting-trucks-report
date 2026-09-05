@@ -57,6 +57,7 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const DEV_USER_PAGES = ["ms.html", "proof.html", "waiting.html", "ms-report.html"];
 const LEGACY_REDIRECTS = ["index.html", "scan.html", "warehouse.html"];
+const DEV_STYLE_HREF = "style.css?v=20260905-dev-shell-v1";
 const DEV_NAV = [
   ["ms.html", "🚚", "ติดตามรถ MS", "คิวรถเข้า–ออกและสถานะปัจจุบัน"],
   ["proof.html", "🧾", "ปริ้นบาร์โค้ดรถ", "ตรวจข้อมูล แก้ไขตามสิทธิ์ MS และปริ้น PDF"],
@@ -79,6 +80,10 @@ export function patchDevUiShellSource(source, currentPage) {
   output = output.replace(
     navPattern,
     `<div class="app-nav-menu">${navHtml(currentPage)}</div></details>`,
+  );
+  output = output.replace(
+    /href=(['"])style\.css(?:\?[^'\"]*)?\1/,
+    `href="${DEV_STYLE_HREF}"`,
   );
   if (currentPage === "proof.html") {
     output = output
@@ -103,6 +108,9 @@ function verifyDevUiShellSource(source, currentPage) {
   if (/warehouse\.html|scan\.html|parity-check\.html|safe-parity\.html/.test(menu)) {
     throw new Error(`DEV UI ${currentPage} exposes an internal or retired page in the user menu`);
   }
+  if (!text.includes(`href="${DEV_STYLE_HREF}"`)) {
+    throw new Error(`DEV UI ${currentPage} does not use the shared style release`);
+  }
   if (currentPage === "proof.html" && !text.includes("<title>ปริ้นบาร์โค้ดรถ MS</title>")) {
     throw new Error("DEV proof title is inconsistent with the menu label");
   }
@@ -126,6 +134,7 @@ export async function stageDevUiShell(frontendTarget) {
   }
   console.log("STAGED_DEV_UI_MENU_PAGES=4");
   console.log("STAGED_DEV_UI_MENU_ITEMS=4");
+  console.log(`STAGED_DEV_UI_STYLE=${DEV_STYLE_HREF}`);
   console.log("STAGED_DEV_UI_LEGACY_REDIRECTS=3");
 }
 

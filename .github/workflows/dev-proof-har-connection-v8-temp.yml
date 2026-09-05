@@ -1,4 +1,5 @@
 name: DEV Proof HAR Connection V8 Temp
+# trigger: syntax-fix
 
 on:
   push:
@@ -19,7 +20,9 @@ jobs:
         with:
           node-version: 22
       - name: Apply Proof HAR connection V8
-        run: python3 .github/dev-tools/dev-proof-har-connection-v8-temp.py
+        run: |
+          python3 .github/dev-tools/dev-proof-har-connection-v8-temp.py
+          python3 .github/dev-tools/dev-proof-har-connection-v8-fix-temp.py
       - name: Validate DEV staging contracts
         run: |
           node --check .github/dev-tools/stage-dev-runtime.mjs

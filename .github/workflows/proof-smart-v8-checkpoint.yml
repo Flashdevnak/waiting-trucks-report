@@ -19,6 +19,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Prepare patch runner
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('.github/dev-tools/proof-smart-v8-patch.py')
+          s=p.read_text()
+          s=s.replace('pattern.subn(replacement,s,count=1)','pattern.subn(lambda _: replacement,s,count=1)')
+          p.write_text(s)
+          PY
       - name: Patch Proof Smart V8 only
         run: python3 .github/dev-tools/proof-smart-v8-patch.py
       - name: Syntax checks
@@ -44,6 +53,7 @@ jobs:
             'worker/src/proof-ui-v5.js','worker/tests/proof-smart-v8.test.mjs'
           }
           changed=[x for x in subprocess.check_output(['git','diff','--name-only'],text=True).splitlines() if x]
+          changed=[x for x in changed if x!='.github/dev-tools/proof-smart-v8-patch.py']
           bad=[x for x in changed if x not in allowed]
           if bad: raise SystemExit('Out-of-scope files: '+', '.join(bad))
           if not changed: raise SystemExit('No Proof changes produced')
@@ -52,6 +62,8 @@ jobs:
           print('BACKGROUND_SEARCH_REQUESTS_ADDED=0')
           print('PRODUCTION_TOUCHED=NO')
           PY
+      - name: Restore temporary runner before commit
+        run: git checkout -- .github/dev-tools/proof-smart-v8-patch.py
       - name: Commit Proof Smart V8
         run: |
           git config user.name 'Flashdevnak'

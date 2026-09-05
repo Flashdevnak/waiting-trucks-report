@@ -51,7 +51,8 @@ jobs:
           npm ci --no-audit --no-fund
           rm -rf .dev-assets
           mkdir -p .dev-assets
-          cp ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../main.js ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
           node --check src/index.js
@@ -59,7 +60,14 @@ jobs:
           grep -q 'TBR_SHADOW_SPLIT_V2' src/index.js
           grep -q 'shadowPart = text(body.shadowPart' src/index.js
           grep -q 'tursoPointReadsPerCron: 4' src/index.js
+          grep -q 'proof.html' .dev-assets/waiting.html
+          grep -q 'proof.html' .dev-assets/ms-report.html
+          grep -q 'style.css?v=20260905-dev-shell-v1' .dev-assets/ms.html
+          grep -q 'style.css?v=20260905-dev-shell-v1' .dev-assets/proof.html
+          grep -q 'style.css?v=20260905-dev-shell-v1' .dev-assets/waiting.html
+          grep -q 'style.css?v=20260905-dev-shell-v1' .dev-assets/ms-report.html
           ! grep -q 'd1_databases' wrangler.dev.jsonc
           echo 'NORMAL_DEV_STAGING_SPLIT_V2=PASS'
+          echo 'DEV_UI_SHELL_STAGING=PASS'
           echo 'DEV_D1_BINDING=0'
           echo 'PRODUCTION_TOUCHED=NO'

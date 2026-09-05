@@ -24,6 +24,9 @@ test('Proof V10 command center is Proof-only and keeps polling unchanged', async
   assert.match(ui, /\/api\/proof\/history/);
   assert.doesNotMatch(ui, /setInterval\s*\(/);
   assert.match(control, /const PROOF_REFRESH_MS = 60_000/);
+  const v5 = await read('worker/src/proof-ui-v5.js');
+  assert.match(v5, /const __name=\(target,value\)=>target/);
+  assert.match(ui, /const __name=\(target,value\)=>target/);
 });
 
 test('Proof history is on-demand read-only and reuses existing logs', async () => {

@@ -7,39 +7,73 @@ on:
       - .github/workflows/dev-proof-har-fourth-source-temp.yml
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
 
 jobs:
-  patch-test-deploy:
+  browser-live:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Apply fourth Proof HAR source patch
-        run: python3 .github/dev-tools/dev-proof-har-fourth-source-temp.py
-      - name: Validate staging contracts
+      - name: Install Playwright Chromium
         run: |
-          node --check .github/dev-tools/stage-dev-runtime.mjs
-          node --check .github/dev-tools/stage-dev-runtime.test.mjs
-          node --test .github/dev-tools/stage-dev-runtime.test.mjs
-          grep -q 'อัปโหลด HAR ทั้ง 4 แหล่ง' .github/dev-tools/stage-dev-runtime.mjs
-          grep -q 'data-source-status="proof"' .github/dev-tools/stage-dev-runtime.mjs
-          grep -q 'sendoutlets/storeLine' .github/dev-tools/stage-dev-runtime.mjs
-          grep -q 'DEV_PROOF_HAR_CONNECTION_FRONTEND_V9' .github/dev-tools/stage-dev-runtime.mjs
-          echo 'DEV_PROOF_HAR_FOUR_SOURCE_CONTRACT=PASS'
-          echo 'PRODUCTION_TOUCHED=NO'
-      - name: Commit functional change
+          mkdir -p /tmp/dev-proof-har-four
+          cd /tmp/dev-proof-har-four
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null
+      - name: Verify live connection dialog shows all four HAR sources
         run: |
-          git config user.name 'Flashdevnak'
-          git config user.email '26nak.testdev@gmail.com'
-          git add .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/stage-dev-runtime.test.mjs
-          git commit -m 'Show Proof HAR as fourth DEV MS connection source'
-          git pull --rebase --autostash origin main
-          git push origin HEAD:main
-      - name: Dispatch DEV deploy
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run deploy-worker-dev.yml --repo "$GITHUB_REPOSITORY" --ref main
+          cd /tmp/dev-proof-har-four
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async()=>{
+            const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+            const browser=await chromium.launch({headless:true});
+            try{
+              const page=await browser.newPage();
+              page.setDefaultTimeout(12000);
+              const r=await page.goto(`${base}/ms.html?v9=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:30000});
+              if(!r||!r.ok()) throw new Error(`ms.html HTTP ${r?.status()}`);
+              await page.waitForTimeout(1800);
+              const check=await page.evaluate(()=>{
+                const dialog=document.getElementById('ms-connection-dialog');
+                if(dialog&&!dialog.open) dialog.showModal();
+                const details=dialog?.querySelector('details.setup-fallback');
+                if(details) details.open=true;
+                const status=[...document.querySelectorAll('#connection-source-status [data-source-status]')].map(x=>({key:x.dataset.sourceStatus,text:x.textContent.trim()}));
+                const link=document.querySelector('[data-dev-proof-har-link]');
+                const upload=document.getElementById('ms-har-proof');
+                const save=document.getElementById('ms-har-proof-save');
+                return {
+                  dialog:!!dialog,
+                  summary:details?.querySelector('summary')?.textContent?.trim()||'',
+                  status,
+                  proofStatus:document.querySelector('[data-source-status="proof"]')?.textContent?.trim()||'',
+                  linkHref:link?.getAttribute('href')||'',
+                  linkText:link?.textContent?.trim()||'',
+                  upload:!!upload,
+                  save:!!save,
+                  saveText:save?.textContent?.trim()||'',
+                  dialogText:dialog?.textContent||'',
+                };
+              });
+              if(!check.dialog) throw new Error('MS connection dialog missing');
+              if(check.summary!=='อัปโหลด HAR ทั้ง 4 แหล่ง') throw new Error(`summary mismatch: ${check.summary}`);
+              if(check.status.length!==4) throw new Error(`expected 4 source status cards, got ${check.status.length}`);
+              if(!check.status.some(x=>x.key==='proof')||!check.proofStatus.includes('4. ปริ้นบาร์โค้ดรถ')) throw new Error('Proof source status card missing');
+              if(check.linkHref!=='https://ms.flashexpress.com/#/sendoutlets/storeLine'||!check.linkText.includes('4. ปริ้นบาร์โค้ดรถ')) throw new Error(`Proof source link mismatch: ${JSON.stringify(check)}`);
+              if(!check.upload||!check.save||check.saveText!=='อัปไฟล์ปริ้นบาร์รถ') throw new Error('Proof HAR upload controls missing');
+              if(!check.dialogText.includes('ทั้ง 4 หน้าด้านล่าง')) throw new Error('four-page HAR instruction missing');
+              const responsive=await Promise.race([page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>queueMicrotask(()=>resolve(true))))),new Promise((_,reject)=>setTimeout(()=>reject(new Error('freeze timeout')),2500))]);
+              if(!responsive) throw new Error('page not responsive');
+              console.log('DEV_LIVE_HAR_SOURCE_COUNT=4');
+              console.log('DEV_LIVE_PROOF_SOURCE_CARD=PASS');
+              console.log('DEV_LIVE_PROOF_SOURCE_URL=https://ms.flashexpress.com/#/sendoutlets/storeLine');
+              console.log('DEV_LIVE_PROOF_UPLOAD_BUTTON=PASS');
+              console.log('DEV_BROWSER_NO_FREEZE=PASS');
+              console.log('READ_ONLY=YES');
+              console.log('SESSION_WRITE_TESTED=NO');
+              console.log('MS_MUTATION_TESTED=NO');
+              console.log('PRODUCTION_TOUCHED=NO');
+            } finally { await browser.close(); }
+          })().catch(e=>{console.error(e);process.exit(1);});
+          NODE

@@ -1,0 +1,162 @@
+name: DEV Proof HAR Fourth Source Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-proof-har-fourth-source-temp.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch fourth Proof HAR source into DEV connection dialog
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          stage_path = Path('.github/dev-tools/stage-dev-runtime.mjs')
+          test_path = Path('.github/dev-tools/stage-dev-runtime.test.mjs')
+          s = stage_path.read_text()
+
+          old_block = '''  if (currentPage === "ms.html" && !output.includes("DEV_PROOF_HAR_CONNECTION_V8")) {
+            const proofHarAnchor = '<button class="btn btn-accent" type="button" data-har-save="busTime">ทดสอบและบันทึก</button>';
+            if (!output.includes(proofHarAnchor)) throw new Error("DEV Proof HAR connection anchor missing in ms.html");
+            output = output.replace(
+              proofHarAnchor,
+              `${proofHarAnchor}<label data-dev-proof-har="DEV_PROOF_HAR_CONNECTION_V8"><span>4. HAR ปริ้นบาร์โค้ดรถ</span><input id="ms-har-proof" type="file" accept=".har,application/json" /></label><button id="ms-har-proof-save" class="btn btn-accent" type="button">อัปไฟล์ปริ้นบาร์รถ</button><small class="dev-proof-har-note">อ่าน HAR ในเครื่องและส่งเฉพาะ Session ID / Device ID ที่จำเป็น ไม่เก็บไฟล์ HAR ทั้งไฟล์</small>`,
+            );
+          }
+'''
+          new_block = '''  if (currentPage === "ms.html" && !output.includes("DEV_PROOF_HAR_CONNECTION_V9")) {
+            const proofHarAnchor = '<button class="btn btn-accent" type="button" data-har-save="busTime">ทดสอบและบันทึก</button>';
+            const statusAnchor = '<div data-source-status="busTime"><b>3. การจัดการตารางเวลา (KIT/TBR)</b><span>กำลังตรวจสอบ…</span></div>';
+            const linkAnchor = '<a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/store/busTimeManagement" target="_blank" rel="noopener">3. การจัดการตารางเวลา</a>';
+            if (!output.includes(proofHarAnchor) || !output.includes(statusAnchor) || !output.includes(linkAnchor)) throw new Error("DEV Proof HAR fourth-source anchors missing in ms.html");
+            output = output.replace('อัปโหลด HAR ทั้ง 3 แหล่ง', 'อัปโหลด HAR ทั้ง 4 แหล่ง');
+            output = output.replace('ให้เปิดและบันทึก HAR จากทั้ง 3 หน้าด้านล่าง', 'ให้เปิดและบันทึก HAR จากทั้ง 4 หน้าด้านล่าง');
+            output = output.replace(
+              statusAnchor,
+              `${statusAnchor}<div data-source-status="proof" data-dev-proof-har-status="DEV_PROOF_HAR_CONNECTION_V9"><b>4. ปริ้นบาร์โค้ดรถ</b><span>กำลังตรวจสอบ…</span></div>`,
+            );
+            output = output.replace(
+              linkAnchor,
+              `${linkAnchor}<a class="btn btn-header setup-link" data-dev-proof-har-link="DEV_PROOF_HAR_CONNECTION_V9" href="https://ms.flashexpress.com/#/sendoutlets/storeLine" target="_blank" rel="noopener">4. ปริ้นบาร์โค้ดรถ</a>`,
+            );
+            output = output.replace(
+              proofHarAnchor,
+              `${proofHarAnchor}<label data-dev-proof-har="DEV_PROOF_HAR_CONNECTION_V9"><span>4. HAR ปริ้นบาร์โค้ดรถ</span><input id="ms-har-proof" type="file" accept=".har,application/json" /></label><button id="ms-har-proof-save" class="btn btn-accent" type="button">อัปไฟล์ปริ้นบาร์รถ</button><small class="dev-proof-har-note">อ่าน HAR ในเครื่องและส่งเฉพาะ Session ID / Device ID ที่จำเป็น ไม่เก็บไฟล์ HAR ทั้งไฟล์</small>`,
+            );
+          }
+'''
+          if old_block not in s:
+              raise SystemExit('old V8 HTML block not found')
+          s = s.replace(old_block, new_block, 1)
+
+          old_fn_start = '''export function patchDevProofHarConnectionFrontend(source) {
+            const text = String(source || "");
+            if (text.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V8")) return text;
+            const marker = `
+
+          // DEV_PROOF_HAR_CONNECTION_FRONTEND_V8: Proof print HAR is parsed locally; only Session ID / Device ID are sent.
+'''
+          new_fn_start = '''export function patchDevProofHarConnectionFrontend(source) {
+            let output = String(source || "");
+            if (output.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V9")) return output;
+            const statusLoop = 'for (const key of ["routes", "preEntry", "busTime"]) {';
+            const statusItem = 'const item = status[key];';
+            const resetInputs = '["ms-har-routes", "ms-har-preentry", "ms-har-bustime"]';
+            if (!output.includes(statusLoop) || !output.includes(statusItem) || !output.includes(resetInputs)) throw new Error("DEV Proof HAR frontend fourth-source anchors missing");
+            output = output.replace(statusLoop, 'for (const key of ["routes", "preEntry", "busTime", "proof"]) {');
+            output = output.replace(statusItem, 'const item = key === "proof" ? status.routes : status[key];');
+            output = output.replace(resetInputs, '["ms-har-routes", "ms-har-preentry", "ms-har-bustime", "ms-har-proof"]');
+            const marker = `
+
+          // DEV_PROOF_HAR_CONNECTION_FRONTEND_V9: Proof print HAR is parsed locally; only Session ID / Device ID are sent; Proof status mirrors shared MS Session.
+'''
+          if old_fn_start not in s:
+              raise SystemExit('old V8 frontend function start not found')
+          s = s.replace(old_fn_start, new_fn_start, 1)
+          old_return = '''`;
+            return `${text}${marker}`;
+          }
+'''
+          new_return = '''`;
+            return `${output}${marker}`;
+          }
+'''
+          if old_return not in s:
+              raise SystemExit('old frontend return not found')
+          s = s.replace(old_return, new_return, 1)
+          stage_path.write_text(s)
+
+          t = test_path.read_text()
+          t = t.replace('assert.match(stagedMsHtml, /DEV_PROOF_HAR_CONNECTION_V8/);', 'assert.match(stagedMsHtml, /DEV_PROOF_HAR_CONNECTION_V9/);')
+          t = t.replace('assert.match(stagedFrontend, /DEV_PROOF_HAR_CONNECTION_FRONTEND_V8/);', 'assert.match(stagedFrontend, /DEV_PROOF_HAR_CONNECTION_FRONTEND_V9/);')
+          needle = '''  assert.match(stagedMsHtml, /ไม่เก็บไฟล์ HAR ทั้งไฟล์/);
+
+  assert.match(stagedFrontend, /DEV_PROOF_HAR_CONNECTION_FRONTEND_V9/);
+'''
+          repl = '''  assert.match(stagedMsHtml, /ไม่เก็บไฟล์ HAR ทั้งไฟล์/);
+  assert.match(stagedMsHtml, /อัปโหลด HAR ทั้ง 4 แหล่ง/);
+  assert.match(stagedMsHtml, /data-source-status="proof"/);
+  assert.match(stagedMsHtml, /4\. ปริ้นบาร์โค้ดรถ/);
+  assert.match(stagedMsHtml, /https:\/\/ms\.flashexpress\.com\/#\/sendoutlets\/storeLine/);
+  assert.match(stagedMsHtml, /ทั้ง 4 หน้าด้านล่าง/);
+
+  assert.match(stagedFrontend, /DEV_PROOF_HAR_CONNECTION_FRONTEND_V9/);
+'''
+          if needle not in t:
+              raise SystemExit('test insertion anchor not found')
+          t = t.replace(needle, repl, 1)
+          needle2 = '''  assert.match(stagedFrontend, /apiPost\\("saveMsConnection", \\{ hub, sessionId, deviceId \\}\\)/);
+  assert.match(stagedFrontend, /pollMs:\\s*4000/);
+'''
+          repl2 = '''  assert.match(stagedFrontend, /apiPost\\("saveMsConnection", \\{ hub, sessionId, deviceId \\}\\)/);
+  assert.match(stagedFrontend, /key === "proof" \\? status\.routes : status\\[key\\]/);
+  assert.match(stagedFrontend, /"ms-har-bustime", "ms-har-proof"/);
+  assert.match(stagedFrontend, /pollMs:\\s*4000/);
+'''
+          if needle2 not in t:
+              raise SystemExit('frontend test insertion anchor not found')
+          t = t.replace(needle2, repl2, 1)
+          test_path.write_text(t)
+
+          print('DEV_PROOF_HAR_FOUR_SOURCES=PATCHED')
+          print('MS_PRINT_SOURCE_URL=https://ms.flashexpress.com/#/sendoutlets/storeLine')
+          print('POLLING_CHANGED=NO')
+          print('TBR_CHANGED=NO')
+          print('PRODUCTION_TOUCHED=NO')
+          PY
+      - name: Validate staging contracts
+        run: |
+          node --check .github/dev-tools/stage-dev-runtime.mjs
+          node --check .github/dev-tools/stage-dev-runtime.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          grep -q 'อัปโหลด HAR ทั้ง 4 แหล่ง' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'data-source-status="proof"' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'sendoutlets/storeLine' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'DEV_PROOF_HAR_CONNECTION_FRONTEND_V9' .github/dev-tools/stage-dev-runtime.mjs
+          echo 'DEV_PROOF_HAR_FOUR_SOURCE_CONTRACT=PASS'
+          echo 'PRODUCTION_TOUCHED=NO'
+      - name: Commit functional change
+        run: |
+          git config user.name 'Flashdevnak'
+          git config user.email '26nak.testdev@gmail.com'
+          git add .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/stage-dev-runtime.test.mjs
+          git commit -m 'Show Proof HAR as fourth DEV MS connection source'
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
+      - name: Dispatch DEV deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --repo "$GITHUB_REPOSITORY" --ref main

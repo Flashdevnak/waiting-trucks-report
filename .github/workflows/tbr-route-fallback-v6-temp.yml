@@ -1,0 +1,122 @@
+name: TBR Route Fallback V6 Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tbr-route-fallback-v6-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch Browser TEST Route stale fallback
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const must=(v,m)=>{if(!v)throw new Error(m)};
+          const p='cloudflare-browser-test/src/index.js';
+          let s=fs.readFileSync(p,'utf8');
+          must(!s.includes('TBR_ROUTE_STALE_FALLBACK_V6'),'V6 already applied');
+          const apiAnchor='const MAIN_API =\n  "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";';
+          must(s.includes(apiAnchor),'MAIN_API anchor missing');
+          s=s.replace(apiAnchor,apiAnchor+`\n\n// TBR_ROUTE_STALE_FALLBACK_V6: preserve the last successful compact Route snapshot\n// in Browser KV. A transient 502/503/504 can use it for up to 30 minutes while\n// the current Bus/TBR feed continues. Snapshot writes are throttled to 5 minutes.\nconst TBR_ROUTE_CACHE_VERSION = 1;\nconst TBR_ROUTE_CACHE_HEARTBEAT_MS = 5 * 60 * 1000;\nconst TBR_ROUTE_CACHE_MAX_AGE_MS = 30 * 60 * 1000;\nconst TBR_ROUTE_CACHE_TTL_SECONDS = 2 * 60 * 60;`);
+
+          const failureStart=s.indexOf('function connectorPartFailure(part, response, payload) {');
+          const failureEnd=s.indexOf('\n\n// TBR_ROUTE_503_RETRY_V1',failureStart);
+          must(failureStart>=0&&failureEnd>failureStart,'connector failure block missing');
+          const failureBlock=`function connectorPartError(part, response, payload) {\n  const originalCode = String(payload?.code || "");\n  const code = originalCode === "INVALID_CONNECTOR"\n    ? originalCode\n    : originalCode || \`TBR_\${part.toUpperCase()}_HTTP_\${response.status}\`;\n  const message = String(payload?.message || \`\${part} source ตอบกลับ HTTP \${response.status}\`);\n  return { code, message, sourcePart: part, status: response.status || 503 };\n}\n\nfunction connectorPartFailure(part, response, payload) {\n  const error = connectorPartError(part, response, payload);\n  return new Response(JSON.stringify({ ok: false, code: error.code, message: error.message, sourcePart: part }), {\n    status: error.status,\n    headers: { "content-type": "application/json; charset=utf-8" },\n  });\n}`;
+          s=s.slice(0,failureStart)+failureBlock+s.slice(failureEnd);
+
+          const syncStart=s.indexOf('// TBR_ROUTE_503_RETRY_V1: retry only transient Route transport failures.');
+          const syncEnd=s.indexOf('\n\nasync function syncConfiguredHubs(env) {',syncStart);
+          must(syncStart>=0&&syncEnd>syncStart,'connector sync block missing');
+          const syncBlock=`// TBR_ROUTE_503_RETRY_V1: retry only transient Route transport failures.\nasync function sendConnectorPartResilient(env, hub, connectorToken, part) {\n  let attempts = 1;\n  let response = await sendConnectorPart(env, hub, connectorToken, part);\n  let payload = await connectorPartPayload(response);\n  if (part === "routes" && [502, 503, 504].includes(response.status)) {\n    await wait(450);\n    attempts = 2;\n    response = await sendConnectorPart(env, hub, connectorToken, part);\n    payload = await connectorPartPayload(response);\n  }\n  return { response, payload, attempts };\n}\n\nfunction tbrRouteCacheKey(hub) {\n  return \`shadow:tbr:route-source:v1:\${hub}\`;\n}\n\nfunction parseTbrRouteCache(raw, hub) {\n  try {\n    const data = JSON.parse(raw || "null");\n    if (data?.version === TBR_ROUTE_CACHE_VERSION && data?.hub === hub && Array.isArray(data?.rows)) return data;\n  } catch {}\n  return null;\n}\n\nasync function readTbrRouteCache(env, hub, now = Date.now()) {\n  if (!env?.STATE) return null;\n  const data = parseTbrRouteCache(await env.STATE.get(tbrRouteCacheKey(hub)), hub);\n  const lastSuccess = Date.parse(String(data?.lastSuccessAt || ""));\n  if (!data || !Number.isFinite(lastSuccess)) return null;\n  const ageMs = Math.max(0, now - lastSuccess);\n  if (ageMs > TBR_ROUTE_CACHE_MAX_AGE_MS) return null;\n  return { rows: data.rows, lastSuccessAt: data.lastSuccessAt, ageSeconds: Math.round(ageMs / 1000) };\n}\n\nasync function refreshTbrRouteCache(env, hub, rows, now = Date.now()) {\n  if (!env?.STATE || !Array.isArray(rows)) return { written: false };\n  const key = tbrRouteCacheKey(hub);\n  const current = parseTbrRouteCache(await env.STATE.get(key), hub);\n  const previousAt = Date.parse(String(current?.lastSuccessAt || ""));\n  if (Number.isFinite(previousAt) && now - previousAt < TBR_ROUTE_CACHE_HEARTBEAT_MS)\n    return { written: false, lastSuccessAt: current.lastSuccessAt };\n  const lastSuccessAt = new Date(now).toISOString();\n  await env.STATE.put(key, JSON.stringify({ version: TBR_ROUTE_CACHE_VERSION, hub, lastSuccessAt, rows }), {\n    expirationTtl: TBR_ROUTE_CACHE_TTL_SECONDS,\n  });\n  return { written: true, lastSuccessAt };\n}\n\nexport async function sendConnectorSync(env, hub, connectorToken) {\n  const [routeResult, busResult] = await Promise.all([\n    sendConnectorPartResilient(env, hub, connectorToken, "routes"),\n    sendConnectorPartResilient(env, hub, connectorToken, "bus"),\n  ]);\n  const routeResponse = routeResult.response, routePayload = routeResult.payload;\n  const busResponse = busResult.response, busPayload = busResult.payload;\n  let rows = [];\n  let routeFallback = null;\n  let routeSourceError = null;\n  if (routeResponse.ok) {\n    rows = Array.isArray(routePayload?.data?.rows) ? routePayload.data.rows : [];\n    await refreshTbrRouteCache(env, hub, rows);\n  } else {\n    routeSourceError = connectorPartError("routes", routeResponse, routePayload);\n    routeFallback = await readTbrRouteCache(env, hub);\n    if (!routeFallback) return connectorPartFailure("routes", routeResponse, routePayload);\n    rows = routeFallback.rows;\n  }\n  if (!busResponse.ok) return connectorPartFailure("bus", busResponse, busPayload);\n  const tbrShadowFeed = Array.isArray(busPayload?.data?.tbrShadowFeed)\n    ? busPayload.data.tbrShadowFeed : [];\n  const pointReads = 2 * (Number(routeResult.attempts || 1) + Number(busResult.attempts || 1));\n  return new Response(JSON.stringify({\n    ok: true,\n    data: {\n      status: routeFallback ? "shadow_readonly_split_route_fallback" : "shadow_readonly_split",\n      syncedAt: new Date().toISOString(),\n      changes: 0, rows, tbrShadowFeed,\n      routeFallback: Boolean(routeFallback),\n      routeFallbackAt: routeFallback?.lastSuccessAt || "",\n      routeFallbackAgeSeconds: routeFallback?.ageSeconds ?? null,\n      routeSourceError: routeSourceError ? { code: routeSourceError.code, message: routeSourceError.message } : null,\n      shadowQuota: {\n        mode: "SHADOW_READONLY_SPLIT_V2",\n        normalTursoPointReadsPerCron: 4, tursoPointReadsPerCron: pointReads, tursoWritesPerCron: 0,\n        browserKvRouteCacheReadsPerCron: 1, browserKvRouteCacheWritesMaxPerDay: 288,\n        routeTableReads: 0, routeTableWrites: 0,\n        historyReads: 0, historyWrites: 0,\n        liveCacheReads: 0, liveCacheWrites: 0, preEntryCalls: 0,\n      },\n    },\n  }), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });\n}`;
+          s=s.slice(0,syncStart)+syncBlock+s.slice(syncEnd);
+
+          const oldObserver=`        if (response.ok) {\n          try {\n            const observedShadow = await observeTbrShadow(env, hub, payload?.data || {});\n            if (observedShadow?.sourceChanged)\n              await recordConnectionRecoveredKv(env, { hub });\n          } catch (shadowError) {`;
+          must(s.includes(oldObserver),'observer success block missing');
+          const newObserver=`        if (response.ok) {\n          try {\n            const observedShadow = await observeTbrShadow(env, hub, payload?.data || {});\n            if (payload?.data?.routeFallback) {\n              const routeError = payload?.data?.routeSourceError || {};\n              await recordConnectionErrorKv(env, {\n                hub, source: "routes", code: routeError.code || "TBR_ROUTES_FALLBACK",\n                message: routeError.message || "Route source สะดุดชั่วคราว · ใช้ snapshot ล่าสุด",\n              });\n              console.warn(JSON.stringify({ event: "tbr_route_snapshot_fallback", hub, cachedAt: payload?.data?.routeFallbackAt || "" }));\n            } else if (observedShadow?.sourceChanged || observedShadow?.routeFallbackChanged) {\n              await recordConnectionRecoveredKv(env, { hub });\n            }\n          } catch (shadowError) {`;
+          s=s.replace(oldObserver,newObserver);
+          fs.writeFileSync(p,s);
+
+          const tp='cloudflare-browser-test/src/tbr-shadow.js';
+          let t=fs.readFileSync(tp,'utf8');
+          const freshAnchor='    shadowQuota: null,\n    records: {},';
+          must(t.includes(freshAnchor),'fresh state anchor missing');
+          t=t.replace(freshAnchor,'    shadowQuota: null,\n    routeFallback: false,\n    routeFallbackAt: "",\n    routeSourceError: null,\n    records: {},');
+          const reportAnchor='    shadowQuota: state.shadowQuota && typeof state.shadowQuota === "object" ? state.shadowQuota : null,\n    startedAt:';
+          must(t.includes(reportAnchor),'report anchor missing');
+          t=t.replace(reportAnchor,'    shadowQuota: state.shadowQuota && typeof state.shadowQuota === "object" ? state.shadowQuota : null,\n    routeFallback: Boolean(state.routeFallback),\n    routeFallbackAt: String(state.routeFallbackAt || ""),\n    routeSourceError: state.routeSourceError && typeof state.routeSourceError === "object" ? state.routeSourceError : null,\n    startedAt:');
+          const varsAnchor='  const previousSourceAvailable = state.sourceAvailable;\n  const feedAvailable = Array.isArray(live?.tbrShadowFeed);';
+          must(t.includes(varsAnchor),'observe vars anchor missing');
+          t=t.replace(varsAnchor,'  const previousSourceAvailable = state.sourceAvailable;\n  const previousRouteFallback = Boolean(state.routeFallback);\n  const feedAvailable = Array.isArray(live?.tbrShadowFeed);');
+          const quotaAnchor='  const previousHealthAt = validTime(state.healthUpdatedAt);';
+          must(t.includes(quotaAnchor),'quota anchor missing');
+          t=t.replace(quotaAnchor,'  const routeFallback = sourceAvailable && live?.routeFallback === true;\n  const routeFallbackAt = routeFallback ? iso(live?.routeFallbackAt) : "";\n  const routeSourceError = routeFallback && live?.routeSourceError && typeof live.routeSourceError === "object"\n    ? { code: String(live.routeSourceError.code || ""), message: String(live.routeSourceError.message || "") } : null;\n  const previousHealthAt = validTime(state.healthUpdatedAt);');
+          const healthOld='    JSON.stringify(state.shadowQuota || null) !== JSON.stringify(shadowQuota || null) ||\n    String(state.lastSkip || "") !== (sourceAvailable ? "" : "source_unavailable");';
+          must(t.includes(healthOld),'health changed anchor missing');
+          t=t.replace(healthOld,'    JSON.stringify(state.shadowQuota || null) !== JSON.stringify(shadowQuota || null) ||\n    Boolean(state.routeFallback) !== routeFallback ||\n    String(state.routeFallbackAt || "") !== routeFallbackAt ||\n    JSON.stringify(state.routeSourceError || null) !== JSON.stringify(routeSourceError || null) ||\n    String(state.lastSkip || "") !== (sourceAvailable ? (routeFallback ? "route_fallback" : "") : "source_unavailable");');
+          const stateOld='  state.shadowQuota = shadowQuota;\n  state.lastSkip = sourceAvailable ? "" : "source_unavailable";';
+          must(t.includes(stateOld),'state assignment anchor missing');
+          t=t.replace(stateOld,'  state.shadowQuota = shadowQuota;\n  state.routeFallback = routeFallback;\n  state.routeFallbackAt = routeFallbackAt;\n  state.routeSourceError = routeSourceError;\n  state.lastSkip = sourceAvailable ? (routeFallback ? "route_fallback" : "") : "source_unavailable";');
+          const returnAnchor='      sourceChanged: previousSourceAvailable !== false,\n      skipped: "source_unavailable",';
+          must(t.includes(returnAnchor),'unavailable return anchor missing');
+          t=t.replace(returnAnchor,'      sourceChanged: previousSourceAvailable !== false,\n      routeFallbackChanged: previousRouteFallback !== routeFallback,\n      skipped: "source_unavailable",');
+          const finalReturnMarker='    sourceChanged: previousSourceAvailable !== true,';
+          must(t.includes(finalReturnMarker),'success return anchor missing');
+          t=t.replace(finalReturnMarker,'    sourceChanged: previousSourceAvailable !== true,\n    routeFallbackChanged: previousRouteFallback !== routeFallback,');
+          const statusClassOld='  const statusClass = status === "LIVE" ? "live" : status === "STALE" ? "stale" : status === "WAITING_SOURCE" ? "wait" : "never";';
+          must(t.includes(statusClassOld),'status class anchor missing');
+          t=t.replace(statusClassOld,'  const statusClass = report?.routeFallback ? "degraded" : status === "LIVE" ? "live" : status === "STALE" ? "stale" : status === "WAITING_SOURCE" ? "wait" : "never";\n  const healthText = report?.routeFallback ? "LIVE · TBR สด / Route ใช้ snapshot ล่าสุดชั่วคราว" : healthLabel(status);');
+          t=t.replace('.wait{color:#b54708}.never{color:#667085}', '.wait{color:#b54708}.degraded{color:#b54708;background:#fffaeb;border-color:#fedf89}.never{color:#667085}');
+          t=t.replace('<b>Observer: ${escapeHtml(healthLabel(status))}</b>', '<b>Observer: ${escapeHtml(healthText)}</b>');
+          fs.writeFileSync(tp,t);
+          NODE
+      - name: Syntax and fallback behavior regression
+        working-directory: cloudflare-browser-test
+        run: |
+          npm install --no-audit --no-fund
+          node --check src/index.js
+          node --check src/tbr-shadow.js
+          grep -q 'TBR_ROUTE_STALE_FALLBACK_V6' src/index.js
+          grep -q 'route_fallback' src/tbr-shadow.js
+          node --input-type=module <<'NODE'
+          import { sendConnectorSync } from './src/index.js';
+          class KV { constructor(){this.m=new Map()} async get(k){return this.m.get(k)??null} async put(k,v){this.m.set(k,v)} }
+          const STATE=new KV();
+          let failRoute=false;
+          const routeRows=[{proofId:'FALLBACK-A',attendanceType:'ปลายทาง',actualArrivalAt:''}];
+          const make=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{'content-type':'application/json'}});
+          const DEV_API={fetch:async request=>{const body=await request.json();if(body.shadowPart==='routes'){if(failRoute)return make({ok:false},503);return make({ok:true,data:{rows:routeRows}});}return make({ok:true,data:{tbrShadowFeed:[{proofId:'FALLBACK-A',scheduleTbrArrivalAt:'2026-09-05T23:00:00+07:00'}]}});}};
+          const env={STATE,DEV_API};
+          let response=await sendConnectorSync(env,'NE1','connector-token');
+          let body=await response.json();
+          if(!response.ok||body.data.routeFallback||body.data.rows.length!==1)throw new Error('initial Route snapshot seed failed');
+          failRoute=true;
+          response=await sendConnectorSync(env,'NE1','connector-token'); body=await response.json();
+          if(!response.ok||body.data.routeFallback!==true||body.data.rows.length!==1||body.data.tbrShadowFeed.length!==1)throw new Error('503 Route snapshot fallback failed');
+          if(body.data.shadowQuota.normalTursoPointReadsPerCron!==4||body.data.shadowQuota.tursoWritesPerCron!==0)throw new Error('quota contract changed');
+          console.log('TBR_ROUTE_STALE_FALLBACK_V6=PASS');
+          console.log('TBR_FALLBACK_CURRENT_BUS_FEED=PASS');
+          console.log('TBR_NORMAL_TURSO_POINT_READS=4');
+          console.log('TBR_TURSO_WRITES=0');
+          NODE
+      - name: Scope guard and commit
+        run: |
+          git diff --check
+          changed="$(git diff --name-only)"
+          echo "$changed"
+          test "$changed" = $'cloudflare-browser-test/src/index.js\ncloudflare-browser-test/src/tbr-shadow.js'
+          git config user.name 'Flashdevnak'
+          git config user.email '26nak.testdev@gmail.com'
+          git add cloudflare-browser-test/src/index.js cloudflare-browser-test/src/tbr-shadow.js
+          git commit -m 'Keep TBR live through transient Route 503s'
+          git push origin HEAD:main

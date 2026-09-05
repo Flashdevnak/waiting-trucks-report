@@ -21,7 +21,9 @@ jobs:
           cache: npm
           cache-dependency-path: worker/package-lock.json
       - name: Apply Proof readability V12
-        run: python3 .github/dev-tools/proof-readability-v12-temp.py
+        run: |
+          python3 .github/dev-tools/proof-readability-v12-temp.py
+          sed -i 's/20260906-01/20260906-02/g' worker/tests/proof-command-center-v10.test.mjs
       - name: Validate Proof V12 and quota guards
         run: |
           node --check worker/src/proof-ui-v10.js

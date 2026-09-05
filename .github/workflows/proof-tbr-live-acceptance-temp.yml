@@ -23,7 +23,7 @@ jobs:
           async function text(url){const r=await fetch(url,{cache:'no-store',headers:{'cache-control':'no-cache'}});const b=await r.text();if(!r.ok)throw new Error(url+' HTTP '+r.status);return b;}
           async function json(url){const r=await fetch(url,{cache:'no-store',headers:{accept:'application/json','cache-control':'no-cache'}});const b=await r.json();if(!r.ok)throw new Error(url+' HTTP '+r.status);return b;}
           const proof=await text(dev+'/proof-v5.js?v=live-v9-1');
-          for(const marker of ['PROOF_PRINT_HAR_UPLOAD_V9','PROOF_PRINT_HAR_POLISH_V9_1','HAR สำหรับปริ้นบาร์โค้ดรถ','proof-print-har-save','HAR เส้นทาง MS']) if(!proof.includes(marker)) throw new Error('Live Proof missing '+marker);
+          for(const marker of ['HAR สำหรับปริ้นบาร์โค้ดรถ','proof-print-har-save','HAR เส้นทาง MS','HAR บันทึกแล้วและ Proof Session ใช้งานได้','proof-print-har-file-name']) if(!proof.includes(marker)) throw new Error('Live Proof missing '+marker);
           const shadow=await json(browser+'/api/shadow-tbr?hub=NE1');
           const err=await json(browser+'/api/connection-error?hub=NE1');
           const status=String(shadow.observerStatus||'');

@@ -1,0 +1,53 @@
+name: DEV Proof HAR Connection V8 Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-proof-har-connection-v8-temp.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply Proof HAR connection V8
+        run: python3 .github/dev-tools/dev-proof-har-connection-v8-temp.py
+      - name: Validate DEV staging contracts
+        run: |
+          node --check .github/dev-tools/stage-dev-runtime.mjs
+          node --check .github/dev-tools/stage-dev-runtime.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          grep -q 'DEV_PROOF_HAR_CONNECTION_V8' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'DEV_PROOF_HAR_CONNECTION_FRONTEND_V8' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'proof-session-btn.*header-link.*ms.html#connection' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'ms-har-proof-save' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'x-fle-session-id' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'x-device-id' .github/dev-tools/stage-dev-runtime.mjs
+          echo 'DEV_PROOF_CONNECTION_V8=PASS'
+          echo 'POLLING_CHANGED=NO'
+          echo 'TBR_CHANGED=NO'
+          echo 'PRODUCTION_TOUCHED=NO'
+      - name: Commit functional change
+        run: |
+          git config user.name 'Flashdevnak'
+          git config user.email '26nak.testdev@gmail.com'
+          git add .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/stage-dev-runtime.test.mjs
+          if git diff --cached --quiet; then
+            echo 'FUNCTIONAL_CHANGE_ALREADY_PRESENT=YES'
+          else
+            git commit -m 'Expose Proof HAR upload in DEV MS connection'
+            git pull --rebase --autostash origin main
+            git push origin HEAD:main
+          fi
+      - name: Dispatch DEV deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --repo "$GITHUB_REPOSITORY" --ref main

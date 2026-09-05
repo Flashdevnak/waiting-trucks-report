@@ -20,8 +20,17 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: worker/package-lock.json
-      - name: Apply Proof ops control V11 patch
-        run: python3 .github/dev-tools/proof-ops-control-v11-temp.py
+      - name: Repair temp patch anchor and apply Proof ops control V11
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/dev-tools/proof-ops-control-v11-temp.py')
+          s = p.read_text()
+          s = s.replace('anchor = "      document.head.appendChild(style);\\n"', 'anchor = "      `; document.head.appendChild(style);\\n"')
+          s = s.replace("style_block = r'''      document.head.appendChild(style);", "style_block = r'''      `; document.head.appendChild(style);")
+          p.write_text(s)
+          PY
+          python3 .github/dev-tools/proof-ops-control-v11-temp.py
       - name: Validate Proof only, quota safe, and browser asset guards
         run: |
           node --check worker/src/proof-ui-v10.js

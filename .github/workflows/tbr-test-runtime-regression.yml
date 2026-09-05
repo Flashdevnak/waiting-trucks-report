@@ -82,7 +82,7 @@ jobs:
           console.log('DROP_INCLUDED=PASS');
           NODE
 
-      - name: Verify normal DEV staging preserves Split V2 and full Route window
+      - name: Verify normal DEV staging preserves Split V2 and adaptive Route recovery
         working-directory: worker
         run: |
           npm ci --no-audit --no-fund
@@ -96,13 +96,17 @@ jobs:
           grep -q 'TBR_SHADOW_READONLY_V1' src/index.js
           grep -q 'TBR_SHADOW_SPLIT_V2' src/index.js
           grep -q 'TBR_ROUTE_OPERATING_WINDOW_V3' src/index.js
+          grep -q 'TBR_ROUTE_CHUNK_RETRY_V4' src/index.js
+          grep -q 'TBR_ROUTE_ADAPTIVE_RETRY_V5' src/index.js
+          grep -q 'readTbrRouteRangeAdaptive' src/index.js
+          grep -q 'depth >= 2' src/index.js
           grep -q 'todayStartBangkok - 86400000' src/index.js
-          grep -q 'todayStartBangkok + 2 \* 86400000 - 1000' src/index.js
+          grep -q 'todayStartBangkok + 86400000 - 1000' src/index.js
           grep -q 'shadowPart = text(body.shadowPart' src/index.js
           grep -q 'tursoPointReadsPerCron: 4' src/index.js
           for page in ms.html proof.html waiting.html ms-report.html; do
             grep -q 'data-dev-shell="20260905-v2"' ".dev-assets/$page"
-            grep -q 'style.css?v=20260905-dev-shell-v2' ".dev-assets/$page"
+            grep -q 'style.css?v=20260905-dev-shell-v3' ".dev-assets/$page"
             grep -q 'dev-shell-status' ".dev-assets/$page"
             grep -q 'dev-system-nav' ".dev-assets/$page"
             grep -q 'dev-page-tools' ".dev-assets/$page"
@@ -110,9 +114,10 @@ jobs:
             grep -q 'dev-account-menu' ".dev-assets/$page"
           done
           grep -q 'DEV_UNIFIED_HEADER_V2' .dev-assets/style.css
+          grep -q 'DEV_HEADER_POLISH_V3' .dev-assets/style.css
           ! grep -q 'd1_databases' wrangler.dev.jsonc
           echo 'NORMAL_DEV_STAGING_SPLIT_V2=PASS'
-          echo 'TBR_ROUTE_OPERATING_WINDOW_V3=PASS'
-          echo 'DEV_UI_UNIFIED_HEADER_V2=PASS'
+          echo 'TBR_ROUTE_ADAPTIVE_RETRY_V5=PASS'
+          echo 'DEV_UI_HEADER_V3=PASS'
           echo 'DEV_D1_BINDING=0'
           echo 'PRODUCTION_TOUCHED=NO'

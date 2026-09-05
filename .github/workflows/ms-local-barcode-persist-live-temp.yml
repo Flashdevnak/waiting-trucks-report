@@ -1,0 +1,60 @@
+name: MS Local Barcode Persist Live Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ms-local-barcode-persist-live-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  browser-live:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/ms-barcode-persist && cd /tmp/ms-barcode-persist
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null
+      - name: Verify barcode stays open across rerender
+        run: |
+          cd /tmp/ms-barcode-persist
+          node <<'NODE'
+          const {chromium}=require('playwright');
+          (async()=>{
+            const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+            const browser=await chromium.launch({headless:true});
+            try{
+              const page=await browser.newPage({viewport:{width:1280,height:900}});
+              const requests=[]; const errors=[];
+              page.on('request',r=>requests.push(r.url()));
+              page.on('pageerror',e=>errors.push(String(e)));
+              const res=await page.goto(base+'/ms.html?barcodePersist='+Date.now(),{waitUntil:'domcontentloaded',timeout:30000});
+              if(!res?.ok()) throw new Error('ms.html '+res?.status());
+              await page.waitForFunction(()=>typeof localBarcodeButton==='function'&&typeof toggleLocalRouteBarcode==='function',{timeout:15000});
+              if(errors.length) throw new Error('page errors '+errors.join('|'));
+              const row={proofId:'YAS1TCQU63',attendanceType:'ปลายทาง'};
+              await page.evaluate(row=>{sessionStorage.removeItem('ms_local_barcode_open_v2');localBarcodeOpen.clear();const host=document.createElement('div');host.id='barcode-persist-host';host.innerHTML=localBarcodeButton(row);document.body.appendChild(host);},row);
+              const before=requests.filter(u=>u.includes('/api')||u.includes('ms.flashexpress.com')).length;
+              await page.click('#barcode-persist-host [data-local-barcode-toggle]');
+              await page.waitForSelector('#barcode-persist-host .local-barcode-panel:not(.hidden) svg');
+              await page.evaluate(row=>{document.querySelector('#barcode-persist-host').innerHTML=localBarcodeButton(row);},row);
+              await page.waitForSelector('#barcode-persist-host .local-barcode-panel:not(.hidden) svg');
+              const state=await page.evaluate(()=>({expanded:document.querySelector('#barcode-persist-host [data-local-barcode-toggle]')?.getAttribute('aria-expanded'),text:document.querySelector('#barcode-persist-host .local-barcode-svg text')?.textContent,stored:sessionStorage.getItem('ms_local_barcode_open_v2')}));
+              if(state.expanded!=='true'||state.text!=='YAS1TCQU63'||!String(state.stored).includes('YAS1TCQU63')) throw new Error('open state lost after rerender '+JSON.stringify(state));
+              await page.click('#barcode-persist-host [data-local-barcode-toggle]');
+              await page.evaluate(row=>{document.querySelector('#barcode-persist-host').innerHTML=localBarcodeButton(row);},row);
+              const hidden=await page.$eval('#barcode-persist-host .local-barcode-panel',el=>el.classList.contains('hidden'));
+              if(!hidden) throw new Error('manual hide did not persist');
+              const after=requests.filter(u=>u.includes('/api')||u.includes('ms.flashexpress.com')).length;
+              if(after!==before) throw new Error(`barcode persistence added network ${before}->${after}`);
+              console.log('BARCODE_STAYS_OPEN_AFTER_RERENDER=PASS');
+              console.log('MANUAL_HIDE_PERSISTS=PASS');
+              console.log('BARCODE_PERSIST_NETWORK_REQUESTS=0');
+              console.log('PRODUCTION_TOUCHED=NO');
+            } finally { await browser.close(); }
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

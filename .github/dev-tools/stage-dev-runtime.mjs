@@ -91,7 +91,7 @@ const DEV_PAGE_META = {
     status: '<span id="connection-badge" class="badge badge-neutral">กำลังเชื่อมต่อ</span>',
     tools:
       '<a id="connect-ms-btn" class="btn btn-accent header-link hidden" href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance" target="_blank" rel="noopener">เปิด MS</a>' +
-      '<a id="proof-session-btn" class="btn btn-header header-link hidden" href="ms.html#connection">การเชื่อมต่อ MS (QR/HAR)</a>',
+      '<a id="proof-session-btn" class="btn btn-header header-link" href="ms.html#connection">การเชื่อมต่อ MS (QR/HAR)</a>',
     refresh: '<button id="refresh-btn" class="btn btn-header" type="button">รีเฟรช</button>',
     account:
       '<button id="login-btn" class="btn btn-accent" type="button">เข้าสู่ระบบ</button>' +
@@ -155,6 +155,15 @@ export function patchDevUiShellSource(source, currentPage) {
     output = output.replace(
       /<title>จัดการเส้นทางเดินรถ MS<\/title>/,
       "<title>ปริ้นบาร์โค้ดรถ MS</title>",
+    );
+  }
+
+  if (currentPage === "ms.html" && !output.includes("DEV_PROOF_HAR_CONNECTION_V8")) {
+    const proofHarAnchor = '<button class="btn btn-accent" type="button" data-har-save="busTime">ทดสอบและบันทึก</button>';
+    if (!output.includes(proofHarAnchor)) throw new Error("DEV Proof HAR connection anchor missing in ms.html");
+    output = output.replace(
+      proofHarAnchor,
+      `${proofHarAnchor}<label data-dev-proof-har="DEV_PROOF_HAR_CONNECTION_V8"><span>4. HAR ปริ้นบาร์โค้ดรถ</span><input id="ms-har-proof" type="file" accept=".har,application/json" /></label><button id="ms-har-proof-save" class="btn btn-accent" type="button">อัปไฟล์ปริ้นบาร์รถ</button><small class="dev-proof-har-note">อ่าน HAR ในเครื่องและส่งเฉพาะ Session ID / Device ID ที่จำเป็น ไม่เก็บไฟล์ HAR ทั้งไฟล์</small>`,
     );
   }
   if (!output.includes("DEV_EXCLUSIVE_DROPDOWNS_V4")) {
@@ -271,6 +280,73 @@ export function frontendHasIntegratedDevRuntime(source) {
   );
 }
 
+
+export function patchDevProofHarConnectionFrontend(source) {
+  const text = String(source || "");
+  if (text.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V8")) return text;
+  const marker = `
+
+// DEV_PROOF_HAR_CONNECTION_FRONTEND_V8: Proof print HAR is parsed locally; only Session ID / Device ID are sent.
+document.addEventListener("DOMContentLoaded", () => {
+  const button = el("ms-har-proof-save");
+  if (button) button.onclick = () => saveProofHarConnection(button);
+  const connectionButton = el("ms-connection-btn");
+  if (connectionButton) connectionButton.addEventListener("click", () => {
+    const input = el("ms-har-proof");
+    if (input) input.value = "";
+  });
+});
+
+async function saveProofHarConnection(button) {
+  const errorEl = el("ms-connection-error");
+  const input = el("ms-har-proof");
+  const file = input?.files?.[0];
+  const hub = el("ms-har-hub").value.trim().toUpperCase();
+  try {
+    button.disabled = true;
+    if (!file || file.size > 60 * 1024 * 1024)
+      throw new Error("กรุณาเลือกไฟล์ HAR ปริ้นบาร์โค้ดรถ ขนาดไม่เกิน 60 MB");
+    let har;
+    try { har = JSON.parse(await file.text()); }
+    catch { throw new Error("อ่านไฟล์ HAR ปริ้นบาร์โค้ดรถไม่ได้"); }
+    const entries = Array.isArray(har?.log?.entries) ? [...har.log.entries].reverse() : [];
+    let sessionId = "", deviceId = "", msRequestCount = 0;
+    for (const entry of entries) {
+      let host = "";
+      try { host = new URL(entry?.request?.url || "").hostname.toLowerCase(); }
+      catch { continue; }
+      if (!host.endsWith("flashexpress.com")) continue;
+      msRequestCount += 1;
+      const headers = Array.isArray(entry?.request?.headers) ? entry.request.headers : [];
+      const header = (name) => String(headers.find((item) => String(item?.name || "").toLowerCase() === name)?.value || "").trim();
+      const nextSessionId = header("x-fle-session-id");
+      const nextDeviceId = header("x-device-id");
+      if (nextSessionId && nextDeviceId) {
+        sessionId = nextSessionId;
+        deviceId = nextDeviceId;
+        break;
+      }
+    }
+    if (!sessionId || !deviceId)
+      throw new Error("ไฟล์ HAR นี้ไม่มี Session ID หรือ Device ID ของ MS สำหรับปริ้นบาร์โค้ดรถ");
+    await apiPost("saveMsConnection", { hub, sessionId, deviceId });
+    errorEl.classList.add("hidden");
+    state.branch = hub;
+    if (input) input.value = "";
+    toast("เชื่อมต่อปริ้นบาร์โค้ดรถ " + hub + " สำเร็จ · ตรวจพบ request MS " + nf.format(msRequestCount) + " รายการ");
+    await loadData();
+    await loadMsConnectionStatus();
+  } catch (error) {
+    errorEl.textContent = error.message;
+    errorEl.classList.remove("hidden");
+  } finally {
+    button.disabled = false;
+  }
+}
+`;
+  return `${text}${marker}`;
+}
+
 export function stageFrontend(source) {
   let output = String(source || "");
   if (!frontendHasIntegratedDevRuntime(output)) {
@@ -288,6 +364,7 @@ export function stageFrontend(source) {
   output = patchMsLiveResilienceFrontend(output);
   output = patchMsDailyHistoryFrontend(output);
   output = patchMsConnectionErrorKvFrontend(output);
+  output = patchDevProofHarConnectionFrontend(output);
   return output;
 }
 

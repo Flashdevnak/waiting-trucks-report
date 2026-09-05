@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   frontendHasIntegratedDevRuntime,
+  patchDevUiShellSource,
   stageFrontend,
   stageStyle,
   stageWorker,
@@ -201,4 +202,30 @@ test("DEV tools empty-state is event-driven and cannot self-trigger an attribute
   assert.match(source, /details\.addEventListener\('toggle'/);
   assert.doesNotMatch(source, /new MutationObserver\(sync\)\.observe\(header/);
   assert.doesNotMatch(source, /attributeFilter:\['class','style','hidden'\]/);
+});
+
+
+
+test("DEV Proof connection exposes print HAR upload in the shared MS connection UI", async () => {
+  const msHtml = await readFile(new URL("ms.html", root), "utf8");
+  const proofHtml = await readFile(new URL("proof.html", root), "utf8");
+  const stagedMsHtml = patchDevUiShellSource(msHtml, "ms.html");
+  const stagedProofHtml = patchDevUiShellSource(proofHtml, "proof.html");
+  const stagedFrontend = stageFrontend(frontendSource);
+
+  assert.match(stagedProofHtml, /id="proof-session-btn" class="btn btn-header header-link" href="ms\.html#connection"/);
+  assert.match(stagedMsHtml, /DEV_PROOF_HAR_CONNECTION_V8/);
+  assert.match(stagedMsHtml, /id="ms-har-proof"/);
+  assert.match(stagedMsHtml, /id="ms-har-proof-save"/);
+  assert.match(stagedMsHtml, /อัปไฟล์ปริ้นบาร์รถ/);
+  assert.match(stagedMsHtml, /ไม่เก็บไฟล์ HAR ทั้งไฟล์/);
+
+  assert.match(stagedFrontend, /DEV_PROOF_HAR_CONNECTION_FRONTEND_V8/);
+  assert.match(stagedFrontend, /async function saveProofHarConnection/);
+  assert.match(stagedFrontend, /host\.endsWith\("flashexpress\.com"\)/);
+  assert.match(stagedFrontend, /header\("x-fle-session-id"\)/);
+  assert.match(stagedFrontend, /header\("x-device-id"\)/);
+  assert.match(stagedFrontend, /apiPost\("saveMsConnection", \{ hub, sessionId, deviceId \}\)/);
+  assert.match(stagedFrontend, /pollMs:\s*4000/);
+  assert.equal(stageFrontend(stagedFrontend), stagedFrontend);
 });

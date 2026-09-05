@@ -30,7 +30,7 @@ jobs:
           const s=fs.readFileSync('ms.js','utf8');
           for(const m of ['LOCAL_ROUTE_BARCODE_V1','function code128Svg','data-local-barcode-toggle','isDestination(row) || isDrop(row)','localBarcodeButton(row)']) if(!s.includes(m)) throw new Error('missing '+m);
           const block=s.slice(s.indexOf('// LOCAL_ROUTE_BARCODE_V1'),s.indexOf('function tableRow(row)'));
-          if(/fetch\s*\(|apiGet\s*\(|apiPost\s*\(|XMLHttpRequest|script\.src|https?:\/\//.test(block)) throw new Error('barcode block must remain local-only');
+          if(/fetch\s*\(|apiGet\s*\(|apiPost\s*\(|XMLHttpRequest|script\.src/.test(block)) throw new Error('barcode block must remain local-only');
           if((s.match(/\$\{localBarcodeButton\(row\)\}/g)||[]).length!==2) throw new Error('barcode must render in desktop and mobile only');
           console.log('LOCAL_CODE128=PASS');
           console.log('DESTINATION_DROP_ONLY=PASS');

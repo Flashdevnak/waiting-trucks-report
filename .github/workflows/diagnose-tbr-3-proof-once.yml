@@ -48,6 +48,9 @@ jobs:
         working-directory: cloudflare-browser-test
         run: npx wrangler deploy --config wrangler.jsonc
 
+      - name: Wait for diagnostic version propagation
+        run: sleep 8
+
       - name: Inspect the three missing proofs by hash
         run: |
           node <<'NODE'

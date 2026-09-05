@@ -11,7 +11,7 @@ export async function maybeHandleProofUiV10(request) {
 function proofCommandCenterV10() {
   const start = () => {
     const P = window.ProofV2;
-    if (!P || !window.__PROOF_V8_READY__ || typeof P.render !== 'function' || typeof P.searchEditorOptions !== 'function') {
+    if (!P || typeof P.render !== 'function' || typeof P.searchEditorOptions !== 'function' || typeof P.installProofEditor !== 'function') {
       return setTimeout(start, 30);
     }
     if (window.__PROOF_V10_READY__) return;

@@ -12,6 +12,8 @@ test('Proof V10 command center is Proof-only and keeps polling unchanged', async
   const control = await read('worker/src/proof-control.js');
   assert.match(html, /\/proof-v10\.js\?v=20260906-01/);
   assert.match(ui, /PROOF_COMMAND_CENTER_V10/);
+  assert.doesNotMatch(ui, /__PROOF_V8_READY__/);
+  assert.match(ui, /typeof P\.installProofEditor !== 'function'/);
   assert.match(ui, /รถไม่เข้า/);
   assert.match(ui, /releaseTimestamp/);
   assert.match(ui, /barcodeEnabled/);

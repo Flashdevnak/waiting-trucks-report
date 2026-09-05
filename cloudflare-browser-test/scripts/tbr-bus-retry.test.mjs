@@ -24,7 +24,7 @@ const DEV_API = {
   },
 };
 
-const response = await sendConnectorSync({ STATE: new KV(), DEV_API }, "NE1", "connector-token");
+const response = await sendConnectorSync({ STATE: new KV(), DEV_API }, "NE1", "connector-token", Date.parse("2026-09-05T08:00:00Z"));
 const payload = await response.json();
 if (!response.ok) throw new Error("transient Bus 503 still blanked the combined source");
 if (busCalls !== 2) throw new Error(`Bus transient retry count mismatch: ${busCalls}`);

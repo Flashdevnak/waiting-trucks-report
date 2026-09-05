@@ -5,7 +5,7 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev --remote",
-    "check": "node scripts/tbr-bus-retry.test.mjs && wrangler deploy --dry-run"
+    "check": "node scripts/tbr-bus-retry.test.mjs && node scripts/tbr-bus-daily-split.test.mjs && wrangler deploy --dry-run"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^1.0.4"

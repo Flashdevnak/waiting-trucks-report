@@ -245,10 +245,10 @@ async function registerConnectorForCutover(env, hub, connectorToken) {
 // TBR_INBOUND_QUOTA_V1: Browser TEST requests the DEV read-only shadow snapshot only.
 // TBR_STALE_SPLIT_BROWSER_V2: Route and TBR/BusTime use separate DEV Worker invocations.
 // This prevents one growing operating day from hitting a single-invocation subrequest ceiling.
-async function sendConnectorPart(env, hub, connectorToken, shadowPart) {
+async function sendConnectorPart(env, hub, connectorToken, shadowPart, extraBody = {}) {
   return mainApiFetch(env, {
     action: "connectorSync",
-    hub, connectorToken, shadowOnly: true, shadowPart,
+    hub, connectorToken, shadowOnly: true, shadowPart, ...extraBody,
   });
 }
 
@@ -274,14 +274,14 @@ function connectorPartFailure(part, response, payload) {
 }
 
 // TBR_ROUTE_503_RETRY_V1 / TBR_BUS_503_RETRY_V7: retry transient Route/Bus transport failures once; steady state remains one call per part.
-async function sendConnectorPartResilient(env, hub, connectorToken, part) {
+async function sendConnectorPartResilient(env, hub, connectorToken, part, extraBody = {}) {
   let attempts = 1;
-  let response = await sendConnectorPart(env, hub, connectorToken, part);
+  let response = await sendConnectorPart(env, hub, connectorToken, part, extraBody);
   let payload = await connectorPartPayload(response);
   if (["routes", "bus"].includes(part) && [502, 503, 504].includes(response.status)) {
     await wait(450);
     attempts = 2;
-    response = await sendConnectorPart(env, hub, connectorToken, part);
+    response = await sendConnectorPart(env, hub, connectorToken, part, extraBody);
     payload = await connectorPartPayload(response);
   }
   return { response, payload, attempts };
@@ -323,13 +323,43 @@ async function refreshTbrRouteCache(env, hub, rows, now = Date.now()) {
   return { written: true, lastSuccessAt };
 }
 
-export async function sendConnectorSync(env, hub, connectorToken) {
-  const [routeResult, busResult] = await Promise.all([
-    sendConnectorPartResilient(env, hub, connectorToken, "routes"),
-    sendConnectorPartResilient(env, hub, connectorToken, "bus"),
-  ]);
+// TBR_BUS_DAILY_SPLIT_V9: after midnight the operating window needs yesterday + today.
+// Run one Bus day per DEV invocation so each Turso/Worker request stays inside the CPU budget.
+// Upstream Bus polling cadence is unchanged; days are processed sequentially to avoid burst load.
+function bangkokSourceDay(nowMs, offsetDays = 0) {
+  const shifted = Number(nowMs) + 7 * 60 * 60 * 1000 + Number(offsetDays) * 86400000;
+  return new Date(shifted).toISOString().slice(0, 10);
+}
+
+export function tbrBusSourceDays(nowMs = Date.now()) {
+  const bangkokHour = new Date(Number(nowMs) + 7 * 60 * 60 * 1000).getUTCHours();
+  return bangkokHour < 12
+    ? [bangkokSourceDay(nowMs, -1), bangkokSourceDay(nowMs, 0)]
+    : [bangkokSourceDay(nowMs, 0)];
+}
+
+function mergeTbrBusFeeds(results) {
+  const merged = new Map();
+  for (const result of results) {
+    const feed = Array.isArray(result?.payload?.data?.tbrShadowFeed)
+      ? result.payload.data.tbrShadowFeed : [];
+    for (const item of feed) {
+      const key = String(item?.proofId || "") || JSON.stringify(item || {});
+      merged.set(key, item);
+    }
+  }
+  return [...merged.values()];
+}
+
+export async function sendConnectorSync(env, hub, connectorToken, nowMs = Date.now()) {
+  const routePromise = sendConnectorPartResilient(env, hub, connectorToken, "routes");
+  const busDays = tbrBusSourceDays(nowMs);
+  const busResults = [];
+  for (const day of busDays) {
+    busResults.push(await sendConnectorPartResilient(env, hub, connectorToken, "bus", { shadowDay: day }));
+  }
+  const routeResult = await routePromise;
   const routeResponse = routeResult.response, routePayload = routeResult.payload;
-  const busResponse = busResult.response, busPayload = busResult.payload;
   let rows = [];
   let routeFallback = null;
   let routeSourceError = null;
@@ -342,10 +372,14 @@ export async function sendConnectorSync(env, hub, connectorToken) {
     if (!routeFallback) return connectorPartFailure("routes", routeResponse, routePayload);
     rows = routeFallback.rows;
   }
-  if (!busResponse.ok) return connectorPartFailure("bus", busResponse, busPayload);
-  const tbrShadowFeed = Array.isArray(busPayload?.data?.tbrShadowFeed)
-    ? busPayload.data.tbrShadowFeed : [];
-  const pointReads = 2 * (Number(routeResult.attempts || 1) + Number(busResult.attempts || 1));
+  const busFailure = busResults.find((result) => !result.response.ok);
+  if (busFailure) return connectorPartFailure("bus", busFailure.response, busFailure.payload);
+  const tbrShadowFeed = mergeTbrBusFeeds(busResults);
+  const pointReads = 2 * (
+    Number(routeResult.attempts || 1) +
+    busResults.reduce((sum, result) => sum + Number(result.attempts || 1), 0)
+  );
+  const currentSteadyStateReads = 2 * (1 + busDays.length);
   return new Response(JSON.stringify({
     ok: true,
     data: {
@@ -357,8 +391,12 @@ export async function sendConnectorSync(env, hub, connectorToken) {
       routeFallbackAgeSeconds: routeFallback?.ageSeconds ?? null,
       routeSourceError: routeSourceError ? { code: routeSourceError.code, message: routeSourceError.message } : null,
       shadowQuota: {
-        mode: "SHADOW_READONLY_SPLIT_V2",
-        normalTursoPointReadsPerCron: 4, tursoPointReadsPerCron: pointReads, tursoWritesPerCron: 0,
+        mode: "SHADOW_READONLY_SPLIT_V2_BUS_DAILY_V9",
+        normalTursoPointReadsPerCron: 4,
+        currentSteadyStateTursoPointReadsPerCron: currentSteadyStateReads,
+        earlyWindowTursoPointReadsPerCron: 6,
+        busSourceDays: busDays.length,
+        tursoPointReadsPerCron: pointReads, tursoWritesPerCron: 0,
         browserKvRouteCacheReadsPerCron: 1, browserKvRouteCacheWritesMaxPerDay: 288,
         routeTableReads: 0, routeTableWrites: 0,
         historyReads: 0, historyWrites: 0,

@@ -32,3 +32,4 @@ jobs:
           git add worker/src/proof-ui-v5.js
           git commit -m "Fix nested proof UI template" || exit 0
           git push origin HEAD:main
+          echo "PROOF_TEMPLATE_REPAIR=PASS"

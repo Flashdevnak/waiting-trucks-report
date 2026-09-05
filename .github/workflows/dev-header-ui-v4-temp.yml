@@ -1,0 +1,178 @@
+name: DEV Header UI V4 Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-header-ui-v4-temp.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply DEV header UI V4
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          p=Path('.github/dev-tools/stage-dev-runtime.mjs')
+          s=p.read_text()
+
+          start=s.index('const DEV_NAV = [')
+          end=s.index('\n\nconst DEV_PAGE_META =', start)
+          new_block=r'''const DEV_ICONS = {
+            system: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14"/></svg>',
+            tools: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5l4 4M13.5 6.5l-8 8a2.1 2.1 0 0 0 3 3l8-8M16.5 15.5l2 2"/></svg>',
+            account: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 19c1.4-3.8 3.8-5.8 6.5-5.8s5.1 2 6.5 5.8"/></svg>',
+            truck: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h10.5v9H3.5zM14 9h4l2.5 3v3.5H14z"/><circle cx="7" cy="17.5" r="1.6"/><circle cx="17.5" cy="17.5" r="1.6"/></svg>',
+            proof: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8V4h10v4M6 17H4.5V9h15v8H18M7 14h10v6H7z"/><path d="M16.5 11h.01"/></svg>',
+            waiting: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.8 1.8M9 3h6"/></svg>',
+            report: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9h3v10M10.5 19V5h3v14M16 19v-7h3v7M4 19h16"/></svg>',
+            chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9.5l5 5 5-5"/></svg>',
+          };
+          const DEV_NAV = [
+            ["ms.html", "truck", "ติดตามรถ MS", "คิวรถเข้า–ออกและสถานะปัจจุบัน"],
+            ["proof.html", "proof", "ปริ้นบาร์โค้ดรถ", "ตรวจข้อมูล แก้ไขตามสิทธิ์ MS และปริ้น PDF"],
+            ["waiting.html", "waiting", "รถรอลงงาน", "จัดการคิวและเวลารอลงงาน"],
+            ["ms-report.html", "report", "สรุปรายวัน", "เปรียบเทียบรถจบงานตามวันและเวลา"],
+          ];
+          const DEV_DROPDOWN_SCRIPT = `<script data-dev-exclusive-dropdowns="v4">(()=>{const selector='.dev-unified-header details.app-nav';const closeOthers=(keep)=>document.querySelectorAll(selector).forEach((item)=>{if(item!==keep)item.open=false});document.addEventListener('click',(event)=>{const summary=event.target.closest('.dev-unified-header details.app-nav > summary');if(summary){closeOthers(summary.parentElement);return;}const action=event.target.closest('.dev-unified-header .app-nav-menu a,.dev-unified-header .app-nav-menu button');if(action){const owner=action.closest('details.app-nav');if(owner)owner.open=false;return;}if(!event.target.closest(selector))closeOthers(null);});document.addEventListener('keydown',(event)=>{if(event.key==='Escape')closeOthers(null);});})();</script><!-- DEV_EXCLUSIVE_DROPDOWNS_V4 -->`;'''
+          s=s[:start]+new_block+s[end:]
+
+          start=s.index('function navHtml(currentPage) {')
+          end=s.index('\n\nfunction unifiedHeaderHtml', start)
+          nav=r'''function navHtml(currentPage) {
+            return DEV_NAV.map(([href, icon, label, detail]) =>
+              `<a href="${href}"${href === currentPage ? ' class="is-current"' : ""}><span class="dev-menu-icon" aria-hidden="true">${DEV_ICONS[icon]}</span><b>${label}</b><small>${detail}</small></a>`,
+            ).join("");
+          }'''
+          s=s[:start]+nav+s[end:]
+
+          start=s.index('function unifiedHeaderHtml(currentPage) {')
+          end=s.index('\n\nexport function patchDevUiShellSource', start)
+          header=r'''function unifiedHeaderHtml(currentPage) {
+            const meta = DEV_PAGE_META[currentPage];
+            if (!meta) throw new Error(`Unknown DEV page ${currentPage}`);
+            const titleId = meta.titleId ? ` id="${meta.titleId}"` : "";
+            const currentLabel = DEV_NAV.find(([href]) => href === currentPage)?.[2] || meta.title;
+            const summary = (icon, label, detail) => `<summary><span class="nav-grid-icon" aria-hidden="true">${DEV_ICONS[icon]}</span><span class="dev-nav-copy"><b>${label}</b><small>${detail}</small></span><span class="dev-nav-chevron" aria-hidden="true">${DEV_ICONS.chevron}</span></summary>`;
+            return `<header class="site-header dev-unified-header" data-dev-shell="20260905-v2"><div class="site-header-inner"><div class="header-brand"><div class="brand-mark brand-f" aria-label="Flash"><span>F</span></div><div class="brand-copy"><strong${titleId}>${meta.title}</strong>${meta.clock}</div></div><nav class="topbar-actions dev-unified-actions" aria-label="เมนูหลัก"><div class="dev-shell-slot dev-shell-status">${meta.status}</div><div class="dev-shell-slot dev-system-nav"><details class="app-nav">${summary("system", "เมนูระบบ", currentLabel)}<div class="app-nav-menu">${navHtml(currentPage)}</div></details></div><div class="dev-shell-slot dev-page-tools"><details class="app-nav">${summary("tools", "เครื่องมือ", "หน้านี้")}<div class="app-nav-menu dev-tools-menu">${meta.tools}</div></details></div><div class="dev-shell-slot dev-shell-refresh">${meta.refresh}</div><div class="dev-shell-slot dev-account-menu"><details class="app-nav">${summary("account", "บัญชี", "สิทธิ์ผู้ใช้")}<div class="app-nav-menu dev-tools-menu">${meta.account}</div></details></div></nav></div></header>`;
+          }'''
+          s=s[:start]+header+s[end:]
+
+          needle='''  if (currentPage === "proof.html") {
+            output = output.replace(
+              /<title>จัดการเส้นทางเดินรถ MS<\\/title>/,
+              "<title>ปริ้นบาร์โค้ดรถ MS</title>",
+            );
+          }
+          return output;
+          }'''
+          repl='''  if (currentPage === "proof.html") {
+            output = output.replace(
+              /<title>จัดการเส้นทางเดินรถ MS<\\/title>/,
+              "<title>ปริ้นบาร์โค้ดรถ MS</title>",
+            );
+          }
+          if (!output.includes("DEV_EXCLUSIVE_DROPDOWNS_V4")) {
+            output = output.replace("</body>", `${DEV_DROPDOWN_SCRIPT}</body>`);
+          }
+          return output;
+          }'''
+          if needle not in s: raise SystemExit('patchDevUiShellSource anchor missing')
+          s=s.replace(needle,repl,1)
+
+          verify_anchor='''  if (currentPage === "proof.html" && !text.includes("<title>ปริ้นบาร์โค้ดรถ MS</title>")) {
+            throw new Error("DEV proof title is inconsistent with the menu label");
+          }
+          }'''
+          verify_repl='''  if (currentPage === "proof.html" && !text.includes("<title>ปริ้นบาร์โค้ดรถ MS</title>")) {
+            throw new Error("DEV proof title is inconsistent with the menu label");
+          }
+          if (!header.includes("dev-nav-copy") || !header.includes("dev-nav-chevron") || !header.includes("dev-menu-icon")) {
+            throw new Error(`DEV UI ${currentPage} is missing V4 navigation structure`);
+          }
+          if (!text.includes("DEV_EXCLUSIVE_DROPDOWNS_V4")) {
+            throw new Error(`DEV UI ${currentPage} exclusive dropdown behavior missing`);
+          }
+          }'''
+          if verify_anchor not in s: raise SystemExit('verify header anchor missing')
+          s=s.replace(verify_anchor,verify_repl,1)
+
+          start=s.index('function patchDevUnifiedHeaderStyle(source) {')
+          end=s.index('\n\nexport function patchDevRootEntryWorker', start)
+          style=r'''function patchDevUnifiedHeaderStyle(source) {
+            const text = String(source || "");
+            if (text.includes(DEV_SHELL_MARKER)) return text;
+            return `${text}\n\n/* ${DEV_SHELL_MARKER}: DEV-only full header contract shared by all four user pages. */\n.dev-unified-header{position:sticky;top:0;z-index:50;background:#151515;color:#fff;border-bottom:3px solid #ffd400;box-shadow:0 3px 12px rgba(0,0,0,.14)}\n.dev-unified-header .site-header-inner{width:100%;max-width:none;min-height:66px;margin:0;padding:8px 18px;display:flex;align-items:center;gap:14px}\n.dev-unified-header .header-brand{display:flex;align-items:center;gap:10px;min-width:260px}\n.dev-unified-header .brand-mark{min-width:42px;width:42px;height:40px;padding:0;display:grid;place-items:center;border-radius:0;background:#ffd400;color:#111;clip-path:polygon(12% 0,100% 0,88% 100%,0 100%);box-shadow:none;font-size:23px;font-weight:950}\n.dev-unified-header .brand-copy{display:flex;flex-direction:column;gap:3px;min-width:0}\n.dev-unified-header .brand-copy strong{display:flex;align-items:center;color:#fff;font-size:17px;line-height:1.2;white-space:nowrap}\n.dev-unified-header .brand-copy strong::before{content:"/";margin-right:8px;color:#ffd400;font-size:20px;font-weight:900}\n.dev-unified-header .brand-copy span{color:#c9ccce;font-size:12px;white-space:nowrap}\n.dev-unified-header .dev-unified-actions{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:0;border:0;border-radius:0;background:transparent}\n.dev-unified-header .dev-shell-slot{display:flex;align-items:center;min-width:0}\n.dev-unified-header .dev-shell-slot>.badge,.dev-unified-header .dev-shell-slot>.btn,.dev-unified-header .dev-shell-slot>.header-link{min-height:44px;border-radius:7px;padding:8px 13px}\n.dev-unified-header .app-nav{position:relative}\n.dev-unified-header .app-nav>summary{min-height:50px;min-width:195px;display:grid;grid-template-columns:32px minmax(0,1fr) 18px;align-items:center;gap:10px;padding:7px 12px;border:1px solid #434343;border-radius:7px;background:#222;color:#fff;cursor:pointer;list-style:none}\n.dev-unified-header .app-nav>summary::-webkit-details-marker{display:none}\n.dev-unified-header .app-nav>summary::marker{content:""}\n.dev-unified-header .nav-grid-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:6px;background:#ffd400;color:#111}\n.dev-unified-header .nav-grid-icon svg,.dev-unified-header .dev-menu-icon svg,.dev-unified-header .dev-nav-chevron svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}\n.dev-unified-header .dev-nav-copy{display:flex;flex-direction:column;gap:2px;min-width:0}\n.dev-unified-header .dev-nav-copy>b{font-size:16px;line-height:1.2;font-weight:900;white-space:nowrap}\n.dev-unified-header .dev-nav-copy>small{color:#d2d5d7;font-size:12px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.dev-unified-header .dev-nav-chevron{display:grid;place-items:center;width:18px;height:18px;color:#ffd400;transition:transform .16s ease}\n.dev-unified-header details[open]>summary .dev-nav-chevron{transform:rotate(180deg)}\n.dev-unified-header .app-nav-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(390px,calc(100vw - 24px));padding:8px;border:1px solid #4b4b4b;border-radius:8px;background:#1d1d1d;box-shadow:0 12px 28px rgba(0,0,0,.28)}\n.dev-unified-header .app-nav-menu a{display:grid;grid-template-columns:34px 1fr;gap:2px 10px;align-items:center;padding:10px 11px;border-radius:6px;color:#fff;text-decoration:none}\n.dev-unified-header .dev-menu-icon{grid-row:1/3;display:grid;place-items:center;width:30px;height:30px;border:1px solid #414141;border-radius:6px;background:#292929;color:#f2f2f2}\n.dev-unified-header .app-nav-menu a>b{font-size:16px;line-height:1.35}\n.dev-unified-header .app-nav-menu a>small{color:#cbd0d3;font-size:12.5px;line-height:1.45}\n.dev-unified-header .app-nav-menu a:hover,.dev-unified-header .app-nav-menu a.is-current{background:#343434}\n.dev-unified-header .app-nav-menu a.is-current{box-shadow:inset 3px 0 #ffd400}\n.dev-unified-header .app-nav-menu a.is-current .dev-menu-icon{border-color:#d8b300;background:#ffd400;color:#111}\n.dev-unified-header .dev-tools-menu{display:grid;gap:7px;min-width:290px}\n.dev-unified-header .dev-tools-menu .btn,.dev-unified-header .dev-tools-menu .header-link{width:100%;min-height:40px;display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;font-size:14px}\n.dev-unified-header .dev-tools-empty{display:block;padding:10px 12px;color:#c9ccce;font-size:12px;text-align:center}\n.dev-unified-header .dev-shell-refresh{order:2;margin-left:-2px}\n.dev-unified-header .dev-shell-status{order:1}\n.dev-unified-header .dev-system-nav{order:3}\n.dev-unified-header .dev-page-tools{order:4}\n.dev-unified-header .dev-account-menu{order:5}\n.dev-unified-header .dev-shell-refresh>.btn{min-width:92px;color:#151515;background:#ffd400;border-color:#d8b300;font-weight:900}\n.dev-unified-header .dev-shell-refresh>.btn::before{content:"↻";margin-right:6px;font-size:17px;font-weight:950}\n.dev-unified-header .dev-shell-status>.badge{min-width:88px;min-height:44px;justify-content:center;border-radius:7px;font-size:13px;font-weight:900}\n.dev-unified-header .dev-shell-status>.badge-online{border:1px solid #8fd0aa;background:#e7f7ee;color:#09683a}\n.dev-unified-header .dev-shell-status>.badge-offline{border:1px solid #e6a7a2;background:#fff0ef;color:#a32620}\n.dev-unified-header .dev-tools-menu .dev-change-password{border-color:#d8b300;background:#fff6c8;color:#342b00;font-weight:900}\n/* DEV_HEADER_POLISH_V3: compatibility marker retained for deploy gate. */\n/* DEV_HEADER_INTERACTION_V4: larger text, exclusive dropdowns, professional SVG icons and dedicated chevrons. */\n@media(max-width:1100px){.dev-unified-header{position:relative}.dev-unified-header .site-header-inner{align-items:stretch;flex-wrap:wrap}.dev-unified-header .header-brand{width:100%;min-width:0}.dev-unified-header .dev-unified-actions{width:100%;margin-left:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}.dev-unified-header .dev-shell-slot,.dev-unified-header .dev-shell-slot>*{width:100%}.dev-unified-header .app-nav>summary{width:100%;min-width:0}}\n@media(max-width:700px){.dev-unified-header .site-header-inner{padding:9px 10px 10px}.dev-unified-header .brand-copy strong{font-size:15px;white-space:normal}.dev-unified-header .brand-copy span{white-space:normal}.dev-unified-header .dev-unified-actions{grid-template-columns:1fr 1fr}.dev-unified-header .dev-shell-status{grid-column:1/-1}.dev-unified-header .dev-account-menu{grid-column:2}.dev-unified-header .app-nav>summary{grid-template-columns:32px minmax(0,1fr) 18px}.dev-unified-header .dev-nav-copy>small{display:none}.dev-unified-header .app-nav-menu{position:fixed;left:10px;right:10px;top:auto;width:auto;margin-top:6px}}\n`;
+          }'''
+          s=s[:start]+style+s[end:]
+          p.write_text(s)
+
+          t=Path('.github/dev-tools/stage-dev-runtime.test.mjs')
+          x=t.read_text()
+          x=x.replace('  stageFrontend,\n  stageStyle,', '  stageFrontend,\n  patchDevUiShellSource,\n  stageStyle,', 1)
+          anchor='const styleSource = await readFile(new URL("style.css", root), "utf8");\n'
+          if anchor not in x: raise SystemExit('test style source anchor missing')
+          x=x.replace(anchor, anchor+'const msHtmlSource = await readFile(new URL("ms.html", root), "utf8");\n', 1)
+          old='''test("DEV header polish keeps refresh beside online, readable menus, password and HAR entry", () => {
+            const styled = stageStyle(styleSource);
+            assert.match(styled, /DEV_HEADER_POLISH_V3/);
+            assert.match(styled, /dev-shell-refresh\\{order:2/);
+            assert.match(styled, /dev-shell-status\\{order:1/);
+            assert.match(styled, /a>b\\{font-size:15px/);
+            assert.match(styled, /badge-online/);
+          });'''
+          new='''test("DEV header V4 keeps readable text, exclusive dropdowns and professional icons", () => {
+            const styled = stageStyle(styleSource);
+            const stagedHtml = patchDevUiShellSource(msHtmlSource, "ms.html");
+            assert.match(styled, /DEV_HEADER_POLISH_V3/);
+            assert.match(styled, /DEV_HEADER_INTERACTION_V4/);
+            assert.match(styled, /dev-shell-refresh\\{order:2/);
+            assert.match(styled, /dev-shell-status\\{order:1/);
+            assert.match(styled, /dev-nav-copy>b\\{font-size:16px/);
+            assert.match(styled, /app-nav-menu a>b\\{font-size:16px/);
+            assert.match(styled, /summary::marker\\{content:""\\}/);
+            assert.match(stagedHtml, /DEV_EXCLUSIVE_DROPDOWNS_V4/);
+            assert.match(stagedHtml, /dev-nav-chevron/);
+            assert.match(stagedHtml, /dev-menu-icon/);
+            assert.doesNotMatch(stagedHtml.match(/<header[\\s\\S]*?<\\/header>/)?.[0] || "", /🚚|🧾|⏱|⚙|●|▦/);
+            assert.match(styled, /badge-online/);
+          });'''
+          if old not in x: raise SystemExit('old header test anchor missing')
+          x=x.replace(old,new,1)
+          t.write_text(x)
+          PY
+      - name: Validate DEV header V4
+        run: |
+          node --check .github/dev-tools/stage-dev-runtime.mjs
+          node --check .github/dev-tools/stage-dev-runtime.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          grep -q 'DEV_HEADER_INTERACTION_V4' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'DEV_EXCLUSIVE_DROPDOWNS_V4' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'dev-nav-copy>b{font-size:16px' .github/dev-tools/stage-dev-runtime.mjs
+          echo 'DEV_HEADER_V4_CHECKPOINT=PASS'
+          echo 'DEV_DROPDOWN_EXCLUSIVE=PASS'
+          echo 'DEV_HEADER_TEXT_SIZE=PASS'
+          echo 'DEV_HEADER_ICON_STYLE=SVG'
+          echo 'PRODUCTION_TOUCHED=NO'
+      - name: Commit functional DEV changes
+        run: |
+          git config user.name 'Flashdevnak'
+          git config user.email '26nak.testdev@gmail.com'
+          git add .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/stage-dev-runtime.test.mjs
+          git commit -m 'Polish DEV header menus and dropdown behavior'
+          git pull --rebase origin main
+          git push origin HEAD:main
+      - name: Dispatch DEV deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --repo "$GITHUB_REPOSITORY" --ref main

@@ -12,6 +12,10 @@ on:
     paths:
       - .github/workflows/deploy-worker-dev.yml
       - .github/dev-tools/**
+      - waiting.html
+      - main.js
+      - ms-report.html
+      - ms-report.js
       - ms.html
       - ms.js
       - proof.html
@@ -81,10 +85,12 @@ jobs:
         run: |
           rm -rf .dev-assets
           mkdir -p .dev-assets
-          cp ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../main.js ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
+          node --check .dev-assets/main.js
+          node --check .dev-assets/ms-report.js
           node --check .dev-assets/ms.js
           node --check .dev-assets/proof.js
           node --check .dev-assets/proof-v2-core.js
@@ -97,6 +103,9 @@ jobs:
           node --check src/proof-live-v2.js
           node <<'NODE'
           const fs=require('node:fs');
+          for(const asset of ['waiting.html','main.js','ms-report.html','ms-report.js']) {
+            if(!fs.existsSync(`.dev-assets/${asset}`)) throw new Error(`missing DEV asset ${asset}`);
+          }
           const front=fs.readFileSync('.dev-assets/ms.js','utf8');
           const proofFront=fs.readFileSync('.dev-assets/proof.js','utf8');
           const proofHtml=fs.readFileSync('.dev-assets/proof.html','utf8');
@@ -122,6 +131,8 @@ jobs:
           for(const marker of ['ms_proof_snapshots','ms_proof_events','ms_proof_print_log','pageSize: \'100\''])
             if(!proofWorker.includes(marker)) throw new Error(`proof worker missing ${marker}`);
           if(proofWorker.includes('/fleet/van/proof/cancel_car') || proofV2.includes('/fleet/van/proof/cancel_car')) throw new Error('proof worker must not send cancel_car commands');
+          console.log('STAGED_WAITING_PAGE=PASS');
+          console.log('STAGED_MS_REPORT_PAGE=PASS');
           console.log('STAGED_DAILY_HISTORY=PASS');
           console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
           console.log('STAGED_AUTH_SESSION_RESILIENCE=PASS');
@@ -177,7 +188,7 @@ jobs:
           console.log('TURSO_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           console.log('AUTH_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           NODE
-      - name: Smoke DEV public health and proof page
+      - name: Smoke DEV public pages
         working-directory: .
         run: |
           sleep 3
@@ -187,12 +198,20 @@ jobs:
           curl --fail --show-error --silent \
             'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/proof.html' \
             | grep -q 'จัดการเส้นทางเดินรถ MS'
+          curl --fail --show-error --silent \
+            'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/waiting.html' \
+            | grep -q 'ระบบรถรอลงงาน'
+          curl --fail --show-error --silent \
+            'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/ms-report.html' \
+            | grep -q 'สรุป'
           node <<'NODE'
           const fs=require('node:fs');
           const payload=JSON.parse(fs.readFileSync('/tmp/dev-health.json','utf8'));
           if(!payload?.ok) throw new Error(`DEV health failed: ${JSON.stringify(payload)}`);
           console.log('DEV_HEALTH=PASS');
           console.log('DEV_PROOF_PAGE=PASS');
+          console.log('DEV_WAITING_PAGE=PASS');
+          console.log('DEV_MS_REPORT_PAGE=PASS');
           console.log('DEV_DATABASE_BACKEND=TURSO');
           console.log('DEV_D1_RUNTIME_BINDING=0');
           NODE

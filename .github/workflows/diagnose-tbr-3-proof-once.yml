@@ -1,5 +1,6 @@
 name: Diagnose TBR 3 Proof Once
 
+# Temporary TEST-only verification after TBR_ROUTE_OPERATING_WINDOW_V3.
 on:
   push:
     branches: [main]
@@ -32,11 +33,11 @@ jobs:
           const path='cloudflare-browser-test/src/index.js';
           let s=fs.readFileSync(path,'utf8');
           const anchor=`    if (url.pathname === "/api/shadow-tbr")\n      return reply(\n        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),\n      );`;
-          const patched=`${anchor}\n    // TBR_HASH_DEBUG_ONCE: TEST-only temporary route; removed after diagnostic run.\n    if (url.pathname === "/api/tbr-hash-debug")\n      return reply(await debugTbrHashes(\n        env,\n        url.searchParams.get("hub") || "NE1",\n        url.searchParams.get("ids") || "",\n      ));`;
+          const patched=`${anchor}\n    // TBR_HASH_DEBUG_ONCE: TEST-only temporary route; removed after diagnostic run.\n    if (url.pathname === "/api/tbr-hash-debug")\n      return reply(await debugTbrHashes(env, url.searchParams.get("hub") || "NE1", url.searchParams.get("ids") || ""));`;
           if(!s.includes(anchor)) throw new Error('debug route anchor not found');
           s=s.replace(anchor,patched);
           const fnAnchor='async function syncConfiguredHubs(env) {';
-          const fn=`async function debugTbrHashes(env, hubValue, idsValue) {\n  const hub = String(hubValue || \"NE1\").trim().toUpperCase();\n  const wanted = new Set(String(idsValue || \"\").split(\",\").map(x => x.trim().toLowerCase()).filter(x => /^[a-f0-9]{12}$/.test(x)));\n  if (!wanted.size) throw new Error(\"missing debug hashes\");\n  const connectorToken = await env.STATE.get(\`connector:\${hub}\`);\n  if (!connectorToken) throw new Error(\`missing Browser TEST connector for \${hub}\`);\n  const response = await sendConnectorSync(env, hub, connectorToken);\n  const payload = await response.clone().json().catch(() => ({}));\n  if (!response.ok || payload?.ok === false) throw new Error(payload?.message || \`shadow source HTTP \${response.status}\`);\n  const rows = Array.isArray(payload?.data?.rows) ? payload.data.rows : [];\n  const feed = Array.isArray(payload?.data?.tbrShadowFeed) ? payload.data.tbrShadowFeed : [];\n  const norm = value => String(value || \"\").trim().toUpperCase().replace(/\\s+/g, \"\");\n  async function idOf(proof) {\n    const digest = await crypto.subtle.digest(\"SHA-256\", new TextEncoder().encode(norm(proof)));\n    return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, \"0\")).join(\"\").slice(0, 12);\n  }\n  const routeById = new Map();\n  for (const row of rows) {\n    const id = await idOf(row?.proofId);\n    if (!wanted.has(id)) continue;\n    const list = routeById.get(id) || [];\n    list.push({ attendanceType: String(row?.attendanceType || \"\"), actualArrivalAt: String(row?.actualArrivalAt || \"\") });\n    routeById.set(id, list);\n  }\n  const busById = new Map();\n  for (const row of feed) {\n    const id = await idOf(row?.proofId);\n    if (!wanted.has(id)) continue;\n    const list = busById.get(id) || [];\n    list.push({ scheduleTbrArrivalAt: String(row?.scheduleTbrArrivalAt || \"\"), scheduleKitArrivalAt: String(row?.scheduleKitArrivalAt || \"\") });\n    busById.set(id, list);\n  }\n  const shadow = await readTbrShadowReport(env, hub);\n  const shadowById = new Map((shadow.records || []).map(x => [String(x.id || \"\"), x]));\n  const results = [];\n  for (const id of wanted) {\n    const routeRows = routeById.get(id) || [];\n    const busRows = busById.get(id) || [];\n    let chosen = null;\n    for (const row of routeRows) {\n      const type = String(row.attendanceType || \"\");\n      if (type !== \"ปลายทาง\" && type !== \"จุดดรอป\") continue;\n      const at = Date.parse(String(row.actualArrivalAt || \"\"));\n      const current = Date.parse(String(chosen?.actualArrivalAt || \"\"));\n      if (!chosen || (!Number.isFinite(current) && Number.isFinite(at)) || (Number.isFinite(current) && Number.isFinite(at) && at < current)) chosen = row;\n    }\n    const bus = busRows[0] || null;\n    const tbrMs = Date.parse(String(bus?.scheduleTbrArrivalAt || \"\"));\n    const actualMs = Date.parse(String(chosen?.actualArrivalAt || \"\"));\n    let decision = \"\";\n    if (!bus) decision = \"NO_TBR_FEED\";\n    else if (!chosen) decision = \"NO_INBOUND_ROUTE_MATCH\";\n    else if (!Number.isFinite(tbrMs)) decision = \"INVALID_TBR_TIME\";\n    else if (!Number.isFinite(actualMs)) decision = \"PENDING_EXPECTED\";\n    else if (tbrMs < actualMs) decision = \`CONFIRM_EXPECTED_LEAD_SECONDS=\${Math.round((actualMs - tbrMs) / 1000)}\`;\n    else if (tbrMs === actualMs) decision = \"EXCLUDED_EQUAL_TIMESTAMP\";\n    else decision = \`EXCLUDED_TBR_AFTER_ROUTE_SECONDS=\${Math.round((tbrMs - actualMs) / 1000)}\`;\n    const hit = shadowById.get(id) || null;\n    results.push({ id, routeMatches: routeRows.length, busMatches: busRows.length, routeRows, busRows, decision, shadow: hit ? { status: hit.status, tbrAt: hit.tbrAt, routeActualArrivalAt: hit.routeActualArrivalAt, leadMinutes: hit.leadMinutes } : null });\n  }\n  return { ok: true, hub, sourceRouteRows: rows.length, sourceTbrFeed: feed.length, shadowTotal: shadow.total, results, connectorTokenExposed: false };\n}\n\n`;
+          const fn=`async function debugTbrHashes(env, hubValue, idsValue) {\n  const hub=String(hubValue||\"NE1\").trim().toUpperCase();\n  const wanted=new Set(String(idsValue||\"\").split(\",\").map(x=>x.trim().toLowerCase()).filter(x=>/^[a-f0-9]{12}$/.test(x)));\n  if(!wanted.size) throw new Error(\"missing debug hashes\");\n  const connectorToken=await env.STATE.get(\`connector:\${hub}\`);\n  if(!connectorToken) throw new Error(\`missing Browser TEST connector for \${hub}\`);\n  const response=await sendConnectorSync(env,hub,connectorToken);\n  const payload=await response.clone().json().catch(()=>({}));\n  if(!response.ok||payload?.ok===false) throw new Error(payload?.message||\`shadow source HTTP \${response.status}\`);\n  const rows=Array.isArray(payload?.data?.rows)?payload.data.rows:[];\n  const feed=Array.isArray(payload?.data?.tbrShadowFeed)?payload.data.tbrShadowFeed:[];\n  const norm=value=>String(value||\"\").trim().toUpperCase().replace(/\\s+/g,\"\");\n  async function idOf(proof){const digest=await crypto.subtle.digest(\"SHA-256\",new TextEncoder().encode(norm(proof)));return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,\"0\")).join(\"\").slice(0,12);}\n  const routeById=new Map();\n  for(const row of rows){const id=await idOf(row?.proofId);if(!wanted.has(id))continue;const list=routeById.get(id)||[];list.push({attendanceType:String(row?.attendanceType||\"\"),actualArrivalAt:String(row?.actualArrivalAt||\"\")});routeById.set(id,list);}\n  const busById=new Map();\n  for(const row of feed){const id=await idOf(row?.proofId);if(!wanted.has(id))continue;const list=busById.get(id)||[];list.push({scheduleTbrArrivalAt:String(row?.scheduleTbrArrivalAt||\"\"),scheduleKitArrivalAt:String(row?.scheduleKitArrivalAt||\"\")});busById.set(id,list);}\n  const shadow=await readTbrShadowReport(env,hub);\n  const shadowById=new Map((shadow.records||[]).map(x=>[String(x.id||\"\"),x]));\n  const results=[];\n  for(const id of wanted){\n    const routeRows=routeById.get(id)||[],busRows=busById.get(id)||[];let chosen=null;\n    for(const row of routeRows){const type=String(row.attendanceType||\"\");if(type!==\"ปลายทาง\"&&type!==\"จุดดรอป\")continue;const at=Date.parse(String(row.actualArrivalAt||\"\")),current=Date.parse(String(chosen?.actualArrivalAt||\"\"));if(!chosen||(!Number.isFinite(current)&&Number.isFinite(at))||(Number.isFinite(current)&&Number.isFinite(at)&&at<current))chosen=row;}\n    const bus=busRows[0]||null,tbrMs=Date.parse(String(bus?.scheduleTbrArrivalAt||\"\")),actualMs=Date.parse(String(chosen?.actualArrivalAt||\"\"));let decision=\"\";\n    if(!bus)decision=\"NO_TBR_FEED\";else if(!chosen)decision=\"NO_INBOUND_ROUTE_MATCH\";else if(!Number.isFinite(tbrMs))decision=\"INVALID_TBR_TIME\";else if(!Number.isFinite(actualMs))decision=\"PENDING_EXPECTED\";else if(tbrMs<actualMs)decision=\`CONFIRM_EXPECTED_LEAD_SECONDS=\${Math.round((actualMs-tbrMs)/1000)}\`;else if(tbrMs===actualMs)decision=\"EXCLUDED_EQUAL_TIMESTAMP\";else decision=\`EXCLUDED_TBR_AFTER_ROUTE_SECONDS=\${Math.round((tbrMs-actualMs)/1000)}\`;\n    const hit=shadowById.get(id)||null;results.push({id,routeMatches:routeRows.length,busMatches:busRows.length,routeRows,busRows,decision,shadow:hit?{status:hit.status,tbrAt:hit.tbrAt,routeActualArrivalAt:hit.routeActualArrivalAt,leadMinutes:hit.leadMinutes}:null});\n  }\n  return {ok:true,hub,sourceRouteRows:rows.length,sourceTbrFeed:feed.length,shadowTotal:shadow.total,shadowPending:shadow.pending,shadowConfirmed:shadow.confirmed,results,connectorTokenExposed:false};\n}\n\n`;
           if(!s.includes(fnAnchor)) throw new Error('debug function anchor not found');
           s=s.replace(fnAnchor,fn+fnAnchor);
           fs.writeFileSync(path,s);
@@ -48,10 +49,10 @@ jobs:
         working-directory: cloudflare-browser-test
         run: npx wrangler deploy --config wrangler.jsonc
 
-      - name: Wait for diagnostic version propagation
-        run: sleep 8
+      - name: Wait for propagation and scheduled observer
+        run: sleep 75
 
-      - name: Inspect the three missing proofs by hash
+      - name: Verify all three proofs against widened Route source
         run: |
           node <<'NODE'
           const crypto=require('node:crypto');
@@ -64,7 +65,7 @@ jobs:
             if(!r.ok||j.ok===false) throw new Error(`debug HTTP ${r.status}: ${JSON.stringify(j)}`);
             console.log(`SOURCE_ROUTE_ROWS=${j.sourceRouteRows}`);
             console.log(`SOURCE_TBR_FEED=${j.sourceTbrFeed}`);
-            console.log(`SHADOW_TOTAL=${j.shadowTotal}`);
+            console.log(`SHADOW_TOTAL=${j.shadowTotal} PENDING=${j.shadowPending} CONFIRMED=${j.shadowConfirmed}`);
             for(let i=0;i<proofs.length;i++){
               const x=(j.results||[]).find(v=>v.id===ids[i])||{};
               console.log(`--- ${proofs[i]} / ${ids[i]} ---`);
@@ -73,8 +74,11 @@ jobs:
               (x.busRows||[]).forEach((v,n)=>console.log(`BUS_${n+1} tbr=${thai(v.scheduleTbrArrivalAt)} tbrIso=${v.scheduleTbrArrivalAt||'-'} kit=${thai(v.scheduleKitArrivalAt)} kitIso=${v.scheduleKitArrivalAt||'-'}`));
               console.log(`DECISION=${x.decision||'-'}`);
               if(x.shadow) console.log(`SHADOW status=${x.shadow.status} tbr=${x.shadow.tbrAt} actual=${x.shadow.routeActualArrivalAt} lead=${x.shadow.leadMinutes}`);
+              if((x.routeMatches??0)<1) throw new Error(`${proofs[i]} still missing from widened Route source`);
+              if((x.busMatches??0)<1) throw new Error(`${proofs[i]} missing from TBR feed`);
             }
             if(j.connectorTokenExposed!==false) throw new Error('debug route exposed connector token');
+            console.log('THREE_PROOFS_ROUTE_MATCH=PASS');
             console.log('CONNECTOR_TOKEN_EXPOSED=NO');
             console.log('PRODUCTION_TOUCHED=NO');
           })().catch(e=>{console.error(e);process.exit(1)});

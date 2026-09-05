@@ -1,0 +1,35 @@
+name: Fix Proof UI Template
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-proof-ui-template.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Escape nested proof UI template
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('worker/src/proof-ui-v5.js')
+          s=p.read_text()
+          s=s.replace("style.textContent=`\n", "style.textContent=\\`\n", 1)
+          s=s.replace("\n    `;document.head.appendChild(style);", "\n    \\`;document.head.appendChild(style);", 1)
+          p.write_text(s)
+          PY
+          node worker/src/proof-ui-v5.js >/dev/null 2>&1 || code=$?
+          if [ "${code:-0}" -ne 1 ]; then echo "Unexpected runtime result"; exit 1; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add worker/src/proof-ui-v5.js
+          git commit -m "Fix nested proof UI template" || exit 0
+          git push origin HEAD:main

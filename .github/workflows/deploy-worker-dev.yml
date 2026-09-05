@@ -188,30 +188,61 @@ jobs:
           console.log('TURSO_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           console.log('AUTH_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           NODE
-      - name: Smoke DEV public pages
+      - name: Smoke DEV public pages and shared navigation
         working-directory: .
         run: |
           sleep 3
-          curl --fail --show-error --silent \
-            'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=health' \
-            | tee /tmp/dev-health.json
-          curl --fail --show-error --silent \
-            'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/proof.html' \
-            | grep -q 'จัดการเส้นทางเดินรถ MS'
-          curl --fail --show-error --silent \
-            'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/waiting.html' \
-            | grep -q 'ระบบรถรอลงงาน'
-          curl --fail --show-error --silent \
-            'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/ms-report.html' \
-            | grep -q 'สรุป'
           node <<'NODE'
-          const fs=require('node:fs');
-          const payload=JSON.parse(fs.readFileSync('/tmp/dev-health.json','utf8'));
-          if(!payload?.ok) throw new Error(`DEV health failed: ${JSON.stringify(payload)}`);
+          const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+          const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
+          const style='style.css?v=20260905-dev-shell-v1';
+          async function get(path){
+            const url=path ? `${base}/${path}` : `${base}/`;
+            const response=await fetch(url,{headers:{'cache-control':'no-cache'}});
+            const body=await response.text();
+            if(!response.ok) throw new Error(`${path || '/'} HTTP ${response.status}`);
+            return body;
+          }
+          const healthResponse=await fetch(`${base}/api?action=health`,{headers:{'cache-control':'no-cache'}});
+          const health=await healthResponse.json();
+          if(!healthResponse.ok || !health?.ok) throw new Error(`DEV health failed: ${JSON.stringify(health)}`);
+          for(const page of pages){
+            const html=await get(page);
+            const marker='<div class="app-nav-menu">';
+            const start=html.indexOf(marker);
+            const end=start<0 ? -1 : html.indexOf('</div></details>',start);
+            if(start<0 || end<0) throw new Error(`${page} live menu not found`);
+            const menu=html.slice(start,end);
+            for(const href of pages){
+              const count=menu.split(`href="${href}"`).length-1;
+              if(count!==1) throw new Error(`${page} live menu ${href} count=${count}`);
+            }
+            const currentCount=menu.split('class="is-current"').length-1;
+            if(currentCount!==1) throw new Error(`${page} live current count=${currentCount}`);
+            if(!menu.includes(`href="${page}" class="is-current"`)) throw new Error(`${page} live current item is wrong`);
+            if(/scan\.html|warehouse\.html|parity-check\.html|safe-parity\.html/.test(menu)) throw new Error(`${page} exposes retired/internal menu item`);
+            if(!html.includes(`href="${style}"`)) throw new Error(`${page} does not use shared DEV style release`);
+          }
+          const proof=await get('proof.html');
+          if(!proof.includes('<title>ปริ้นบาร์โค้ดรถ MS</title>')) throw new Error('proof title mismatch');
+          if(!(await get('waiting.html')).includes('ระบบรถรอลงงาน')) throw new Error('waiting page marker missing');
+          if(!(await get('ms-report.html')).includes('สรุป')) throw new Error('ms report marker missing');
+          if(!(await get('ms.html')).includes('ติดตามเส้นทาง MS')) throw new Error('ms page marker missing');
+          const cssResponse=await fetch(`${base}/${style}`,{headers:{'cache-control':'no-cache'}});
+          if(!cssResponse.ok) throw new Error(`shared DEV style HTTP ${cssResponse.status}`);
+          for(const legacy of ['index.html','scan.html','warehouse.html']){
+            const html=await get(legacy);
+            if(!html.includes('ms.html')) throw new Error(`${legacy} does not redirect to ms.html`);
+          }
+          const root=await get('');
+          if(!root.includes('ms.html')) throw new Error('DEV root does not resolve to the ms.html entrypoint');
           console.log('DEV_HEALTH=PASS');
-          console.log('DEV_PROOF_PAGE=PASS');
-          console.log('DEV_WAITING_PAGE=PASS');
-          console.log('DEV_MS_REPORT_PAGE=PASS');
+          console.log('DEV_UI_PAGES=4');
+          console.log('DEV_UI_MENU_ITEMS_PER_PAGE=4');
+          console.log(`DEV_UI_SHARED_STYLE=${style}`);
+          console.log('DEV_UI_LEGACY_REDIRECTS=3');
+          console.log('DEV_UI_ROOT=PASS');
+          console.log('DEV_UI_LIVE_AUDIT=PASS');
           console.log('DEV_DATABASE_BACKEND=TURSO');
           console.log('DEV_D1_RUNTIME_BINDING=0');
           NODE

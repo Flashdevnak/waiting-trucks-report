@@ -1,0 +1,26 @@
+name: Restore Proof Actions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/restore-proof-actions.yml
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore known-good proof actions
+        run: |
+          git checkout 2b9b4adcd675e35f9f81ab7af0f0054d371be4b2 -- proof-v2-actions.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add proof-v2-actions.js
+          git commit -m "Restore proof actions after connector staging" || exit 0
+          git push origin HEAD:main

@@ -17,11 +17,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Patch only confirmed transient Bus 502/503/504 recovery
+      - name: Patch confirmed transient Bus recovery only
+        env:
+          BUS_TEST_B64: aW1wb3J0IHsgc2VuZENvbm5lY3RvclN5bmMgfSBmcm9tICIuLi9zcmMvaW5kZXguanMiOwoKY2xhc3MgS1YgewogIGNvbnN0cnVjdG9yKCkgeyB0aGlzLm0gPSBuZXcgTWFwKCk7IH0KICBhc3luYyBnZXQoa2V5KSB7IHJldHVybiB0aGlzLm0uZ2V0KGtleSkgPz8gbnVsbDsgfQogIGFzeW5jIHB1dChrZXksIHZhbHVlKSB7IHRoaXMubS5zZXQoa2V5LCB2YWx1ZSk7IH0KfQoKY29uc3QgbWFrZSA9IChib2R5LCBzdGF0dXMgPSAyMDApID0+IG5ldyBSZXNwb25zZShKU09OLnN0cmluZ2lmeShib2R5KSwgewogIHN0YXR1cywKICBoZWFkZXJzOiB7ICJjb250ZW50LXR5cGUiOiAiYXBwbGljYXRpb24vanNvbiIgfSwKfSk7CgpsZXQgYnVzQ2FsbHMgPSAwOwpjb25zdCBERVZfQVBJID0gewogIGZldGNoOiBhc3luYyAocmVxdWVzdCkgPT4gewogICAgY29uc3QgYm9keSA9IGF3YWl0IHJlcXVlc3QuanNvbigpOwogICAgaWYgKGJvZHkuc2hhZG93UGFydCA9PT0gInJvdXRlcyIpIHsKICAgICAgcmV0dXJuIG1ha2UoeyBvazogdHJ1ZSwgZGF0YTogeyByb3dzOiBbeyBwcm9vZklkOiAiQlVTLVJFVFJZIiwgYXR0ZW5kYW5jZVR5cGU6ICLguJvguKXguLLguKLguJfguLLguIciLCBhY3R1YWxBcnJpdmFsQXQ6ICIiIH1dIH0gfSk7CiAgICB9CiAgICBidXNDYWxscyArPSAxOwogICAgaWYgKGJ1c0NhbGxzID09PSAxKSByZXR1cm4gbWFrZSh7IG9rOiBmYWxzZSwgY29kZTogIlRCUl9CVVNfSFRUUF81MDMiLCBtZXNzYWdlOiAidHJhbnNpZW50IiB9LCA1MDMpOwogICAgcmV0dXJuIG1ha2UoeyBvazogdHJ1ZSwgZGF0YTogeyB0YnJTaGFkb3dGZWVkOiBbeyBwcm9vZklkOiAiQlVTLVJFVFJZIiwgc2NoZWR1bGVUYnJBcnJpdmFsQXQ6ICIyMDI2LTA5LTA1VDIzOjAwOjAwKzA3OjAwIiB9XSB9IH0pOwogIH0sCn07Cgpjb25zdCByZXNwb25zZSA9IGF3YWl0IHNlbmRDb25uZWN0b3JTeW5jKHsgU1RBVEU6IG5ldyBLVigpLCBERVZfQVBJIH0sICJORTEiLCAiY29ubmVjdG9yLXRva2VuIik7CmNvbnN0IHBheWxvYWQgPSBhd2FpdCByZXNwb25zZS5qc29uKCk7CmlmICghcmVzcG9uc2Uub2spIHRocm93IG5ldyBFcnJvcigidHJhbnNpZW50IEJ1cyA1MDMgc3RpbGwgYmxhbmtlZCB0aGUgY29tYmluZWQgc291cmNlIik7CmlmIChidXNDYWxscyAhPT0gMikgdGhyb3cgbmV3IEVycm9yKGBCdXMgdHJhbnNpZW50IHJldHJ5IGNvdW50IG1pc21hdGNoOiAke2J1c0NhbGxzfWApOwppZiAocGF5bG9hZD8uZGF0YT8ucm93cz8ubGVuZ3RoICE9PSAxIHx8IHBheWxvYWQ/LmRhdGE/LnRiclNoYWRvd0ZlZWQ/Lmxlbmd0aCAhPT0gMSkgdGhyb3cgbmV3IEVycm9yKCJCdXMgcmV0cnkgZGlkIG5vdCBwcmVzZXJ2ZSBjb21iaW5lZCBSb3V0ZS9UQlIgc291cmNlIik7CmlmIChwYXlsb2FkPy5kYXRhPy5zaGFkb3dRdW90YT8ubm9ybWFsVHVyc29Qb2ludFJlYWRzUGVyQ3JvbiAhPT0gNCkgdGhyb3cgbmV3IEVycm9yKCJzdGVhZHktc3RhdGUgVHVyc28gcXVvdGEgbWFya2VyIGNoYW5nZWQiKTsKaWYgKHBheWxvYWQ/LmRhdGE/LnNoYWRvd1F1b3RhPy50dXJzb1BvaW50UmVhZHNQZXJDcm9uICE9PSA2KSB0aHJvdyBuZXcgRXJyb3IoInRyYW5zaWVudCByZXRyeSBhY2NvdW50aW5nIG11c3QgcmVwb3J0IDYgcG9pbnQgcmVhZHMgZm9yIHRoaXMgZmFpbGVkLW9uY2UgY2FzZSIpOwppZiAocGF5bG9hZD8uZGF0YT8uc2hhZG93UXVvdGE/LnR1cnNvV3JpdGVzUGVyQ3JvbiAhPT0gMCkgdGhyb3cgbmV3IEVycm9yKCJCdXMgcmV0cnkgbXVzdCBub3QgYWRkIFR1cnNvIHdyaXRlcyIpOwpjb25zb2xlLmxvZygiVEJSX0JVU181MDNfUkVUUlk9UEFTUyIpOwpjb25zb2xlLmxvZygiVEJSX0JVU19SRVRSWV9DQUxMUz0yIik7CmNvbnNvbGUubG9nKCJUQlJfTk9STUFMX1RVUlNPX1BPSU5UX1JFQURTPTQiKTsKY29uc29sZS5sb2coIlRCUl9UUkFOU0lFTlRfUE9JTlRfUkVBRFM9NiIpOwpjb25zb2xlLmxvZygiVEJSX1RVUlNPX1dSSVRFUz0wIik7Cg==
         run: |
           python3 <<'PY'
+          import base64, os
           from pathlib import Path
-
           index = Path('cloudflare-browser-test/src/index.js')
           source = index.read_text()
           old_comment = '// TBR_ROUTE_503_RETRY_V1: retry only transient Route transport failures.'
@@ -30,65 +32,21 @@ jobs:
           new_gate = 'if (["routes", "bus"].includes(part) && [502, 503, 504].includes(response.status)) {'
           if old_comment not in source or old_gate not in source:
               raise SystemExit('confirmed Bus retry patch target not found')
-          source = source.replace(old_comment, new_comment, 1).replace(old_gate, new_gate, 1)
-          index.write_text(source)
-
-          test = Path('cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs')
-          test.write_text(r'''import { sendConnectorSync } from "../src/index.js";
-
-class KV {
-  constructor() { this.m = new Map(); }
-  async get(key) { return this.m.get(key) ?? null; }
-  async put(key, value) { this.m.set(key, value); }
-}
-
-const make = (body, status = 200) => new Response(JSON.stringify(body), {
-  status,
-  headers: { "content-type": "application/json" },
-});
-
-let busCalls = 0;
-const DEV_API = {
-  fetch: async (request) => {
-    const body = await request.json();
-    if (body.shadowPart === "routes") {
-      return make({ ok: true, data: { rows: [{ proofId: "BUS-RETRY", attendanceType: "ปลายทาง", actualArrivalAt: "" }] } });
-    }
-    busCalls += 1;
-    if (busCalls === 1) return make({ ok: false, code: "TBR_BUS_HTTP_503", message: "transient" }, 503);
-    return make({ ok: true, data: { tbrShadowFeed: [{ proofId: "BUS-RETRY", scheduleTbrArrivalAt: "2026-09-05T23:00:00+07:00" }] } });
-  },
-};
-
-const response = await sendConnectorSync({ STATE: new KV(), DEV_API }, "NE1", "connector-token");
-const payload = await response.json();
-if (!response.ok) throw new Error("transient Bus 503 still blanked the combined source");
-if (busCalls !== 2) throw new Error(`Bus transient retry count mismatch: ${busCalls}`);
-if (payload?.data?.rows?.length !== 1 || payload?.data?.tbrShadowFeed?.length !== 1) throw new Error("Bus retry did not preserve combined Route/TBR source");
-if (payload?.data?.shadowQuota?.normalTursoPointReadsPerCron !== 4) throw new Error("steady-state Turso quota marker changed");
-if (payload?.data?.shadowQuota?.tursoPointReadsPerCron !== 6) throw new Error("transient retry accounting must report 6 point reads for this failed-once case");
-if (payload?.data?.shadowQuota?.tursoWritesPerCron !== 0) throw new Error("Bus retry must not add Turso writes");
-console.log("TBR_BUS_503_RETRY=PASS");
-console.log("TBR_BUS_RETRY_CALLS=2");
-console.log("TBR_NORMAL_TURSO_POINT_READS=4");
-console.log("TBR_TRANSIENT_POINT_READS=6");
-console.log("TBR_TURSO_WRITES=0");
-''')
-
-          for workflow_name in ['.github/workflows/deploy-browser-worker.yml', '.github/workflows/tbr-test-runtime-regression.yml']:
-              path = Path(workflow_name)
+          index.write_text(source.replace(old_comment, new_comment, 1).replace(old_gate, new_gate, 1))
+          Path('cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs').write_bytes(base64.b64decode(os.environ['BUS_TEST_B64']))
+          for name, anchor in [
+              ('.github/workflows/deploy-browser-worker.yml', '          node --check scripts/patch-dev-tbr-shadow-split-v2.mjs\n'),
+              ('.github/workflows/tbr-test-runtime-regression.yml', '          node --check src/tbr-shadow.js\n'),
+          ]:
+              path = Path(name)
               text = path.read_text()
-              check_anchor = '          node --check src/tbr-shadow.js\n'
-              if 'deploy-browser-worker.yml' in workflow_name:
-                  check_anchor = '          node --check scripts/patch-dev-tbr-shadow-split-v2.mjs\n'
-              insertion = check_anchor + '          node scripts/tbr-bus-retry.test.mjs\n'
               if 'node scripts/tbr-bus-retry.test.mjs' not in text:
-                  if check_anchor not in text:
-                      raise SystemExit(f'workflow test anchor not found: {workflow_name}')
-                  text = text.replace(check_anchor, insertion, 1)
+                  if anchor not in text:
+                      raise SystemExit('workflow test anchor not found: ' + name)
+                  text = text.replace(anchor, anchor + '          node scripts/tbr-bus-retry.test.mjs\n', 1)
               path.write_text(text)
           PY
-      - name: Validate patched Browser source before commit
+      - name: Validate patch before commit
         working-directory: cloudflare-browser-test
         run: |
           npm install --no-audit --no-fund
@@ -97,14 +55,12 @@ console.log("TBR_TURSO_WRITES=0");
           grep -q 'TBR_BUS_503_RETRY_V7' src/index.js
           grep -Fq '["routes", "bus"].includes(part) && [502, 503, 504].includes(response.status)' src/index.js
           node scripts/tbr-bus-retry.test.mjs
-          grep -q 'node scripts/tbr-bus-retry.test.mjs' ../.github/workflows/deploy-browser-worker.yml
-          grep -q 'node scripts/tbr-bus-retry.test.mjs' ../.github/workflows/tbr-test-runtime-regression.yml
           ! grep -q 'd1_databases' wrangler.jsonc
           echo 'BUS_TRANSIENT_RETRY_PATCH=PASS'
           echo 'STEADY_STATE_EXTRA_CALLS=0'
           echo 'BROWSER_D1_BINDING=0'
           echo 'PRODUCTION_TOUCHED=NO'
-      - name: Commit fix-forward source and permanent regressions
+      - name: Commit fix-forward source and regressions
         run: |
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/index.js && node --check src/turso-d1.js && node --check src/turso-index.js && node --check src/proof-control.js && node --check src/sync-policy.js && node --check ../proof.js && node --check tests/parity.mjs && node --check tests/sync-policy.test.mjs && node --check tests/frontend-requirements.test.mjs && node --check tests/bus-enrichment.test.mjs && node --check scripts/import-sites-dev.mjs && node --test tests/sync-policy.test.mjs tests/frontend-requirements.test.mjs tests/bus-enrichment.test.mjs tests/turso-d1.test.mjs",
+    "check": "node --check src/index.js && node --check src/turso-d1.js && node --check src/turso-index.js && node --check src/proof-control.js && node --check src/sync-policy.js && node --check ../proof.js && node --check tests/parity.mjs && node --check tests/sync-policy.test.mjs && node --check tests/frontend-requirements.test.mjs && node --check tests/bus-enrichment.test.mjs && node --check scripts/import-sites-dev.mjs && node --test tests/sync-policy.test.mjs tests/frontend-requirements.test.mjs tests/bus-enrichment.test.mjs tests/turso-d1.test.mjs && node --check src/proof-ui-v10.js && node --check src/proof-history-v10.js && node --check src/proof-plate-search-v5.js && node --check src/proof-editor.js && node --test tests/proof-command-center-v10.test.mjs",
     "parity": "node tests/parity.mjs",
     "dev": "wrangler dev --config wrangler.jsonc",
     "deploy": "wrangler deploy --config wrangler.jsonc",
@@ -13,6 +13,8 @@
     "deploy:dev": "wrangler deploy --config wrangler.dev.jsonc",
     "d1:apply:dev": "wrangler d1 migrations apply DB --remote --config wrangler.dev.jsonc"
   },
-  "devDependencies": {"wrangler":"^4.0.0"},
-  "displayName": "\u0e23\u0e30\u0e1a\u0e1a\u0e23\u0e16\u0e23\u0e2d\u0e25\u0e07\u0e07\u0e32\u0e19"
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "displayName": "ระบบรถรอลงงาน"
 }

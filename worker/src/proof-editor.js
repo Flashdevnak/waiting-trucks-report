@@ -80,6 +80,7 @@ async function printEdited({env,ctx,branch,actor,lineId,departureDate,selection}
   const detail=await readProofPopup(credentials,lineId,departureDate);
   const state=Number(detail.proof_state);
   if(!PRINTABLE_STATES.has(state))fail(state===6?'รถรายการนี้อยู่ระหว่างรอยกเลิก จึงไม่สามารถปริ้นได้':'สถานะล่าสุดใน MS ไม่รองรับการปริ้น กรุณารีเฟรชข้อมูล','MS_PRINT_STATE_NOT_ALLOWED',409);
+  if(state===1&&!text(detail.proof_id,100)&&releasePassed(detail.expect_start_time,departureDate))fail('เลยเวลาปล่อยแล้ว ระบบจัดเป็นรถไม่เข้าและจะไม่เปิดบาร์โค้ดใหม่','MS_PROOF_RELEASE_PASSED',409);
   if(state===1&&!permissions.has('action.store.proof_create'))fail('บัญชี MS นี้ไม่มีสิทธิ์เปิดใช้งานบาร์โค้ดรถ','MS_CREATE_PERMISSION_DENIED',403);
 
   const policy=editPolicy(detail);
@@ -220,7 +221,7 @@ async function readPlateOptions(credentials,detail,q,id){
     try{
       const payload=await readMsJson(await fetch(url,{headers:msHeaders(credentials)}),'MS_PLATE_LIST_ERROR');
       const data=payload.data;
-      const items=Array.isArray(data)?data:Array.isArray(data?.items)?data.items:[];
+      const items=plateItems(data);
       if(items.length||url.pathname.includes('/car/info'))return items;
     }catch(error){lastError=error;}
   }
@@ -228,6 +229,8 @@ async function readPlateOptions(credentials,detail,q,id){
   return [];
 }
 
+function plateItems(data){if(Array.isArray(data))return data;if(!data||typeof data!=='object')return [];for(const key of ['items','list','records','rows','content','data']){if(Array.isArray(data[key]))return data[key];if(data[key]&&typeof data[key]==='object'){const nested=plateItems(data[key]);if(nested.length)return nested;}}return [];}
+function releasePassed(value,day){const n=Number(value);if(Number.isFinite(n)&&String(value).trim()!==''&&n>=0&&n<3000){const base=Date.parse(`${day}T00:00:00+07:00`);return Number.isFinite(base)&&Date.now()>=base+n*60_000;}const raw=String(value||'').trim();let m=raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);if(m){const at=Date.parse(`${m[1]}T${String(m[2]).padStart(2,'0')}:${m[3]}:${m[4]||'00'}+07:00`);return Number.isFinite(at)&&Date.now()>=at;}m=raw.match(/(\d{1,2}):(\d{2})/);if(m){const at=Date.parse(`${day}T${String(m[1]).padStart(2,'0')}:${m[2]}:00+07:00`);return Number.isFinite(at)&&Date.now()>=at;}return false;} // PROOF_RELEASE_GUARD_V10
 async function verifyDriver(credentials,detail,id){
   const url=new URL('https://ms-api.flashexpress.com/gw/fms/ms/driver/list');
   url.searchParams.set('fleetId',String(detail.fleet_id||''));url.searchParams.set('carType','');url.searchParams.set('driverId',id);

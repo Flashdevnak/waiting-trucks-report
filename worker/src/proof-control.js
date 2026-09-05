@@ -260,6 +260,10 @@ async function printProof({ env, ctx, branch, actor, lineId, departureDate }) {
       ? 'รถรายการนี้อยู่ระหว่างรอยกเลิก จึงไม่สามารถปริ้นท์ได้'
       : 'สถานะรถนี้ไม่รองรับการปริ้นท์จากหน้าเว็บ กรุณาตรวจใน MS', 'MS_PRINT_STATE_NOT_ALLOWED', 409);
   }
+  if (Number(detail.proof_state) === 1 && !text(detail.proof_id, 100) && releasePassed(detail.expect_start_time, departureDate)) {
+    fail('เลยเวลาปล่อยแล้ว ระบบจัดเป็นรถไม่เข้าและจะไม่เปิดบาร์โค้ดใหม่', 'MS_PROOF_RELEASE_PASSED', 409);
+  }
+  // PROOF_RELEASE_GUARD_V10
   if (Number(detail.proof_state) === 1 && !permissions.has('action.store.proof_create')) {
     fail('บัญชี MS นี้ไม่มีสิทธิ์เปิดใช้งานบาร์โค้ดรถ', 'MS_CREATE_PERMISSION_DENIED', 403);
   }
@@ -477,6 +481,7 @@ function safeJsonArray(value) {
     return Array.isArray(parsed) ? parsed : [];
   } catch { return []; }
 }
+function releasePassed(value, day) { const n = Number(value); if (Number.isFinite(n) && String(value).trim() !== '' && n >= 0 && n < 3000) { const base = Date.parse(`${day}T00:00:00+07:00`); return Number.isFinite(base) && Date.now() >= base + n * 60_000; } const raw = String(value || '').trim(); let m = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/); if (m) { const at = Date.parse(`${m[1]}T${String(m[2]).padStart(2, '0')}:${m[3]}:${m[4] || '00'}+07:00`); return Number.isFinite(at) && Date.now() >= at; } m = raw.match(/(\d{1,2}):(\d{2})/); if (m) { const at = Date.parse(`${day}T${String(m[1]).padStart(2, '0')}:${m[2]}:00+07:00`); return Number.isFinite(at) && Date.now() >= at; } return false; }
 function cleanHub(value) { return text(value, 80).toUpperCase(); }
 function cleanDay(value) {
   const day = text(value, 20);

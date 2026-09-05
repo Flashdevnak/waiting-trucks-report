@@ -6,12 +6,18 @@ import { maybeHandleProofPreview } from "./proof-preview.js";
 import { maybeHandleProofEditor } from "./proof-editor.js";
 import { maybeHandleProofPlateSearchV5 } from "./proof-plate-search-v5.js";
 import { maybeHandleProofUiV5 } from "./proof-ui-v5.js";
+import { maybeHandleProofUiV10 } from "./proof-ui-v10.js";
+import { maybeHandleProofHistoryV10 } from "./proof-history-v10.js";
 
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
+    const proofUiV10Response = await maybeHandleProofUiV10(request, runtimeEnv, ctx, worker);
+    if (proofUiV10Response) return proofUiV10Response;
     const proofUiV5Response = await maybeHandleProofUiV5(request, runtimeEnv, ctx, worker);
     if (proofUiV5Response) return proofUiV5Response;
+    const proofHistoryV10Response = await maybeHandleProofHistoryV10(request, runtimeEnv, ctx, worker);
+    if (proofHistoryV10Response) return proofHistoryV10Response;
     const proofPlateV5Response = await maybeHandleProofPlateSearchV5(request, runtimeEnv, ctx, worker);
     if (proofPlateV5Response) return proofPlateV5Response;
     const proofEditorResponse = await maybeHandleProofEditor(request, runtimeEnv, ctx, worker);

@@ -1,0 +1,74 @@
+name: MS Local Barcode Persist Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ms-local-barcode-persist-temp.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch barcode open-state persistence
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('ms.js')
+          s=p.read_text()
+          marker='LOCAL_BARCODE_OPEN_PERSIST_V2'
+          if marker in s:
+              print('already patched')
+          else:
+              old='''function localBarcodeButton(row) {\n  if (!localBarcodeEligible(row)) return "";\n  const value = encodeURIComponent(String(row.proofId).trim());\n  return `<div class="local-route-barcode"><button type="button" class="local-barcode-toggle" data-local-barcode-toggle data-barcode-value="${esc(value)}" aria-expanded="false">▥ ดูบาร์โค้ด</button><div class="local-barcode-panel hidden" aria-label="บาร์โค้ดรถ"></div></div>`;\n}'''
+              new='''// LOCAL_BARCODE_OPEN_PERSIST_V2: keep user-opened barcodes open across the 4-second realtime rerender. Browser session only; zero network/database I/O.\nconst LOCAL_BARCODE_OPEN_KEY = "ms_local_barcode_open_v2";\nfunction loadLocalBarcodeOpen() {\n  try {\n    const raw = typeof sessionStorage !== "undefined" ? JSON.parse(sessionStorage.getItem(LOCAL_BARCODE_OPEN_KEY) || "[]") : [];\n    return new Set(Array.isArray(raw) ? raw.map((value) => String(value)) : []);\n  } catch { return new Set(); }\n}\nconst localBarcodeOpen = loadLocalBarcodeOpen();\nfunction persistLocalBarcodeOpen() {\n  try {\n    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(LOCAL_BARCODE_OPEN_KEY, JSON.stringify([...localBarcodeOpen]));\n  } catch {}\n}\n\nfunction localBarcodeButton(row) {\n  if (!localBarcodeEligible(row)) return "";\n  const proofId = String(row.proofId).trim();\n  const value = encodeURIComponent(proofId);\n  const opened = localBarcodeOpen.has(proofId);\n  return `<div class="local-route-barcode"><button type="button" class="local-barcode-toggle" data-local-barcode-toggle data-barcode-value="${esc(value)}" aria-expanded="${opened ? "true" : "false"}">${opened ? "ซ่อนบาร์โค้ด" : "▥ ดูบาร์โค้ด"}</button><div class="local-barcode-panel${opened ? "" : " hidden"}" ${opened ? "data-ready=\\"1\\"" : ""} aria-label="บาร์โค้ดรถ">${opened ? code128Svg(proofId) : ""}</div></div>`;\n}'''
+              if old not in s: raise SystemExit('localBarcodeButton anchor missing')
+              s=s.replace(old,new,1)
+              old2='''  const opening = panel.classList.contains("hidden");\n  if (opening && !panel.dataset.ready) {\n    panel.innerHTML = code128Svg(decodeURIComponent(button.dataset.barcodeValue || ""));\n    panel.dataset.ready = "1";\n  }\n  panel.classList.toggle("hidden", !opening);\n  button.setAttribute("aria-expanded", opening ? "true" : "false");\n  button.textContent = opening ? "ซ่อนบาร์โค้ด" : "▥ ดูบาร์โค้ด";'''
+              new2='''  const opening = panel.classList.contains("hidden");\n  const proofId = decodeURIComponent(button.dataset.barcodeValue || "");\n  if (opening && !panel.dataset.ready) {\n    panel.innerHTML = code128Svg(proofId);\n    panel.dataset.ready = "1";\n  }\n  if (opening) localBarcodeOpen.add(proofId);\n  else localBarcodeOpen.delete(proofId);\n  persistLocalBarcodeOpen();\n  panel.classList.toggle("hidden", !opening);\n  button.setAttribute("aria-expanded", opening ? "true" : "false");\n  button.textContent = opening ? "ซ่อนบาร์โค้ด" : "▥ ดูบาร์โค้ด";'''
+              if old2 not in s: raise SystemExit('toggle anchor missing')
+              s=s.replace(old2,new2,1)
+              p.write_text(s)
+              print('patched ms.js')
+          PY
+      - name: Validate persistence and quota contract
+        run: |
+          node --check ms.js
+          node <<'NODE'
+          const fs=require('fs');
+          const s=fs.readFileSync('ms.js','utf8');
+          for(const m of ['LOCAL_BARCODE_OPEN_PERSIST_V2','sessionStorage','localBarcodeOpen.add','localBarcodeOpen.delete','persistLocalBarcodeOpen']) if(!s.includes(m)) throw new Error('missing '+m);
+          const start=s.indexOf('// LOCAL_ROUTE_BARCODE_V1');
+          const end=s.indexOf('function tableRow(row)');
+          const block=s.slice(start,end);
+          if(/fetch\s*\(|apiGet\s*\(|apiPost\s*\(|XMLHttpRequest|script\.src/.test(block)) throw new Error('barcode code must remain local-only');
+          console.log('BARCODE_PERSISTENCE_SOURCE=PASS');
+          console.log('BARCODE_NETWORK_ADDED=0');
+          console.log('TURSO_READS_ADDED=0');
+          console.log('TURSO_WRITES_ADDED=0');
+          NODE
+          cd worker
+          npm ci --no-audit --no-fund
+          npm run check
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ms.js
+          git diff --cached --quiet && exit 0
+          git commit -m "Keep local barcode open across realtime refresh"
+          git push origin HEAD:main
+      - name: Dispatch DEV deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --ref main

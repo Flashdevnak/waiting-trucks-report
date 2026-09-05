@@ -1,5 +1,5 @@
 name: Proof TBR Live Acceptance Temp
-# checkpoint-trigger: bus-daily-v9
+# checkpoint-trigger: bus-daily-v9b
 
 on:
   push:
@@ -19,7 +19,16 @@ jobs:
         with:
           node-version: 22
       - name: Apply functional patch
-        run: python3 .tmp-tbr-bus-v9.py
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('.tmp-tbr-bus-v9.py')
+          s=p.read_text()
+          start=s.index("\nanchor='      status:")
+          end=s.index("\nq.write_text(t)", start)
+          p.write_text(s[:start] + s[end:])
+          PY
+          python3 .tmp-tbr-bus-v9.py
       - name: Validate functional patch before commit
         run: |
           node --check cloudflare-browser-test/src/index.js

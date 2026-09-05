@@ -49,6 +49,9 @@ jobs:
           const dailyStart = worker.indexOf('async function msDailyArchive');
           const dailyEnd = worker.indexOf('async function msArchiveTotal', dailyStart);
           const daily = dailyStart >= 0 && dailyEnd > dailyStart ? worker.slice(dailyStart, dailyEnd) : '';
+          const devD1Gate =
+            deploy.includes("if(text.includes('d1_databases')) throw new Error('D1 binding is forbidden in DEV')") &&
+            deploy.includes('WORKER_D1_BINDING_ZERO=PASS');
           const checks = [
             [ms.includes(expected), 'GitHub Pages targets promoted Turso Worker'],
             [!ms.includes(old), 'root ms.js does not target OLD API'],
@@ -75,9 +78,11 @@ jobs:
             [wrangler.includes('"main": "src/turso-index.js"'), 'promoted Worker entrypoint is Turso'],
             [wrangler.includes('"DB_BACKEND": "turso"'), 'promoted Worker backend is Turso'],
             [!wrangler.includes('d1_databases'), 'promoted Worker config has no D1 binding'],
-            [deploy.includes('Reject any remaining D1 binding before deploy'), 'normal DEV deploy rejects D1 rebinding'],
+            [devD1Gate, 'normal DEV deploy rejects D1 rebinding and verifies active zero D1'],
             [deploy.includes('daily-history.test.mjs'), 'normal DEV deploy gates daily-history contract'],
             [deploy.includes('TURSO_DATABASE_URL'), 'normal DEV deploy requires Turso credentials'],
+            [deploy.includes('DEV_HEADER_POLISH_V3'), 'normal DEV deploy gates UI v3'],
+            [deploy.includes('TBR_ROUTE_CHUNK_RETRY_V4'), 'normal DEV deploy gates TBR Route 503 resilience'],
           ];
           for (const [pass,label] of checks) {
             console.log(`${pass ? 'PASS' : 'FAIL'} ${label}`);

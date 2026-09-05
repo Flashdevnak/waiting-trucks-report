@@ -184,6 +184,9 @@ test("DEV header V5 keeps spacious menu icons and groups status with refresh at 
   assert.match(styled, /DEV_HEADER_POLISH_V3/);
   assert.match(styled, /DEV_HEADER_INTERACTION_V4/);
   assert.match(styled, /DEV_HEADER_LAYOUT_V5/);
+  assert.match(styled, /DEV_HEADER_ALIGNMENT_V6/);
+  assert.match(styled, /grid-template-columns:30px minmax\(0,1fr\) 30px/);
+  assert.match(styled, /text-align:center;overflow:hidden;text-overflow:ellipsis/);
   assert.match(styled, /grid-template-columns:40px minmax\(0,1fr\);column-gap:14px/);
   assert.match(styled, /app-nav-menu a>span\{grid-row:1\/3;display:grid;place-items:center;width:40px;height:40px/);
   assert.match(styled, /dev-utility-group\{order:4;display:flex/);

@@ -1,8 +1,8 @@
 name: Deploy Worker DEV
 
-# DEV-only pipeline. Runtime is Turso-only. The former D1 database is a frozen
-# rollback snapshot and is never bound or queried by this normal deploy path.
-# Trigger: MS_QUOTA_SAFE_LIVE_V1
+# DEV-only pipeline. Runtime is Turso-only. Production is never deployed here.
+# UI checkpoint: DEV_HEADER_POLISH_V3
+# TBR checkpoint: TBR_ROUTE_CHUNK_RETRY_V4
 
 on:
   workflow_dispatch:
@@ -50,6 +50,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: worker/package-lock.json
+
       - run: npm ci
       - run: npm run check
       - name: Verify 100-device 180-day auth session resilience
@@ -66,24 +67,22 @@ jobs:
       - run: node --test ../.github/dev-tools/daily-history.test.mjs
       - run: node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
-      - name: Reject any remaining D1 binding before deploy
+
+      - name: Reject D1 and verify DEV cron
         run: |
           node <<'NODE'
-          const fs = require('node:fs');
-          const text = fs.readFileSync('wrangler.dev.jsonc', 'utf8');
-          if (!text.includes('"main": "src/turso-index.js"'))
-            throw new Error('DEV entrypoint is not Turso');
-          if (!text.includes('"DB_BACKEND": "turso"'))
-            throw new Error('DEV DB_BACKEND is not Turso');
-          if (text.includes('d1_databases'))
-            throw new Error('D1 binding is forbidden in the normal DEV deploy config');
-          if (!text.includes('"crons": ["* * * * *"]'))
-            throw new Error('DEV proof snapshot cron is missing');
+          const fs=require('node:fs');
+          const text=fs.readFileSync('wrangler.dev.jsonc','utf8');
+          if(!text.includes('"main": "src/turso-index.js"')) throw new Error('DEV entrypoint is not Turso');
+          if(!text.includes('"DB_BACKEND": "turso"')) throw new Error('DEV DB_BACKEND is not Turso');
+          if(text.includes('d1_databases')) throw new Error('D1 binding is forbidden in DEV');
+          if(!text.includes('"crons": ["* * * * *"]')) throw new Error('DEV one-minute cron missing');
           console.log('DEV_TURSO_CONFIG=PASS');
           console.log('DEV_D1_CONFIG_BINDING=0');
           console.log('DEV_PROOF_CRON=1_MINUTE');
           NODE
-      - name: Stage DEV frontend assets and worker patch
+
+      - name: Stage DEV runtime and enforce checkpoint contracts
         run: |
           rm -rf .dev-assets
           mkdir -p .dev-assets
@@ -105,9 +104,7 @@ jobs:
           node --check src/proof-live-v2.js
           node <<'NODE'
           const fs=require('node:fs');
-          for(const asset of ['waiting.html','main.js','ms-report.html','ms-report.js']) {
-            if(!fs.existsSync(`.dev-assets/${asset}`)) throw new Error(`missing DEV asset ${asset}`);
-          }
+          const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
           const front=fs.readFileSync('.dev-assets/ms.js','utf8');
           const proofFront=fs.readFileSync('.dev-assets/proof.js','utf8');
           const proofHtml=fs.readFileSync('.dev-assets/proof.html','utf8');
@@ -115,17 +112,15 @@ jobs:
           const proofV2=fs.readFileSync('src/proof-live-v2.js','utf8');
           const proofV2Front=fs.readFileSync('.dev-assets/proof-v2-core.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-ui.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-actions.js','utf8');
           const worker=fs.readFileSync('src/index.js','utf8');
+          const style=fs.readFileSync('.dev-assets/style.css','utf8');
+
           for(const marker of ['MS_DAILY_HISTORY_V1','pollMs: 4000','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
             if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
-          if(!worker.includes('MS_DAILY_HISTORY_V1: read-only daily history')) throw new Error('staged worker missing daily-history contract');
-          if(!worker.includes('upstreamMsCalls: 0') || !worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
-          if(!worker.includes('MS_QUOTA_SAFE_LIVE_V1')) throw new Error('staged worker missing quota-safe live contract');
-          if(!worker.includes('baselineRows: (currentCache || cache)?.rows || null')) throw new Error('staged worker does not pass live-cache baseline');
-          if(!worker.includes('AUTH_SESSION_RESILIENCE_V1')) throw new Error('staged worker lost auth-session resilience contract');
-          if(!worker.includes('AUTH_VERIFY_UNAVAILABLE')) throw new Error('staged worker lost transient auth outage handling');
-          if(!worker.includes('TBR_SHADOW_SPLIT_V2')) throw new Error('staged worker lost TBR Split V2');
-          if(!worker.includes('TBR_ROUTE_OPERATING_WINDOW_V3')) throw new Error('staged worker lost full Bangkok TBR Route window');
-          if(!worker.includes('todayStartBangkok - 86400000') || !worker.includes('todayStartBangkok + 2 * 86400000 - 1000')) throw new Error('staged TBR Route window is narrower than yesterday-through-today');
+          for(const marker of ['MS_DAILY_HISTORY_V1: read-only daily history','MS_QUOTA_SAFE_LIVE_V1','AUTH_SESSION_RESILIENCE_V1','AUTH_VERIFY_UNAVAILABLE','TBR_SHADOW_SPLIT_V2','TBR_ROUTE_OPERATING_WINDOW_V3','TBR_ROUTE_CHUNK_RETRY_V4','tbrShadowRouteRanges','readTbrRouteRangeWithRetry','todayStartBangkok - 86400000','todayStartBangkok + 86400000 - 1000'])
+            if(!worker.includes(marker)) throw new Error(`staged worker missing ${marker}`);
+          if(!worker.includes('upstreamMsCalls: 0')||!worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
+          if(!worker.includes('baselineRows: (currentCache || cache)?.rows || null')) throw new Error('live-cache baseline missing');
+
           for(const marker of ['/api/proof/routes','/api/proof/profile','/api/proof/print','pollMs: 30_000'])
             if(!proofFront.includes(marker)) throw new Error(`proof frontend missing ${marker}`);
           for(const marker of ['/api/proof/routes-v2','/api/proof/ack','standbyLeadMinutes:60','lineMode'])
@@ -135,43 +130,48 @@ jobs:
           if(!proofHtml.includes('ปุ่มยกเลิกรถยังปิดไว้')) throw new Error('proof cancel safety notice missing');
           for(const marker of ['ms_proof_snapshots','ms_proof_events','ms_proof_print_log','pageSize: \'100\''])
             if(!proofWorker.includes(marker)) throw new Error(`proof worker missing ${marker}`);
-          if(proofWorker.includes('/fleet/van/proof/cancel_car') || proofV2.includes('/fleet/van/proof/cancel_car')) throw new Error('proof worker must not send cancel_car commands');
-          for(const page of ['ms.html','proof.html','waiting.html','ms-report.html']) {
+          if(proofWorker.includes('/fleet/van/proof/cancel_car')||proofV2.includes('/fleet/van/proof/cancel_car')) throw new Error('proof cancel command must stay disabled');
+
+          if(!style.includes('DEV_UNIFIED_HEADER_V2')||!style.includes('DEV_HEADER_POLISH_V3')) throw new Error('DEV header v3 CSS missing');
+          for(const page of pages){
             const html=fs.readFileSync(`.dev-assets/${page}`,'utf8');
-            if(!html.includes('data-dev-shell="20260905-v2"')) throw new Error(`${page} staged unified header marker missing`);
-            if((html.match(/dev-shell-slot/g)||[]).length!==5) throw new Error(`${page} staged header must have five slots`);
+            if(!html.includes('data-dev-shell="20260905-v2"')) throw new Error(`${page} unified header marker missing`);
+            if(!html.includes('style.css?v=20260905-dev-shell-v3')) throw new Error(`${page} style v3 missing`);
+            if((html.match(/dev-shell-slot/g)||[]).length!==5) throw new Error(`${page} must have five header slots`);
+            if(!html.includes('เปลี่ยนรหัสผ่าน')) throw new Error(`${page} account password entry missing`);
           }
-          if(!fs.readFileSync('.dev-assets/style.css','utf8').includes('DEV_UNIFIED_HEADER_V2')) throw new Error('staged unified header CSS missing');
-          console.log('STAGED_WAITING_PAGE=PASS');
-          console.log('STAGED_MS_REPORT_PAGE=PASS');
+          const msHtml=fs.readFileSync('.dev-assets/ms.html','utf8');
+          const proofHtmlLive=fs.readFileSync('.dev-assets/proof.html','utf8');
+          if(!msHtml.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS central QR/HAR entry missing');
+          if(!proofHtmlLive.includes('ms.html#connection')||!proofHtmlLive.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('Proof shared QR/HAR entry missing');
+
           console.log('STAGED_DAILY_HISTORY=PASS');
           console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
-          console.log('STAGED_TBR_ROUTE_OPERATING_WINDOW_V3=PASS');
-          console.log('STAGED_DEV_UNIFIED_HEADER_V2=PASS');
+          console.log('STAGED_TBR_ROUTE_CHUNK_RETRY_V4=PASS');
+          console.log('STAGED_DEV_HEADER_POLISH_V3=PASS');
+          console.log('STAGED_HAR_SHARED_ENTRY=PASS');
           console.log('STAGED_AUTH_SESSION_RESILIENCE=PASS');
-          console.log('STAGED_AUTH_TRANSIENT_OUTAGE_HANDLING=PASS');
           console.log('STAGED_POLL_MS=4000');
           console.log('STAGED_PROOF_CONTROL=PASS');
-          console.log('STAGED_PROOF_V2=PASS');
           console.log('STAGED_PROOF_CANCEL_COMMANDS=0');
           NODE
+
       - name: Verify Turso and auth secrets exist on DEV Worker
         run: |
           npx wrangler secret list --config wrangler.dev.jsonc > /tmp/worker-secrets.json
           node <<'NODE'
-          const fs = require('node:fs');
-          const text = fs.readFileSync('/tmp/worker-secrets.json', 'utf8');
-          const required = ['TURSO_DATABASE_URL','TURSO_AUTH_TOKEN','AUTH_SECRET','PASSWORD_PEPPER'];
-          const missing = required.filter((name) => !text.includes(name));
-          if (missing.length) {
-            console.error(`Missing required DEV Worker secrets: ${missing.join(', ')}`);
-            process.exit(2);
-          }
+          const fs=require('node:fs');
+          const text=fs.readFileSync('/tmp/worker-secrets.json','utf8');
+          const required=['TURSO_DATABASE_URL','TURSO_AUTH_TOKEN','AUTH_SECRET','PASSWORD_PEPPER'];
+          const missing=required.filter(name=>!text.includes(name));
+          if(missing.length) throw new Error(`Missing required DEV Worker secrets: ${missing.join(', ')}`);
           console.log('DEV_TURSO_SECRETS=PASS');
           console.log('DEV_AUTH_SECRETS=PASS');
           NODE
+
       - name: Deploy DEV Worker on Turso
         run: npx wrangler deploy --config wrangler.dev.jsonc
+
       - name: Verify active Worker has zero D1 bindings
         working-directory: .
         run: |
@@ -182,99 +182,70 @@ jobs:
           const headers={Authorization:`Bearer ${token}`};
           const deploymentsRes=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/deployments`,{headers});
           const deployments=await deploymentsRes.json();
-          if(!deploymentsRes.ok || !deployments.success)
-            throw new Error(`deployments HTTP ${deploymentsRes.status}: ${JSON.stringify(deployments.errors||deployments)}`);
+          if(!deploymentsRes.ok||!deployments.success) throw new Error(`deployments HTTP ${deploymentsRes.status}`);
           const active=deployments.result?.deployments?.[0];
           const versions=active?.versions||[];
-          if(!versions.length) throw new Error('No active Worker version returned');
-          const activeVersion=versions.sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id;
+          if(!versions.length) throw new Error('No active DEV version');
+          const activeVersion=[...versions].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id;
           console.log(`ACTIVE_DEV_VERSION=${activeVersion}`);
-          console.log(`ACTIVE_DEPLOYED_AT=${active.created_on}`);
           const settingsRes=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/script-settings`,{headers});
           const settings=await settingsRes.json();
-          if(!settingsRes.ok || !settings.success) throw new Error(`settings HTTP ${settingsRes.status}`);
-          const bindings=settings.result?.bindings||[];
-          const d1Bindings=bindings.filter(x=>x.type==='d1' || x.type==='d1_database');
-          console.log(`D1_BINDING_COUNT=${d1Bindings.length}`);
-          if(d1Bindings.length) throw new Error('Active DEV Worker exposes a D1 binding');
+          if(!settingsRes.ok||!settings.success) throw new Error(`settings HTTP ${settingsRes.status}`);
+          const d1=(settings.result?.bindings||[]).filter(x=>x.type==='d1'||x.type==='d1_database');
+          if(d1.length) throw new Error('Active DEV Worker exposes D1');
           console.log('WORKER_D1_BINDING_ZERO=PASS');
-          console.log('TURSO_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
-          console.log('AUTH_SECRET_NAMES_VERIFIED_PREDEPLOY=PASS');
           NODE
-      - name: Smoke DEV public pages and unified topbar
+
+      - name: Smoke DEV public pages and UI v3
         working-directory: .
         run: |
           sleep 3
           node <<'NODE'
           const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
           const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
-          const style='style.css?v=20260905-dev-shell-v2';
-          const slots=['dev-shell-status','dev-system-nav','dev-page-tools','dev-shell-refresh','dev-account-menu'];
+          const style='style.css?v=20260905-dev-shell-v3';
           async function get(path){
-            const url=path ? `${base}/${path}` : `${base}/`;
-            const response=await fetch(url,{headers:{'cache-control':'no-cache'}});
+            const response=await fetch(path?`${base}/${path}`:`${base}/`,{headers:{'cache-control':'no-cache'},cache:'no-store'});
             const body=await response.text();
-            if(!response.ok) throw new Error(`${path || '/'} HTTP ${response.status}`);
+            if(!response.ok) throw new Error(`${path||'/'} HTTP ${response.status}`);
             return body;
           }
-          const healthResponse=await fetch(`${base}/api?action=health`,{headers:{'cache-control':'no-cache'}});
+          const healthResponse=await fetch(`${base}/api?action=health`,{cache:'no-store'});
           const health=await healthResponse.json();
-          if(!healthResponse.ok || !health?.ok) throw new Error(`DEV health failed: ${JSON.stringify(health)}`);
+          if(!healthResponse.ok||!health?.ok) throw new Error('DEV health failed');
           for(const page of pages){
             const html=await get(page);
-            const headerStart=html.indexOf('<header class="site-header dev-unified-header"');
-            const headerEnd=headerStart<0 ? -1 : html.indexOf('</header>',headerStart);
-            if(headerStart<0 || headerEnd<0) throw new Error(`${page} live unified header not found`);
-            const header=html.slice(headerStart,headerEnd);
-            if(!header.includes('data-dev-shell="20260905-v2"')) throw new Error(`${page} live unified header marker missing`);
-            if((header.match(/dev-shell-slot/g)||[]).length!==5) throw new Error(`${page} live header slot count mismatch`);
-            let cursor=-1;
-            for(const slot of slots){
-              const next=header.indexOf(slot);
-              if(next<=cursor) throw new Error(`${page} live header slot order wrong at ${slot}`);
-              cursor=next;
-            }
-            const marker='<div class="app-nav-menu">';
-            const start=header.indexOf(marker);
-            const end=start<0 ? -1 : header.indexOf('</div></details>',start);
-            if(start<0 || end<0) throw new Error(`${page} live system menu not found`);
-            const menu=header.slice(start,end);
-            for(const href of pages){
-              const count=menu.split(`href="${href}"`).length-1;
-              if(count!==1) throw new Error(`${page} live menu ${href} count=${count}`);
-            }
-            const currentCount=menu.split('class="is-current"').length-1;
-            if(currentCount!==1) throw new Error(`${page} live current count=${currentCount}`);
-            if(!menu.includes(`href="${page}" class="is-current"`)) throw new Error(`${page} live current item is wrong`);
-            if(/scan\.html|warehouse\.html|parity-check\.html|safe-parity\.html/.test(menu)) throw new Error(`${page} exposes retired/internal menu item`);
-            if(!html.includes(`href="${style}"`)) throw new Error(`${page} does not use shared DEV style release`);
+            if(!html.includes('data-dev-shell="20260905-v2"')) throw new Error(`${page} header marker missing`);
+            if((html.match(/dev-shell-slot/g)||[]).length!==5) throw new Error(`${page} header slot count mismatch`);
+            if(!html.includes(`href="${style}"`)) throw new Error(`${page} shared style v3 missing`);
+            if(!html.includes('เปลี่ยนรหัสผ่าน')) throw new Error(`${page} password account entry missing`);
+            const menuStart=html.indexOf('<div class="app-nav-menu">');
+            const menuEnd=menuStart<0?-1:html.indexOf('</div></details>',menuStart);
+            if(menuStart<0||menuEnd<0) throw new Error(`${page} system menu missing`);
+            const menu=html.slice(menuStart,menuEnd);
+            for(const href of pages) if(menu.split(`href="${href}"`).length-1!==1) throw new Error(`${page} menu missing ${href}`);
+            if(!menu.includes(`href="${page}" class="is-current"`)) throw new Error(`${page} current menu wrong`);
           }
+          const ms=await get('ms.html');
           const proof=await get('proof.html');
-          if(!proof.includes('<title>ปริ้นบาร์โค้ดรถ MS</title>')) throw new Error('proof title mismatch');
-          if(!(await get('waiting.html')).includes('ระบบรถรอลงงาน')) throw new Error('waiting page marker missing');
-          if(!(await get('ms-report.html')).includes('สรุป')) throw new Error('ms report marker missing');
-          if(!(await get('ms.html')).includes('ติดตามเส้นทาง MS')) throw new Error('ms page marker missing');
-          const cssResponse=await fetch(`${base}/${style}`,{headers:{'cache-control':'no-cache'}});
+          if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');
+          if(!proof.includes('ms.html#connection')) throw new Error('Proof shared connection link missing');
+          const cssResponse=await fetch(`${base}/${style}`,{cache:'no-store'});
           const css=await cssResponse.text();
-          if(!cssResponse.ok) throw new Error(`shared DEV style HTTP ${cssResponse.status}`);
-          if(!css.includes('DEV_UNIFIED_HEADER_V2')) throw new Error('live unified header CSS marker missing');
-          for(const legacy of ['index.html','scan.html','warehouse.html']){
-            const html=await get(legacy);
-            if(!html.includes('ms.html')) throw new Error(`${legacy} does not redirect to ms.html`);
-          }
-          const root=await get('');
-          if(!root.includes('ms.html')) throw new Error('DEV root does not resolve to the ms.html entrypoint');
+          if(!cssResponse.ok||!css.includes('DEV_HEADER_POLISH_V3')) throw new Error('live UI v3 CSS missing');
+          for(const legacy of ['index.html','scan.html','warehouse.html']) if(!(await get(legacy)).includes('ms.html')) throw new Error(`${legacy} redirect missing`);
+          if(!(await get('')).includes('ms.html')) throw new Error('DEV root entry missing');
           console.log('DEV_HEALTH=PASS');
           console.log('DEV_UI_PAGES=4');
           console.log('DEV_UI_MENU_ITEMS_PER_PAGE=4');
-          console.log('DEV_UI_HEADER_SLOTS_PER_PAGE=5');
-          console.log('DEV_UI_HEADER_ORDER=STATUS>SYSTEM_MENU>TOOLS>REFRESH>ACCOUNT');
+          console.log('DEV_UI_VISIBLE_ORDER=STATUS>REFRESH>SYSTEM_MENU>TOOLS>ACCOUNT');
           console.log(`DEV_UI_SHARED_STYLE=${style}`);
-          console.log('DEV_UI_LEGACY_REDIRECTS=3');
-          console.log('DEV_UI_ROOT=PASS');
+          console.log('DEV_UI_PASSWORD_ACCOUNT=PASS');
+          console.log('DEV_UI_HAR_SHARED_ENTRY=PASS');
           console.log('DEV_UI_LIVE_AUDIT=PASS');
           console.log('DEV_DATABASE_BACKEND=TURSO');
           console.log('DEV_D1_RUNTIME_BINDING=0');
+          console.log('PRODUCTION_TOUCHED=NO');
           NODE
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

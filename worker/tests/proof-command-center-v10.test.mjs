@@ -10,7 +10,7 @@ test('Proof V10 command center is Proof-only and keeps polling unchanged', async
   const html = await read('proof.html');
   const ui = await read('worker/src/proof-ui-v10.js');
   const control = await read('worker/src/proof-control.js');
-  assert.match(html, /\/proof-v10\.js\?v=20260906-01/);
+  assert.match(html, /\/proof-v10\.js\?v=20260906-02/);
   assert.match(ui, /PROOF_COMMAND_CENTER_V10/);
   assert.doesNotMatch(ui, /__PROOF_V8_READY__/);
   assert.match(ui, /typeof P\.installProofEditor !== 'function'/);
@@ -21,6 +21,11 @@ test('Proof V10 command center is Proof-only and keeps polling unchanged', async
   assert.match(ui, /proof-alert-dock-v10/);
   assert.match(ui, /proof-command-center-v10/);
   assert.match(ui, /PROOF_OPS_CONTROL_V11/);
+  assert.match(ui, /PROOF_READABILITY_V12/);
+  assert.match(ui, /PROOF_FD_LH_HEADER_V12/);
+  assert.match(ui, /PROOF_DETAIL_ON_DEMAND_V12/);
+  assert.match(ui, /บริษัทซัพ/);
+  assert.match(ui, /DETAIL_CACHE_MS_V12/);
   assert.match(ui, /PROOF_ALERT_HEADER_REMOVED_V11/);
   assert.match(ui, /proofLaneScope/);
   assert.match(ui, /FD • Feeder \/ รถเสริม \/ อื่น ๆ/);
@@ -96,4 +101,35 @@ test('explicit plate search recovers a registration from broad fleet results', a
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('4WJ plate search follows the HAR-confirmed MS bucket and numeric query variant', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async input => {
+    const url = input instanceof URL ? input : new URL(typeof input === 'string' ? input : input.url);
+    if (url.pathname.endsWith('/proof/popup')) {
+      return Response.json({ code: 1, data: { fleet_id: '32', line_mode: 1, line_type: 1, audit_type: null, plate_type: 101, plate_type_text: '4WJ' } });
+    }
+    if (url.pathname.includes('/car/car/info')) {
+      calls.push({ plateNumber: url.searchParams.get('plateNumber'), plateType: url.searchParams.get('plateType') });
+      if (url.searchParams.get('plateType') === '100' && url.searchParams.get('plateNumber') === '3393') {
+        return Response.json({ code: 1, data: [{ id: 262730, plate_number: 'บล-3393', fleet_company_car_type_vo: { car_type: 100, car_type_text: '4W', province_name: 'บุรีรัมย์', fleet_volist: [{ fleet_id: 32, fleet_name: '2KL (2K LOGISTICS)' }] } }] });
+      }
+      return Response.json({ code: 1, data: [] });
+    }
+    if (url.pathname.includes('/fleet/van/')) return Response.json({ code: 1, data: [] });
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const env = { DB: { prepare: () => ({ bind: () => ({ first: async () => null }) }) }, MS_BRANCH: 'NE1', MS_SESSION_ID: 'session', MS_DEVICE_ID: 'device' };
+  const baseWorker = { fetch: async () => Response.json({ ok: true, data: {} }) };
+  try {
+    const request = new Request('https://dev.example/api/proof/plate-options?token=t&branch=NE1&lineId=L1&departureDate=2026-09-06&q=%E0%B8%9A%E0%B8%A53393');
+    const response = await maybeHandleProofPlateSearchV5(request, env, {}, baseWorker);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.data.items[0].plateNumber, 'บล-3393(บุรีรัมย์)');
+    assert.ok(calls.some(x => x.plateNumber === '3393' && x.plateType === '100'));
+  } finally { globalThis.fetch = originalFetch; }
 });

@@ -44,11 +44,14 @@ function msPlateTypeFilter(detail) {
   const lineMode = Number(detail.line_mode);
   const auditType = detail.audit_type == null ? null : Number(detail.audit_type);
   const sameModelRule = lineMode === 1 || (lineMode === 2 && [1, 3].includes(auditType));
-  return sameModelRule && detail.plate_type != null ? String(detail.plate_type) : '';
+  if (!sameModelRule || detail.plate_type == null) return '';
+  // PROOF_PLATE_HAR_V12: MS storeLine HAR confirms 4WJ popup type 101 searches car/info with plateType=100.
+  if (String(detail.plate_type_text || '').trim().toUpperCase() === '4WJ' && Number(detail.plate_type) === 101) return '100';
+  return String(detail.plate_type);
 }
 
 function normalizePlateSearch(v) { return text(v, 120).normalize('NFKC').toLowerCase().replace(/[\s\-–—_/.()[\]{}]+/g, ''); }
-function plateSearchVariants(q) { const raw=text(q,80), noProvince=raw.replace(/\([^)]*\)/g,'').trim(), compact=raw.replace(/[\s\-–—_/.()[\]{}]+/g,''); return [...new Set([raw,noProvince,compact].filter(x=>x.length>=2))]; }
+function plateSearchVariants(q) { const raw=text(q,80), noProvince=raw.replace(/\([^)]*\)/g,'').trim(), compact=raw.replace(/[\s\-–—_/.()[\]{}]+/g,''), digits=raw.replace(/\D/g,''); return [...new Set([raw,noProvince,compact,digits].filter(x=>x.length>=2))]; }
 function plateTypeValue(x) { const vo=x?.fleet_company_car_type_vo||{}; return String(vo.car_type??x?.type??''); }
 function plateItems(data) { if(Array.isArray(data))return data; if(!data||typeof data!=='object')return []; for(const key of ['items','list','records','rows','content','data']){if(Array.isArray(data[key]))return data[key]; if(data[key]&&typeof data[key]==='object'){const nested=plateItems(data[key]);if(nested.length)return nested;}} return []; }
 function rankPlateItems(items,q,requiredType) { const nq=normalizePlateSearch(q),seen=new Set(),out=[]; for(const item of items){ const itemType=plateTypeValue(item); if(requiredType&&itemType&&itemType!==String(requiredType))continue; const key=String(item?.id??'')||normalizePlateSearch(item?.plate_number||item?.label); if(!key||seen.has(key))continue; seen.add(key); out.push(item); } const score=x=>{const n=normalizePlateSearch(x?.plate_number||x?.label);return n===nq?4:n.startsWith(nq)?3:n.includes(nq)?2:1;}; return out.sort((a,b)=>score(b)-score(a)).slice(0,50); }

@@ -1,3 +1,4 @@
+// PROOF_PRINT_HAR_V9_DEPLOY_CHECKPOINT
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';

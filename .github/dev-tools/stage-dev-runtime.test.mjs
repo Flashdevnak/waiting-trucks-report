@@ -184,6 +184,8 @@ test("DEV header polish keeps refresh beside online, readable menus, password an
   assert.match(styled, /DEV_HEADER_POLISH_V3/);
   assert.match(styled, /dev-shell-refresh\{order:2/);
   assert.match(styled, /dev-shell-status\{order:1/);
-  assert.match(styled, /a>b\{font-size:15px/);
+  assert.match(styled, /app-nav-menu a>b\{font-size:16px/);
+  assert.match(styled, /DEV_HEADER_INTERACTION_V4/);
+  assert.match(styled, /summary::after\{content:"⌄"/);
   assert.match(styled, /badge-online/);
 });

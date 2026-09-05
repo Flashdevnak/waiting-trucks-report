@@ -1317,10 +1317,27 @@ function localBarcodeEligible(row) {
   return Boolean(String(row?.proofId || "").trim()) && (isDestination(row) || isDrop(row));
 }
 
+// LOCAL_BARCODE_OPEN_PERSIST_V2: keep user-opened barcodes open across the 4-second realtime rerender. Browser session only; zero network/database I/O.
+const LOCAL_BARCODE_OPEN_KEY = "ms_local_barcode_open_v2";
+function loadLocalBarcodeOpen() {
+  try {
+    const raw = typeof sessionStorage !== "undefined" ? JSON.parse(sessionStorage.getItem(LOCAL_BARCODE_OPEN_KEY) || "[]") : [];
+    return new Set(Array.isArray(raw) ? raw.map((value) => String(value)) : []);
+  } catch { return new Set(); }
+}
+const localBarcodeOpen = loadLocalBarcodeOpen();
+function persistLocalBarcodeOpen() {
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(LOCAL_BARCODE_OPEN_KEY, JSON.stringify([...localBarcodeOpen]));
+  } catch {}
+}
+
 function localBarcodeButton(row) {
   if (!localBarcodeEligible(row)) return "";
-  const value = encodeURIComponent(String(row.proofId).trim());
-  return `<div class="local-route-barcode"><button type="button" class="local-barcode-toggle" data-local-barcode-toggle data-barcode-value="${esc(value)}" aria-expanded="false">▥ ดูบาร์โค้ด</button><div class="local-barcode-panel hidden" aria-label="บาร์โค้ดรถ"></div></div>`;
+  const proofId = String(row.proofId).trim();
+  const value = encodeURIComponent(proofId);
+  const opened = localBarcodeOpen.has(proofId);
+  return `<div class="local-route-barcode"><button type="button" class="local-barcode-toggle" data-local-barcode-toggle data-barcode-value="${esc(value)}" aria-expanded="${opened ? "true" : "false"}">${opened ? "ซ่อนบาร์โค้ด" : "▥ ดูบาร์โค้ด"}</button><div class="local-barcode-panel${opened ? "" : " hidden"}" ${opened ? "data-ready=\"1\"" : ""} aria-label="บาร์โค้ดรถ">${opened ? code128Svg(proofId) : ""}</div></div>`;
 }
 
 function code128Svg(value) {
@@ -1350,10 +1367,14 @@ function toggleLocalRouteBarcode(button) {
   const panel = wrap?.querySelector(".local-barcode-panel");
   if (!panel) return;
   const opening = panel.classList.contains("hidden");
+  const proofId = decodeURIComponent(button.dataset.barcodeValue || "");
   if (opening && !panel.dataset.ready) {
-    panel.innerHTML = code128Svg(decodeURIComponent(button.dataset.barcodeValue || ""));
+    panel.innerHTML = code128Svg(proofId);
     panel.dataset.ready = "1";
   }
+  if (opening) localBarcodeOpen.add(proofId);
+  else localBarcodeOpen.delete(proofId);
+  persistLocalBarcodeOpen();
   panel.classList.toggle("hidden", !opening);
   button.setAttribute("aria-expanded", opening ? "true" : "false");
   button.textContent = opening ? "ซ่อนบาร์โค้ด" : "▥ ดูบาร์โค้ด";

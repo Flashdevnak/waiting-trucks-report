@@ -57,6 +57,9 @@ jobs:
           if(!source.includes('TBR_SHADOW_OBSERVER_V1')) throw new Error('TBR observer missing');
           if(!source.includes('TBR_ROUTE_503_RETRY_V1')) throw new Error('Route 502/503/504 retry missing');
           if(!source.includes('[502, 503, 504].includes(response.status)')) throw new Error('Route transient status retry gate missing');
+          if(!source.includes('TBR_ROUTE_STALE_FALLBACK_V6')) throw new Error('Route stale fallback V6 missing');
+          for(const marker of ['TBR_ROUTE_CACHE_HEARTBEAT_MS = 5 * 60 * 1000','TBR_ROUTE_CACHE_MAX_AGE_MS = 30 * 60 * 1000','browserKvRouteCacheWritesMaxPerDay: 288','normalTursoPointReadsPerCron: 4']) if(!source.includes(marker)) throw new Error(`Route fallback quota marker missing: ${marker}`);
+          if(!shadow.includes('route_fallback')||!shadow.includes('Route ใช้ snapshot ล่าสุดชั่วคราว')) throw new Error('Shadow degraded fallback UI missing');
           if(!split.includes('TBR_ROUTE_CHUNK_RETRY_V4')) throw new Error('Route daily chunk retry patch missing');
           if(!split.includes('tbrShadowRouteRanges')||!split.includes('readTbrRouteRangeWithRetry')) throw new Error('Route chunk implementation missing');
           if(!shadow.includes('TBR_SAME_CRON_TIMESTAMP_V1')) throw new Error('same-cron timestamp fix missing');
@@ -68,6 +71,7 @@ jobs:
           console.log('BROWSER_CONNECTOR_RECOVERY_POLICY=PASS');
           console.log('BROWSER_TBR_SAME_CRON_GATE=PASS');
           console.log('BROWSER_TBR_ROUTE_503_RETRY=PASS');
+          console.log('BROWSER_TBR_ROUTE_STALE_FALLBACK_V6=PASS');
           console.log('BROWSER_TBR_ROUTE_CHUNK_RETRY_V4=PASS');
           console.log('BROWSER_CRON_ONE_MINUTE=PASS');
           console.log('BROWSER_D1_BINDING_CONFIG=0');
@@ -88,6 +92,27 @@ jobs:
           const report=await readTbrShadowReport({STATE},'NE1');
           if(report.total!==1||report.confirmed!==1) throw new Error('same-cron regression failed');
           console.log('BROWSER_TBR_SAME_CRON_BEHAVIOR=PASS');
+          NODE
+
+      - name: Regression test transient Route 503 fallback
+        run: |
+          node --input-type=module <<'NODE'
+          import { sendConnectorSync } from './src/index.js';
+          class KV { constructor(){this.m=new Map()} async get(k){return this.m.get(k)??null} async put(k,v){this.m.set(k,v)} }
+          const STATE=new KV();
+          let failRoute=false;
+          const make=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{'content-type':'application/json'}});
+          const DEV_API={fetch:async request=>{const body=await request.json();if(body.shadowPart==='routes'){if(failRoute)return make({ok:false},503);return make({ok:true,data:{rows:[{proofId:'FALLBACK-GATE',attendanceType:'ปลายทาง',actualArrivalAt:''}]}});}return make({ok:true,data:{tbrShadowFeed:[{proofId:'FALLBACK-GATE',scheduleTbrArrivalAt:'2026-09-05T23:00:00+07:00'}]}});}};
+          const env={STATE,DEV_API};
+          let response=await sendConnectorSync(env,'NE1','connector-token'); let body=await response.json();
+          if(!response.ok||body.data.routeFallback) throw new Error('route snapshot seed failed');
+          failRoute=true;
+          response=await sendConnectorSync(env,'NE1','connector-token'); body=await response.json();
+          if(!response.ok||body.data.routeFallback!==true||body.data.rows.length!==1||body.data.tbrShadowFeed.length!==1) throw new Error('Route 503 fallback regression failed');
+          if(body.data.shadowQuota.normalTursoPointReadsPerCron!==4||body.data.shadowQuota.tursoWritesPerCron!==0) throw new Error('fallback changed steady-state Turso quota');
+          console.log('BROWSER_TBR_ROUTE_FALLBACK_BEHAVIOR=PASS');
+          console.log('BROWSER_TBR_NORMAL_TURSO_READS=4');
+          console.log('BROWSER_TBR_TURSO_WRITES=0');
           NODE
 
       - name: Deploy Browser Worker
@@ -132,24 +157,30 @@ jobs:
 
       - name: Verify TBR observer after scheduled cron
         run: |
-          sleep 75
           node <<'NODE'
           const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
-          const response=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json'},cache:'no-store'});
-          const shadow=await response.json().catch(()=>({}));
-          console.log(`TBR_OBSERVER_STATUS=${shadow?.observerStatus||'-'}`);
-          console.log(`TBR_SOURCE_AVAILABLE=${String(shadow?.sourceAvailable)}`);
-          console.log(`TBR_FEED_COUNT=${shadow?.feedCount??'-'}`);
-          console.log(`TBR_ROUTE_ROWS=${shadow?.rowCount??'-'}`);
-          console.log(`TBR_LAST_OBSERVED_AT=${shadow?.lastObservedAt||'-'}`);
-          if(!response.ok||shadow?.ok===false) throw new Error(`Shadow health HTTP ${response.status}`);
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          let shadow=null, incident=null;
+          for(let attempt=1;attempt<=4;attempt++){
+            await sleep(attempt===1?75_000:60_000);
+            const response=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json'},cache:'no-store'});
+            shadow=await response.json().catch(()=>({}));
+            const errorResponse=await fetch(origin+'/api/connection-error?hub=NE1',{headers:{accept:'application/json'},cache:'no-store'});
+            const errorBody=await errorResponse.json().catch(()=>({}));
+            incident=errorBody?.data||null;
+            console.log(`TBR_ATTEMPT=${attempt} STATUS=${shadow?.observerStatus||'-'} SOURCE=${String(shadow?.sourceAvailable)} FALLBACK=${String(shadow?.routeFallback)} FEED=${shadow?.feedCount??'-'} ROUTES=${shadow?.rowCount??'-'}`);
+            if(response.ok&&shadow?.ok!==false&&shadow?.observerStatus==='LIVE'&&shadow?.sourceAvailable===true&&shadow?.lastObservedAt) break;
+          }
           if(shadow?.tursoReads!==0||shadow?.tursoWrites!==0) throw new Error('Shadow unexpectedly uses Turso');
-          if(shadow?.observerStatus!=='LIVE'||shadow?.sourceAvailable!==true||!shadow?.lastObservedAt) throw new Error(`TBR observer unhealthy: ${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt})}`);
-          const errorResponse=await fetch(origin+'/api/connection-error?hub=NE1',{headers:{accept:'application/json'},cache:'no-store'});
-          const errorBody=await errorResponse.json().catch(()=>({}));
-          const incident=errorBody?.data||null;
-          if(incident&&!incident.recoveredAt) throw new Error(`unrecovered connection error: ${JSON.stringify(incident)}`);
-          console.log(`TBR_CONNECTION_ERROR_RECOVERED=${incident?Boolean(incident.recoveredAt):true}`);
+          if(shadow?.observerStatus!=='LIVE'||shadow?.sourceAvailable!==true||!shadow?.lastObservedAt) throw new Error(`TBR observer unhealthy after retries: ${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt})}`);
+          if(incident&&!incident.recoveredAt&&!shadow?.routeFallback) throw new Error(`unrecovered connection error without safe fallback: ${JSON.stringify(incident)}`);
+          console.log(`TBR_OBSERVER_STATUS=${shadow.observerStatus}`);
+          console.log(`TBR_SOURCE_AVAILABLE=${String(shadow.sourceAvailable)}`);
+          console.log(`TBR_ROUTE_FALLBACK=${String(Boolean(shadow.routeFallback))}`);
+          console.log(`TBR_FEED_COUNT=${shadow.feedCount??'-'}`);
+          console.log(`TBR_ROUTE_ROWS=${shadow.rowCount??'-'}`);
+          console.log(`TBR_LAST_OBSERVED_AT=${shadow.lastObservedAt||'-'}`);
+          console.log(`TBR_CONNECTION_ERROR_SAFE=${incident?Boolean(incident.recoveredAt||shadow.routeFallback):true}`);
           console.log('TBR_OBSERVER_LIVE=PASS');
           console.log('PRODUCTION_TOUCHED=NO');
           NODE

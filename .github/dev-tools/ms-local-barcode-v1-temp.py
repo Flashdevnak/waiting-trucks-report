@@ -75,6 +75,7 @@ function toggleLocalRouteBarcode(button) {
 }
 
 function installLocalBarcodeStyle() {
+  if (typeof document === "undefined" || typeof document.createElement !== "function" || !document.head) return;
   if (document.getElementById("local-route-barcode-style")) return;
   const style = document.createElement("style");
   style.id = "local-route-barcode-style";

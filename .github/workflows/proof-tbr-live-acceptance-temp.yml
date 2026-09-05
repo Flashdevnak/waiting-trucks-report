@@ -10,62 +10,105 @@ permissions:
   contents: write
 
 jobs:
-  live-check:
+  patch-confirmed-bus-503:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Allow DEV and Browser deploy plus cron recovery
-        run: sleep 150
-      - name: Capture safe live fields only
-        shell: bash
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch only confirmed transient Bus 502/503/504 recovery
         run: |
-          set +e
-          DEV='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev'
-          BROWSER='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev'
-          proof_http=$(curl -sS --max-time 20 -o /tmp/proof.js -w '%{http_code}' "$DEV/proof-v5.js?v=stable-diag")
-          shadow_http=$(curl -sS --max-time 20 -o /tmp/shadow.json -w '%{http_code}' "$BROWSER/api/shadow-tbr?hub=NE1")
-          conn_http=$(curl -sS --max-time 20 -o /tmp/conn.json -w '%{http_code}' "$BROWSER/api/connection-error?hub=NE1")
-          printf 'CHECKED_AT=%s\n' "$(date -u +%FT%TZ)" > .github/dev-tools/proof-tbr-live-diagnostic.txt
-          printf 'READ_ONLY=YES\nPRODUCTION_TOUCHED=NO\n' >> .github/dev-tools/proof-tbr-live-diagnostic.txt
-          printf 'PROOF_HTTP=%s\nSHADOW_HTTP=%s\nCONNECTION_HTTP=%s\n' "$proof_http" "$shadow_http" "$conn_http" >> .github/dev-tools/proof-tbr-live-diagnostic.txt
-          if [ -s /tmp/proof.js ]; then
-            missing=''
-            for m in 'HAR สำหรับปริ้นบาร์โค้ดรถ' 'proof-print-har-save' 'HAR เส้นทาง MS' 'HAR บันทึกแล้วและ Proof Session ใช้งานได้' 'proof-print-har-file-name'; do
-              grep -Fq "$m" /tmp/proof.js || missing="${missing}${m}|"
-            done
-            printf 'PROOF_MISSING_MARKERS=%s\n' "$missing" >> .github/dev-tools/proof-tbr-live-diagnostic.txt
-          fi
-          if jq -e . /tmp/shadow.json >/dev/null 2>&1; then
-            jq -r '[
-              "TBR_OBSERVER="+(.observerStatus // ""|tostring),
-              "TBR_SOURCE_AVAILABLE="+(.sourceAvailable // ""|tostring),
-              "TBR_FEED="+(.feedCount // ""|tostring),
-              "TBR_ROUTE_ROWS="+(.rowCount // ""|tostring),
-              "TBR_LAST_ATTEMPT="+(.lastAttemptAt // ""|tostring),
-              "TBR_LAST_OBSERVED="+(.lastObservedAt // ""|tostring),
-              "TBR_LAST_SKIP="+(.lastSkip // ""|tostring),
-              "TBR_ROUTE_FALLBACK="+(.routeFallback // ""|tostring),
-              "TBR_ROUTE_ERROR_CODE="+(.routeSourceError.code // ""|tostring),
-              "TBR_ROUTE_ERROR_STATUS="+(.routeSourceError.status // ""|tostring),
-              "TBR_MODE="+(.shadowQuota.mode // ""|tostring)
-            ]|.[]' /tmp/shadow.json >> .github/dev-tools/proof-tbr-live-diagnostic.txt
-          else
-            printf 'TBR_JSON=INVALID_OR_EMPTY\n' >> .github/dev-tools/proof-tbr-live-diagnostic.txt
-          fi
-          if jq -e . /tmp/conn.json >/dev/null 2>&1; then
-            jq -r '(.data // .) as $d | [
-              "CONNECTION_CODE="+($d.code // $d.errorCode // ""|tostring),
-              "CONNECTION_SOURCE="+($d.source // ""|tostring),
-              "CONNECTION_RECOVERED_AT="+($d.recoveredAt // ""|tostring)
-            ]|.[]' /tmp/conn.json >> .github/dev-tools/proof-tbr-live-diagnostic.txt
-          else
-            printf 'CONNECTION_JSON=INVALID_OR_EMPTY\n' >> .github/dev-tools/proof-tbr-live-diagnostic.txt
-          fi
-      - name: Commit safe diagnostic only
+          python3 <<'PY'
+          from pathlib import Path
+
+          index = Path('cloudflare-browser-test/src/index.js')
+          source = index.read_text()
+          old_comment = '// TBR_ROUTE_503_RETRY_V1: retry only transient Route transport failures.'
+          new_comment = '// TBR_ROUTE_503_RETRY_V1 / TBR_BUS_503_RETRY_V7: retry transient Route/Bus transport failures once; steady state remains one call per part.'
+          old_gate = 'if (part === "routes" && [502, 503, 504].includes(response.status)) {'
+          new_gate = 'if (["routes", "bus"].includes(part) && [502, 503, 504].includes(response.status)) {'
+          if old_comment not in source or old_gate not in source:
+              raise SystemExit('confirmed Bus retry patch target not found')
+          source = source.replace(old_comment, new_comment, 1).replace(old_gate, new_gate, 1)
+          index.write_text(source)
+
+          test = Path('cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs')
+          test.write_text(r'''import { sendConnectorSync } from "../src/index.js";
+
+class KV {
+  constructor() { this.m = new Map(); }
+  async get(key) { return this.m.get(key) ?? null; }
+  async put(key, value) { this.m.set(key, value); }
+}
+
+const make = (body, status = 200) => new Response(JSON.stringify(body), {
+  status,
+  headers: { "content-type": "application/json" },
+});
+
+let busCalls = 0;
+const DEV_API = {
+  fetch: async (request) => {
+    const body = await request.json();
+    if (body.shadowPart === "routes") {
+      return make({ ok: true, data: { rows: [{ proofId: "BUS-RETRY", attendanceType: "ปลายทาง", actualArrivalAt: "" }] } });
+    }
+    busCalls += 1;
+    if (busCalls === 1) return make({ ok: false, code: "TBR_BUS_HTTP_503", message: "transient" }, 503);
+    return make({ ok: true, data: { tbrShadowFeed: [{ proofId: "BUS-RETRY", scheduleTbrArrivalAt: "2026-09-05T23:00:00+07:00" }] } });
+  },
+};
+
+const response = await sendConnectorSync({ STATE: new KV(), DEV_API }, "NE1", "connector-token");
+const payload = await response.json();
+if (!response.ok) throw new Error("transient Bus 503 still blanked the combined source");
+if (busCalls !== 2) throw new Error(`Bus transient retry count mismatch: ${busCalls}`);
+if (payload?.data?.rows?.length !== 1 || payload?.data?.tbrShadowFeed?.length !== 1) throw new Error("Bus retry did not preserve combined Route/TBR source");
+if (payload?.data?.shadowQuota?.normalTursoPointReadsPerCron !== 4) throw new Error("steady-state Turso quota marker changed");
+if (payload?.data?.shadowQuota?.tursoPointReadsPerCron !== 6) throw new Error("transient retry accounting must report 6 point reads for this failed-once case");
+if (payload?.data?.shadowQuota?.tursoWritesPerCron !== 0) throw new Error("Bus retry must not add Turso writes");
+console.log("TBR_BUS_503_RETRY=PASS");
+console.log("TBR_BUS_RETRY_CALLS=2");
+console.log("TBR_NORMAL_TURSO_POINT_READS=4");
+console.log("TBR_TRANSIENT_POINT_READS=6");
+console.log("TBR_TURSO_WRITES=0");
+''')
+
+          for workflow_name in ['.github/workflows/deploy-browser-worker.yml', '.github/workflows/tbr-test-runtime-regression.yml']:
+              path = Path(workflow_name)
+              text = path.read_text()
+              check_anchor = '          node --check src/tbr-shadow.js\n'
+              if 'deploy-browser-worker.yml' in workflow_name:
+                  check_anchor = '          node --check scripts/patch-dev-tbr-shadow-split-v2.mjs\n'
+              insertion = check_anchor + '          node scripts/tbr-bus-retry.test.mjs\n'
+              if 'node scripts/tbr-bus-retry.test.mjs' not in text:
+                  if check_anchor not in text:
+                      raise SystemExit(f'workflow test anchor not found: {workflow_name}')
+                  text = text.replace(check_anchor, insertion, 1)
+              path.write_text(text)
+          PY
+      - name: Validate patched Browser source before commit
+        working-directory: cloudflare-browser-test
+        run: |
+          npm install --no-audit --no-fund
+          node --check src/index.js
+          node --check scripts/tbr-bus-retry.test.mjs
+          grep -q 'TBR_BUS_503_RETRY_V7' src/index.js
+          grep -Fq '["routes", "bus"].includes(part) && [502, 503, 504].includes(response.status)' src/index.js
+          node scripts/tbr-bus-retry.test.mjs
+          grep -q 'node scripts/tbr-bus-retry.test.mjs' ../.github/workflows/deploy-browser-worker.yml
+          grep -q 'node scripts/tbr-bus-retry.test.mjs' ../.github/workflows/tbr-test-runtime-regression.yml
+          ! grep -q 'd1_databases' wrangler.jsonc
+          echo 'BUS_TRANSIENT_RETRY_PATCH=PASS'
+          echo 'STEADY_STATE_EXTRA_CALLS=0'
+          echo 'BROWSER_D1_BINDING=0'
+          echo 'PRODUCTION_TOUCHED=NO'
+      - name: Commit fix-forward source and permanent regressions
         run: |
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
-          git add .github/dev-tools/proof-tbr-live-diagnostic.txt
-          git commit -m 'Capture stable safe Proof TBR live diagnostic'
+          git add cloudflare-browser-test/src/index.js cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs .github/workflows/deploy-browser-worker.yml .github/workflows/tbr-test-runtime-regression.yml
+          git commit -m 'Retry transient TBR Bus source failures'
           git pull --rebase origin main
           git push origin HEAD:main

@@ -1,0 +1,42 @@
+name: Proof TBR Live Acceptance Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/proof-tbr-live-acceptance-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  live-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for DEV propagation and Browser cron
+        run: sleep 75
+      - name: Verify Proof V9.1 and TBR live read-only
+        run: |
+          node <<'NODE'
+          const dev='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+          const browser='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          async function text(url){const r=await fetch(url,{cache:'no-store',headers:{'cache-control':'no-cache'}});const b=await r.text();if(!r.ok)throw new Error(url+' HTTP '+r.status);return b;}
+          async function json(url){const r=await fetch(url,{cache:'no-store',headers:{accept:'application/json','cache-control':'no-cache'}});const b=await r.json();if(!r.ok)throw new Error(url+' HTTP '+r.status);return b;}
+          const proof=await text(dev+'/proof-v5.js?v=live-v9-1');
+          for(const marker of ['PROOF_PRINT_HAR_UPLOAD_V9','PROOF_PRINT_HAR_POLISH_V9_1','HAR สำหรับปริ้นบาร์โค้ดรถ','proof-print-har-save','HAR เส้นทาง MS']) if(!proof.includes(marker)) throw new Error('Live Proof missing '+marker);
+          const shadow=await json(browser+'/api/shadow-tbr?hub=NE1');
+          const err=await json(browser+'/api/connection-error?hub=NE1');
+          const status=String(shadow.observerStatus||'');
+          if(status!=='LIVE'||shadow.sourceAvailable!==true) throw new Error('TBR not live: '+status+' source='+shadow.sourceAvailable);
+          if(Number(shadow.feedCount||0)<=0||Number(shadow.rowCount||0)<=0) throw new Error('TBR source counts empty');
+          console.log('PROOF_V9_1_LIVE=PASS');
+          console.log('PROOF_PRINT_HAR_BUTTON_LIVE=PASS');
+          console.log('TBR_OBSERVER='+status);
+          console.log('TBR_SOURCE_AVAILABLE='+shadow.sourceAvailable);
+          console.log('TBR_FEED='+shadow.feedCount);
+          console.log('TBR_ROUTE_ROWS='+shadow.rowCount);
+          console.log('TBR_MODE='+(shadow.shadowQuota?.mode||'-'));
+          console.log('TBR_CONNECTION_ERROR_RECOVERED='+String(Boolean(err?.data?.recoveredAt)||!err?.data));
+          console.log('READ_ONLY=PASS');
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE

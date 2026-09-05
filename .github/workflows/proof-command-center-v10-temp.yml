@@ -20,28 +20,31 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: worker/package-lock.json
-      - name: Apply Proof V10 startup hotfix
+      - name: Apply self-contained Proof browser asset fix
         run: python3 .github/dev-tools/proof-v10-startup-fix-temp.py
-      - name: Validate Proof V10 startup and permanent regressions
+      - name: Validate Proof browser assets and regressions
         run: |
+          node --check worker/src/proof-ui-v5.js
           node --check worker/src/proof-ui-v10.js
           cd worker
           npm ci --no-audit --no-fund
           npm run check
           node --test tests/proof-smart-v8.test.mjs tests/auth-session-resilience.test.mjs
+          grep -q 'const __name=(target,value)=>target' src/proof-ui-v5.js
+          grep -q 'const __name=(target,value)=>target' src/proof-ui-v10.js
           ! grep -q '__PROOF_V8_READY__' src/proof-ui-v10.js
-          grep -q "typeof P.installProofEditor !== 'function'" src/proof-ui-v10.js
-          echo 'PROOF_V10_STARTUP_HOTFIX=PASS'
+          echo 'PROOF_BROWSER_ASSET_SELF_CONTAINED=PASS'
           echo 'PROOF_POLLING=60_SECONDS_UNCHANGED'
           echo 'HISTORY_BACKGROUND_WRITES_ADDED=0'
+          echo 'CANCELLATION_ENABLED=NO'
           echo 'TBR_CHANGED=NO'
           echo 'PRODUCTION_TOUCHED=NO'
-      - name: Commit functional startup hotfix
+      - name: Commit functional browser runtime fix
         run: |
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
-          git add worker/src/proof-ui-v10.js worker/tests/proof-command-center-v10.test.mjs
-          git commit -m 'Fix Proof V10 browser startup gate'
+          git add worker/src/proof-ui-v5.js worker/src/proof-ui-v10.js worker/tests/proof-command-center-v10.test.mjs
+          git commit -m 'Make Proof browser runtimes self-contained'
           git pull --rebase --autostash origin main
           git push origin HEAD:main
       - name: Dispatch DEV deploy

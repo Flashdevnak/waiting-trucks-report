@@ -1,0 +1,55 @@
+name: TBR Runtime Diagnostic Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/tbr-runtime-diagnostic-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read live DEV and Browser status
+        run: |
+          node <<'NODE'
+          const dev='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+          const browser='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          async function read(url, accept='application/json') {
+            const r=await fetch(url,{cache:'no-store',headers:{accept,'cache-control':'no-cache'}});
+            const text=await r.text();
+            let data=null; try{data=JSON.parse(text)}catch{}
+            return {status:r.status,ok:r.ok,data,text:text.slice(0,4000)};
+          }
+          const now=new Date();
+          const [shadow,error,health,config]=await Promise.all([
+            read(browser+'/api/shadow-tbr?hub=NE1'),
+            read(browser+'/api/connection-error?hub=NE1'),
+            read(dev+'/api?action=health'),
+            read(browser+'/api/config'),
+          ]);
+          console.log('NOW_UTC='+now.toISOString());
+          console.log('SHADOW_HTTP='+shadow.status);
+          console.log('SHADOW_JSON='+JSON.stringify(shadow.data));
+          console.log('ERROR_HTTP='+error.status);
+          console.log('ERROR_JSON='+JSON.stringify(error.data));
+          console.log('DEV_HEALTH_HTTP='+health.status);
+          console.log('DEV_HEALTH_JSON='+JSON.stringify(health.data));
+          console.log('BROWSER_CONFIG_HTTP='+config.status);
+          console.log('BROWSER_CONFIG_JSON='+JSON.stringify(config.data));
+          const s=shadow.data||{};
+          const last=Date.parse(s.lastAttemptAt||s.lastObservedAt||'');
+          console.log('OBSERVER='+String(s.observerStatus||''));
+          console.log('SOURCE_AVAILABLE='+String(s.sourceAvailable));
+          console.log('FEED='+String(s.feedCount??''));
+          console.log('ROUTE_ROWS='+String(s.rowCount??''));
+          console.log('HEARTBEAT_AGE_SEC='+String(Number.isFinite(last)?Math.round((Date.now()-last)/1000):-1));
+          const e=error.data?.data||null;
+          console.log('ACTIVE_ERROR_CODE='+(e?.recoveredAt?'RECOVERED':(e?.code||'NONE')));
+          console.log('ACTIVE_ERROR_SOURCE='+(e?.source||'NONE'));
+          console.log('ACTIVE_ERROR_MESSAGE='+(e?.message||'NONE'));
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE

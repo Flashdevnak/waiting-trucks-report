@@ -1,0 +1,75 @@
+name: DEV Proof HAR V8 Browser Live Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-proof-har-v8-browser-live-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  browser-live:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Playwright Chromium
+        run: |
+          mkdir -p /tmp/dev-proof-har-v8
+          cd /tmp/dev-proof-har-v8
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null
+      - name: Verify live Proof connection menu and shared print HAR upload
+        run: |
+          cd /tmp/dev-proof-har-v8
+          node <<'NODE'
+          const { chromium } = require('playwright');
+          (async()=>{
+            const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+            const browser=await chromium.launch({headless:true});
+            try{
+              const ms=await browser.newPage();
+              ms.setDefaultTimeout(12000);
+              let r=await ms.goto(`${base}/ms.html?v8=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:30000});
+              if(!r||!r.ok()) throw new Error(`ms.html HTTP ${r?.status()}`);
+              await ms.waitForTimeout(2500);
+              const msCheck=await ms.evaluate(()=>({
+                input:!!document.getElementById('ms-har-proof'),
+                save:!!document.getElementById('ms-har-proof-save'),
+                saveText:document.getElementById('ms-har-proof-save')?.textContent?.trim()||'',
+                label:[...document.querySelectorAll('[data-dev-proof-har] span')].map(x=>x.textContent.trim()).join(' '),
+                note:document.querySelector('.dev-proof-har-note')?.textContent?.trim()||'',
+              }));
+              if(!msCheck.input||!msCheck.save||!msCheck.label.includes('HAR ปริ้นบาร์โค้ดรถ')||msCheck.saveText!=='อัปไฟล์ปริ้นบาร์รถ'||!msCheck.note.includes('ไม่เก็บไฟล์ HAR ทั้งไฟล์')) throw new Error(`ms.html shared Proof HAR UI mismatch ${JSON.stringify(msCheck)}`);
+              const msResponsive=await Promise.race([ms.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>queueMicrotask(()=>resolve(true))))),new Promise((_,rej)=>setTimeout(()=>rej(new Error('ms.html freeze timeout')),2500))]);
+              if(!msResponsive) throw new Error('ms.html not responsive');
+              console.log('DEV_LIVE_MS_PROOF_HAR_UPLOAD=PASS');
+              await ms.close();
+
+              const proof=await browser.newPage();
+              proof.setDefaultTimeout(12000);
+              r=await proof.goto(`${base}/proof.html?v8=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:30000});
+              if(!r||!r.ok()) throw new Error(`proof.html HTTP ${r?.status()}`);
+              await proof.waitForTimeout(2500);
+              const proofCheck=await proof.evaluate(()=>{
+                const item=document.getElementById('proof-session-btn');
+                return {exists:!!item,hidden:item?.classList.contains('hidden')||false,href:item?.getAttribute('href')||'',text:item?.textContent?.trim()||''};
+              });
+              if(!proofCheck.exists||proofCheck.hidden||!proofCheck.href.includes('ms.html#connection')||!proofCheck.text.includes('การเชื่อมต่อ MS')) throw new Error(`proof tools connection mismatch ${JSON.stringify(proofCheck)}`);
+              const tools=proof.locator('.dev-unified-header .dev-page-tools details.app-nav > summary');
+              await tools.click({force:true});
+              await proof.waitForTimeout(100);
+              if(!await proof.locator('#proof-session-btn').isVisible()) throw new Error('Proof connection item not visible after opening tools');
+              const proofResponsive=await Promise.race([proof.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>queueMicrotask(()=>resolve(true))))),new Promise((_,rej)=>setTimeout(()=>rej(new Error('proof.html freeze timeout')),2500))]);
+              if(!proofResponsive) throw new Error('proof.html not responsive');
+              console.log('DEV_LIVE_PROOF_CONNECTION_MENU=PASS');
+              console.log('DEV_BROWSER_NO_FREEZE=PASS');
+              console.log('READ_ONLY=YES');
+              console.log('SESSION_WRITE_TESTED=NO');
+              console.log('MS_MUTATION_TESTED=NO');
+              console.log('PRODUCTION_TOUCHED=NO');
+              await proof.close();
+            } finally { await browser.close(); }
+          })().catch(e=>{console.error(e);process.exit(1);});
+          NODE

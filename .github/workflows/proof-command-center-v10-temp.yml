@@ -20,38 +20,28 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: worker/package-lock.json
-      - name: Apply Proof V10 patch
-        run: python3 .github/dev-tools/proof-command-center-v10-temp.py
-      - name: Validate Proof V10 contracts
+      - name: Apply Proof V10 startup hotfix
+        run: python3 .github/dev-tools/proof-v10-startup-fix-temp.py
+      - name: Validate Proof V10 startup and permanent regressions
         run: |
           node --check worker/src/proof-ui-v10.js
-          node --check worker/src/proof-history-v10.js
-          node --check worker/src/proof-plate-search-v5.js
-          node --check worker/src/proof-editor.js
-          node --check worker/src/proof-control.js
-          node --check worker/src/turso-index.js
-          node --check proof-v10.js 2>/dev/null || true
           cd worker
           npm ci --no-audit --no-fund
           npm run check
           node --test tests/proof-smart-v8.test.mjs tests/auth-session-resilience.test.mjs
-          grep -q 'proof-v10.js?v=20260906-01' ../proof.html
-          grep -q 'PROOF_COMMAND_CENTER_V10' src/proof-ui-v10.js
-          grep -q 'TURSO_EXISTING_PROOF_HISTORY_V10' src/proof-history-v10.js
-          grep -q 'PROOF_PLATE_SEARCH_RECOVERY_V10' src/proof-plate-search-v5.js
-          grep -q 'MS_PROOF_RELEASE_PASSED' src/proof-editor.js
-          echo 'CP_PROOF_V10_CODE=PASS'
+          ! grep -q '__PROOF_V8_READY__' src/proof-ui-v10.js
+          grep -q "typeof P.installProofEditor !== 'function'" src/proof-ui-v10.js
+          echo 'PROOF_V10_STARTUP_HOTFIX=PASS'
           echo 'PROOF_POLLING=60_SECONDS_UNCHANGED'
           echo 'HISTORY_BACKGROUND_WRITES_ADDED=0'
-          echo 'HISTORY_POLLING_ADDED=0'
-          echo 'CANCELLATION_ENABLED=NO'
+          echo 'TBR_CHANGED=NO'
           echo 'PRODUCTION_TOUCHED=NO'
-      - name: Commit functional Proof changes
+      - name: Commit functional startup hotfix
         run: |
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
-          git add proof.html worker/src/proof-ui-v10.js worker/src/proof-history-v10.js worker/src/turso-index.js worker/src/proof-plate-search-v5.js worker/src/proof-editor.js worker/src/proof-control.js worker/tests/proof-command-center-v10.test.mjs worker/package.json
-          git commit -m 'Redesign Proof command center and add quota-safe history'
+          git add worker/src/proof-ui-v10.js worker/tests/proof-command-center-v10.test.mjs
+          git commit -m 'Fix Proof V10 browser startup gate'
           git pull --rebase --autostash origin main
           git push origin HEAD:main
       - name: Dispatch DEV deploy

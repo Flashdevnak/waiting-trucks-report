@@ -1,0 +1,90 @@
+name: Proof V10 Final Browser Live Gate Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/proof-v10-live-gate-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  browser-live:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/proof-v10-gate && cd /tmp/proof-v10-gate
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null
+      - name: Verify live Proof V10
+        run: |
+          cd /tmp/proof-v10-gate
+          node <<'NODE'
+          const { chromium }=require('playwright');
+          (async()=>{
+            const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+            const browser=await chromium.launch({headless:true});
+            try{
+              const page=await browser.newPage();
+              const requests=[]; page.on('request',r=>requests.push(r.url()));
+              const errors=[]; page.on('pageerror',e=>errors.push(String(e)));
+              const r=await page.goto(`${base}/proof.html?v10gate=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:30000});
+              if(!r||!r.ok()) throw new Error(`proof.html HTTP ${r?.status()}`);
+              await page.waitForFunction(()=>window.__PROOF_V10_READY__===true,{timeout:15000});
+              await page.waitForTimeout(1500);
+              const c=await page.evaluate(()=>{
+                const P=window.ProofV2, now=Date.now(), d=new Date(now-5*60000);
+                const z=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).reduce((a,p)=>(a[p.type]=p.value,a),{});
+                const row={proofState:1,proofId:'',departureDate:`${z.year}-${z.month}-${z.day}`,plannedDepartureTime:Number(z.hour)*60+Number(z.minute),lineName:'TEST',lineMode:1,acknowledgements:{}};
+                const enabled={...row,proofId:'NAK1TEST123'};
+                P.renderAlerts([{row,alert:P.alertForRow(row,now)}]);
+                return {
+                  ready:window.__PROOF_V10_READY__===true,
+                  command:!!document.getElementById('proof-command-center-v10'),
+                  history:!!document.getElementById('proof-history-dialog-v10'),
+                  oldMetrics:getComputedStyle(document.getElementById('metric-grid')).display,
+                  missed:P.isMissedVehicle(row,now),
+                  missedText:P.alertForRow(row,now)?.title||'',
+                  enabledMissed:P.isMissedVehicle(enabled,now),
+                  enabledText:P.barcodeStatusText(enabled),
+                  alertCompact:document.getElementById('alert-panel')?.classList.contains('proof-alert-dock-v10'),
+                  alertCollapsed:document.getElementById('alert-list')?.classList.contains('hidden'),
+                  plateSearch:(document.getElementById('search-input')?.placeholder||'').includes('ทะเบียนรถ'),
+                };
+              });
+              if(!c.ready||!c.command||!c.history||c.oldMetrics!=='none') throw new Error(`V10 UI mismatch ${JSON.stringify(c)}`);
+              if(!c.missed||!c.missedText.includes('รถไม่เข้า')) throw new Error(`no-show rule mismatch ${JSON.stringify(c)}`);
+              if(c.enabledMissed||c.enabledText!=='เปิดใช้บาร์รถแล้ว') throw new Error(`barcode rule mismatch ${JSON.stringify(c)}`);
+              if(!c.alertCompact||!c.alertCollapsed||!c.plateSearch) throw new Error(`layout/search mismatch ${JSON.stringify(c)}`);
+              if(requests.some(u=>u.includes('/api/proof/history'))) throw new Error('history background request detected');
+              if(requests.some(u=>u.includes('/api/proof/plate-options'))) throw new Error('plate background request detected');
+              await page.click('#proof-history-open-v10'); await page.waitForTimeout(150);
+              if(!await page.evaluate(()=>document.getElementById('proof-login-dialog')?.open===true)) throw new Error('history unauth login gate missing');
+              if(requests.some(u=>u.includes('/api/proof/history'))) throw new Error('history read fired before auth');
+              const unauth=await page.request.get(`${base}/api/proof/history?branch=NE1&days=30&limit=10`);
+              if(unauth.status()!==401) throw new Error(`history auth expected 401 got ${unauth.status()}`);
+              const responsive=await Promise.race([page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>queueMicrotask(()=>resolve(true))))),new Promise((_,reject)=>setTimeout(()=>reject(new Error('freeze')),2500))]);
+              if(!responsive) throw new Error('not responsive');
+              for(const other of ['ms.html','waiting.html','ms-report.html']){
+                const rr=await page.request.get(`${base}/${other}?scope=${Date.now()}`); if(!rr.ok()) throw new Error(`${other} ${rr.status()}`); if((await rr.text()).includes('/proof-v10.js')) throw new Error(`${other} contains Proof V10`);
+              }
+              if(errors.some(e=>/proof-v10|ProofV2/i.test(e))) throw new Error(`Proof runtime errors: ${errors.join(' | ')}`);
+              console.log('PROOF_V10_READY_LIVE=PASS');
+              console.log('PROOF_V10_COMMAND_CENTER=PASS');
+              console.log('PROOF_V10_MISSED_AFTER_RELEASE=PASS');
+              console.log('PROOF_V10_BARCODE_ENABLED=PASS');
+              console.log('PROOF_V10_ALERT_COMPACT=PASS');
+              console.log('PROOF_V10_HISTORY_ON_DEMAND=PASS');
+              console.log('PROOF_V10_NO_BACKGROUND_PLATE_SEARCH=PASS');
+              console.log('PROOF_V10_SCOPE_PROOF_ONLY=PASS');
+              console.log('PROOF_BROWSER_NO_FREEZE=PASS');
+              console.log('HISTORY_BACKGROUND_WRITES_ADDED=0');
+              console.log('HISTORY_POLLING_ADDED=0');
+              console.log('MS_MUTATION_TESTED=NO');
+              console.log('PRODUCTION_TOUCHED=NO');
+            } finally { await browser.close(); }
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

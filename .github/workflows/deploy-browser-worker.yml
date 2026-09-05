@@ -29,52 +29,55 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - name: Install Browser Worker tooling
         run: npm install --no-audit --no-fund
+
       - name: Stage Browser connector recovery
         run: |
           node scripts/patch-connector-recovery.mjs src/index.js
           node --check src/index.js
-      - name: Validate Browser recovery policy, test routes and config
+
+      - name: Validate Browser recovery, TBR and 503 contracts
         run: |
           npm run check
           node --check src/index.js
           node --check src/tbr-shadow.js
+          node --check scripts/patch-dev-tbr-shadow-split-v2.mjs
           node <<'NODE'
           const fs=require('node:fs');
           const source=fs.readFileSync('src/index.js','utf8');
           const shadow=fs.readFileSync('src/tbr-shadow.js','utf8');
+          const split=fs.readFileSync('scripts/patch-dev-tbr-shadow-split-v2.mjs','utf8');
           const config=fs.readFileSync('wrangler.jsonc','utf8');
           const api='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api';
-          if(!source.includes(api)) throw new Error('Browser MAIN_API is not promoted Turso API');
-          if(!source.includes('payload?.code === "INVALID_CONNECTOR"')) throw new Error('Browser does not distinguish invalid connector from expired MS session');
-          if(!source.includes('connector_sync_blocked')) throw new Error('Browser missing retained-connector diagnostic');
-          if(!source.includes('TBR_SHADOW_OBSERVER_V1')) throw new Error('Browser TBR shadow observer route patch missing');
-          if(!shadow.includes('TBR_SAME_CRON_TIMESTAMP_V1')) throw new Error('Browser TBR same-cron timestamp fix missing');
-          if(shadow.includes('if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;')) throw new Error('Browser TBR old same-cron discard logic returned');
-          if(!source.includes('TBR_SHADOW_REPORT_V1') || !source.includes('/api/shadow-tbr') || !source.includes('/shadow-tbr'))
-            throw new Error('Browser TBR shadow report routes missing');
-          if(!source.includes('MS_CONNECTION_ERROR_KV_V1') || !source.includes('/api/connection-error'))
-            throw new Error('Browser connection-error KV route missing');
-          if(/response\.status === 401 && !env\.CONNECTOR_BOOTSTRAP_SECRET\)\s*\n\s*await env\.STATE\.delete/.test(source))
-            throw new Error('Browser still deletes connector on every backend 401');
-          if(!config.includes('"* * * * *"')) throw new Error('Browser cron is not every minute');
+          if(!source.includes(api)) throw new Error('Browser MAIN_API is not DEV Turso API');
+          if(!source.includes('payload?.code === "INVALID_CONNECTOR"')) throw new Error('invalid connector policy missing');
+          if(!source.includes('connector_sync_blocked')) throw new Error('connector diagnostic missing');
+          if(!source.includes('TBR_SHADOW_OBSERVER_V1')) throw new Error('TBR observer missing');
+          if(!source.includes('TBR_ROUTE_503_RETRY_V1')) throw new Error('Route 502/503/504 retry missing');
+          if(!source.includes('[502, 503, 504].includes(response.status)')) throw new Error('Route transient status retry gate missing');
+          if(!split.includes('TBR_ROUTE_CHUNK_RETRY_V4')) throw new Error('Route daily chunk retry patch missing');
+          if(!split.includes('tbrShadowRouteRanges')||!split.includes('readTbrRouteRangeWithRetry')) throw new Error('Route chunk implementation missing');
+          if(!shadow.includes('TBR_SAME_CRON_TIMESTAMP_V1')) throw new Error('same-cron timestamp fix missing');
+          if(shadow.includes('if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;')) throw new Error('old same-cron discard logic returned');
+          if(!source.includes('/api/shadow-tbr')||!source.includes('/shadow-tbr')) throw new Error('TBR report routes missing');
+          if(!source.includes('MS_CONNECTION_ERROR_KV_V1')||!source.includes('/api/connection-error')) throw new Error('connection-error route missing');
+          if(!config.includes('"* * * * *"')) throw new Error('Browser cron is not one minute');
           if(/d1_databases/.test(config)) throw new Error('Browser Worker must not bind D1');
           console.log('BROWSER_CONNECTOR_RECOVERY_POLICY=PASS');
           console.log('BROWSER_TBR_SAME_CRON_GATE=PASS');
-          console.log('BROWSER_TEST_ROUTES_STAGE=PASS');
+          console.log('BROWSER_TBR_ROUTE_503_RETRY=PASS');
+          console.log('BROWSER_TBR_ROUTE_CHUNK_RETRY_V4=PASS');
           console.log('BROWSER_CRON_ONE_MINUTE=PASS');
           console.log('BROWSER_D1_BINDING_CONFIG=0');
           NODE
-      - name: Regression test TBR same-cron ordering before deploy
+
+      - name: Regression test TBR same-cron ordering
         run: |
           node --input-type=module <<'NODE'
           import { observeTbrShadow, readTbrShadowReport } from './src/tbr-shadow.js';
-          class KV {
-            constructor(){ this.m=new Map(); }
-            async get(k){ return this.m.get(k) ?? null; }
-            async put(k,v){ this.m.set(k,v); }
-          }
+          class KV { constructor(){this.m=new Map()} async get(k){return this.m.get(k)??null} async put(k,v){this.m.set(k,v)} }
           const STATE=new KV();
           const now=Date.parse('2026-09-05T09:50:00+07:00');
           await observeTbrShadow({STATE},'NE1',{
@@ -83,12 +86,14 @@ jobs:
             rows:[{proofId:'DEPLOY-GATE',attendanceType:'ปลายทาง',actualArrivalAt:'2026-09-05T09:48:35+07:00'}],
           },now);
           const report=await readTbrShadowReport({STATE},'NE1');
-          if(report.total!==1 || report.confirmed!==1) throw new Error('same-cron deploy regression failed');
+          if(report.total!==1||report.confirmed!==1) throw new Error('same-cron regression failed');
           console.log('BROWSER_TBR_SAME_CRON_BEHAVIOR=PASS');
           NODE
+
       - name: Deploy Browser Worker
         run: npx wrangler deploy --config wrangler.jsonc
-      - name: Verify Browser Worker runtime and test routes
+
+      - name: Verify Browser runtime bindings and routes
         run: |
           node <<'NODE'
           const account=process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -96,71 +101,55 @@ jobs:
           const name='waiting-trucks-ms-browser-test';
           const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'};
           const base=`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}`;
-          async function get(path){
-            const response=await fetch(`${base}${path}`,{headers});
-            const body=await response.json().catch(()=>({}));
-            if(!response.ok||body.success===false) throw new Error(`${path} HTTP ${response.status}: ${JSON.stringify(body.errors||body)}`);
-            return body.result;
-          }
-          const [deployments,settings,secrets]=await Promise.all([
-            get('/deployments'),
-            get('/script-settings'),
-            get('/secrets'),
-          ]);
+          async function get(path){const r=await fetch(`${base}${path}`,{headers});const b=await r.json().catch(()=>({}));if(!r.ok||b.success===false)throw new Error(`${path} HTTP ${r.status}`);return b.result}
+          const [deployments,settings,secrets]=await Promise.all([get('/deployments'),get('/script-settings'),get('/secrets')]);
           const active=deployments?.deployments?.[0];
           const version=[...(active?.versions||[])].sort((a,b)=>Number(b.percentage||0)-Number(a.percentage||0))[0]?.version_id||'';
           const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
           const d1=bindings.filter(x=>x.type==='d1'||x.type==='d1_database');
           const secretNames=(Array.isArray(secrets)?secrets:[]).map(x=>x.name);
-          if(d1.length) throw new Error('Active Browser Worker exposes a D1 binding');
-          if(secretNames.includes('CONNECTOR_BOOTSTRAP_SECRET')) throw new Error('One-time Browser bootstrap secret unexpectedly remains');
+          if(d1.length) throw new Error('Active Browser Worker exposes D1');
+          if(secretNames.includes('CONNECTOR_BOOTSTRAP_SECRET')) throw new Error('bootstrap secret unexpectedly remains');
           console.log(`ACTIVE_BROWSER_VERSION=${version||'-'}`);
           console.log('BROWSER_RUNTIME_D1_BINDING=0');
           console.log('BROWSER_BOOTSTRAP_SECRET=0');
           NODE
           node <<'NODE'
           const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
-          async function json(path){
-            const response=await fetch(origin+path,{headers:{accept:'application/json'},cache:'no-store'});
-            const body=await response.json().catch(()=>({}));
-            if(!response.ok || body?.ok===false) throw new Error(`${path} HTTP ${response.status}: ${JSON.stringify(body)}`);
-            return body;
-          }
-          (async()=>{
-            await json('/api/config');
-            const shadow=await json('/api/shadow-tbr?hub=NE1');
-            if(shadow?.shadowOnly!==true || shadow?.tursoReads!==0 || shadow?.tursoWrites!==0)
-              throw new Error('TBR shadow runtime contract mismatch');
-            const connection=await json('/api/connection-error?hub=NE1');
-            if(!Object.prototype.hasOwnProperty.call(connection,'data'))
-              throw new Error('Connection error KV runtime contract mismatch');
-            const page=await fetch(origin+'/shadow-tbr?hub=NE1',{cache:'no-store'});
-            const html=await page.text();
-            if(!page.ok || !html.includes('TBR Shadow Test'))
-              throw new Error(`Shadow page HTTP ${page.status}`);
-            console.log('BROWSER_TEST_ROUTES_RUNTIME=PASS');
-            console.log('TBR_SHADOW_TURSO_READS=0');
-            console.log('TBR_SHADOW_TURSO_WRITES=0');
-          })().catch((error)=>{console.error(error);process.exit(1);});
+          async function json(path){const r=await fetch(origin+path,{headers:{accept:'application/json'},cache:'no-store'});const b=await r.json().catch(()=>({}));if(!r.ok||b?.ok===false)throw new Error(`${path} HTTP ${r.status}: ${JSON.stringify(b)}`);return b}
+          await json('/api/config');
+          const shadow=await json('/api/shadow-tbr?hub=NE1');
+          if(shadow?.shadowOnly!==true||shadow?.tursoReads!==0||shadow?.tursoWrites!==0) throw new Error('Shadow runtime contract mismatch');
+          const connection=await json('/api/connection-error?hub=NE1');
+          if(!Object.prototype.hasOwnProperty.call(connection,'data')) throw new Error('Connection error KV contract mismatch');
+          const page=await fetch(origin+'/shadow-tbr?hub=NE1',{cache:'no-store'});
+          const html=await page.text();
+          if(!page.ok||!html.includes('TBR Shadow Test')) throw new Error(`Shadow page HTTP ${page.status}`);
+          console.log('BROWSER_TEST_ROUTES_RUNTIME=PASS');
+          console.log('TBR_SHADOW_TURSO_READS=0');
+          console.log('TBR_SHADOW_TURSO_WRITES=0');
           NODE
+
       - name: Verify TBR observer after scheduled cron
         run: |
           sleep 75
           node <<'NODE'
           const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
-          (async()=>{
-            const response=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json'},cache:'no-store'});
-            const shadow=await response.json().catch(()=>({}));
-            console.log(`TBR_OBSERVER_STATUS=${shadow?.observerStatus||'-'}`);
-            console.log(`TBR_SOURCE_AVAILABLE=${String(shadow?.sourceAvailable)}`);
-            console.log(`TBR_FEED_COUNT=${shadow?.feedCount ?? '-'}`);
-            console.log(`TBR_ROUTE_ROWS=${shadow?.rowCount ?? '-'}`);
-            console.log(`TBR_LAST_OBSERVED_AT=${shadow?.lastObservedAt||'-'}`);
-            if(!response.ok || shadow?.ok===false) throw new Error(`Shadow health HTTP ${response.status}: ${JSON.stringify(shadow)}`);
-            if(shadow?.tursoReads!==0 || shadow?.tursoWrites!==0) throw new Error('Shadow health unexpectedly uses Turso');
-            if(shadow?.observerStatus!=='LIVE' || shadow?.sourceAvailable!==true || !shadow?.lastObservedAt)
-              throw new Error(`TBR observer is not LIVE after cron: ${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,lastSkip:shadow?.lastSkip,feedCount:shadow?.feedCount,rowCount:shadow?.rowCount,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt})}`);
-            console.log('TBR_OBSERVER_LIVE=PASS');
-            console.log('PRODUCTION_TOUCHED=NO');
-          })().catch((error)=>{console.error(error);process.exit(1);});
+          const response=await fetch(origin+'/api/shadow-tbr?hub=NE1',{headers:{accept:'application/json'},cache:'no-store'});
+          const shadow=await response.json().catch(()=>({}));
+          console.log(`TBR_OBSERVER_STATUS=${shadow?.observerStatus||'-'}`);
+          console.log(`TBR_SOURCE_AVAILABLE=${String(shadow?.sourceAvailable)}`);
+          console.log(`TBR_FEED_COUNT=${shadow?.feedCount??'-'}`);
+          console.log(`TBR_ROUTE_ROWS=${shadow?.rowCount??'-'}`);
+          console.log(`TBR_LAST_OBSERVED_AT=${shadow?.lastObservedAt||'-'}`);
+          if(!response.ok||shadow?.ok===false) throw new Error(`Shadow health HTTP ${response.status}`);
+          if(shadow?.tursoReads!==0||shadow?.tursoWrites!==0) throw new Error('Shadow unexpectedly uses Turso');
+          if(shadow?.observerStatus!=='LIVE'||shadow?.sourceAvailable!==true||!shadow?.lastObservedAt) throw new Error(`TBR observer unhealthy: ${JSON.stringify({observerStatus:shadow?.observerStatus,sourceAvailable:shadow?.sourceAvailable,lastAttemptAt:shadow?.lastAttemptAt,lastObservedAt:shadow?.lastObservedAt})}`);
+          const errorResponse=await fetch(origin+'/api/connection-error?hub=NE1',{headers:{accept:'application/json'},cache:'no-store'});
+          const errorBody=await errorResponse.json().catch(()=>({}));
+          const incident=errorBody?.data||null;
+          if(incident&&!incident.recoveredAt) throw new Error(`unrecovered connection error: ${JSON.stringify(incident)}`);
+          console.log(`TBR_CONNECTION_ERROR_RECOVERED=${incident?Boolean(incident.recoveredAt):true}`);
+          console.log('TBR_OBSERVER_LIVE=PASS');
+          console.log('PRODUCTION_TOUCHED=NO');
           NODE

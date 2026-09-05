@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -53,6 +53,81 @@ const devTbrReadonlyPatch = fileURLToPath(
 const devTbrSplitV2Patch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs", import.meta.url),
 );
+const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
+
+const DEV_USER_PAGES = ["ms.html", "proof.html", "waiting.html", "ms-report.html"];
+const LEGACY_REDIRECTS = ["index.html", "scan.html", "warehouse.html"];
+const DEV_NAV = [
+  ["ms.html", "🚚", "ติดตามรถ MS", "คิวรถเข้า–ออกและสถานะปัจจุบัน"],
+  ["proof.html", "🧾", "ปริ้นบาร์โค้ดรถ", "ตรวจข้อมูล แก้ไขตามสิทธิ์ MS และปริ้น PDF"],
+  ["waiting.html", "⏱", "รถรอลงงาน", "จัดการคิวและเวลารอลงงาน"],
+  ["ms-report.html", "▥", "สรุปรายวัน", "เปรียบเทียบรถจบงานตามวันและเวลา"],
+];
+
+function navHtml(currentPage) {
+  return DEV_NAV.map(([href, icon, label, detail]) =>
+    `<a href="${href}"${href === currentPage ? ' class="is-current"' : ""}><span>${icon}</span><b>${label}</b><small>${detail}</small></a>`,
+  ).join("");
+}
+
+export function patchDevUiShellSource(source, currentPage) {
+  let output = String(source || "");
+  const navPattern = /<div class=(['"])app-nav-menu\1>[\s\S]*?<\/div><\/details>/;
+  if (!navPattern.test(output)) {
+    throw new Error(`DEV UI shell missing app-nav-menu in ${currentPage}`);
+  }
+  output = output.replace(
+    navPattern,
+    `<div class="app-nav-menu">${navHtml(currentPage)}</div></details>`,
+  );
+  if (currentPage === "proof.html") {
+    output = output
+      .replace(/<title>จัดการเส้นทางเดินรถ MS<\/title>/, "<title>ปริ้นบาร์โค้ดรถ MS</title>")
+      .replace(/(<div class=['"]brand-copy['"]><strong>)จัดการเส้นทางเดินรถ MS(<\/strong>)/, "$1ปริ้นบาร์โค้ดรถ MS$2");
+  }
+  return output;
+}
+
+function verifyDevUiShellSource(source, currentPage) {
+  const text = String(source || "");
+  const menu = text.match(/<div class=(['"])app-nav-menu\1>([\s\S]*?)<\/div><\/details>/)?.[2] || "";
+  if (!menu) throw new Error(`DEV UI menu not found in ${currentPage}`);
+  for (const [href] of DEV_NAV) {
+    const count = (menu.match(new RegExp(`href=["']${href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`, "g")) || []).length;
+    if (count !== 1) throw new Error(`DEV UI ${currentPage} must contain ${href} exactly once; got ${count}`);
+  }
+  const currentCount = (menu.match(/class=["']is-current["']/g) || []).length;
+  if (currentCount !== 1) throw new Error(`DEV UI ${currentPage} must have exactly one current menu item`);
+  const currentPattern = new RegExp(`href=["']${currentPage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'] class=["']is-current["']`);
+  if (!currentPattern.test(menu)) throw new Error(`DEV UI ${currentPage} current menu item is wrong`);
+  if (/warehouse\.html|scan\.html|parity-check\.html|safe-parity\.html/.test(menu)) {
+    throw new Error(`DEV UI ${currentPage} exposes an internal or retired page in the user menu`);
+  }
+  if (currentPage === "proof.html" && !text.includes("<title>ปริ้นบาร์โค้ดรถ MS</title>")) {
+    throw new Error("DEV proof title is inconsistent with the menu label");
+  }
+}
+
+export async function stageDevUiShell(frontendTarget) {
+  const assetDir = dirname(frontendTarget);
+  for (const name of LEGACY_REDIRECTS) {
+    await copyFile(join(repoRoot, name), join(assetDir, name));
+  }
+  for (const page of DEV_USER_PAGES) {
+    const target = join(assetDir, page);
+    const source = await readFile(target, "utf8");
+    const patched = patchDevUiShellSource(source, page);
+    verifyDevUiShellSource(patched, page);
+    await writeFile(target, patched, "utf8");
+  }
+  for (const name of LEGACY_REDIRECTS) {
+    const redirect = await readFile(join(assetDir, name), "utf8");
+    if (!redirect.includes("ms.html")) throw new Error(`DEV legacy redirect ${name} does not point to ms.html`);
+  }
+  console.log("STAGED_DEV_UI_MENU_PAGES=4");
+  console.log("STAGED_DEV_UI_MENU_ITEMS=4");
+  console.log("STAGED_DEV_UI_LEGACY_REDIRECTS=3");
+}
 
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
@@ -132,6 +207,7 @@ if (invokedPath) {
       "Usage: node stage-dev-runtime.mjs <staged-ms.js> <worker-index.js>",
     );
   await stageDevRuntime(frontendTarget, workerTarget);
+  await stageDevUiShell(frontendTarget);
   // TBR Shadow is DEV/Browser-Test-only. Keep these two quota-safe patches in
   // the normal DEV staging path so a later main deploy cannot overwrite the
   // tested Split V2 contract with the older full connectorSync implementation.

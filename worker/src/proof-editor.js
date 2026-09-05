@@ -203,9 +203,12 @@ async function readDriverOptions(credentials,detail,q){
   const url=new URL('https://ms-api.flashexpress.com/gw/fms/ms/driver/list');
   url.searchParams.set('fleetId',String(detail.fleet_id||''));
   url.searchParams.set('carType','');
-  if(q)url.searchParams.set('nameOrMobile',q); else if(detail.fms_driver_id!=null)url.searchParams.set('driverId',String(detail.fms_driver_id));
+  const raw=text(q,80),digits=raw.replace(/\D/g,''),compact=raw.replace(/\s/g,''),query=(digits.length>=4&&digits.length>=compact.length-2)?digits:raw;
+  if(query)url.searchParams.set('nameOrMobile',query); else if(detail.fms_driver_id!=null)url.searchParams.set('driverId',String(detail.fms_driver_id));
   const payload=await readMsJson(await fetch(url,{headers:msHeaders(credentials)}),'MS_DRIVER_LIST_ERROR');
-  return Array.isArray(payload.data)?payload.data:Array.isArray(payload.data?.items)?payload.data.items:[];
+  const items=Array.isArray(payload.data)?payload.data:Array.isArray(payload.data?.items)?payload.data.items:[],seen=new Set(),out=[];
+  for(const item of items){const key=String(item?.driver_id??'')||`${text(item?.driver_name,180)}|${text(item?.mobile,40)}`;if(!key||seen.has(key))continue;seen.add(key);out.push(item);}
+  return out; // PROOF_DRIVER_SEARCH_V8: one request only when user explicitly searches.
 }
 
 async function readPlateOptions(credentials,detail,q,id){

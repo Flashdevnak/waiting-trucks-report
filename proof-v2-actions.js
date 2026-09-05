@@ -2,6 +2,8 @@
   const P=window.ProofV2;
   const baseRender=P.render;
   let searchTimer=null;
+  const editorSearchCache=new Map();
+  const EDITOR_SEARCH_CACHE_MS=5*60_000; // PROOF_EDITOR_SEARCH_CACHE_V8
 
   P.STATE_LABELS={1:'รอเปิดบาร์โค้ด',2:'เปิดบาร์โค้ดแล้ว',7:'ถึงสาขาต้นทางแล้ว',3:'รถออกจากต้นทางแล้ว',4:'จบเที่ยวแล้ว',6:'รอยกเลิก',5:'ยกเลิกแล้ว'};
   P.stateText=row=>P.STATE_LABELS[Number(row?.proofState)]||row?.proofStateText||'ไม่ทราบสถานะ';
@@ -87,25 +89,27 @@
     d.showModal();
   };
 
+  P.editorSearchNorm=v=>String(v??'').normalize('NFKC').toLowerCase().replace(/[\s\-–—_/.()[\]{}:;,'"`~!@#$%^&*+=?<>|\\]+/g,'');
   P.queueEditorSearch=(kind,value)=>{
     clearTimeout(searchTimer);
-    const q=String(value||'').trim();
-    const target=P.el(kind==='plate'?'proof-editor-plate-results':'proof-editor-driver-results');
+    const q=String(value||'').trim(),target=P.el(kind==='plate'?'proof-editor-plate-results':'proof-editor-driver-results');
     if(q.length<2){target.innerHTML=`<div class='proof-option-hint'>พิมพ์อย่างน้อย 2 ตัวเพื่อค้นหา</div>`;return;}
-    target.innerHTML=`<div class='proof-option-hint'>กำลังค้นหาจาก MS…</div>`;
-    searchTimer=setTimeout(()=>P.searchEditorOptions(kind,q),250);
+    target.innerHTML=`<div class='proof-option-hint'>พร้อมค้นหา • กด Enter หรือปุ่ม “ค้นหา” เพื่อค้นจาก MS</div>`;
   };
-
+  P.renderEditorSearchItems=(kind,target,items,q)=>{
+    const nq=P.editorSearchNorm(q),score=item=>{const raw=kind==='plate'?(item.plateNumber||item.label||''):`${item.name||''} ${item.phone||''}`,n=P.editorSearchNorm(raw);return n===nq?4:n.startsWith(nq)?3:n.includes(nq)?2:1;};
+    const sorted=[...items].sort((a,b)=>score(b)-score(a)||String(kind==='plate'?(a.plateNumber||a.label||''):(a.name||'')).localeCompare(String(kind==='plate'?(b.plateNumber||b.label||''):(b.name||'')),'th'));
+    if(!sorted.length){target.innerHTML=`<div class='proof-option-hint'>ไม่พบข้อมูลใน MS • ลองทะเบียนแบบไม่ใส่ขีด/เว้นวรรค หรือเบอร์เป็นตัวเลขล้วน</div>`;return;}
+    target.innerHTML=`<div class='proof-option-hint'>พบ ${P.nf.format(sorted.length)} รายการ • ผลตรงที่สุดอยู่ด้านบน</div>`+sorted.map(item=>kind==='plate'?`<button type='button' class='proof-option' data-editor-plate='${P.escAttr(item.id)}' data-label='${P.escAttr(item.label||item.plateNumber||'')}'><span>🚚</span><div><strong>${P.esc(item.plateNumber||item.label||'—')}</strong><small>${P.esc(item.plateTypeText||'')}</small></div></button>`:`<button type='button' class='proof-option' data-editor-driver='${P.escAttr(item.id)}' data-name='${P.escAttr(item.name||'')}' data-phone='${P.escAttr(item.phone||'')}'><span>👤</span><div><strong>${P.esc(item.name||'—')}</strong><small>${P.esc(item.phone||'ไม่มีเบอร์')}${item.auditStateText?` • ${P.esc(item.auditStateText)}`:''}</small></div></button>`).join('');
+  };
   P.searchEditorOptions=async(kind,q)=>{
     const s=P.editorState;if(!s||!P.state.auth)return;
-    const target=P.el(kind==='plate'?'proof-editor-plate-results':'proof-editor-driver-results');
-    const path=kind==='plate'?'/api/proof/plate-options':'/api/proof/driver-options';
-    try{
-      const d=await P.apiGet(path,{token:P.state.auth.token,branch:P.state.branch,lineId:s.detail.lineId,departureDate:s.detail.departureDate,q});
-      const items=Array.isArray(d.items)?d.items:[];
-      if(!items.length){target.innerHTML=`<div class='proof-option-hint'>ไม่พบข้อมูลใน MS</div>`;return;}
-      target.innerHTML=items.map(item=>kind==='plate'?`<button type='button' class='proof-option' data-editor-plate='${P.escAttr(item.id)}' data-label='${P.escAttr(item.label||item.plateNumber||'')}'><span>🚚</span><div><strong>${P.esc(item.plateNumber||item.label||'—')}</strong><small>${P.esc(item.plateTypeText||'')}</small></div></button>`:`<button type='button' class='proof-option' data-editor-driver='${P.escAttr(item.id)}' data-name='${P.escAttr(item.name||'')}' data-phone='${P.escAttr(item.phone||'')}'><span>👤</span><div><strong>${P.esc(item.name||'—')}</strong><small>${P.esc(item.phone||'ไม่มีเบอร์')}${item.auditStateText?` • ${P.esc(item.auditStateText)}`:''}</small></div></button>`).join('');
-    }catch(e){target.innerHTML=`<div class='proof-option-error'>${P.esc(e.message||'ค้นหาไม่สำเร็จ')}</div>`;}
+    const target=P.el(kind==='plate'?'proof-editor-plate-results':'proof-editor-driver-results'),path=kind==='plate'?'/api/proof/plate-options':'/api/proof/driver-options',clean=String(q||'').trim();
+    if(clean.length<2)return;
+    const cacheKey=[P.state.branch,s.detail.lineId,s.detail.departureDate,kind,P.editorSearchNorm(clean)].join('|'),cached=editorSearchCache.get(cacheKey);
+    if(cached&&Date.now()-cached.at<EDITOR_SEARCH_CACHE_MS){P.renderEditorSearchItems(kind,target,cached.items,clean);return;}
+    target.innerHTML=`<div class='proof-option-hint'>กำลังค้นหาจาก MS…</div>`;
+    try{const d=await P.apiGet(path,{token:P.state.auth.token,branch:P.state.branch,lineId:s.detail.lineId,departureDate:s.detail.departureDate,q:clean}),items=Array.isArray(d.items)?d.items:[];editorSearchCache.set(cacheKey,{at:Date.now(),items});if(editorSearchCache.size>80)editorSearchCache.delete(editorSearchCache.keys().next().value);P.renderEditorSearchItems(kind,target,items,clean);}catch(e){target.innerHTML=`<div class='proof-option-error'>${P.esc(e.message||'ค้นหาไม่สำเร็จ')}</div>`;}
   };
 
   P.choosePlate=button=>{

@@ -47,36 +47,25 @@ function msPlateTypeFilter(detail) {
   return sameModelRule && detail.plate_type != null ? String(detail.plate_type) : '';
 }
 
+function normalizePlateSearch(v) { return text(v, 120).normalize('NFKC').toLowerCase().replace(/[\s\-–—_/.()[\]{}]+/g, ''); }
+function plateSearchVariants(q) { const raw=text(q,80), noProvince=raw.replace(/\([^)]*\)/g,'').trim(), compact=raw.replace(/[\s\-–—_/.()[\]{}]+/g,''); return [...new Set([raw,noProvince,compact].filter(x=>x.length>=2))]; }
+function plateTypeValue(x) { const vo=x?.fleet_company_car_type_vo||{}; return String(vo.car_type??x?.type??''); }
+function plateItems(data) { return Array.isArray(data)?data:Array.isArray(data?.items)?data.items:[]; }
+function rankPlateItems(items,q,requiredType) { const nq=normalizePlateSearch(q),seen=new Set(),out=[]; for(const item of items){ const itemType=plateTypeValue(item); if(requiredType&&itemType&&itemType!==String(requiredType))continue; const key=String(item?.id??'')||normalizePlateSearch(item?.plate_number||item?.label); if(!key||seen.has(key))continue; seen.add(key); out.push(item); } const score=x=>{const n=normalizePlateSearch(x?.plate_number||x?.label);return n===nq?4:n.startsWith(nq)?3:n.includes(nq)?2:1;}; return out.sort((a,b)=>score(b)-score(a)).slice(0,50); }
+async function fetchPlateSearch(credentials, endpoint, params) { const url=new URL(endpoint); for(const [key,value] of Object.entries(params)) url.searchParams.set(key,value); const response=await fetch(url,{headers:msHeaders(credentials)}); const payload=await readMsJson(response,'MS_PLATE_LIST_ERROR'); return plateItems(payload.data); }
 async function readPlateOptions(credentials, detail, q) {
-  const fleetId = String(detail.fleet_id || '');
-  const params = {
-    fleetId,
-    id: '',
-    plateNumber: q,
-    pageSize: '20',
-    pageNum: '1',
-    plateType: msPlateTypeFilter(detail),
-  };
-  const urls = [
-    new URL('https://ms-api.flashexpress.com/gw/fms/ms/car/car/info'),
-    new URL(`https://ms-api.flashexpress.com/gw/nws/staff/ms/fleet/van/${encodeURIComponent(fleetId)}`),
-  ];
-  let lastError = null;
-  for (const endpoint of urls) {
-    for (const [key, value] of Object.entries(params)) endpoint.searchParams.set(key, value);
-    try {
-      const response = await fetch(endpoint, { headers: msHeaders(credentials) });
-      const payload = await readMsJson(response, 'MS_PLATE_LIST_ERROR');
-      const data = payload.data;
-      const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
-      if (items.length) return items;
-    } catch (error) {
-      lastError = error;
-    }
+  const fleetId=String(detail.fleet_id||''), requiredType=msPlateTypeFilter(detail), variants=plateSearchVariants(q);
+  const primary='https://ms-api.flashexpress.com/gw/fms/ms/car/car/info';
+  const fallback=`https://ms-api.flashexpress.com/gw/nws/staff/ms/fleet/van/${encodeURIComponent(fleetId)}`;
+  let lastError=null, anySuccess=false;
+  for(const variant of variants){
+    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
   }
-  if (lastError) throw lastError;
+  try{const items=await fetchPlateSearch(credentials,fallback,{fleetId,id:'',plateNumber:variants[0]||q,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
+  if(!anySuccess&&lastError)throw lastError;
   return [];
 }
+// PROOF_PLATE_SEARCH_V8: extra attempts happen only after an explicit user search; no polling/background call added.
 
 function plateDisplay(x) {
   const base = text(x.plate_number || x.label, 120);

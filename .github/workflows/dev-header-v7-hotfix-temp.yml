@@ -1,0 +1,49 @@
+name: DEV Header V7 Freeze Hotfix Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-header-v7-hotfix-temp.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  patch-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply narrow V7 freeze hotfix
+        run: python3 .github/dev-tools/dev-header-v7-hotfix-temp.py
+      - name: Validate narrow scope and regression
+        run: |
+          node --check .github/dev-tools/stage-dev-runtime.mjs
+          node --check .github/dev-tools/stage-dev-runtime.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          grep -q 'DEV_TOOLS_SAFE_EMPTY_V7' .github/dev-tools/stage-dev-runtime.mjs
+          ! grep -q "new MutationObserver(sync).observe(header" .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'DEV_HEADER_ALIGNMENT_V6' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'DEV_EXCLUSIVE_DROPDOWNS_V4' .github/dev-tools/stage-dev-runtime.mjs
+          grep -q 'DEV_HEADER_LAYOUT_V5' .github/dev-tools/stage-dev-runtime.mjs
+          echo 'DEV_FREEZE_LOOP_REMOVED=PASS'
+          echo 'DEV_HEADER_CENTER_V6=PRESERVED'
+          echo 'DEV_DROPDOWN_EXCLUSIVE_V4=PRESERVED'
+          echo 'DEV_STATUS_REFRESH_V5=PRESERVED'
+          echo 'PRODUCTION_TOUCHED=NO'
+      - name: Commit functional hotfix
+        run: |
+          git config user.name 'Flashdevnak'
+          git config user.email '26nak.testdev@gmail.com'
+          git add .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/stage-dev-runtime.test.mjs
+          git commit -m 'Stop DEV tools dropdown observer loop'
+          git pull --rebase origin main
+          git push origin HEAD:main
+      - name: Dispatch DEV deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --repo "$GITHUB_REPOSITORY" --ref main

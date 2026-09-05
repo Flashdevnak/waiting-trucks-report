@@ -179,13 +179,14 @@ test("DEV deploy uses the idempotent staging entrypoint and daily-history gate",
 });
 
 
-test("DEV header polish keeps refresh beside online, readable menus, password and HAR entry", () => {
+test("DEV header V5 keeps spacious menu icons and groups status with refresh at the far right", () => {
   const styled = stageStyle(styleSource);
   assert.match(styled, /DEV_HEADER_POLISH_V3/);
-  assert.match(styled, /dev-shell-refresh\{order:2/);
-  assert.match(styled, /dev-shell-status\{order:1/);
-  assert.match(styled, /app-nav-menu a>b\{font-size:16px/);
   assert.match(styled, /DEV_HEADER_INTERACTION_V4/);
+  assert.match(styled, /DEV_HEADER_LAYOUT_V5/);
+  assert.match(styled, /grid-template-columns:40px minmax\(0,1fr\);column-gap:14px/);
+  assert.match(styled, /app-nav-menu a>span\{grid-row:1\/3;display:grid;place-items:center;width:40px;height:40px/);
+  assert.match(styled, /dev-utility-group\{order:4;display:flex/);
+  assert.match(styled, /dev-shell-status>\.badge-online::before/);
   assert.match(styled, /summary::after\{content:"⌄"/);
-  assert.match(styled, /badge-online/);
 });

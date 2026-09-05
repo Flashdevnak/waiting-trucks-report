@@ -10,7 +10,7 @@ test('Proof V10 command center is Proof-only and keeps polling unchanged', async
   const html = await read('proof.html');
   const ui = await read('worker/src/proof-ui-v10.js');
   const control = await read('worker/src/proof-control.js');
-  assert.match(html, /\/proof-v10\.js\?v=20260906-02/);
+  assert.match(html, /\/proof-v10\.js\?v=20260906-03/);
   assert.match(ui, /PROOF_COMMAND_CENTER_V10/);
   assert.doesNotMatch(ui, /__PROOF_V8_READY__/);
   assert.match(ui, /typeof P\.installProofEditor !== 'function'/);
@@ -133,3 +133,5 @@ test('4WJ plate search follows the HAR-confirmed MS bucket and numeric query var
     assert.ok(calls.some(x => x.plateNumber === '3393' && x.plateType === '100'));
   } finally { globalThis.fetch = originalFetch; }
 });
+
+// PROOF_GRID_V13 regression marker

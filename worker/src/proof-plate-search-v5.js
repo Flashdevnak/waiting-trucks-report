@@ -67,6 +67,12 @@ async function readPlateOptions(credentials, detail, q) {
   for(const variant of variants.slice(0,2)){
     try{const items=await fetchPlateSearch(credentials,fallback,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
   }
+  // PROOF_PLATE_UNTYPED_FALLBACK_V13: MS can place a registration in another car-type bucket; only run after an explicit typed search missed.
+  for(const variant of variants.slice(0,2)){
+    for(const endpoint of [primary,fallback]){
+      try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:''});anySuccess=true;const ranked=rankPlateItems(items,q,'');if(ranked.length)return ranked;}catch(error){lastError=error;}
+    }
+  }
   // PROOF_PLATE_SEARCH_RECOVERY_V10: only after an explicit user search misses, scan a small fleet page and filter locally.
   for(const endpoint of [primary,fallback]){
     try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,id:'',plateNumber:'',pageSize:'100',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}

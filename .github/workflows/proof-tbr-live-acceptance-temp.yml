@@ -1,4 +1,5 @@
 name: Proof TBR Live Acceptance Temp
+# checkpoint-trigger: bus-daily-v9
 
 on:
   push:

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { maybeHandleProofPlateSearchV5 } from '../src/proof-plate-search-v5.js';
 
 const root = new URL('../../', import.meta.url);
 const read = path => readFile(new URL(path, root), 'utf8');
@@ -43,4 +44,40 @@ test('Proof plate recovery stays explicit and no release-passed create is allowe
   assert.match(editor, /PROOF_RELEASE_GUARD_V10/);
   assert.match(control, /MS_PROOF_RELEASE_PASSED/);
   assert.doesNotMatch(editor, /cancel_car/);
+});
+
+test('explicit plate search recovers a registration from broad fleet results', async () => {
+  const originalFetch = globalThis.fetch;
+  let broadCalls = 0;
+  globalThis.fetch = async input => {
+    const url = new URL(typeof input === 'string' ? input : input.url);
+    if (url.pathname.endsWith('/proof/popup')) {
+      return Response.json({ code: 1, data: { fleet_id: 'F1', line_mode: 1, line_type: 1, audit_type: 1, plate_type: null } });
+    }
+    if (url.pathname.includes('/car/car/info') || url.pathname.includes('/fleet/van/F1')) {
+      const q = url.searchParams.get('plateNumber') || '';
+      if (q) return Response.json({ code: 1, data: { items: [] } });
+      broadCalls += 1;
+      return Response.json({ code: 1, data: { records: [{ id: 7, plate_number: 'ฒม2816', fleet_company_car_type_vo: { province_name: 'นครราชสีมา', car_type: 4, car_type_text: '4WJ' } }] } });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+  const env = {
+    DB: { prepare: () => ({ bind: () => ({ first: async () => null }) }) },
+    MS_BRANCH: 'NE1', MS_SESSION_ID: 'session', MS_DEVICE_ID: 'device',
+  };
+  const baseWorker = { fetch: async () => Response.json({ ok: true, data: {} }) };
+  try {
+    const request = new Request('https://dev.example/api/proof/plate-options?token=t&branch=NE1&lineId=L1&departureDate=2026-09-06&q=%E0%B8%92%E0%B8%A12816');
+    const response = await maybeHandleProofPlateSearchV5(request, env, {}, baseWorker);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.equal(payload.data.locked, false);
+    assert.equal(payload.data.items[0].plateNumber, 'ฒม2816(นครราชสีมา)');
+    assert.equal(payload.data.items[0].plateTypeText, '4WJ');
+    assert.equal(broadCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

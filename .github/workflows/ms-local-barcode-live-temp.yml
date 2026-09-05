@@ -1,0 +1,73 @@
+name: MS Local Barcode Live Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ms-local-barcode-live-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  browser-live:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Chromium
+        run: |
+          mkdir -p /tmp/ms-barcode && cd /tmp/ms-barcode
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install chromium >/dev/null
+      - name: Verify local barcode live
+        run: |
+          cd /tmp/ms-barcode
+          node <<'NODE'
+          const {chromium}=require('playwright');
+          (async()=>{
+            const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+            const browser=await chromium.launch({headless:true});
+            try{
+              const page=await browser.newPage({viewport:{width:1280,height:900}});
+              const requests=[]; const errors=[];
+              page.on('request',r=>requests.push(r.url()));
+              page.on('pageerror',e=>errors.push(String(e)));
+              const res=await page.goto(base+'/ms.html?barcode='+Date.now(),{waitUntil:'domcontentloaded',timeout:30000});
+              if(!res?.ok()) throw new Error('ms.html '+res?.status());
+              await page.waitForFunction(()=>typeof localBarcodeButton==='function'&&typeof code128Svg==='function',{timeout:15000});
+              if(errors.length) throw new Error('page errors '+errors.join('|'));
+              const eligibility=await page.evaluate(()=>{
+                const destination={proofId:'YAS1TCQU63',attendanceType:'ปลายทาง'};
+                const drop={proofId:'DROP1ABC23',attendanceType:'จุดดรอป'};
+                const origin={proofId:'ORI1ABC234',attendanceType:'ต้นทาง'};
+                return {destination:localBarcodeButton(destination),drop:localBarcodeButton(drop),origin:localBarcodeButton(origin)};
+              });
+              if(!eligibility.destination.includes('data-local-barcode-toggle')) throw new Error('destination button missing');
+              if(!eligibility.drop.includes('data-local-barcode-toggle')) throw new Error('drop button missing');
+              if(eligibility.origin!=='') throw new Error('origin must not have barcode button');
+              await page.evaluate(html=>{const host=document.createElement('div');host.id='barcode-live-host';host.innerHTML=html;document.body.appendChild(host);},eligibility.destination);
+              const before=requests.filter(u=>u.includes('/api')||u.includes('ms.flashexpress.com')).length;
+              await page.click('#barcode-live-host [data-local-barcode-toggle]');
+              await page.waitForSelector('#barcode-live-host .local-barcode-panel:not(.hidden) svg');
+              await page.waitForTimeout(250);
+              const after=requests.filter(u=>u.includes('/api')||u.includes('ms.flashexpress.com')).length;
+              if(after!==before) throw new Error(`barcode click added network requests ${before}->${after}`);
+              const barcode=await page.evaluate(()=>({
+                rects:document.querySelectorAll('#barcode-live-host .local-barcode-svg rect').length,
+                text:document.querySelector('#barcode-live-host .local-barcode-svg text')?.textContent,
+                expanded:document.querySelector('#barcode-live-host [data-local-barcode-toggle]')?.getAttribute('aria-expanded')
+              }));
+              if(barcode.rects<20||barcode.text!=='YAS1TCQU63'||barcode.expanded!=='true') throw new Error('invalid rendered Code128 '+JSON.stringify(barcode));
+              await page.click('#barcode-live-host [data-local-barcode-toggle]');
+              const hidden=await page.$eval('#barcode-live-host .local-barcode-panel',el=>el.classList.contains('hidden'));
+              if(!hidden) throw new Error('barcode did not hide');
+              console.log('LOCAL_BARCODE_BROWSER=PASS');
+              console.log('DESTINATION=PASS');
+              console.log('DROP=PASS');
+              console.log('ORIGIN_HIDDEN=PASS');
+              console.log('CODE128_SVG=PASS');
+              console.log('BARCODE_CLICK_NETWORK_REQUESTS=0');
+              console.log('PRODUCTION_TOUCHED=NO');
+            } finally { await browser.close(); }
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

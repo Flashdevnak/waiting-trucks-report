@@ -1,0 +1,74 @@
+name: Publish Proof Session UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-proof-session-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Make proof session controls visible on every frontend
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          proof = Path('proof.html')
+          s = proof.read_text()
+          tag = "<script src='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/proof-v5.js?v=20260905-08' defer></script>"
+          if 'waiting-trucks-report-api-dev.26nak-testdev.workers.dev/proof-v5.js' not in s:
+              marker = "<script src='proof-v2-actions.js?v=20260905-03' defer></script>"
+              if marker not in s:
+                  raise SystemExit('proof actions marker not found')
+              s = s.replace(marker, marker + tag, 1)
+
+          panel = """<section id='proof-session-panel' class='proof-session-panel'><div><small>ตัวเชื่อมต่อสำหรับปริ้นบาร์โค้ด</small><strong id='proof-session-title'>ต้องตรวจ Session ปริ้น</strong><span id='proof-session-detail'>ใช้ Session เดียวกับตัวเชื่อม MS ของ HUB นี้</span></div><button id='proof-session-open' class='btn btn-header' type='button'>ตรวจ/เชื่อมต่อ</button></section>"""
+          if "id='proof-session-panel'" not in s:
+              marker = "<section id='alert-panel' class='proof-alert-panel hidden'"
+              if marker not in s:
+                  raise SystemExit('alert panel marker not found')
+              s = s.replace(marker, panel + "        " + marker, 1)
+
+          css = ".proof-session-panel{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid #ddd;border-left:6px solid #d19f00;padding:11px 13px;margin:0 0 14px}.proof-session-panel small{display:block;color:#777;font-size:10px}.proof-session-panel strong{display:block;margin-top:2px;font-size:14px}.proof-session-panel span{display:block;margin-top:2px;color:#666;font-size:11px}.proof-session-panel.is-ready{border-left-color:#16803c;background:#f7fff9}.proof-session-panel.is-error{border-left-color:#b3261e;background:#fff8f7}"
+          if '.proof-session-panel{' not in s:
+              s = s.replace('     </style>', '       ' + css + '     </style>', 1)
+
+          s = s.replace('ติดตามทุกเส้นทางทั้งรถปกติและรถเสริม ใช้ Standby และเวลาปล่อยจริงของแต่ละเที่ยวจาก MS', 'ดูรถที่ต้องจัดการ ตรวจทะเบียน/คนขับตามสิทธิ์ MS และปริ้นบาร์โค้ดด้วย Session ของ HUB')
+          proof.write_text(s)
+
+          ms = Path('ms.html')
+          m = ms.read_text()
+          if 'id="proof-direct-btn"' not in m:
+              marker = '<span id="connection-badge" class="badge badge-neutral"\n            >กำลังเชื่อมต่อ</span\n          >'
+              button = marker + '\n          <a id="proof-direct-btn" class="btn btn-accent" href="proof.html">ปริ้นบาร์รถ</a>'
+              if marker not in m:
+                  raise SystemExit('ms connection badge marker not found')
+              m = m.replace(marker, button, 1)
+          m = m.replace('<b>จัดการเส้นทาง MS</b><small>สถานะงานและปริ้นท์บาร์โค้ดประจำรถ</small>', '<b>ปริ้นบาร์โค้ดรถ</b><small>ตรวจ Session แก้ข้อมูล และปริ้น PDF จาก MS</small>')
+          ms.write_text(m)
+
+          ui = Path('worker/src/proof-ui-v5.js')
+          u = ui.read_text()
+          u = u.replace("const VERSION = '20260905-07';", "const VERSION = '20260905-08';")
+          needle = "if (main && !document.getElementById('proof-session-panel')) { const p = document.createElement('section'); p.id = 'proof-session-panel'; p.className = 'proof-session-panel'; p.innerHTML = `<div><small>ตัวเชื่อมต่อสำหรับปริ้นบาร์โค้ด</small><strong id=\"proof-session-title\">ต้องตรวจ Session ปริ้น</strong><span id=\"proof-session-detail\">ใช้ Session เดียวกับตัวเชื่อม MS ของ HUB นี้</span></div><button id=\"proof-session-open\" class=\"btn btn-header\" type=\"button\">ตรวจ/เชื่อมต่อ</button>`; main.insertBefore(p, P.el('alert-panel') || main.firstChild); document.getElementById('proof-session-open').onclick = openSession; }"
+          if needle in u:
+              replacement = needle + "\n    const sessionOpenButton = document.getElementById('proof-session-open'); if (sessionOpenButton) sessionOpenButton.onclick = openSession;"
+              u = u.replace(needle, replacement, 1)
+          elif "const sessionOpenButton = document.getElementById('proof-session-open')" not in u:
+              raise SystemExit('proof session runtime marker not found')
+          ui.write_text(u)
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add proof.html ms.html worker/src/proof-ui-v5.js
+          git commit -m "Expose proof print session controls on live pages" || exit 0
+          git push origin HEAD:main

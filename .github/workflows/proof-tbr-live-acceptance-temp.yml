@@ -13,38 +13,28 @@ jobs:
   live-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture Proof and TBR live diagnostics read-only
-        id: diag
-        continue-on-error: true
+      - name: Verify Proof V9.1 and TBR live read-only
         run: |
           node <<'NODE'
-          const fs=require('node:fs');
           const dev='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
           const browser='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
-          const markers=['HAR สำหรับปริ้นบาร์โค้ดรถ','proof-print-har-save','HAR เส้นทาง MS','HAR บันทึกแล้วและ Proof Session ใช้งานได้','proof-print-har-file-name'];
-          const out={checkedAt:new Date().toISOString(),productionTouched:'NO',readOnly:true};
-          async function fetchText(url){try{const r=await fetch(url,{cache:'no-store',headers:{'cache-control':'no-cache'}});return {status:r.status,text:await r.text()};}catch(e){return {status:0,error:String(e?.message||e)}}}
-          async function fetchJson(url){const x=await fetchText(url);let data=null;try{data=JSON.parse(x.text||'null')}catch{}return {...x,data};}
-          const proof=await fetchText(dev+'/proof-v5.js?v=live-diag');
-          out.proof={http:proof.status,missingMarkers:markers.filter(m=>!(proof.text||'').includes(m))};
-          const shadow=await fetchJson(browser+'/api/shadow-tbr?hub=NE1');
-          const s=shadow.data||{};
-          out.shadow={http:shadow.status,observerStatus:String(s.observerStatus||''),sourceAvailable:s.sourceAvailable===true,feedCount:Number(s.feedCount||0),rowCount:Number(s.rowCount||0),heartbeatAt:s.heartbeatAt||s.heartbeat_at||s.lastHeartbeatAt||null,sourceErrorCode:s.sourceErrorCode||s.errorCode||s.code||null,sourceErrorMessage:s.sourceErrorMessage||s.errorMessage||s.message||null,mode:s.shadowQuota?.mode||null};
-          const ce=await fetchJson(browser+'/api/connection-error?hub=NE1');
-          const d=ce.data?.data||ce.data||{};
-          out.connection={http:ce.status,code:d.code||d.errorCode||null,message:d.message||d.errorMessage||null,recoveredAt:d.recoveredAt||null,hasData:Boolean(ce.data?.data)};
-          fs.writeFileSync('live-acceptance-diagnostic.json',JSON.stringify(out,null,2));
-          const ok=out.proof.http===200&&out.proof.missingMarkers.length===0&&out.shadow.http===200&&out.shadow.observerStatus==='LIVE'&&out.shadow.sourceAvailable&&out.shadow.feedCount>0&&out.shadow.rowCount>0;
-          if(!ok)process.exitCode=1;
+          async function text(url){const r=await fetch(url,{cache:'no-store',headers:{'cache-control':'no-cache'}});const b=await r.text();if(!r.ok)throw new Error(url+' HTTP '+r.status);return b;}
+          async function json(url){const r=await fetch(url,{cache:'no-store',headers:{accept:'application/json','cache-control':'no-cache'}});const b=await r.json();if(!r.ok)throw new Error(url+' HTTP '+r.status);return b;}
+          const proof=await text(dev+'/proof-v5.js?v=live-final');
+          for(const marker of ['HAR สำหรับปริ้นบาร์โค้ดรถ','proof-print-har-save','HAR เส้นทาง MS','HAR บันทึกแล้วและ Proof Session ใช้งานได้','proof-print-har-file-name']) if(!proof.includes(marker)) throw new Error('Live Proof missing '+marker);
+          const shadow=await json(browser+'/api/shadow-tbr?hub=NE1');
+          const err=await json(browser+'/api/connection-error?hub=NE1');
+          const status=String(shadow.observerStatus||'');
+          if(status!=='LIVE'||shadow.sourceAvailable!==true) throw new Error('TBR not live: '+status+' source='+shadow.sourceAvailable);
+          if(Number(shadow.feedCount||0)<=0||Number(shadow.rowCount||0)<=0) throw new Error('TBR source counts empty');
+          console.log('PROOF_V9_1_LIVE=PASS');
+          console.log('PROOF_PRINT_HAR_BUTTON_LIVE=PASS');
+          console.log('TBR_OBSERVER='+status);
+          console.log('TBR_SOURCE_AVAILABLE='+shadow.sourceAvailable);
+          console.log('TBR_FEED='+shadow.feedCount);
+          console.log('TBR_ROUTE_ROWS='+shadow.rowCount);
+          console.log('TBR_MODE='+(shadow.shadowQuota?.mode||'-'));
+          console.log('TBR_CONNECTION_ERROR_RECOVERED='+String(Boolean(err?.data?.recoveredAt)||!err?.data));
+          console.log('READ_ONLY=PASS');
+          console.log('PRODUCTION_TOUCHED=NO');
           NODE
-      - name: Upload safe diagnostic artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: proof-tbr-live-diagnostic
-          path: live-acceptance-diagnostic.json
-          if-no-files-found: error
-          retention-days: 1
-      - name: Enforce live acceptance
-        if: steps.diag.outcome != 'success'
-        run: exit 1

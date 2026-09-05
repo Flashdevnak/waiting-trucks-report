@@ -14,8 +14,12 @@ test('Proof Smart V8 search/HAR stays quota-safe',()=>{
   assert.match(editor,/PROOF_DRIVER_SEARCH_V8/);
   assert.match(proofUi,/PROOF_SMART_V8/);
   assert.match(proofUi,/HAR เป็นไฟล์เดียวกัน/);
-  assert.match(proofUi,/ใช้ทั้งเส้นทาง MS \+ ปริ้นบาร์โค้ด/);
   assert.match(proofUi,/entries.*reverse/);
+  assert.match(proofUi,/PROOF_PRINT_HAR_UPLOAD_V9/);
+  assert.match(proofUi,/HAR สำหรับปริ้นบาร์โค้ดรถ/);
+  assert.match(proofUi,/proof-print-har-save/);
+  assert.match(proofUi,/HAR เส้นทาง MS/);
+  assert.match(proofUi,/saveMsConnection/);
   assert.doesNotMatch(plate,/setInterval|scheduled|cron/i);
   assert.doesNotMatch(editor,/cancel_car/);
 });

@@ -20,13 +20,24 @@ test('Proof V10 command center is Proof-only and keeps polling unchanged', async
   assert.match(ui, /เปิดใช้บาร์รถแล้ว/);
   assert.match(ui, /proof-alert-dock-v10/);
   assert.match(ui, /proof-command-center-v10/);
+  assert.match(ui, /PROOF_OPS_CONTROL_V11/);
+  assert.match(ui, /PROOF_ALERT_HEADER_REMOVED_V11/);
+  assert.match(ui, /proofLaneScope/);
+  assert.match(ui, /FD • Feeder \/ รถเสริม \/ อื่น ๆ/);
+  assert.match(ui, /LH • HUB TO HUB/);
+  assert.match(ui, /รถคงเหลือ/);
+  assert.match(ui, /ยังไม่ปริ้นบาร์/);
+  assert.match(ui, /ออกจากต้นทางแล้ว/);
+  assert.match(ui, /รถเสริม/);
+  assert.match(ui, /proof-v11-detail/);
+  assert.doesNotMatch(ui, /setInterval\s*\(/);
   assert.match(ui, /proof-history-dialog-v10/);
   assert.match(ui, /\/api\/proof\/history/);
   assert.doesNotMatch(ui, /setInterval\s*\(/);
   assert.match(control, /const PROOF_REFRESH_MS = 60_000/);
   const v5 = await read('worker/src/proof-ui-v5.js');
-  assert.match(v5, /const __name=\(target,value\)=>target/);
-  assert.match(ui, /const __name=\(target,value\)=>target/);
+  assert.match(v5, /\(\(\)=>\{const __name=\(target,value\)=>target/);
+  assert.match(ui, /\(\(\)=>\{const __name=\(target,value\)=>target/);
 });
 
 test('Proof history is on-demand read-only and reuses existing logs', async () => {

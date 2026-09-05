@@ -3,7 +3,7 @@ const VERSION = '20260905-10';
 export async function maybeHandleProofUiV5(request, env, ctx, baseWorker) {
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname === '/proof-v5.js') {
-    return new Response(`const __name=(target,value)=>target;(${proofV6Runtime.toString()})();`, {
+    return new Response(`(()=>{const __name=(target,value)=>target;(${proofV6Runtime.toString()})();})();`, {
       headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' },
     });
   }

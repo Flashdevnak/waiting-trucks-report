@@ -234,7 +234,7 @@ function proofCommandCenterV10() {
       const enabled = !missed && canPrint && canCreate && Boolean(row.lineId) && Boolean(row.departureDate);
       let title = '';
       if (missed) title = 'เลยเวลาปล่อยแล้ว ระบบจัดเป็นรถไม่เข้าและไม่เปิดบาร์ใหม่จากหน้าเว็บ';
-      else if (!P.state.profile?.canPrint) title = 'Session MS ยังไม่พร้อม หรือบัญชีนี้ไม่มีสิทธิ์ปริ้น';
+      else if (!P.state.profile?.canPrint) title = 'บัญชี MS ยังไม่พร้อม หรือบัญชีนี้ไม่มีสิทธิ์ปริ้น';
       else if (!hasBarcode && code === 1 && !P.state.profile?.canCreateProof) title = 'บัญชี MS นี้ไม่มีสิทธิ์เปิดใช้งานบาร์โค้ด';
       else if (!P.PRINTABLE_STATES.has(code)) title = 'สถานะนี้ไม่รองรับการปริ้นจากหน้าเว็บ';
       const label = missed ? 'รถไม่เข้า • เลยเวลาปล่อย' : hasBarcode ? 'ตรวจข้อมูล + ปริ้น PDF' : 'ตรวจข้อมูล + เปิดบาร์/ปริ้น';
@@ -257,7 +257,7 @@ function proofCommandCenterV10() {
           <div class='proof-v11-actions'><button class='btn btn-header' type='button' data-proof-v11-detail='${P.escAttr(P.rowKey(row))}'>รายละเอียด</button>${P.actionButtons(row)}</div>
         </div>
         <div class='proof-v11-detail hidden' data-proof-v11-detail-panel='${P.escAttr(P.rowKey(row))}'>
-          <div><small>บริษัทซัพ</small><strong>กดรายละเอียดเพื่ออ่านจาก MS</strong><span>อ่านเฉพาะเมื่อเปิด • cache 5 นาที</span></div>
+          <div><small>บริษัทซัพ</small><strong>—</strong><span>ข้อมูลจาก MS</span></div>
           <div><small>ปลายทาง / กลุ่ม</small><strong>${P.esc(destination)}</strong><span>${P.esc(laneScope(row))} • ${extraVehicle(row) ? 'รถเสริม' : 'รถปกติ'}</span></div>
           <div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(row.driver || 'ยังไม่กำหนด')}</strong><span>${P.esc(row.driverPhone || 'ไม่มีเบอร์โทร')}</span></div>
           <div><small>รถ / ทะเบียน</small><strong>${P.esc(plate)}</strong><span>${P.esc(row.plateTypeText || '—')}</span></div>
@@ -320,7 +320,7 @@ function proofCommandCenterV10() {
       if (!P.state.auth) return P.el('proof-login-dialog')?.showModal();
       historyDays = days;
       document.querySelectorAll('[data-proof-history-days]').forEach(b => b.classList.toggle('is-active', Number(b.dataset.proofHistoryDays) === days));
-      const list = document.getElementById('proof-history-list-v10'); if (list) list.innerHTML = `<div class='proof-history-empty'>กำลังอ่านประวัติจาก Turso…</div>`;
+      const list = document.getElementById('proof-history-list-v10'); if (list) list.innerHTML = `<div class='proof-history-empty'>กำลังโหลดประวัติ…</div>`;
       try {
         let data = !force ? historyCache.get(`${P.state.branch}|${days}`) : null;
         if (!data) { data = await P.apiGet('/api/proof/history', { token: P.state.auth.token, branch: P.state.branch, days: String(days), limit: '200' }); historyCache.set(`${P.state.branch}|${days}`, data); }
@@ -352,7 +352,7 @@ function proofCommandCenterV10() {
           <button type='button' data-proof-v10-filter='printed' class='success'><span>ปริ้น/เปิดบาร์แล้ว</span><strong data-proof-v10-count='printed'>0</strong><small>บาร์พร้อมใช้งาน</small></button>
           <button type='button' data-proof-v10-filter='7'><span>ถึงต้นทาง</span><strong data-proof-v10-count='arrived'>0</strong><small>รถมาถึงแล้ว</small></button>
           <button type='button' data-proof-v10-filter='all'><span>ออกแล้ว</span><strong data-proof-v10-count='departed'>0</strong><small>ออกจากต้นทางแล้ว</small></button>
-          <button type='button' data-proof-v10-filter='all' class='extra'><span>รถเสริม</span><strong data-proof-v10-count='extra'>0</strong><small>lineMode รถเสริม</small></button>
+          <button type='button' data-proof-v10-filter='all' class='extra'><span>รถเสริม</span><strong data-proof-v10-count='extra'>0</strong><small>รถเสริม</small></button>
         </div>
         <div class='proof-v11-watch'><div><span>ยังไม่ถึงต้นทาง</span><strong data-proof-v10-count='not-arrived'>0</strong></div><div class='danger'><span>รถไม่เข้า</span><strong data-proof-v10-count='missed'>0</strong></div><div class='proof-v11-progress-wrap'><div class='proof-v11-progress'><i></i><em></em></div><small id='proof-flow-progress-v11'>กำลังสรุปสถานะ</small></div></div>
       </section>`);

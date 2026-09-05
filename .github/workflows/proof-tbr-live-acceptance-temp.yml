@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  diagnose-browser-cron:
+  diagnose-dev-bus:
     runs-on: ubuntu-latest
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -20,23 +20,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Capture only safe Browser cron events
-        working-directory: cloudflare-browser-test
+      - name: Capture only safe DEV Bus snapshot events
+        working-directory: worker
         run: |
-          npm install --no-audit --no-fund >/dev/null 2>&1
-          timeout 90s npx wrangler tail waiting-trucks-ms-browser-test --format=json > /tmp/browser-tail.log 2>&1 || true
+          npm ci --no-audit --no-fund >/dev/null 2>&1
+          timeout 90s npx wrangler tail waiting-trucks-report-api-dev --format=json > /tmp/dev-tail.log 2>&1 || true
           node <<'NODE'
           const fs=require('node:fs');
-          const raw=fs.readFileSync('/tmp/browser-tail.log','utf8').split(/\r?\n/);
+          const raw=fs.readFileSync('/tmp/dev-tail.log','utf8').split(/\r?\n/);
           let count=0;
           for(const line of raw){
-            if(!/(connector_sync_|tbr_shadow_|tbr_route_|Exception|error)/i.test(line)) continue;
+            if(!/(BUS_TIME_|TBR_BUS_|ms_bus_|api_error|Exception|exceeded|limit|subrequest|error)/i.test(line)) continue;
             const safe=line
-              .replace(/(session|token|authorization|cookie|device)[^,}\]]*/ig,'$1:[REDACTED]')
-              .slice(0,1200);
+              .replace(/(session|token|authorization|cookie|device|auth)[^,}\]]*/ig,'$1:[REDACTED]')
+              .slice(0,1400);
             console.log(safe); count++;
           }
-          console.log(`SAFE_EVENT_LINES=${count}`);
+          console.log(`SAFE_DEV_EVENT_LINES=${count}`);
           console.log('READ_ONLY=YES');
           console.log('MS_MUTATION_TESTED=NO');
           console.log('PRODUCTION_TOUCHED=NO');

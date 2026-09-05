@@ -1,5 +1,5 @@
 name: Trigger DEV Header V4 Temp
-# trigger: run-v4
+# trigger: run-v4-runner
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch DEV Header V4 patch
+      - name: Dispatch DEV Header V4 runner
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run dev-header-ui-v4-temp.yml --repo "$GITHUB_REPOSITORY" --ref main
+        run: gh workflow run dev-header-ui-v4-runner-temp.yml --repo "$GITHUB_REPOSITORY" --ref main

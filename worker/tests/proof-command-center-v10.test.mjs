@@ -50,7 +50,7 @@ test('explicit plate search recovers a registration from broad fleet results', a
   const originalFetch = globalThis.fetch;
   let broadCalls = 0;
   globalThis.fetch = async input => {
-    const url = new URL(typeof input === 'string' ? input : input.url);
+    const url = input instanceof URL ? input : new URL(typeof input === 'string' ? input : input.url);
     if (url.pathname.endsWith('/proof/popup')) {
       return Response.json({ code: 1, data: { fleet_id: 'F1', line_mode: 1, line_type: 1, audit_type: 1, plate_type: null } });
     }

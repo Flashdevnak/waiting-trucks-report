@@ -138,6 +138,19 @@ export async function stageDevUiShell(frontendTarget) {
   console.log("STAGED_DEV_UI_LEGACY_REDIRECTS=3");
 }
 
+export function patchDevRootEntryWorker(source) {
+  const text = String(source || "");
+  if (text.includes("DEV_ROOT_ENTRY_V1")) return text;
+  const needle = `const url = new URL(request.url);\n      if (!url.pathname.startsWith("/api")) return env.ASSETS.fetch(request);`;
+  if (!text.includes(needle)) {
+    throw new Error("DEV root entry anchor not found in worker source");
+  }
+  return text.replace(
+    needle,
+    `const url = new URL(request.url);\n      // DEV_ROOT_ENTRY_V1: DEV-only staged entry route; canonical worker source is unchanged.\n      if (url.pathname === "/") return Response.redirect(new URL("/ms.html", request.url), 302);\n      if (!url.pathname.startsWith("/api")) return env.ASSETS.fetch(request);`,
+  );
+}
+
 export function frontendHasIntegratedDevRuntime(source) {
   const text = String(source || "");
   return (
@@ -187,6 +200,7 @@ export function stageWorker(source) {
   output = patchMsDailyHistoryWorker(output);
   output = patchMsQuotaSafeLiveWorker(output);
   output = patchMsTbrShadowFeedWorker(output);
+  output = patchDevRootEntryWorker(output);
   return output;
 }
 
@@ -197,10 +211,14 @@ export async function stageDevRuntime(frontendTarget, workerTarget) {
     readFile(styleTarget, "utf8"),
     readFile(workerTarget, "utf8"),
   ]);
+  const stagedWorker = stageWorker(worker);
+  if (!stagedWorker.includes("DEV_ROOT_ENTRY_V1")) {
+    throw new Error("DEV staged worker lost root entry contract");
+  }
   await Promise.all([
     writeFile(frontendTarget, stageFrontend(frontend), "utf8"),
     writeFile(styleTarget, stageStyle(style), "utf8"),
-    writeFile(workerTarget, stageWorker(worker), "utf8"),
+    writeFile(workerTarget, stagedWorker, "utf8"),
   ]);
 }
 
@@ -228,5 +246,6 @@ if (invokedPath) {
   });
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
+  console.log("STAGED_DEV_ROOT_ENTRY=PASS");
   console.log("Staged DEV TBR Shadow runtime: SHADOW_READONLY_SPLIT_V2");
 }

@@ -17,36 +17,44 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Patch Proof print HAR button only
+      - name: Polish Proof print HAR V9.1 only
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
           p=Path('worker/src/proof-ui-v5.js')
           s=p.read_text()
-          marker='PROOF_PRINT_HAR_UPLOAD_V9'
-          if marker not in s:
-            block=re.compile(r'<div class="proof-har-upload"[^>]*>.*?id="proof-session-save".*?</button></div>',re.S)
-            m=block.search(s)
-            if not m: raise SystemExit('Proof HAR block anchor missing')
-            new='''<div class="proof-har-upload proof-har-route"><div><strong>HAR เส้นทาง MS</strong><small>ใช้ไฟล์ HAR เดียวกับระบบ MS สำหรับตรวจ/ดูข้อมูลเส้นทาง</small></div><label class="btn btn-header proof-har-pick">เลือก HAR เส้นทาง<input id="proof-session-har" type="file" accept=".har,application/json" hidden></label><span id="proof-session-file-name">ยังไม่ได้เลือกไฟล์</span><button id="proof-session-save" class="btn btn-header btn-full" type="button" disabled>ตรวจและบันทึก HAR เส้นทาง</button></div><div class="proof-har-upload proof-har-print" data-proof-print-har="PROOF_PRINT_HAR_UPLOAD_V9"><div><strong>HAR สำหรับปริ้นบาร์โค้ดรถ</strong><small>เลือกไฟล์ HAR เดียวกันจากปุ่มนี้ เพื่อเช็กให้ชัดว่างานปริ้นพร้อมใช้งาน</small></div><label class="btn btn-accent proof-har-pick">เลือก HAR สำหรับปริ้น<input id="proof-print-har" type="file" accept=".har,application/json" hidden></label><span id="proof-print-har-file-name">ยังไม่ได้เลือกไฟล์</span><button id="proof-print-har-save" class="btn btn-accent btn-full" type="button" disabled>ตรวจและบันทึกสำหรับปริ้น</button></div>'''
-            s=s[:m.start()]+new+s[m.end():]
-            anchor="harInput.onchange=()=>{const f=harInput.files?.[0];harName.textContent=f?f.name:'ยังไม่ได้เลือกไฟล์';harSave.disabled=!f;};"
-            if anchor not in s: raise SystemExit('Proof HAR listener anchor missing')
-            extra="""harInput.onchange=()=>{const f=harInput.files?.[0];harName.textContent=f?f.name:'ยังไม่ได้เลือกไฟล์';harSave.disabled=!f;}; const printHarInput=document.getElementById('proof-print-har'),printHarSave=document.getElementById('proof-print-har-save'),printHarName=document.getElementById('proof-print-har-file-name'); printHarInput.onchange=()=>{const f=printHarInput.files?.[0];printHarName.textContent=f?f.name:'ยังไม่ได้เลือกไฟล์';printHarSave.disabled=!f;}; printHarSave.onclick=async()=>{const status=document.getElementById('proof-session-status'),file=printHarInput.files?.[0];try{printHarSave.disabled=true;status.textContent='กำลังตรวจ HAR สำหรับปริ้นบาร์โค้ด…';const c=await extractHar(file);await controlPost('saveMsConnection',{hub:P.state.branch,sessionId:c.sessionId,deviceId:c.deviceId});if(!await testSession(false))throw new Error('บันทึก HAR แล้ว แต่ Proof Session ยังใช้งานไม่ได้');await P.loadRoutes(false);status.textContent=`พร้อมปริ้น • ตรวจพบ request MS ${c.msRequestCount||0} รายการ`;printHarInput.value='';printHarName.textContent='บันทึกแล้ว • Proof พร้อมตรวจข้อมูลก่อนปริ้น';printHarSave.disabled=true;}catch(e){status.textContent=e.message||'ตรวจ HAR สำหรับปริ้นไม่สำเร็จ';printHarSave.disabled=!file;}};"""
-            s=s.replace(anchor,extra,1)
+          if 'PROOF_PRINT_HAR_UPLOAD_V9' not in s:
+            raise SystemExit('Proof V9 base marker missing')
+          if 'PROOF_PRINT_HAR_POLISH_V9_1' not in s:
+            old="status.textContent=`พร้อมปริ้น • ตรวจพบ request MS ${c.msRequestCount||0} รายการ`;"
+            new="status.textContent='พร้อมปริ้น • HAR บันทึกแล้วและ Proof Session ใช้งานได้'; /* PROOF_PRINT_HAR_POLISH_V9_1 */"
+            if old not in s: raise SystemExit('Proof print success text anchor missing')
+            s=s.replace(old,new,1)
+            old_css=".proof-har-upload small,#proof-session-file-name,.proof-session-status{font-size:10px;color:#777}"
+            new_css=".proof-har-upload small,#proof-session-file-name,#proof-print-har-file-name,.proof-session-status{font-size:10px;color:#777}"
+            if old_css not in s: raise SystemExit('Proof HAR filename style anchor missing')
+            s=s.replace(old_css,new_css,1)
+            old_grid=".proof-har-upload .btn-full,#proof-session-file-name{grid-column:1/-1}"
+            new_grid=".proof-har-upload .btn-full,#proof-session-file-name,#proof-print-har-file-name{grid-column:1/-1}"
+            if old_grid not in s: raise SystemExit('Proof HAR filename grid anchor missing')
+            s=s.replace(old_grid,new_grid,1)
+            old_open="document.getElementById('proof-session-hub').textContent = P.state.branch; document.getElementById('proof-session-har').value = ''; document.getElementById('proof-session-status').textContent = 'HAR ไฟล์เดียว ใช้ทั้งเส้นทาง MS และปริ้นบาร์โค้ด';"
+            new_open="document.getElementById('proof-session-hub').textContent = P.state.branch; document.getElementById('proof-session-har').value = ''; const printHar=document.getElementById('proof-print-har'); if(printHar) printHar.value=''; const printHarName=document.getElementById('proof-print-har-file-name'); if(printHarName) printHarName.textContent='ยังไม่ได้เลือกไฟล์'; const printHarSave=document.getElementById('proof-print-har-save'); if(printHarSave) printHarSave.disabled=true; document.getElementById('proof-session-status').textContent = 'HAR ไฟล์เดียว ใช้ทั้งเส้นทาง MS และปริ้นบาร์โค้ด';"
+            if old_open not in s: raise SystemExit('Proof open-session reset anchor missing')
+            s=s.replace(old_open,new_open,1)
             p.write_text(s)
           PY
-      - name: Extend persistent Proof contract
+      - name: Extend persistent Proof V9.1 contract
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('worker/tests/proof-smart-v8.test.mjs')
           s=p.read_text()
-          s=s.replace("  assert.match(proofUi,/ใช้ทั้งเส้นทาง MS \\+ ปริ้นบาร์โค้ด/);\n","")
-          if 'PROOF_PRINT_HAR_UPLOAD_V9' not in s:
-            s=s.replace("  assert.match(proofUi,/entries.*reverse/);", "  assert.match(proofUi,/entries.*reverse/);\n  assert.match(proofUi,/PROOF_PRINT_HAR_UPLOAD_V9/);\n  assert.match(proofUi,/HAR สำหรับปริ้นบาร์โค้ดรถ/);\n  assert.match(proofUi,/proof-print-har-save/);\n  assert.match(proofUi,/HAR เส้นทาง MS/);\n  assert.match(proofUi,/saveMsConnection/);")
-          p.write_text(s)
+          if 'PROOF_PRINT_HAR_POLISH_V9_1' not in s:
+            anchor="  assert.match(proofUi,/PROOF_PRINT_HAR_UPLOAD_V9/);\n"
+            if anchor not in s: raise SystemExit('Proof V9 test anchor missing')
+            s=s.replace(anchor,anchor+"  assert.match(proofUi,/PROOF_PRINT_HAR_POLISH_V9_1/);\n  assert.match(proofUi,/HAR บันทึกแล้วและ Proof Session ใช้งานได้/);\n  assert.match(proofUi,/#proof-print-har-file-name/);\n",1)
+            p.write_text(s)
           PY
       - name: Syntax and Proof regression
         run: |
@@ -64,16 +72,16 @@ jobs:
           bad=[x for x in changed if x not in allowed]
           if bad: raise SystemExit('Out-of-scope files: '+', '.join(bad))
           if not changed: raise SystemExit('No Proof changes produced')
-          print('PROOF_ONLY_SCOPE=PASS')
+          print('PROOF_V9_1_SCOPE_ONLY=PASS')
           print('PROOF_BACKGROUND_REQUESTS_ADDED=0')
           print('PROOF_POLL_60S_UNCHANGED=PASS')
           print('PRODUCTION_TOUCHED=NO')
           PY
-      - name: Commit Proof print HAR UX
+      - name: Commit Proof V9.1 polish
         run: |
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
           git add worker/src/proof-ui-v5.js worker/tests/proof-smart-v8.test.mjs
-          git commit -m 'Add dedicated Proof HAR upload action'
+          git commit -m 'Polish dedicated Proof HAR upload UX'
           git pull --rebase origin main
           git push origin HEAD:main

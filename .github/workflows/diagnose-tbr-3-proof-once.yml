@@ -1,0 +1,103 @@
+name: Diagnose TBR 3 Proof Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-tbr-3-proof-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Inspect exact TBR and Route timestamps from TEST sources
+        run: |
+          node <<'NODE'
+          const crypto=require('node:crypto');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const cfHeaders={Authorization:`Bearer ${token}`};
+          const browserName='waiting-trucks-ms-browser-test';
+          const devApi='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api';
+          const browserOrigin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          const proofs=['UTP1TC4F45','CJM1TBYV54','AYU1TCBA81'];
+          const norm=v=>String(v||'').trim().toUpperCase().replace(/\s+/g,'');
+          const iso=v=>{const n=Date.parse(String(v||''));return Number.isFinite(n)?new Date(n).toISOString():''};
+          const thai=v=>{const n=Date.parse(String(v||''));return Number.isFinite(n)?new Intl.DateTimeFormat('th-TH',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(n)):'-'};
+          async function cf(path){
+            const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}${path}`,{headers:cfHeaders});
+            const j=await r.json().catch(()=>({}));
+            if(!r.ok||j.success===false) throw new Error(`Cloudflare ${path} HTTP ${r.status}: ${JSON.stringify(j.errors||j)}`);
+            return j.result;
+          }
+          async function post(payload){
+            const r=await fetch(devApi,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+            const j=await r.json().catch(()=>({}));
+            if(!r.ok||j.ok===false) throw new Error(`DEV connectorSync HTTP ${r.status}: ${j.code||''} ${j.message||''}`);
+            return j.data||{};
+          }
+          (async()=>{
+            const settings=await cf(`/workers/scripts/${browserName}/script-settings`);
+            const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
+            const state=bindings.find(x=>x?.name==='STATE' && String(x?.type||'').includes('kv'));
+            const namespaceId=state?.namespace_id||state?.namespace||state?.id||'';
+            if(!namespaceId) throw new Error(`STATE KV namespace id not found; binding=${JSON.stringify(state||null)}`);
+            const key=encodeURIComponent('connector:NE1');
+            const kr=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/storage/kv/namespaces/${namespaceId}/values/${key}`,{headers:cfHeaders});
+            if(!kr.ok) throw new Error(`Read connector KV HTTP ${kr.status}`);
+            const connectorToken=(await kr.text()).trim();
+            if(connectorToken.length<20) throw new Error('Connector token missing in Browser TEST KV');
+
+            const [routes,bus,shadowResponse]=await Promise.all([
+              post({action:'connectorSync',hub:'NE1',connectorToken,shadowOnly:true,shadowPart:'routes'}),
+              post({action:'connectorSync',hub:'NE1',connectorToken,shadowOnly:true,shadowPart:'bus'}),
+              fetch(`${browserOrigin}/api/shadow-tbr?hub=NE1`,{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'}),
+            ]);
+            const shadow=await shadowResponse.json().catch(()=>({}));
+            console.log(`SOURCE_ROUTE_ROWS=${Array.isArray(routes.rows)?routes.rows.length:0}`);
+            console.log(`SOURCE_TBR_FEED=${Array.isArray(bus.tbrShadowFeed)?bus.tbrShadowFeed.length:0}`);
+            console.log(`SHADOW_TOTAL=${shadow.total??'-'} PENDING=${shadow.pending??'-'} CONFIRMED=${shadow.confirmed??'-'}`);
+            for(const proof of proofs){
+              const routeRows=(routes.rows||[]).filter(r=>norm(r.proofId)===proof);
+              const busRows=(bus.tbrShadowFeed||[]).filter(r=>norm(r.proofId)===proof);
+              const hash=crypto.createHash('sha256').update(proof).digest('hex').slice(0,12);
+              const shadowHit=(shadow.records||[]).find(r=>r.id===hash);
+              console.log(`--- ${proof} / ${hash} ---`);
+              console.log(`ROUTE_MATCHES=${routeRows.length} BUS_MATCHES=${busRows.length} SHADOW_HIT=${Boolean(shadowHit)}`);
+              routeRows.forEach((r,i)=>console.log(`ROUTE_${i+1} type=${r.attendanceType||'-'} actual=${thai(r.actualArrivalAt)} iso=${iso(r.actualArrivalAt)}`));
+              busRows.forEach((b,i)=>console.log(`BUS_${i+1} tbr=${thai(b.scheduleTbrArrivalAt)} tbrIso=${iso(b.scheduleTbrArrivalAt)} kit=${thai(b.scheduleKitArrivalAt)} kitIso=${iso(b.scheduleKitArrivalAt)}`));
+              const inbound=routeRows.filter(r=>['ปลายทาง','จุดดรอป'].includes(String(r.attendanceType||'').trim()));
+              let chosen=null;
+              for(const r of inbound){
+                const a=Date.parse(String(r.actualArrivalAt||''));
+                if(!chosen) chosen=r;
+                else {
+                  const ca=Date.parse(String(chosen.actualArrivalAt||''));
+                  if(!Number.isFinite(ca)&&Number.isFinite(a)) chosen=r;
+                  else if(Number.isFinite(ca)&&Number.isFinite(a)&&a<ca) chosen=r;
+                }
+              }
+              const b=busRows[0]||null;
+              const t=Date.parse(String(b?.scheduleTbrArrivalAt||''));
+              const a=Date.parse(String(chosen?.actualArrivalAt||''));
+              let decision='';
+              if(!b) decision='NO_TBR_FEED';
+              else if(!chosen) decision='NO_INBOUND_ROUTE_MATCH';
+              else if(!Number.isFinite(t)) decision='INVALID_TBR_TIME';
+              else if(!Number.isFinite(a)) decision='PENDING_EXPECTED';
+              else if(t<a) decision=`CONFIRM_EXPECTED_LEAD_SECONDS=${Math.round((a-t)/1000)}`;
+              else if(t===a) decision='EXCLUDED_EQUAL_TIMESTAMP';
+              else decision=`EXCLUDED_TBR_AFTER_ROUTE_SECONDS=${Math.round((t-a)/1000)}`;
+              console.log(`DECISION=${decision}`);
+              if(shadowHit) console.log(`SHADOW status=${shadowHit.status} tbr=${shadowHit.tbrAt} actual=${shadowHit.routeActualArrivalAt} lead=${shadowHit.leadMinutes}`);
+            }
+            console.log('CONNECTOR_TOKEN_EXPOSED=NO');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

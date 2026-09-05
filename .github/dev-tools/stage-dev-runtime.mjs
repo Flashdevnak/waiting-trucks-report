@@ -57,7 +57,8 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const DEV_USER_PAGES = ["ms.html", "proof.html", "waiting.html", "ms-report.html"];
 const LEGACY_REDIRECTS = ["index.html", "scan.html", "warehouse.html"];
-const DEV_STYLE_HREF = "style.css?v=20260905-dev-shell-v1";
+const DEV_STYLE_HREF = "style.css?v=20260905-dev-shell-v2";
+const DEV_SHELL_MARKER = "DEV_UNIFIED_HEADER_V2";
 const DEV_NAV = [
   ["ms.html", "🚚", "ติดตามรถ MS", "คิวรถเข้า–ออกและสถานะปัจจุบัน"],
   ["proof.html", "🧾", "ปริ้นบาร์โค้ดรถ", "ตรวจข้อมูล แก้ไขตามสิทธิ์ MS และปริ้น PDF"],
@@ -65,48 +66,132 @@ const DEV_NAV = [
   ["ms-report.html", "▥", "สรุปรายวัน", "เปรียบเทียบรถจบงานตามวันและเวลา"],
 ];
 
+const DEV_PAGE_META = {
+  "ms.html": {
+    title: "ติดตามเส้นทาง MS",
+    detail: "ติดตามรถเข้า–ออกแบบเรียลไทม์",
+    titleId: "site-title",
+    clock: '<span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span>',
+    status: '<span id="connection-badge" class="badge badge-neutral">กำลังเชื่อมต่อ</span>',
+    tools:
+      '<a id="central-settings-btn" class="btn btn-header header-link hidden" href="waiting.html#settings">จัดการกลาง</a>' +
+      '<a id="connect-ms-btn" class="btn btn-accent header-link hidden" href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance" target="_blank" rel="noopener">เปิด MS</a>' +
+      '<button id="ms-connection-btn" class="btn btn-header hidden" type="button">ตั้งค่าการเชื่อมต่อ</button>',
+    refresh: '<button id="refresh-btn" class="btn btn-header" type="button">รีเฟรช</button>',
+    account:
+      '<button id="login-btn" class="btn btn-accent" type="button">เข้าสู่ระบบ</button>' +
+      '<button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>',
+  },
+  "proof.html": {
+    title: "ปริ้นบาร์โค้ดรถ MS",
+    detail: "ตรวจข้อมูลและปริ้นบาร์โค้ดรถ",
+    titleId: "",
+    clock: '<span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span>',
+    status: '<span id="connection-badge" class="badge badge-neutral">กำลังเชื่อมต่อ</span>',
+    tools:
+      '<a id="connect-ms-btn" class="btn btn-accent header-link hidden" href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance" target="_blank" rel="noopener">เปิด MS</a>' +
+      '<button id="proof-session-btn" class="btn btn-header hidden" type="button">ตั้งค่าการเชื่อมต่อ</button>',
+    refresh: '<button id="refresh-btn" class="btn btn-header" type="button">รีเฟรช</button>',
+    account:
+      '<button id="login-btn" class="btn btn-accent" type="button">เข้าสู่ระบบ</button>' +
+      '<button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>',
+  },
+  "waiting.html": {
+    title: "ระบบรถรอลงงาน",
+    detail: "จัดการคิวและเวลารอลงงาน",
+    titleId: "site-title",
+    clock: '<span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span>',
+    status: '<span id="connection-badge" class="badge badge-neutral">กำลังเชื่อมต่อ</span>',
+    tools:
+      '<button id="password-btn" class="btn btn-header hidden" type="button">เปลี่ยนรหัสผ่าน</button>' +
+      '<button id="settings-btn" class="btn btn-header hidden" type="button">จัดการกลาง</button>' +
+      '<button id="import-btn" class="btn btn-accent" type="button">นำเข้า Excel</button>' +
+      '<input id="file-input" type="file" accept=".xlsx,.xls" hidden />',
+    refresh: '<button id="refresh-btn" class="btn btn-header" type="button">รีเฟรช</button>',
+    account:
+      '<button id="unlock-btn" class="btn btn-accent" type="button">เข้าสู่ระบบ</button>' +
+      '<button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>',
+  },
+  "ms-report.html": {
+    title: "สรุปรถจบงานรายวัน",
+    detail: "เปรียบเทียบแยกตามวันที่และช่วงเวลา",
+    titleId: "",
+    clock: "<span>รายงานข้อมูลรายวัน</span>",
+    status: '<span class="badge badge-online">พร้อมใช้งาน</span>',
+    tools: '<span class="dev-tools-empty">ตัวกรองและ Export อยู่ในหน้ารายงาน</span>',
+    refresh: '<button id="report-header-refresh" class="btn btn-header" type="button" onclick="location.reload()">รีเฟรช</button>',
+    account: '<a class="btn btn-header header-link" href="ms.html">บัญชีผู้ใช้</a>',
+  },
+};
+
 function navHtml(currentPage) {
   return DEV_NAV.map(([href, icon, label, detail]) =>
     `<a href="${href}"${href === currentPage ? ' class="is-current"' : ""}><span>${icon}</span><b>${label}</b><small>${detail}</small></a>`,
   ).join("");
 }
 
+function unifiedHeaderHtml(currentPage) {
+  const meta = DEV_PAGE_META[currentPage];
+  if (!meta) throw new Error(`Unknown DEV page ${currentPage}`);
+  const titleId = meta.titleId ? ` id="${meta.titleId}"` : "";
+  const currentLabel = DEV_NAV.find(([href]) => href === currentPage)?.[2] || meta.title;
+  return `<header class="site-header dev-unified-header" data-dev-shell="20260905-v2"><div class="site-header-inner"><div class="header-brand"><div class="brand-mark brand-f" aria-label="Flash"><span>F</span></div><div class="brand-copy"><strong${titleId}>${meta.title}</strong>${meta.clock}</div></div><nav class="topbar-actions dev-unified-actions" aria-label="เมนูหลัก"><div class="dev-shell-slot dev-shell-status">${meta.status}</div><div class="dev-shell-slot dev-system-nav"><details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>${currentLabel}</small></summary><div class="app-nav-menu">${navHtml(currentPage)}</div></details></div><div class="dev-shell-slot dev-page-tools"><details class="app-nav"><summary><span class="nav-grid-icon">⚙</span><span>เครื่องมือ</span><small>หน้านี้</small></summary><div class="app-nav-menu dev-tools-menu">${meta.tools}</div></details></div><div class="dev-shell-slot dev-shell-refresh">${meta.refresh}</div><div class="dev-shell-slot dev-account-menu"><details class="app-nav"><summary><span class="nav-grid-icon">●</span><span>บัญชี</span><small>สิทธิ์ผู้ใช้</small></summary><div class="app-nav-menu dev-tools-menu">${meta.account}</div></details></div></nav></div></header>`;
+}
+
 export function patchDevUiShellSource(source, currentPage) {
   let output = String(source || "");
-  const navPattern = /<div class=(['"])app-nav-menu\1>[\s\S]*?<\/div><\/details>/;
-  if (!navPattern.test(output)) {
-    throw new Error(`DEV UI shell missing app-nav-menu in ${currentPage}`);
+  const headerPattern = /<header class=(['"])site-header\1>[\s\S]*?<\/header>/;
+  if (!headerPattern.test(output)) {
+    throw new Error(`DEV UI shell missing site-header in ${currentPage}`);
   }
-  output = output.replace(
-    navPattern,
-    `<div class="app-nav-menu">${navHtml(currentPage)}</div></details>`,
-  );
+  output = output.replace(headerPattern, unifiedHeaderHtml(currentPage));
   output = output.replace(
     /href=(['"])style\.css(?:\?[^'\"]*)?\1/,
     `href="${DEV_STYLE_HREF}"`,
   );
   if (currentPage === "proof.html") {
-    output = output
-      .replace(/<title>จัดการเส้นทางเดินรถ MS<\/title>/, "<title>ปริ้นบาร์โค้ดรถ MS</title>")
-      .replace(/(<div class=['"]brand-copy['"]><strong>)จัดการเส้นทางเดินรถ MS(<\/strong>)/, "$1ปริ้นบาร์โค้ดรถ MS$2");
+    output = output.replace(
+      /<title>จัดการเส้นทางเดินรถ MS<\/title>/,
+      "<title>ปริ้นบาร์โค้ดรถ MS</title>",
+    );
   }
   return output;
 }
 
 function verifyDevUiShellSource(source, currentPage) {
   const text = String(source || "");
-  const menu = text.match(/<div class=(['"])app-nav-menu\1>([\s\S]*?)<\/div><\/details>/)?.[2] || "";
-  if (!menu) throw new Error(`DEV UI menu not found in ${currentPage}`);
+  const header = text.match(/<header class="site-header dev-unified-header"[\s\S]*?<\/header>/)?.[0] || "";
+  if (!header || !header.includes('data-dev-shell="20260905-v2"')) {
+    throw new Error(`DEV unified header missing in ${currentPage}`);
+  }
+  const mainMenu = header.match(/<div class="app-nav-menu">([\s\S]*?)<\/div><\/details>/)?.[1] || "";
+  if (!mainMenu) throw new Error(`DEV UI system menu not found in ${currentPage}`);
   for (const [href] of DEV_NAV) {
-    const count = (menu.match(new RegExp(`href=["']${href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`, "g")) || []).length;
+    const count = (mainMenu.match(new RegExp(`href=["']${href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`, "g")) || []).length;
     if (count !== 1) throw new Error(`DEV UI ${currentPage} must contain ${href} exactly once; got ${count}`);
   }
-  const currentCount = (menu.match(/class=["']is-current["']/g) || []).length;
+  const currentCount = (mainMenu.match(/class=["']is-current["']/g) || []).length;
   if (currentCount !== 1) throw new Error(`DEV UI ${currentPage} must have exactly one current menu item`);
   const currentPattern = new RegExp(`href=["']${currentPage.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'] class=["']is-current["']`);
-  if (!currentPattern.test(menu)) throw new Error(`DEV UI ${currentPage} current menu item is wrong`);
-  if (/warehouse\.html|scan\.html|parity-check\.html|safe-parity\.html/.test(menu)) {
+  if (!currentPattern.test(mainMenu)) throw new Error(`DEV UI ${currentPage} current menu item is wrong`);
+  if (/warehouse\.html|scan\.html|parity-check\.html|safe-parity\.html/.test(mainMenu)) {
     throw new Error(`DEV UI ${currentPage} exposes an internal or retired page in the user menu`);
+  }
+  const slots = [
+    "dev-shell-status",
+    "dev-system-nav",
+    "dev-page-tools",
+    "dev-shell-refresh",
+    "dev-account-menu",
+  ];
+  let cursor = -1;
+  for (const slot of slots) {
+    const next = header.indexOf(slot);
+    if (next <= cursor) throw new Error(`DEV UI ${currentPage} header slot order is wrong at ${slot}`);
+    cursor = next;
+  }
+  if ((header.match(/dev-shell-slot/g) || []).length !== 5) {
+    throw new Error(`DEV UI ${currentPage} must have exactly five header slots`);
   }
   if (!text.includes(`href="${DEV_STYLE_HREF}"`)) {
     throw new Error(`DEV UI ${currentPage} does not use the shared style release`);
@@ -134,8 +219,16 @@ export async function stageDevUiShell(frontendTarget) {
   }
   console.log("STAGED_DEV_UI_MENU_PAGES=4");
   console.log("STAGED_DEV_UI_MENU_ITEMS=4");
+  console.log("STAGED_DEV_UI_HEADER_SLOTS=5");
+  console.log(`STAGED_DEV_UI_SHELL=${DEV_SHELL_MARKER}`);
   console.log(`STAGED_DEV_UI_STYLE=${DEV_STYLE_HREF}`);
   console.log("STAGED_DEV_UI_LEGACY_REDIRECTS=3");
+}
+
+function patchDevUnifiedHeaderStyle(source) {
+  const text = String(source || "");
+  if (text.includes(DEV_SHELL_MARKER)) return text;
+  return `${text}\n\n/* ${DEV_SHELL_MARKER}: DEV-only full header contract shared by all four user pages. */\n.dev-unified-header{position:sticky;top:0;z-index:50;background:#151515;color:#fff;border-bottom:3px solid #ffd400;box-shadow:0 3px 12px rgba(0,0,0,.14)}\n.dev-unified-header .site-header-inner{width:100%;max-width:none;min-height:66px;margin:0;padding:8px 18px;display:flex;align-items:center;gap:14px}\n.dev-unified-header .header-brand{display:flex;align-items:center;gap:10px;min-width:260px}\n.dev-unified-header .brand-mark{min-width:42px;width:42px;height:40px;padding:0;display:grid;place-items:center;border-radius:0;background:#ffd400;color:#111;clip-path:polygon(12% 0,100% 0,88% 100%,0 100%);box-shadow:none;font-size:23px;font-weight:950}\n.dev-unified-header .brand-copy{display:flex;flex-direction:column;gap:3px;min-width:0}\n.dev-unified-header .brand-copy strong{display:flex;align-items:center;color:#fff;font-size:17px;line-height:1.2;white-space:nowrap}\n.dev-unified-header .brand-copy strong::before{content:"/";margin-right:8px;color:#ffd400;font-size:20px;font-weight:900}\n.dev-unified-header .brand-copy span{color:#c9ccce;font-size:11px;white-space:nowrap}\n.dev-unified-header .dev-unified-actions{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:0;border:0;border-radius:0;background:transparent}\n.dev-unified-header .dev-shell-slot{display:flex;align-items:center;min-width:0}\n.dev-unified-header .dev-shell-slot>.badge,.dev-unified-header .dev-shell-slot>.btn,.dev-unified-header .dev-shell-slot>.header-link{min-height:36px;border-radius:5px;padding:7px 11px}\n.dev-unified-header .app-nav{position:relative}\n.dev-unified-header .app-nav>summary{min-height:36px;min-width:150px;display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:7px;padding:5px 9px;border:1px solid #434343;border-radius:6px;background:#222;color:#fff;cursor:pointer;list-style:none}\n.dev-unified-header .app-nav>summary::-webkit-details-marker{display:none}\n.dev-unified-header .app-nav>summary>span:nth-child(2){font-weight:800;white-space:nowrap}\n.dev-unified-header .app-nav>summary small{color:#c9ccce;font-size:10px;white-space:nowrap}\n.dev-unified-header .nav-grid-icon{display:grid;place-items:center;width:26px;height:26px;border-radius:6px;background:#ffd400;color:#111;font-size:15px;font-weight:900}\n.dev-unified-header .app-nav-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;width:min(360px,calc(100vw - 24px));padding:7px;border:1px solid #4b4b4b;border-radius:8px;background:#1d1d1d;box-shadow:0 12px 28px rgba(0,0,0,.28)}\n.dev-unified-header .app-nav-menu a{display:grid;grid-template-columns:28px 1fr;gap:2px 8px;padding:9px 10px;border-radius:6px;color:#fff;text-decoration:none}\n.dev-unified-header .app-nav-menu a>span{grid-row:1/3;display:grid;place-items:center}\n.dev-unified-header .app-nav-menu a>b{font-size:13px}\n.dev-unified-header .app-nav-menu a>small{color:#bbb;font-size:10px}\n.dev-unified-header .app-nav-menu a:hover,.dev-unified-header .app-nav-menu a.is-current{background:#343434}\n.dev-unified-header .app-nav-menu a.is-current{box-shadow:inset 3px 0 #ffd400}\n.dev-unified-header .dev-tools-menu{display:grid;gap:6px;min-width:240px}\n.dev-unified-header .dev-tools-menu .btn,.dev-unified-header .dev-tools-menu .header-link{width:100%;min-height:38px;display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none}\n.dev-unified-header .dev-tools-empty{display:block;padding:10px 12px;color:#c9ccce;font-size:11px;text-align:center}\n.dev-unified-header .dev-shell-refresh>.btn{color:#fff;background:#222;border-color:#434343}\n.dev-unified-header .dev-shell-status>.badge{min-width:72px;justify-content:center}\n@media(max-width:1100px){.dev-unified-header{position:relative}.dev-unified-header .site-header-inner{align-items:stretch;flex-wrap:wrap}.dev-unified-header .header-brand{width:100%;min-width:0}.dev-unified-header .dev-unified-actions{width:100%;margin-left:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}.dev-unified-header .dev-shell-slot,.dev-unified-header .dev-shell-slot>*{width:100%}.dev-unified-header .app-nav>summary{width:100%;min-width:0}}\n@media(max-width:700px){.dev-unified-header .site-header-inner{padding:9px 10px 10px}.dev-unified-header .brand-copy strong{font-size:15px;white-space:normal}.dev-unified-header .brand-copy span{white-space:normal}.dev-unified-header .dev-unified-actions{grid-template-columns:1fr 1fr}.dev-unified-header .dev-shell-status{grid-column:1/-1}.dev-unified-header .dev-account-menu{grid-column:2}.dev-unified-header .app-nav>summary{grid-template-columns:28px 1fr}.dev-unified-header .app-nav>summary small{display:none}.dev-unified-header .app-nav-menu{position:fixed;left:10px;right:10px;top:auto;width:auto;margin-top:6px}}\n`;
 }
 
 export function patchDevRootEntryWorker(source) {
@@ -182,8 +275,10 @@ export function stageFrontend(source) {
 }
 
 export function stageStyle(source) {
-  return patchMsSummaryPerformanceStyle(
-    patchMsRouteCancellationStyle(patchDevMsMobileStyle(source)),
+  return patchDevUnifiedHeaderStyle(
+    patchMsSummaryPerformanceStyle(
+      patchMsRouteCancellationStyle(patchDevMsMobileStyle(source)),
+    ),
   );
 }
 
@@ -247,5 +342,6 @@ if (invokedPath) {
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");
+  console.log("STAGED_DEV_UNIFIED_HEADER_V2=PASS");
   console.log("Staged DEV TBR Shadow runtime: SHADOW_READONLY_SPLIT_V2");
 }

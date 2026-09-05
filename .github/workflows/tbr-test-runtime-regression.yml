@@ -35,6 +35,13 @@ jobs:
           node --check src/connection-error.js
           grep -q 'TBR_STALE_SPLIT_BROWSER_V2' src/index.js
           grep -q 'SHADOW_READONLY_SPLIT_V2' src/index.js
+          grep -q 'TBR_ROUTE_STALE_FALLBACK_V6' src/index.js
+          grep -q 'TBR_ROUTE_CACHE_HEARTBEAT_MS = 5 \* 60 \* 1000' src/index.js
+          grep -q 'TBR_ROUTE_CACHE_MAX_AGE_MS = 30 \* 60 \* 1000' src/index.js
+          grep -q 'normalTursoPointReadsPerCron: 4' src/index.js
+          grep -q 'browserKvRouteCacheWritesMaxPerDay: 288' src/index.js
+          grep -q 'route_fallback' src/tbr-shadow.js
+          grep -q 'Route ใช้ snapshot ล่าสุดชั่วคราว' src/tbr-shadow.js
           grep -q 'STALE · ข้อมูลหยุดอัปเดตเกิน 7 นาที' src/tbr-shadow.js
           grep -q 'TBR_SAME_CRON_TIMESTAMP_V1' src/tbr-shadow.js
           ! grep -Fq 'if (routeActualMs !== null || now - tbrMs > SHADOW_PENDING_MS) continue;' src/tbr-shadow.js
@@ -46,6 +53,7 @@ jobs:
           grep -q 'waiting-trucks-report-api-dev' /tmp/tbr-browser-dry-run.log
           echo 'PERSISTED_BROWSER_SPLIT_V2=PASS'
           echo 'PERSISTED_TBR_SAME_CRON=PASS'
+          echo 'PERSISTED_TBR_ROUTE_FALLBACK_V6=PASS'
           echo 'BROWSER_TEST_D1_BINDING=0'
 
       - name: Regression test same-cron timestamp ordering
@@ -80,6 +88,43 @@ jobs:
           console.log('TBR_AFTER_ROUTE_EXCLUDED=PASS');
           console.log('ORIGIN_EXCLUDED=PASS');
           console.log('DROP_INCLUDED=PASS');
+          NODE
+
+      - name: Regression test Route 503 keeps current TBR feed alive
+        run: |
+          node --input-type=module <<'NODE'
+          import { sendConnectorSync } from './cloudflare-browser-test/src/index.js';
+          class KV {
+            constructor(){ this.m=new Map(); }
+            async get(k){ return this.m.get(k) ?? null; }
+            async put(k,v){ this.m.set(k,v); }
+          }
+          const STATE=new KV();
+          let failRoute=false;
+          const make=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{'content-type':'application/json'}});
+          const DEV_API={fetch:async request=>{
+            const body=await request.json();
+            if(body.shadowPart==='routes'){
+              if(failRoute)return make({ok:false},503);
+              return make({ok:true,data:{rows:[{proofId:'FALLBACK-REG',attendanceType:'ปลายทาง',actualArrivalAt:''}]}});
+            }
+            return make({ok:true,data:{tbrShadowFeed:[{proofId:'FALLBACK-REG',scheduleTbrArrivalAt:'2026-09-05T23:00:00+07:00'}]}});
+          }};
+          const env={STATE,DEV_API};
+          let response=await sendConnectorSync(env,'NE1','connector-token');
+          let body=await response.json();
+          if(!response.ok||body.data.routeFallback||body.data.rows.length!==1) throw new Error('initial last-good Route snapshot was not seeded');
+          failRoute=true;
+          response=await sendConnectorSync(env,'NE1','connector-token');
+          body=await response.json();
+          if(!response.ok) throw new Error('transient Route 503 still blanked the combined source');
+          if(body.data.routeFallback!==true) throw new Error('Route fallback flag missing');
+          if(body.data.rows.length!==1||body.data.tbrShadowFeed.length!==1) throw new Error('current TBR feed was not combined with last-good Route snapshot');
+          if(body.data.shadowQuota.normalTursoPointReadsPerCron!==4||body.data.shadowQuota.tursoWritesPerCron!==0) throw new Error('fallback changed normal Turso quota');
+          console.log('TBR_ROUTE_503_FALLBACK=PASS');
+          console.log('TBR_CURRENT_BUS_FEED_PRESERVED=PASS');
+          console.log('TBR_NORMAL_TURSO_POINT_READS=4');
+          console.log('TBR_TURSO_WRITES=0');
           NODE
 
       - name: Verify normal DEV staging preserves Split V2 and adaptive Route recovery

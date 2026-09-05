@@ -1,4 +1,5 @@
 name: DEV Header V7 Browser Live Temp
+# trigger: fixed-node22-runtime
 
 on:
   push:
@@ -25,45 +26,47 @@ jobs:
           cd /tmp/dev-v7-browser
           node <<'NODE'
           const { chromium } = require('playwright');
-          const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
-          const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
-          const browser=await chromium.launch({headless:true});
-          try{
-            for(const name of pages){
-              const page=await browser.newPage();
-              page.setDefaultTimeout(12000);
-              const errors=[];
-              page.on('pageerror', e=>errors.push(String(e)));
-              const response=await page.goto(`${base}/${name}?v7runtime=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:30000});
-              if(!response||!response.ok()) throw new Error(`${name}: HTTP ${response?.status()}`);
-              await page.waitForTimeout(4500);
-              const markers=await page.evaluate(()=>({
-                v7:document.documentElement.innerHTML.includes('DEV_TOOLS_SAFE_EMPTY_V7'),
-                v6:document.documentElement.innerHTML.includes('DEV_TOOLS_EMPTY_STATE_V6'),
-                header:!!document.querySelector('.dev-unified-header'),
-              }));
-              if(!markers.v7||markers.v6||!markers.header) throw new Error(`${name}: wrong header runtime markers ${JSON.stringify(markers)}`);
-              const summaries=page.locator('.dev-unified-header details.app-nav > summary');
-              const count=await summaries.count();
-              if(count<3) throw new Error(`${name}: expected 3 dropdown summaries, got ${count}`);
-              for(let i=0;i<12;i++){
-                await summaries.nth(i%3).click();
-                await page.waitForTimeout(40);
-                const responsive=await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>queueMicrotask(()=>resolve(true)))));
-                if(!responsive) throw new Error(`${name}: event loop did not respond`);
+          (async()=>{
+            const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
+            const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
+            const browser=await chromium.launch({headless:true});
+            try{
+              for(const name of pages){
+                const page=await browser.newPage();
+                page.setDefaultTimeout(12000);
+                const errors=[];
+                page.on('pageerror', e=>errors.push(String(e)));
+                const response=await page.goto(`${base}/${name}?v7runtime=${Date.now()}`,{waitUntil:'domcontentloaded',timeout:30000});
+                if(!response||!response.ok()) throw new Error(`${name}: HTTP ${response?.status()}`);
+                await page.waitForTimeout(4500);
+                const markers=await page.evaluate(()=>({
+                  v7:document.documentElement.innerHTML.includes('DEV_TOOLS_SAFE_EMPTY_V7'),
+                  v6:document.documentElement.innerHTML.includes('DEV_TOOLS_EMPTY_STATE_V6'),
+                  header:!!document.querySelector('.dev-unified-header'),
+                }));
+                if(!markers.v7||markers.v6||!markers.header) throw new Error(`${name}: wrong header runtime markers ${JSON.stringify(markers)}`);
+                const summaries=page.locator('.dev-unified-header details.app-nav > summary');
+                const count=await summaries.count();
+                if(count<3) throw new Error(`${name}: expected 3 dropdown summaries, got ${count}`);
+                for(let i=0;i<12;i++){
+                  await summaries.nth(i%3).click();
+                  await page.waitForTimeout(40);
+                  const responsive=await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>queueMicrotask(()=>resolve(true)))));
+                  if(!responsive) throw new Error(`${name}: event loop did not respond`);
+                }
+                const openCount=await page.locator('.dev-unified-header details.app-nav[open]').count();
+                if(openCount>1) throw new Error(`${name}: more than one dropdown left open (${openCount})`);
+                if(errors.length) throw new Error(`${name}: pageerror ${errors.join(' | ')}`);
+                console.log(`DEV_BROWSER_RUNTIME=${name}:PASS`);
+                await page.close();
               }
-              const openCount=await page.locator('.dev-unified-header details.app-nav[open]').count();
-              if(openCount>1) throw new Error(`${name}: more than one dropdown left open (${openCount})`);
-              if(errors.length) throw new Error(`${name}: pageerror ${errors.join(' | ')}`);
-              console.log(`DEV_BROWSER_RUNTIME=${name}:PASS`);
-              await page.close();
+              console.log('DEV_BROWSER_NO_FREEZE_V7=PASS');
+              console.log('DEV_DROPDOWN_EXCLUSIVE_V4_RUNTIME=PASS');
+              console.log('READ_ONLY=YES');
+              console.log('MS_MUTATION_TESTED=NO');
+              console.log('PRODUCTION_TOUCHED=NO');
+            } finally {
+              await browser.close();
             }
-            console.log('DEV_BROWSER_NO_FREEZE_V7=PASS');
-            console.log('DEV_DROPDOWN_EXCLUSIVE_V4_RUNTIME=PASS');
-            console.log('READ_ONLY=YES');
-            console.log('MS_MUTATION_TESTED=NO');
-            console.log('PRODUCTION_TOUCHED=NO');
-          } finally {
-            await browser.close();
-          }
+          })().catch((error)=>{console.error(error);process.exit(1);});
           NODE

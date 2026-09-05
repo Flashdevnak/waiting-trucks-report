@@ -273,12 +273,12 @@ function connectorPartFailure(part, response, payload) {
   });
 }
 
-// TBR_ROUTE_503_RETRY_V1: retry only transient Route transport failures.
+// TBR_ROUTE_503_RETRY_V1 / TBR_BUS_503_RETRY_V7: retry transient Route/Bus transport failures once; steady state remains one call per part.
 async function sendConnectorPartResilient(env, hub, connectorToken, part) {
   let attempts = 1;
   let response = await sendConnectorPart(env, hub, connectorToken, part);
   let payload = await connectorPartPayload(response);
-  if (part === "routes" && [502, 503, 504].includes(response.status)) {
+  if (["routes", "bus"].includes(part) && [502, 503, 504].includes(response.status)) {
     await wait(450);
     attempts = 2;
     response = await sendConnectorPart(env, hub, connectorToken, part);

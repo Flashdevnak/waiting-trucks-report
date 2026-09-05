@@ -34,17 +34,6 @@ jobs:
               raise SystemExit('confirmed Bus retry patch target not found')
           index.write_text(source.replace(old_comment, new_comment, 1).replace(old_gate, new_gate, 1))
           Path('cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs').write_bytes(base64.b64decode(os.environ['BUS_TEST_B64']))
-          for name, anchor in [
-              ('.github/workflows/deploy-browser-worker.yml', '          node --check scripts/patch-dev-tbr-shadow-split-v2.mjs\n'),
-              ('.github/workflows/tbr-test-runtime-regression.yml', '          node --check src/tbr-shadow.js\n'),
-          ]:
-              path = Path(name)
-              text = path.read_text()
-              if 'node scripts/tbr-bus-retry.test.mjs' not in text:
-                  if anchor not in text:
-                      raise SystemExit('workflow test anchor not found: ' + name)
-                  text = text.replace(anchor, anchor + '          node scripts/tbr-bus-retry.test.mjs\n', 1)
-              path.write_text(text)
           PY
       - name: Validate patch before commit
         working-directory: cloudflare-browser-test
@@ -60,11 +49,11 @@ jobs:
           echo 'STEADY_STATE_EXTRA_CALLS=0'
           echo 'BROWSER_D1_BINDING=0'
           echo 'PRODUCTION_TOUCHED=NO'
-      - name: Commit fix-forward source and regressions
+      - name: Commit source and regression only
         run: |
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
-          git add cloudflare-browser-test/src/index.js cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs .github/workflows/deploy-browser-worker.yml .github/workflows/tbr-test-runtime-regression.yml
+          git add cloudflare-browser-test/src/index.js cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs
           git commit -m 'Retry transient TBR Bus source failures'
           git pull --rebase origin main
           git push origin HEAD:main

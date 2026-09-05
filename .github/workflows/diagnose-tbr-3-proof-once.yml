@@ -15,89 +15,75 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
     steps:
-      - name: Inspect exact TBR and Route timestamps from TEST sources
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Browser TEST tooling
+        working-directory: cloudflare-browser-test
+        run: npm install --no-audit --no-fund
+
+      - name: Stage temporary hash-only diagnostic route
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path='cloudflare-browser-test/src/index.js';
+          let s=fs.readFileSync(path,'utf8');
+          const anchor=`    if (url.pathname === "/api/shadow-tbr")\n      return reply(\n        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),\n      );`;
+          const patched=`${anchor}\n    // TBR_HASH_DEBUG_ONCE: TEST-only temporary route; removed after diagnostic run.\n    if (url.pathname === "/api/tbr-hash-debug")\n      return reply(await debugTbrHashes(\n        env,\n        url.searchParams.get("hub") || "NE1",\n        url.searchParams.get("ids") || "",\n      ));`;
+          if(!s.includes(anchor)) throw new Error('debug route anchor not found');
+          s=s.replace(anchor,patched);
+          const fnAnchor='async function syncConfiguredHubs(env) {';
+          const fn=`async function debugTbrHashes(env, hubValue, idsValue) {\n  const hub = String(hubValue || \"NE1\").trim().toUpperCase();\n  const wanted = new Set(String(idsValue || \"\").split(\",\").map(x => x.trim().toLowerCase()).filter(x => /^[a-f0-9]{12}$/.test(x)));\n  if (!wanted.size) throw new Error(\"missing debug hashes\");\n  const connectorToken = await env.STATE.get(\`connector:\${hub}\`);\n  if (!connectorToken) throw new Error(\`missing Browser TEST connector for \${hub}\`);\n  const response = await sendConnectorSync(env, hub, connectorToken);\n  const payload = await response.clone().json().catch(() => ({}));\n  if (!response.ok || payload?.ok === false) throw new Error(payload?.message || \`shadow source HTTP \${response.status}\`);\n  const rows = Array.isArray(payload?.data?.rows) ? payload.data.rows : [];\n  const feed = Array.isArray(payload?.data?.tbrShadowFeed) ? payload.data.tbrShadowFeed : [];\n  const norm = value => String(value || \"\").trim().toUpperCase().replace(/\\s+/g, \"\");\n  async function idOf(proof) {\n    const digest = await crypto.subtle.digest(\"SHA-256\", new TextEncoder().encode(norm(proof)));\n    return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, \"0\")).join(\"\").slice(0, 12);\n  }\n  const routeById = new Map();\n  for (const row of rows) {\n    const id = await idOf(row?.proofId);\n    if (!wanted.has(id)) continue;\n    const list = routeById.get(id) || [];\n    list.push({ attendanceType: String(row?.attendanceType || \"\"), actualArrivalAt: String(row?.actualArrivalAt || \"\") });\n    routeById.set(id, list);\n  }\n  const busById = new Map();\n  for (const row of feed) {\n    const id = await idOf(row?.proofId);\n    if (!wanted.has(id)) continue;\n    const list = busById.get(id) || [];\n    list.push({ scheduleTbrArrivalAt: String(row?.scheduleTbrArrivalAt || \"\"), scheduleKitArrivalAt: String(row?.scheduleKitArrivalAt || \"\") });\n    busById.set(id, list);\n  }\n  const shadow = await readTbrShadowReport(env, hub);\n  const shadowById = new Map((shadow.records || []).map(x => [String(x.id || \"\"), x]));\n  const results = [];\n  for (const id of wanted) {\n    const routeRows = routeById.get(id) || [];\n    const busRows = busById.get(id) || [];\n    let chosen = null;\n    for (const row of routeRows) {\n      const type = String(row.attendanceType || \"\");\n      if (type !== \"ปลายทาง\" && type !== \"จุดดรอป\") continue;\n      const at = Date.parse(String(row.actualArrivalAt || \"\"));\n      const current = Date.parse(String(chosen?.actualArrivalAt || \"\"));\n      if (!chosen || (!Number.isFinite(current) && Number.isFinite(at)) || (Number.isFinite(current) && Number.isFinite(at) && at < current)) chosen = row;\n    }\n    const bus = busRows[0] || null;\n    const tbrMs = Date.parse(String(bus?.scheduleTbrArrivalAt || \"\"));\n    const actualMs = Date.parse(String(chosen?.actualArrivalAt || \"\"));\n    let decision = \"\";\n    if (!bus) decision = \"NO_TBR_FEED\";\n    else if (!chosen) decision = \"NO_INBOUND_ROUTE_MATCH\";\n    else if (!Number.isFinite(tbrMs)) decision = \"INVALID_TBR_TIME\";\n    else if (!Number.isFinite(actualMs)) decision = \"PENDING_EXPECTED\";\n    else if (tbrMs < actualMs) decision = \`CONFIRM_EXPECTED_LEAD_SECONDS=\${Math.round((actualMs - tbrMs) / 1000)}\`;\n    else if (tbrMs === actualMs) decision = \"EXCLUDED_EQUAL_TIMESTAMP\";\n    else decision = \`EXCLUDED_TBR_AFTER_ROUTE_SECONDS=\${Math.round((tbrMs - actualMs) / 1000)}\`;\n    const hit = shadowById.get(id) || null;\n    results.push({ id, routeMatches: routeRows.length, busMatches: busRows.length, routeRows, busRows, decision, shadow: hit ? { status: hit.status, tbrAt: hit.tbrAt, routeActualArrivalAt: hit.routeActualArrivalAt, leadMinutes: hit.leadMinutes } : null });\n  }\n  return { ok: true, hub, sourceRouteRows: rows.length, sourceTbrFeed: feed.length, shadowTotal: shadow.total, results, connectorTokenExposed: false };\n}\n\n`;
+          if(!s.includes(fnAnchor)) throw new Error('debug function anchor not found');
+          s=s.replace(fnAnchor,fn+fnAnchor);
+          fs.writeFileSync(path,s);
+          NODE
+          node --check cloudflare-browser-test/src/index.js
+          grep -q 'TBR_HASH_DEBUG_ONCE' cloudflare-browser-test/src/index.js
+
+      - name: Deploy temporary Browser TEST diagnostic
+        working-directory: cloudflare-browser-test
+        run: npx wrangler deploy --config wrangler.jsonc
+
+      - name: Inspect the three missing proofs by hash
         run: |
           node <<'NODE'
           const crypto=require('node:crypto');
-          const account=process.env.CLOUDFLARE_ACCOUNT_ID;
-          const token=process.env.CLOUDFLARE_API_TOKEN;
-          const cfHeaders={Authorization:`Bearer ${token}`};
-          const browserName='waiting-trucks-ms-browser-test';
-          const devApi='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api';
-          const browserOrigin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
           const proofs=['UTP1TC4F45','CJM1TBYV54','AYU1TCBA81'];
-          const norm=v=>String(v||'').trim().toUpperCase().replace(/\s+/g,'');
-          const iso=v=>{const n=Date.parse(String(v||''));return Number.isFinite(n)?new Date(n).toISOString():''};
+          const ids=proofs.map(p=>crypto.createHash('sha256').update(p).digest('hex').slice(0,12));
           const thai=v=>{const n=Date.parse(String(v||''));return Number.isFinite(n)?new Intl.DateTimeFormat('th-TH',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(n)):'-'};
-          async function cf(path){
-            const r=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}${path}`,{headers:cfHeaders});
-            const j=await r.json().catch(()=>({}));
-            if(!r.ok||j.success===false) throw new Error(`Cloudflare ${path} HTTP ${r.status}: ${JSON.stringify(j.errors||j)}`);
-            return j.result;
-          }
-          async function post(payload){
-            const r=await fetch(devApi,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
-            const j=await r.json().catch(()=>({}));
-            if(!r.ok||j.ok===false) throw new Error(`DEV connectorSync HTTP ${r.status}: ${j.code||''} ${j.message||''}`);
-            return j.data||{};
-          }
           (async()=>{
-            const settings=await cf(`/workers/scripts/${browserName}/script-settings`);
-            const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
-            const state=bindings.find(x=>x?.name==='STATE' && String(x?.type||'').includes('kv'));
-            const namespaceId=state?.namespace_id||state?.namespace||state?.id||'';
-            if(!namespaceId) throw new Error(`STATE KV namespace id not found; binding=${JSON.stringify(state||null)}`);
-            const key=encodeURIComponent('connector:NE1');
-            const kr=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/storage/kv/namespaces/${namespaceId}/values/${key}`,{headers:cfHeaders});
-            if(!kr.ok) throw new Error(`Read connector KV HTTP ${kr.status}`);
-            const connectorToken=(await kr.text()).trim();
-            if(connectorToken.length<20) throw new Error('Connector token missing in Browser TEST KV');
-
-            const [routes,bus,shadowResponse]=await Promise.all([
-              post({action:'connectorSync',hub:'NE1',connectorToken,shadowOnly:true,shadowPart:'routes'}),
-              post({action:'connectorSync',hub:'NE1',connectorToken,shadowOnly:true,shadowPart:'bus'}),
-              fetch(`${browserOrigin}/api/shadow-tbr?hub=NE1`,{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'}),
-            ]);
-            const shadow=await shadowResponse.json().catch(()=>({}));
-            console.log(`SOURCE_ROUTE_ROWS=${Array.isArray(routes.rows)?routes.rows.length:0}`);
-            console.log(`SOURCE_TBR_FEED=${Array.isArray(bus.tbrShadowFeed)?bus.tbrShadowFeed.length:0}`);
-            console.log(`SHADOW_TOTAL=${shadow.total??'-'} PENDING=${shadow.pending??'-'} CONFIRMED=${shadow.confirmed??'-'}`);
-            for(const proof of proofs){
-              const routeRows=(routes.rows||[]).filter(r=>norm(r.proofId)===proof);
-              const busRows=(bus.tbrShadowFeed||[]).filter(r=>norm(r.proofId)===proof);
-              const hash=crypto.createHash('sha256').update(proof).digest('hex').slice(0,12);
-              const shadowHit=(shadow.records||[]).find(r=>r.id===hash);
-              console.log(`--- ${proof} / ${hash} ---`);
-              console.log(`ROUTE_MATCHES=${routeRows.length} BUS_MATCHES=${busRows.length} SHADOW_HIT=${Boolean(shadowHit)}`);
-              routeRows.forEach((r,i)=>console.log(`ROUTE_${i+1} type=${r.attendanceType||'-'} actual=${thai(r.actualArrivalAt)} iso=${iso(r.actualArrivalAt)}`));
-              busRows.forEach((b,i)=>console.log(`BUS_${i+1} tbr=${thai(b.scheduleTbrArrivalAt)} tbrIso=${iso(b.scheduleTbrArrivalAt)} kit=${thai(b.scheduleKitArrivalAt)} kitIso=${iso(b.scheduleKitArrivalAt)}`));
-              const inbound=routeRows.filter(r=>['ปลายทาง','จุดดรอป'].includes(String(r.attendanceType||'').trim()));
-              let chosen=null;
-              for(const r of inbound){
-                const a=Date.parse(String(r.actualArrivalAt||''));
-                if(!chosen) chosen=r;
-                else {
-                  const ca=Date.parse(String(chosen.actualArrivalAt||''));
-                  if(!Number.isFinite(ca)&&Number.isFinite(a)) chosen=r;
-                  else if(Number.isFinite(ca)&&Number.isFinite(a)&&a<ca) chosen=r;
-                }
-              }
-              const b=busRows[0]||null;
-              const t=Date.parse(String(b?.scheduleTbrArrivalAt||''));
-              const a=Date.parse(String(chosen?.actualArrivalAt||''));
-              let decision='';
-              if(!b) decision='NO_TBR_FEED';
-              else if(!chosen) decision='NO_INBOUND_ROUTE_MATCH';
-              else if(!Number.isFinite(t)) decision='INVALID_TBR_TIME';
-              else if(!Number.isFinite(a)) decision='PENDING_EXPECTED';
-              else if(t<a) decision=`CONFIRM_EXPECTED_LEAD_SECONDS=${Math.round((a-t)/1000)}`;
-              else if(t===a) decision='EXCLUDED_EQUAL_TIMESTAMP';
-              else decision=`EXCLUDED_TBR_AFTER_ROUTE_SECONDS=${Math.round((t-a)/1000)}`;
-              console.log(`DECISION=${decision}`);
-              if(shadowHit) console.log(`SHADOW status=${shadowHit.status} tbr=${shadowHit.tbrAt} actual=${shadowHit.routeActualArrivalAt} lead=${shadowHit.leadMinutes}`);
+            const r=await fetch(`${process.env.BROWSER_ORIGIN}/api/tbr-hash-debug?hub=NE1&ids=${ids.join(',')}`,{headers:{accept:'application/json','cache-control':'no-store'},cache:'no-store'});
+            const j=await r.json().catch(()=>({}));
+            if(!r.ok||j.ok===false) throw new Error(`debug HTTP ${r.status}: ${JSON.stringify(j)}`);
+            console.log(`SOURCE_ROUTE_ROWS=${j.sourceRouteRows}`);
+            console.log(`SOURCE_TBR_FEED=${j.sourceTbrFeed}`);
+            console.log(`SHADOW_TOTAL=${j.shadowTotal}`);
+            for(let i=0;i<proofs.length;i++){
+              const x=(j.results||[]).find(v=>v.id===ids[i])||{};
+              console.log(`--- ${proofs[i]} / ${ids[i]} ---`);
+              console.log(`ROUTE_MATCHES=${x.routeMatches??0} BUS_MATCHES=${x.busMatches??0} SHADOW_HIT=${Boolean(x.shadow)}`);
+              (x.routeRows||[]).forEach((v,n)=>console.log(`ROUTE_${n+1} type=${v.attendanceType||'-'} actual=${thai(v.actualArrivalAt)} iso=${v.actualArrivalAt||'-'}`));
+              (x.busRows||[]).forEach((v,n)=>console.log(`BUS_${n+1} tbr=${thai(v.scheduleTbrArrivalAt)} tbrIso=${v.scheduleTbrArrivalAt||'-'} kit=${thai(v.scheduleKitArrivalAt)} kitIso=${v.scheduleKitArrivalAt||'-'}`));
+              console.log(`DECISION=${x.decision||'-'}`);
+              if(x.shadow) console.log(`SHADOW status=${x.shadow.status} tbr=${x.shadow.tbrAt} actual=${x.shadow.routeActualArrivalAt} lead=${x.shadow.leadMinutes}`);
             }
+            if(j.connectorTokenExposed!==false) throw new Error('debug route exposed connector token');
             console.log('CONNECTOR_TOKEN_EXPOSED=NO');
             console.log('PRODUCTION_TOUCHED=NO');
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
+
+      - name: Restore normal Browser TEST source
+        if: always()
+        run: |
+          git checkout -- cloudflare-browser-test/src/index.js
+          node --check cloudflare-browser-test/src/index.js
+          ! grep -q 'TBR_HASH_DEBUG_ONCE' cloudflare-browser-test/src/index.js
+          cd cloudflare-browser-test
+          npx wrangler deploy --config wrangler.jsonc
+          echo 'BROWSER_TEST_NORMAL_SOURCE_RESTORED=PASS'
+          echo 'PRODUCTION_TOUCHED=NO'

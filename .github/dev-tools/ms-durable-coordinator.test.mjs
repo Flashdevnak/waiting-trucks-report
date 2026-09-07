@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { patchDevDurableCoordinator } from "./patch-ms-durable-coordinator.mjs";
+import {
+  ManifestRefreshCache,
+  ORIGIN_MANIFEST_POLICY,
+  activeOriginDays,
+  applyManifestToRows,
+  normalizeManifestRows,
+  originManifestFrontendSource,
+  readManifestPage,
+  wrapOriginManifestAssets,
+} from "../../worker/src/origin-manifest-v1.js";
 
 const root = new URL("../../", import.meta.url);
 const workerSource = await readFile(new URL("worker/src/index.js", root), "utf8");
@@ -54,4 +64,141 @@ test("DEV deployment stages and validates coordinator before deploy", () => {
   assert.match(stage, /patchDevDurableCoordinator/);
   assert.match(stage, /output = patchDevDurableCoordinator\(output\)/);
   assert.match(workflow, /node --check src\/index\.js/);
+});
+
+test("Origin LH Manifest V1 keeps authority and quota boundaries", () => {
+  assert.equal(ORIGIN_MANIFEST_POLICY.marker, "MS_ORIGIN_LH_MANIFEST_V1");
+  assert.equal(ORIGIN_MANIFEST_POLICY.refreshMs, 300000);
+  assert.equal(ORIGIN_MANIFEST_POLICY.sharedPerHub, true);
+  assert.equal(ORIGIN_MANIFEST_POLICY.originOnly, true);
+  assert.equal(ORIGIN_MANIFEST_POLICY.matchKey, "proofId");
+  assert.equal(ORIGIN_MANIFEST_POLICY.pageSize, 100);
+  assert.equal(ORIGIN_MANIFEST_POLICY.weightUnit, "Kg");
+  assert.equal(ORIGIN_MANIFEST_POLICY.dataPersistenceWrites, 0);
+  assert.equal(ORIGIN_MANIFEST_POLICY.analyticsWrites, 0);
+  assert.equal(ORIGIN_MANIFEST_POLICY.extraMsPolling, 0);
+  assert.equal(ORIGIN_MANIFEST_POLICY.queueAuthority, false);
+  assert.equal(ORIGIN_MANIFEST_POLICY.actualArrivalAuthority, "ROUTE");
+});
+
+test("Origin LH Manifest V1 is staged into existing shared coordinator and APIs", () => {
+  for (const marker of [
+    'from "./origin-manifest-v1.js"',
+    "wrapOriginManifestAssets(env)",
+    'action === "msOriginManifestStatus"',
+    'action === "msOriginManifestLive"',
+    'action === "saveMsOriginManifestConnection"',
+    'this.originManifest = new OriginManifestCoordinator(ctx, env)',
+    'url.pathname.startsWith("/origin-manifest/")',
+  ]) assert.ok(worker.includes(marker), `staged worker missing ${marker}`);
+  assert.match(worker, /MS_REFRESH_COORDINATOR\.idFromName\(branch\)/);
+  assert.doesNotMatch(worker, /d1_databases|origin_manifest_cache|manifest_history/i);
+});
+
+test("ten simultaneous origin trucks use one business day source set", () => {
+  const rows = Array.from({ length: 10 }, (_, index) => ({
+    proofId: `NE1-${index}`,
+    attendanceType: "ต้นทาง",
+    estimatedDepartureAt: "2026-09-08T03:00:00.000Z",
+    actualDepartureAt: "",
+  }));
+  rows.push({ proofId: "DEST", attendanceType: "ปลายทาง", estimatedDepartureAt: "2026-09-08T03:00:00.000Z" });
+  rows.push({ proofId: "DONE", attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-08T03:00:00.000Z", actualDepartureAt: "2026-09-08T04:00:00.000Z" });
+  assert.deepEqual(activeOriginDays(rows), ["2026-09-08"]);
+});
+
+test("shared 5-minute cache coalesces concurrent clients", async () => {
+  let calls = 0;
+  let now = Date.parse("2026-09-08T03:00:00.000Z");
+  const cache = new ManifestRefreshCache({
+    now: () => now,
+    loader: async (day) => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return { day, rows: [{ proofId: "A", actual_shipment_total: 10, weight: 50 }], total: 1, pages: 1, upstreamRequests: 1, fetchedAt: new Date(now).toISOString() };
+    },
+  });
+  const results = await Promise.all(Array.from({ length: 10 }, () => cache.get("2026-09-08")));
+  assert.equal(calls, 1);
+  assert.equal(results.length, 10);
+  await cache.get("2026-09-08");
+  assert.equal(calls, 1);
+  now += 300001;
+  await cache.get("2026-09-08");
+  assert.equal(calls, 2);
+});
+
+test("manifest joins by proofId and enriches origin rows only", () => {
+  const manifest = normalizeManifestRows([
+    { proofId: "ABC 123", actual_shipment_total: "1,250", weight: "8742.50" },
+    { proofId: "ABC123", actual_shipment_total: "1249", weight: "8700" },
+  ], "2026-09-08T03:00:00.000Z");
+  const rows = applyManifestToRows([
+    { proofId: "ABC123", attendanceType: "ต้นทาง" },
+    { proofId: "ABC123", attendanceType: "ปลายทาง" },
+  ], manifest);
+  assert.equal(rows[0].manifestShippedParcels, 1250);
+  assert.equal(rows[0].manifestWeightKg, 8742.5);
+  assert.equal(rows[0].manifestSource, "LH_MANIFEST");
+  assert.equal(rows[1].manifestShippedParcels, undefined);
+});
+
+test("manifest page reads HUB summary in one 100-row request", async () => {
+  let seenUrl = "";
+  let seenBody = "";
+  const result = await readManifestPage({
+    auth: "test-auth",
+    lang: "th",
+    fbid: "fbid",
+    time: "123",
+    webSign: "hbi",
+    _from: "web",
+    storeFrom: "TH27011602",
+  }, "2026-09-08", 1, async (url, init) => {
+    seenUrl = String(url);
+    seenBody = String(init.body);
+    return new Response(JSON.stringify({
+      code: 1,
+      data: { DataList: [{ proofId: "A", actual_shipment_total: 10, weight: 20.5 }], total: 1 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const url = new URL(seenUrl);
+  assert.equal(url.pathname, "/api/route/route_outhouse");
+  assert.equal(url.searchParams.get("storeFrom"), "TH27011602");
+  assert.equal(url.searchParams.get("page_size"), "100");
+  assert.match(seenBody, /auth=test-auth/);
+  assert.match(seenBody, /webSign=hbi/);
+  assert.equal(result.total, 1);
+});
+
+test("frontend addon shows origin parcels and Kg and polls source only every five minutes", async () => {
+  const source = originManifestFrontendSource();
+  for (const marker of [
+    "MS_ORIGIN_LH_MANIFEST_V1",
+    "พัสดุออกจริง",
+    "น้ำหนัก",
+    " Kg",
+    "msOriginManifestLive",
+    "saveMsOriginManifestConnection",
+    "5 * 60 * 1000",
+    "queueInfo(row).active",
+    "localStorage",
+  ]) assert.ok(source.includes(marker), `frontend missing ${marker}`);
+
+  const env = {
+    ASSETS: {
+      fetch: async (request) => new Response(
+        new URL(request.url).pathname === "/ms.js" ? "console.log('base');" : "plain",
+        { status: 200, headers: { "content-type": "application/javascript" } },
+      ),
+    },
+    DB: { sentinel: true },
+  };
+  const wrapped = wrapOriginManifestAssets(env);
+  assert.equal(wrapped.DB, env.DB);
+  const js = await (await wrapped.ASSETS.fetch(new Request("https://dev.test/ms.js"))).text();
+  assert.match(js, /console\.log\('base'\)/);
+  assert.match(js, /MS_ORIGIN_LH_MANIFEST_V1/);
+  const other = await (await wrapped.ASSETS.fetch(new Request("https://dev.test/style.css"))).text();
+  assert.equal(other, "plain");
 });

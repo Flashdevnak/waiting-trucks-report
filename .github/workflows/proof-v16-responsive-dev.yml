@@ -33,5 +33,5 @@ jobs:
       - name: Smoke live DEV Proof at desktop tablet mobile
         env:
           PROOF_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
-          PROOF_V16_ASSET: proof-v16.js?v=20260907-05
+          PROOF_V16_ASSET: proof-v16.js?v=20260907-06
         run: node .github/dev-tools/proof-v16-live-responsive-smoke.mjs

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { maybeHandleProofUiV15 } from '../src/proof-ui-v15.js';
 
 const source = await fs.readFile(new URL('../src/proof-ui-v15.js', import.meta.url), 'utf8');
+const baseActionsSource = await fs.readFile(new URL('../../proof-v2-actions.js', import.meta.url), 'utf8');
 
 test('Proof V15 asset is Proof-only and serves successfully', async () => {
   const ok = await maybeHandleProofUiV15(new Request('https://dev.test/proof-v15.js'));
@@ -42,4 +43,10 @@ test('Proof V15 popup text polish is event-scoped and never observes the whole D
   assert.match(source, /PROOF_EDITOR_EVENT_POLISH_V15/);
   assert.match(source, /P\.renderEditorSearchItems = \(\.\.\.args\) =>/);
   assert.doesNotMatch(source, /new MutationObserver\s*\(/);
+});
+
+test('Proof base editor copy has no visible bullet arrow or dash placeholders', () => {
+  assert.doesNotMatch(baseActionsSource, /[•→]/);
+  assert.doesNotMatch(baseActionsSource, /['"]—['"]/);
+  assert.doesNotMatch(baseActionsSource, />—</);
 });

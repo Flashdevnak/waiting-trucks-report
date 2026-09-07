@@ -27,18 +27,11 @@ jobs:
           p=Path('worker/src/proof-plate-search-v5.js')
           s=p.read_text()
           if 'PROOF_PLATE_HAR_EXACT_V14' not in s:
-              old="""  for(const variant of variants){\n    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}\n  }"""
-              new="""  // PROOF_PLATE_HAR_EXACT_V14: first request mirrors the captured MS car/info search exactly: no id param, pageSize 20.\n  for(const variant of variants){\n    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,plateNumber:variant,pageSize:'20',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}\n  }"""
-              if old not in s: raise SystemExit('primary plate anchor missing')
-              s=s.replace(old,new,1)
-              old2="""  for(const variant of variants.slice(0,2)){\n    for(const endpoint of [primary,fallback]){\n      try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:''});anySuccess=true;const ranked=rankPlateItems(items,q,'');if(ranked.length)return ranked;}catch(error){lastError=error;}\n    }\n  }"""
-              new2="""  for(const variant of variants.slice(0,2)){\n    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,plateNumber:variant,pageSize:'20',pageNum:'1',plateType:''});anySuccess=true;const ranked=rankPlateItems(items,q,'');if(ranked.length)return ranked;}catch(error){lastError=error;}\n    try{const items=await fetchPlateSearch(credentials,fallback,{fleetId,plateNumber:variant,pageSize:'50',pageNum:'1',plateType:''});anySuccess=true;const ranked=rankPlateItems(items,q,'');if(ranked.length)return ranked;}catch(error){lastError=error;}\n  }"""
-              if old2 not in s: raise SystemExit('untyped plate anchor missing')
-              s=s.replace(old2,new2,1)
-              old3="""      try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,id:'',plateNumber:'',pageSize:'100',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}"""
-              new3="""      try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,plateNumber:'',pageSize:'100',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}"""
-              if old3 not in s: raise SystemExit('recovery plate anchor missing')
-              s=s.replace(old3,new3,1)
+              needle="for(const variant of variants){\n    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:requiredType});"
+              repl="// PROOF_PLATE_HAR_EXACT_V14: first request mirrors captured MS car/info: no id param, pageSize 20.\n  for(const variant of variants){\n    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,plateNumber:variant,pageSize:'20',pageNum:'1',plateType:requiredType});"
+              if needle not in s: raise SystemExit('typed primary plate anchor missing')
+              s=s.replace(needle,repl,1)
+              s=s.replace("{fleetId,id:'',plateNumber:","{fleetId,plateNumber:")
               p.write_text(s)
               print('patched plate search')
           else:
@@ -56,6 +49,7 @@ jobs:
           git add worker/src/proof-plate-search-v5.js
           git diff --cached --quiet && exit 0
           git commit -m "Match Proof plate search to captured MS HAR"
+          git pull --rebase origin main
           git push origin HEAD:main
       - name: Dispatch DEV deploy
         env:

@@ -27,7 +27,7 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === "/proof-v10.js") {
         const base = await proofUiV10Response.text();
-        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-03','proofV15Loader');add('/proof-v16.js?v=20260907-04','proofV16Loader');})();`;
+        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-03','proofV15Loader');add('/proof-v16.js?v=20260907-05','proofV16Loader');})();`;
         return new Response(base + loader, {
           status: proofUiV10Response.status,
           headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' },

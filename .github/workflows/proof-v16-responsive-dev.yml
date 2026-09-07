@@ -68,7 +68,7 @@ jobs:
       - name: Verify live V16 dropdown patch
         env:
           PROOF_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
-          PROOF_V16_ASSET: proof-v16.js?v=20260907-06
+          PROOF_V16_ASSET: proof-v16.js?v=20260908-01
         run: |
           node <<'NODE'
           const origin=process.env.PROOF_DEV_ORIGIN;
@@ -78,14 +78,16 @@ jobs:
           const text=await response.text();
           if(!response.ok) throw new Error(`Proof V16 asset HTTP ${response.status}`);
           if(!text.includes('__PROOF_V16_DROPDOWN_SWITCH_FIX__')) throw new Error('live Proof V16 dropdown switch patch missing');
+          if(!text.includes('PROOF_COMMAND_FILTER_FIX_V16')) throw new Error('live Proof V16 command filter patch missing');
           if(text.includes('proof-v17')||text.includes('PROOF_V17')) throw new Error('V17 marker returned by live Proof V16 asset');
           console.log('PROOF_V16_DROPDOWN_ASSET=PASS');
+          console.log('PROOF_V16_COMMAND_FILTER_ASSET=PASS');
           console.log('PROOF_V17_LIVE_MARKER=0');
           NODE
       - name: Smoke live DEV Proof at desktop tablet mobile
         env:
           PROOF_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
-          PROOF_V16_ASSET: proof-v16.js?v=20260907-06
+          PROOF_V16_ASSET: proof-v16.js?v=20260908-01
         run: node .github/dev-tools/proof-v16-live-responsive-smoke.mjs
       - name: Verify live DEV Proof service-date contract
         env:

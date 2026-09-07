@@ -32,6 +32,8 @@ test('Proof V16 command cards filter departed and extra rows instead of falling 
   assert.match(source, /filter !== 'departed' && filter !== 'extra'/);
   assert.match(source, /P\.proofDepartedVehicle\(row\)/);
   assert.match(source, /Number\(row\?\.lineMode\) === 2/);
+  assert.doesNotMatch(source, /departedCardV16\.dataset\.proofV10Filter = 'all'/);
+  assert.doesNotMatch(source, /extraCardV16\.dataset\.proofV10Filter = 'all'/);
   assert.doesNotMatch(source, /setInterval\s*\(/);
 });
 

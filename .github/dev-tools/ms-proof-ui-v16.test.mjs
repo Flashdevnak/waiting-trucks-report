@@ -8,8 +8,8 @@ const responsiveWorkflow = await readFile(new URL('../workflows/proof-v16-respon
 const postCutoverWorkflow = await readFile(new URL('../workflows/post-cutover-regression.yml', import.meta.url), 'utf8');
 const responsiveSmoke = await readFile(new URL('./proof-v16-live-responsive-smoke.mjs', import.meta.url), 'utf8');
 
-test('Proof V16.06 keeps quick-day controls inside the date field', () => {
-  assert.match(ui, /const VERSION = '20260907-06'/);
+test('Proof V16 current release keeps quick-day controls inside the date field', () => {
+  assert.match(ui, /const VERSION = '20260908-01'/);
   assert.match(ui, /dayRow\.className = 'proof-day-row-v16'/);
   assert.match(ui, /dayInput\.insertAdjacentElement\('beforebegin', dayRow\)/);
   assert.match(ui, /dayRow\.appendChild\(dayInput\)/);
@@ -25,6 +25,16 @@ test('Proof V16.06 keeps quick-day controls inside the date field', () => {
   assert.match(ui, /select,.proof-toolbar-v16 input\{height:44px!important;min-height:44px!important/);
   assert.match(ui, /proof-quick-day-v16 button\{[^}]*min-height:44px/);
   assert.match(ui, /@media\(max-width:430px\)\{[\s\S]*proof-day-row-v16\{grid-template-columns:minmax\(0,1fr\) 216px\}/);
+});
+
+test('Proof V16 command cards map departed and extra to their counted row predicates', () => {
+  assert.match(ui, /PROOF_COMMAND_FILTER_FIX_V16/);
+  assert.match(ui, /departedCardV16\.dataset\.proofV10Filter = 'departed'/);
+  assert.match(ui, /extraCardV16\.dataset\.proofV10Filter = 'extra'/);
+  assert.match(ui, /ensureStateOptionV16\('departed', 'ออกแล้ว'\)/);
+  assert.match(ui, /ensureStateOptionV16\('extra', 'รถเสริม'\)/);
+  assert.match(ui, /P\.proofDepartedVehicle\(row\)/);
+  assert.match(ui, /Number\(row\?\.lineMode\) === 2/);
 });
 
 test('Proof toolbar prioritizes search HUB date and stays responsive', () => {
@@ -57,16 +67,19 @@ test('Proof V16 UI polish adds no browser network or polling loop', () => {
 });
 
 test('Turso loader and served V16 asset use the same cache-buster', () => {
-  assert.match(loader, /proof-v16\.js\?v=20260907-06/);
+  assert.match(loader, /proof-v16\.js\?v=20260908-01/);
   assert.match(loader, /maybeHandleProofUiV16/);
   assert.match(loader, /databaseEnv\(env\)/);
   assert.doesNotMatch(loader, /proof-ui-v17|proof-v17\.js/);
 });
 
-test('permanent responsive and post-cutover gates track the same V16.06 release', () => {
-  assert.match(responsiveWorkflow, /PROOF_V16_ASSET: proof-v16\.js\?v=20260907-06/);
-  assert.match(responsiveSmoke, /EXPECTED_ASSET = process\.env\.PROOF_V16_ASSET \|\| 'proof-v16\.js\?v=20260907-06'/);
-  assert.match(responsiveSmoke, /SMOKE_VERSION = '20260907-02'/);
+test('permanent responsive and post-cutover gates track the current V16 release', () => {
+  assert.match(responsiveWorkflow, /PROOF_V16_ASSET: proof-v16\.js\?v=20260908-01/);
+  assert.match(responsiveSmoke, /EXPECTED_ASSET = process\.env\.PROOF_V16_ASSET \|\| 'proof-v16\.js\?v=20260908-01'/);
+  assert.match(responsiveSmoke, /SMOKE_VERSION = '20260908-01'/);
+  assert.match(responsiveSmoke, /departedFilter/);
+  assert.match(responsiveSmoke, /extraFilter/);
+  assert.match(responsiveSmoke, /PROOF_V16_COMMAND_FILTERS=PASS/);
   assert.match(responsiveSmoke, /BROWSER_MUTATION_METHODS=0/);
   assert.match(postCutoverWorkflow, /- worker\/tests\/\*\*/);
   assert.doesNotMatch(postCutoverWorkflow, /- worker\/test\/\*\*/);

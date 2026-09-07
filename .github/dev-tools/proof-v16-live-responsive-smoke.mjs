@@ -4,9 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const SMOKE_VERSION = '20260907-02';
+const SMOKE_VERSION = '20260908-01';
 const ORIGIN = process.env.PROOF_DEV_ORIGIN || 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
-const EXPECTED_ASSET = process.env.PROOF_V16_ASSET || 'proof-v16.js?v=20260907-06';
+const EXPECTED_ASSET = process.env.PROOF_V16_ASSET || 'proof-v16.js?v=20260908-01';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function chromePath() {
@@ -84,6 +84,9 @@ const probe = `(() => {
   const day=document.querySelector('.proof-day-field-v16');
   const dayInput=document.querySelector('#day-filter');
   const quick=document.querySelector('#proof-quick-day-v16');
+  const departedCard=document.querySelector("[data-proof-v10-count='departed']")?.closest('[data-proof-v10-filter]');
+  const extraCard=document.querySelector("[data-proof-v10-count='extra']")?.closest('[data-proof-v10-filter]');
+  const stateFilterValues=[...document.querySelectorAll('#state-filter option')].map(option=>option.value);
   const resources=performance.getEntriesByType('resource').map(entry=>entry.name);
   const fixture=document.createElement('div');
   fixture.style.cssText='position:absolute;left:0;top:0;width:100%;max-width:100%;opacity:0;pointer-events:none;z-index:-9999;overflow:hidden';
@@ -102,6 +105,7 @@ const probe = `(() => {
     controlHeights:[...(toolbar?.querySelectorAll('select,input')||[])].map(e=>Math.round(rect(e).height)),
     quickInside:Boolean(dayInput?.closest('label')?.contains(quick)),quickCount:quick?.querySelectorAll('button').length||0,
     quickLabels:[...(quick?.querySelectorAll('button strong')||[])].map(e=>e.textContent.trim()),quickButtons:[...(quick?.querySelectorAll('button')||[])].map(rect),
+    departedFilter:departedCard?.dataset?.proofV10Filter||'',extraFilter:extraCard?.dataset?.proofV10Filter||'',stateFilterValues,
     v16Asset:resources.some(name=>name.includes('/${EXPECTED_ASSET}')),v17Asset:resources.some(name=>name.includes('/proof-v17')),
     columnsDisplay:css(columns)?.display||'',cellLabelDisplay:css(cellLabel)?.display||'',
     statusBg:css(status)?.backgroundColor||'',tagBg:css(tag)?.backgroundColor||'',vehicleBg:css(vehicle)?.backgroundColor||'',
@@ -120,7 +124,11 @@ function common(name,r,width){
   assert.deepEqual(r.quickLabels,['เมื่อวาน','วันนี้','พรุ่งนี้'],`${name}: quick-date labels`);
   assert.ok(r.controlHeights.length>=7,`${name}: toolbar controls missing`);
   assert.ok(r.controlHeights.every(h=>Math.abs(h-44)<=1),`${name}: controls must be equal 44px: ${r.controlHeights}`);
-  assert.equal(r.v16Asset,true,`${name}: V16.06 asset missing`);
+  assert.equal(r.departedFilter,'departed',`${name}: ออกแล้ว command card is not mapped to departed`);
+  assert.equal(r.extraFilter,'extra',`${name}: รถเสริม command card is not mapped to extra`);
+  assert.ok(r.stateFilterValues.includes('departed'),`${name}: departed state option missing`);
+  assert.ok(r.stateFilterValues.includes('extra'),`${name}: extra state option missing`);
+  assert.equal(r.v16Asset,true,`${name}: current V16 asset missing`);
   assert.equal(r.v17Asset,false,`${name}: V17 asset requested`);
   for(const box of [r.toolbar,r.search,r.hub,r.day]) assert.ok(box&&box.x>=-1&&box.right<=width+1,`${name}: toolbar box overflow ${JSON.stringify(box)}`);
   for(const value of [r.statusBg,r.tagBg,r.vehicleBg]) assert.notEqual(value,'rgba(0, 0, 0, 0)',`${name}: badge contrast missing`);
@@ -164,7 +172,7 @@ async function main(){
     }
     const mutationMethods=cdp.events.filter(e=>e.method==='Network.requestWillBeSent').map(e=>e.params?.request?.method).filter(m=>m&&!['GET','HEAD','OPTIONS'].includes(m));
     assert.deepEqual(mutationMethods,[],'Browser smoke emitted a mutation HTTP method');
-    console.log('PROOF_V16_LIVE_ASSET=PASS'); console.log('PROOF_V17_LIVE_REQUESTS=0'); console.log('PROOF_V16_QUICK_DATE=PASS'); console.log('PROOF_V16_TABLE_BADGES=PASS'); console.log('PROOF_V16_HERO_A=PASS'); console.log('BROWSER_MUTATION_METHODS=0'); console.log('MS_MUTATION_TESTED=NO'); console.log('PRODUCTION_TOUCHED=NO');
+    console.log('PROOF_V16_LIVE_ASSET=PASS'); console.log('PROOF_V17_LIVE_REQUESTS=0'); console.log('PROOF_V16_QUICK_DATE=PASS'); console.log('PROOF_V16_COMMAND_FILTERS=PASS'); console.log('PROOF_V16_TABLE_BADGES=PASS'); console.log('PROOF_V16_HERO_A=PASS'); console.log('BROWSER_MUTATION_METHODS=0'); console.log('MS_MUTATION_TESTED=NO'); console.log('PRODUCTION_TOUCHED=NO');
   } finally { cdp.close(); child.kill('SIGTERM'); await sleep(300); await rm(profile,{recursive:true,force:true}).catch(()=>{}); }
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

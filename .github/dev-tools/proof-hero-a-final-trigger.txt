@@ -1,2 +1,0 @@
-Proof editor hero A final DEV deploy trigger
-PRODUCTION_TOUCHED=NO

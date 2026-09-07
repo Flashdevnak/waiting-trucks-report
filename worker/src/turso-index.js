@@ -13,11 +13,20 @@ import { maybeHandleProofUiV16 } from "./proof-ui-v16.js";
 import { enrichProofRoutesV16, captureProofEditorMetaV16 } from "./proof-route-meta-v16.js";
 import { maybeHandleProofHistoryV10 } from "./proof-history-v10.js";
 
+async function appendProofV16ShellSwitchFix(response) {
+  const base = await response.text();
+  const shellSwitch = `\n;(()=>{if(window.__PROOF_V16_DROPDOWN_SWITCH_FIX__)return;window.__PROOF_V16_DROPDOWN_SWITCH_FIX__=true;const selector='.dev-unified-header details.app-nav';document.addEventListener('click',(event)=>{const summary=event.target.closest(selector+' > summary');if(!summary)return;event.preventDefault();event.stopImmediatePropagation();const owner=summary.parentElement;const shouldOpen=!owner.open;document.querySelectorAll(selector).forEach((item)=>{if(item!==owner)item.open=false;});owner.open=shouldOpen;},true);})();`;
+  const headers = new Headers(response.headers);
+  headers.set('Content-Type', 'application/javascript; charset=utf-8');
+  headers.set('Cache-Control', 'no-store');
+  return new Response(base + shellSwitch, { status: response.status, headers });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
     const proofUiV16Response = await maybeHandleProofUiV16(request, runtimeEnv, ctx, worker);
-    if (proofUiV16Response) return proofUiV16Response;
+    if (proofUiV16Response) return appendProofV16ShellSwitchFix(proofUiV16Response);
     const proofUiV15Response = await maybeHandleProofUiV15(request, runtimeEnv, ctx, worker);
     if (proofUiV15Response) return proofUiV15Response;
     const proofUiV14Response = await maybeHandleProofUiV14(request, runtimeEnv, ctx, worker);

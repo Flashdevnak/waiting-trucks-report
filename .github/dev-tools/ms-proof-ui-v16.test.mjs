@@ -10,13 +10,21 @@ const responsiveSmoke = await readFile(new URL('./proof-v16-live-responsive-smok
 
 test('Proof V16.06 keeps quick-day controls inside the date field', () => {
   assert.match(ui, /const VERSION = '20260907-06'/);
-  assert.match(ui, /dayInput\.insertAdjacentElement\('afterend', quick\)/);
+  assert.match(ui, /dayRow\.className = 'proof-day-row-v16'/);
+  assert.match(ui, /dayInput\.insertAdjacentElement\('beforebegin', dayRow\)/);
+  assert.match(ui, /dayRow\.appendChild\(dayInput\)/);
+  assert.match(ui, /dayRow\.appendChild\(quick\)/);
+  assert.match(ui, /proof-quick-day-v16\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\);gap:0/);
+  assert.match(ui, /button\.setAttribute\('aria-current', 'date'\)/);
+  assert.doesNotMatch(ui, /dayInput\.insertAdjacentElement\('afterend', quick\)/);
   assert.doesNotMatch(ui, /proof-quick-day-detached-v16/);
   assert.doesNotMatch(ui, /toolbar\.insertAdjacentElement\('afterend'/);
+  assert.doesNotMatch(ui, /proof-day-caption-v16|shortDay\s*=/);
   assert.doesNotMatch(ui, /min-height:56px/);
-  assert.match(ui, /#day-filter\{height:44px!important;min-height:44px!important\}/);
+  assert.match(ui, /#day-filter\{height:44px!important;min-height:44px!important/);
   assert.match(ui, /select,.proof-toolbar-v16 input\{height:44px!important;min-height:44px!important/);
   assert.match(ui, /proof-quick-day-v16 button\{[^}]*min-height:44px/);
+  assert.match(ui, /@media\(max-width:430px\)\{[\s\S]*proof-day-row-v16\{grid-template-columns:minmax\(0,1fr\) 210px\}/);
 });
 
 test('Proof toolbar prioritizes search HUB date and stays responsive', () => {

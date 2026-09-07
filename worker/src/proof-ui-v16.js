@@ -1,4 +1,4 @@
-const VERSION = '20260907-02';
+const VERSION = '20260907-03';
 
 export async function maybeHandleProofUiV16(request) {
   const url = new URL(request.url);
@@ -97,6 +97,70 @@ function proofUiV16() {
       return result;
     };
 
+    // PROOF_EDITOR_HERO_A_V16: clean operational header for the print dialog.
+    const polishEditorHero = () => {
+      const dialog = document.getElementById('proof-editor-dialog');
+      if (!dialog?.open) return;
+      const box = dialog.querySelector('.proof-editor-route-box');
+      const route = document.getElementById('proof-editor-route');
+      const status = document.getElementById('proof-editor-status');
+      const plan = document.getElementById('proof-editor-plan');
+      const user = document.getElementById('proof-editor-ms-user');
+      if (!box || !route || !status || !plan || !user) return;
+
+      let hero = box.querySelector('.proof-v16-editor-hero');
+      if (!hero) {
+        hero = document.createElement('div');
+        hero.className = 'proof-v16-editor-hero';
+
+        const routeLabel = document.createElement('div');
+        routeLabel.className = 'proof-v16-editor-route-label';
+        routeLabel.textContent = 'เส้นทาง';
+
+        const statusRow = document.createElement('div');
+        statusRow.className = 'proof-v16-editor-status-row';
+
+        const metaGrid = document.createElement('div');
+        metaGrid.className = 'proof-v16-editor-meta-grid';
+
+        const timeCard = document.createElement('div');
+        timeCard.className = 'proof-v16-editor-meta-card';
+        const timeLabel = document.createElement('small');
+        timeLabel.textContent = 'เวลา';
+        timeCard.append(timeLabel, plan);
+
+        const userCard = document.createElement('div');
+        userCard.className = 'proof-v16-editor-meta-card';
+        const userLabel = document.createElement('small');
+        userLabel.textContent = 'ผู้ใช้งาน';
+        userCard.append(userLabel, user);
+
+        statusRow.append(status);
+        metaGrid.append(timeCard, userCard);
+        hero.append(routeLabel, route, statusRow, metaGrid);
+        box.replaceChildren(hero);
+      }
+
+      const stateCode = Number(P.editorState?.detail?.proofState ?? P.editorState?.row?.proofState ?? 0);
+      status.className = `proof-v16-editor-status is-state-${Number.isFinite(stateCode) ? stateCode : 0}`;
+      const planText = String(plan.textContent || '')
+        .replace(/^เวลา\s*:\s*/,'')
+        .replace(/\s*→\s*/g,' ถึง ')
+        .replace(/\s{2,}/g,' ')
+        .trim();
+      if (planText) plan.textContent = planText;
+      user.textContent = String(user.textContent || '').replace(/^ผู้ใช้งาน\s*:\s*/,'').trim() || 'ยังไม่ระบุ';
+    };
+
+    const baseOpenEditorV16 = P.openEditor;
+    if (typeof baseOpenEditorV16 === 'function') {
+      P.openEditor = (row, detail) => {
+        const result = baseOpenEditorV16(row, detail);
+        setTimeout(polishEditorHero, 0);
+        return result;
+      };
+    }
+
     syncQuickDays();
     scheduleSupplierCacheRefresh();
 
@@ -110,8 +174,23 @@ function proofUiV16() {
       .proof-quick-day-v16 button strong{font-size:10px}.proof-quick-day-v16 button span{font-size:8.5px;color:#63717c;margin-top:2px}
       .proof-quick-day-v16 button:hover{border-color:#c7a800;background:#fffbe8}.proof-quick-day-v16 button.is-active{background:#151515;border-color:#151515;color:#ffd400}
       .proof-quick-day-v16 button.is-active span{color:#fff2a6}.proof-quick-day-v16>small{grid-column:1/-1;text-align:center;color:#66747e;font-size:9px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      @media(max-width:760px){.proof-toolbar label:has(#day-filter){grid-column:1/-1!important;width:100%!important}.proof-quick-day-v16{gap:7px}.proof-quick-day-v16 button{padding:7px 5px}.proof-quick-day-v16 button strong{font-size:12px}.proof-quick-day-v16 button span{font-size:9.5px}}
-      @media(max-width:430px){.proof-toolbar label:has(#day-filter){grid-column:1/-1!important;width:100%!important}.proof-quick-day-v16{gap:6px}.proof-quick-day-v16 button{padding:8px 4px}.proof-quick-day-v16 button strong{font-size:11.5px}}
+
+      .proof-v15-editor .proof-editor-route-box{padding:18px 20px!important;background:#f8fafb!important}
+      .proof-v16-editor-hero{width:100%;min-width:0;text-align:center}
+      .proof-v16-editor-route-label{font-size:12px;font-weight:800;color:#65727d;margin-bottom:5px}
+      .proof-v16-editor-hero #proof-editor-route{display:block;font-size:22px!important;line-height:1.3!important;font-weight:900!important;color:#13212d!important;word-break:break-word;margin:0 auto!important}
+      .proof-v16-editor-status-row{display:flex;justify-content:center;align-items:center;margin-top:9px}
+      .proof-v16-editor-status{display:inline-flex!important;align-items:center;justify-content:center;min-height:32px;padding:5px 13px;border-radius:999px;border:1px solid #e1ca61;background:#fff4c2;color:#6b5200!important;font-size:13px!important;font-weight:900!important;line-height:1.2!important;white-space:nowrap}
+      .proof-v16-editor-status.is-state-2,.proof-v16-editor-status.is-state-7{background:#edf5ff;border-color:#bfd4ea;color:#234f73!important}
+      .proof-v16-editor-status.is-state-3,.proof-v16-editor-status.is-state-4{background:#eaf7ef;border-color:#bbddc7;color:#285c3a!important}
+      .proof-v16-editor-status.is-state-5,.proof-v16-editor-status.is-state-6{background:#fff0ee;border-color:#ebc5bf;color:#934238!important}
+      .proof-v16-editor-meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:15px;text-align:left}
+      .proof-v16-editor-meta-card{min-width:0;background:#fff;border:1px solid #d5dee5;border-radius:11px;padding:10px 12px;box-sizing:border-box}
+      .proof-v16-editor-meta-card>small{display:block!important;font-size:10.5px!important;font-weight:800!important;color:#65727d!important;margin:0 0 5px!important}
+      .proof-v16-editor-meta-card #proof-editor-plan,.proof-v16-editor-meta-card #proof-editor-ms-user{display:block!important;margin:0!important;color:#17232d!important;font-size:14px!important;font-weight:800!important;line-height:1.4!important;white-space:normal!important;word-break:break-word}
+
+      @media(max-width:760px){.proof-toolbar label:has(#day-filter){grid-column:1/-1!important;width:100%!important}.proof-quick-day-v16{gap:7px}.proof-quick-day-v16 button{padding:7px 5px}.proof-quick-day-v16 button strong{font-size:12px}.proof-quick-day-v16 button span{font-size:9.5px}.proof-v16-editor-meta-grid{grid-template-columns:1fr}.proof-v16-editor-hero #proof-editor-route{font-size:19px!important}}
+      @media(max-width:430px){.proof-toolbar label:has(#day-filter){grid-column:1/-1!important;width:100%!important}.proof-quick-day-v16{gap:6px}.proof-quick-day-v16 button{padding:8px 4px}.proof-quick-day-v16 button strong{font-size:11.5px}.proof-v15-editor .proof-editor-route-box{padding:14px 12px!important}.proof-v16-editor-meta-grid{gap:8px;margin-top:12px}}
     `;
     document.getElementById('proof-v16-style')?.remove();
     document.head.appendChild(style);

@@ -1,0 +1,29 @@
+name: Proof V15 Bounded Gate Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/proof-v15-bounded-gate-temp.yml
+      - .github/proof-v15-visual-gate.cjs
+
+permissions:
+  contents: read
+
+jobs:
+  visual-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Playwright Chromium
+        timeout-minutes: 5
+        run: |
+          mkdir -p /tmp/proof-v15 && cd /tmp/proof-v15
+          npm init -y >/dev/null 2>&1
+          timeout 120s npm install --no-save playwright@1.55.0 >/dev/null 2>&1
+          timeout 240s npx playwright install chromium >/dev/null
+          cp "$GITHUB_WORKSPACE/.github/proof-v15-visual-gate.cjs" ./gate.cjs
+      - name: Run bounded DEV visual gate
+        timeout-minutes: 4
+        run: cd /tmp/proof-v15 && node gate.cjs

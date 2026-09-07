@@ -1,0 +1,4 @@
+Proof V16 final DEV deploy trigger
+Quick date: yesterday / today / tomorrow
+Supplier metadata: shared Turso cache + bounded prewarm
+PRODUCTION_TOUCHED=NO

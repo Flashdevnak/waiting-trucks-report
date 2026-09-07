@@ -10,7 +10,7 @@ permissions:
   contents: write
   actions: write
 
-# Rerun permanent HAR request-shape regression after adding the executable fixture.
+# Final rerun after correcting URL-object support in the permanent HAR fixture.
 jobs:
   patch-test-deploy:
     runs-on: ubuntu-latest

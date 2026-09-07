@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import browserWorker from "../src/index.js";
 import {
   TBR_INTELLIGENCE_POLICY,
   readTbrIntelligenceReport,
@@ -15,6 +16,7 @@ class KV {
   constructor() { this.map = new Map(); this.puts = 0; this.gets = 0; }
   async get(key) { this.gets += 1; return this.map.get(key) ?? null; }
   async put(key, value) { this.puts += 1; this.map.set(key, value); }
+  async delete(key) { this.map.delete(key); }
 }
 
 const STATE = new KV();
@@ -39,12 +41,22 @@ assert.equal(TBR_INTELLIGENCE_POLICY.queueAuthority, false);
 const stagedIndex = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 for (const marker of [
   "TBR_INTELLIGENCE_V1",
+  "TBR_INTELLIGENCE_BOOTSTRAP_V2",
+  "ensureTbrIntelligenceReport",
   'url.pathname === "/api/tbr-intelligence"',
   'shouldAttemptTbrAutoRepair()',
   'recordTbrRepairEvent(env, hub, "connector_bootstrap")',
   'updateTbrIntelligence(env, hub, shadowReport',
 ]) assert.ok(stagedIndex.includes(marker), `missing staged index marker ${marker}`);
 assert.ok(!stagedIndex.includes('TBR_QUEUE_AUTHORITY_ENABLED'), "TBR queue authority must remain disabled");
+const stagedModule = fs.readFileSync(new URL("../src/tbr-intelligence.js", import.meta.url), "utf8");
+for (const marker of [
+  "TBR_INTELLIGENCE_UX_V2",
+  "displayBangkok",
+  "กำลังเก็บข้อมูล",
+  "LIVE ตอนนี้",
+]) assert.ok(stagedModule.includes(marker), `missing Intelligence UX marker ${marker}`);
+
 assert.equal(shouldCheckpointTbrIntelligence(base), true);
 assert.equal(shouldCheckpointTbrIntelligence(base + 15 * 60000), false);
 assert.equal(shouldCheckpointTbrIntelligence(base + 30 * 60000), true);
@@ -106,12 +118,73 @@ const html = await (await tbrIntelligencePage(resolved, report)).text();
 for (const marker of ["TBR Intelligence", "TBR Shadow Test", "Queue authority OFF", "Self-healing / Quota Guard"]) {
   assert.ok(html.includes(marker), `missing page marker ${marker}`);
 }
+assert.ok(html.includes("07/09/2026 23:40:00"), "Bangkok display time missing");
+assert.ok(!html.includes("2026-09-07T23:40:00+07:00"), "raw ISO timestamp leaked into UI");
+
+const BOOTSTRAP_STATE = new KV();
+await BOOTSTRAP_STATE.put("shadow:tbr:v1:NE1", JSON.stringify({
+  version: 2,
+  hub: "NE1",
+  startedAt: "2026-09-07T16:00:00.000Z",
+  updatedAt: "2026-09-07T16:40:00.000Z",
+  healthUpdatedAt: "2026-09-07T16:40:00.000Z",
+  lastAttemptAt: "2026-09-07T16:40:00.000Z",
+  lastObservedAt: "2026-09-07T16:40:00.000Z",
+  sourceAvailable: true,
+  feedCount: 5,
+  rowCount: 5,
+  lastSkip: "",
+  shadowQuota: { mode: "SHADOW_READONLY_SPLIT_V2", tursoPointReadsPerCron: 4, tursoWritesPerCron: 0 },
+  routeFallback: false,
+  routeFallbackAt: "",
+  routeSourceError: null,
+  records: {
+    abc: {
+      status: "confirmed",
+      tbrAt: "2026-09-07T23:40:00+07:00",
+      kitAt: "",
+      firstSeenAt: "2026-09-07T23:40:10+07:00",
+      confirmedAt: "2026-09-07T23:48:10+07:00",
+      expiredAt: "",
+      routeActualArrivalAt: "2026-09-07T23:48:00+07:00",
+      routeSeen: true,
+      attendanceType: "ปลายทาง",
+      leadMinutes: 8,
+    },
+  },
+}));
+const bootstrapEnv = { STATE: BOOTSTRAP_STATE };
+const beforeBootstrapPuts = BOOTSTRAP_STATE.puts;
+const firstBootstrapResponse = await browserWorker.fetch(new Request("https://browser.test/api/tbr-intelligence?hub=NE1"), bootstrapEnv);
+const firstBootstrap = await firstBootstrapResponse.json();
+assert.equal(firstBootstrap.ok, true);
+assert.equal(firstBootstrap.rolling14.candidates, 1);
+assert.equal(firstBootstrap.rolling14.confirmed, 1);
+assert.equal(firstBootstrap.rolling14.resolved, 1);
+assert.equal(firstBootstrap.rolling14.confirmationRate, 100);
+assert.ok(firstBootstrap.createdAt, "bootstrap must persist createdAt");
+assert.equal(BOOTSTRAP_STATE.puts, beforeBootstrapPuts + 1, "first bootstrap must use exactly one Intelligence KV write");
+const afterBootstrapPuts = BOOTSTRAP_STATE.puts;
+const secondBootstrapResponse = await browserWorker.fetch(new Request("https://browser.test/api/tbr-intelligence?hub=NE1"), bootstrapEnv);
+const secondBootstrap = await secondBootstrapResponse.json();
+assert.equal(secondBootstrap.rolling14.candidates, 1);
+assert.equal(BOOTSTRAP_STATE.puts, afterBootstrapPuts, "repeat Intelligence reads must not write again");
+
+const bootstrapPage = await browserWorker.fetch(new Request("https://browser.test/shadow-tbr?hub=NE1"), bootstrapEnv);
+const bootstrapHtml = await bootstrapPage.text();
+assert.ok(bootstrapHtml.includes("ตัวอย่าง 14 วัน<b>1</b>"), "dashboard must show backfilled sample immediately");
+assert.ok(bootstrapHtml.includes("กำลังเก็บข้อมูล"), "readiness must use readable Thai label");
+assert.ok(bootstrapHtml.includes("LIVE ตอนนี้"), "first health checkpoint must show current live state instead of dash");
 
 assert.ok(STATE.puts <= 6, `unexpected test KV write count ${STATE.puts}`);
 console.log("TBR_INTELLIGENCE_V1=PASS");
+console.log("TBR_INTELLIGENCE_BOOTSTRAP_V2=PASS");
+console.log("TBR_INTELLIGENCE_BOOTSTRAP_WRITES=1");
+console.log("TBR_INTELLIGENCE_REPEAT_READ_WRITES=0");
 console.log("TBR_INTELLIGENCE_DEDUPE=PASS");
 console.log("TBR_INTELLIGENCE_HEALTH_ROLLUP=PASS");
 console.log("TBR_INTELLIGENCE_SELF_HEAL=PASS");
+console.log("TBR_INTELLIGENCE_UX_V2=PASS");
 console.log("TBR_INTELLIGENCE_PERIODIC_WRITES_MAX_PER_HUB_DAY=48");
 console.log("TBR_INTELLIGENCE_EXTRA_MS_POLLING=0");
 console.log("TBR_INTELLIGENCE_TURSO_WRITES=0");

@@ -1,0 +1,56 @@
+name: TBR Intelligence Live Gate
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Deploy Browser Worker"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-intelligence:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify TBR Intelligence live bootstrap and safety
+        shell: bash
+        run: |
+          node <<'NODE'
+          const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          async function json(path){
+            const r=await fetch(origin+path,{headers:{accept:'application/json'},cache:'no-store'});
+            const b=await r.json().catch(()=>({}));
+            if(!r.ok||b?.ok===false) throw new Error(`${path} HTTP ${r.status}: ${JSON.stringify(b)}`);
+            return b;
+          }
+          const shadow=await json('/api/shadow-tbr?hub=NE1');
+          const intel=await json('/api/tbr-intelligence?hub=NE1');
+          if(intel?.shadowOnly!==true) throw new Error('Intelligence is not shadow-only');
+          if(intel?.queueAuthority!==false||intel?.actualArrivalAuthority!=='ROUTE') throw new Error('Intelligence authority contract changed');
+          if(intel?.tursoReads!==0||intel?.tursoWrites!==0) throw new Error('Intelligence unexpectedly uses Turso');
+          const shadowRecords=Array.isArray(shadow?.records)?shadow.records:[];
+          const shadowConfirmed=shadowRecords.filter(x=>x?.status==='confirmed').length;
+          if(shadowRecords.length>0 && Number(intel?.rolling14?.candidates||0)===0)
+            throw new Error(`Shadow has ${shadowRecords.length} records but Intelligence has zero candidates`);
+          if(shadowConfirmed>0 && Number(intel?.rolling14?.confirmed||0)===0)
+            throw new Error(`Shadow has ${shadowConfirmed} confirmed rows but Intelligence has zero confirmed samples`);
+          const page=await fetch(origin+'/shadow-tbr?hub=NE1',{cache:'no-store'});
+          const html=await page.text();
+          if(!page.ok||!html.includes('TBR Intelligence')) throw new Error(`Intelligence page HTTP ${page.status}`);
+          if(html.includes('SHADOW_COLLECTING</b>')) throw new Error('Raw readiness code still overflows dashboard card');
+          if(/>20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(html)) throw new Error('Raw ISO timestamp still rendered in Shadow table');
+          console.log(`TBR_LIVE_SHADOW_RECORDS=${shadowRecords.length}`);
+          console.log(`TBR_LIVE_SHADOW_CONFIRMED=${shadowConfirmed}`);
+          console.log(`TBR_LIVE_INTEL_CANDIDATES=${intel?.rolling14?.candidates??'-'}`);
+          console.log(`TBR_LIVE_INTEL_CONFIRMED=${intel?.rolling14?.confirmed??'-'}`);
+          console.log(`TBR_LIVE_INTEL_RESOLVED=${intel?.rolling14?.resolved??'-'}`);
+          console.log(`TBR_LIVE_INTEL_P50=${intel?.rolling14?.p50LeadMinutes??'-'}`);
+          console.log(`TBR_LIVE_READINESS=${intel?.readiness?.status||'-'} SCORE=${intel?.readiness?.score??'-'}`);
+          console.log('TBR_INTELLIGENCE_LIVE_BOOTSTRAP=PASS');
+          console.log('TBR_INTELLIGENCE_LIVE_TURSO_WRITES=0');
+          console.log('TBR_INTELLIGENCE_LIVE_QUEUE_AUTHORITY=0');
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE

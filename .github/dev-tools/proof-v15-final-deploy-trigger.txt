@@ -1,4 +1,0 @@
-Proof V15 final DEV deploy trigger
-Checkpoint source: 61e444431bd8d4236c652a4dc65fba69cac425d2
-DEV only
-PRODUCTION_TOUCHED=NO

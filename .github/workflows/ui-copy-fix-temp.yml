@@ -1,0 +1,107 @@
+name: UI Copy Fix Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ui-copy-fix-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Remove user-visible AI-style separators
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          files = [
+            Path('main.js'),
+            Path('proof.html'),
+            Path('proof.js'),
+            Path('proof-v2-ui.js'),
+            Path('worker/src/proof-ui-v5.js'),
+            Path('worker/src/proof-ui-v10.js'),
+            Path('worker/src/proof-ui-v14.js'),
+          ]
+
+          for path in files:
+            text = path.read_text(encoding='utf-8')
+            before = text
+
+            # User-visible bullet and arrow separators have no programmatic meaning in these files.
+            text = text.replace('•', ' ')
+            text = text.replace('→', 'ถึง')
+
+            # Replace prose em-dash separators while preserving em-dash characters inside regex classes.
+            text = text.replace(' — ', ' ')
+            text = text.replace("'—'", "'ยังไม่ระบุ'")
+            text = text.replace('"—"', '"ยังไม่ระบุ"')
+            text = text.replace('>—<', '>ยังไม่ระบุ<')
+
+            if path.name == 'proof.html':
+              # Separator-only spans add no information; spacing is handled by flex gap.
+              text = text.replace("<span> </span><span id='last-sync'>", "<span id='last-sync'>")
+              text = text.replace("</span>           <span> </span><span id='visible-count'>", "</span><span id='visible-count'>")
+              text = text.replace("</span>           <span> </span><span id='detail-progress'>", "</span><span id='detail-progress'>")
+
+            if text != before:
+              path.write_text(text, encoding='utf-8')
+              print(f'updated {path}')
+
+          # Exact user-banned output chars may remain only in V15's sanitizer rules or regex normalization.
+          # This patch does not touch those internal match rules.
+          PY
+
+          node --check main.js
+          node --check proof.js
+          node --check proof-v2-ui.js
+          node --check worker/src/proof-ui-v5.js
+          node --check worker/src/proof-ui-v10.js
+          node --check worker/src/proof-ui-v14.js
+
+      - name: Run Worker regression suite
+        working-directory: worker
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+          node --test tests/auth-session-resilience.test.mjs
+
+      - name: Guard Proof cadence and cancellation safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'pollMs:60_000' proof-v2-core.js
+          ! grep -R '/fleet/van/proof/cancel_car' worker/src/proof-control.js worker/src/proof-live-v2.js
+          grep -q 'disabled>ยกเลิกรถ' worker/src/proof-ui-v15.js
+          echo 'PROOF_POLL_MS=60000'
+          echo 'CANCELLATION_ENABLED=NO'
+          echo 'MS_MUTATION_TESTED=NO'
+          echo 'PRODUCTION_TOUCHED=NO'
+
+      - name: Commit source cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add main.js proof.html proof.js proof-v2-ui.js worker/src/proof-ui-v5.js worker/src/proof-ui-v10.js worker/src/proof-ui-v14.js
+          if git diff --cached --quiet; then
+            echo 'No source cleanup needed'
+            exit 0
+          fi
+          git commit -m 'Polish visible UI copy across Proof and Waiting'
+          git pull --rebase origin main
+          git push origin HEAD:main

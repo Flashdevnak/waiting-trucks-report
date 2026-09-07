@@ -69,7 +69,7 @@ test("DEV deployment stages and validates coordinator before deploy", () => {
   assert.match(workflow, /node --check src\/index\.js/);
 });
 
-test("five-source HAR setup is responsive and explains HBI SSO without extra polling", () => {
+test("five-source HAR setup stacks every source on its own row across devices without extra polling", () => {
   for (const marker of [
     "MS_CONNECTION_RESPONSIVE_V2",
     "อัปโหลด HAR ทั้ง 5 แหล่ง",
@@ -80,7 +80,8 @@ test("five-source HAR setup is responsive and explains HBI SSO without extra pol
     "HBI SSO แยกจากการล็อกอินหน้า MS",
     "ms-har-cards-v2",
   ]) assert.ok(connectionFrontend.includes(marker), `connection UI missing ${marker}`);
-  assert.match(connectionFrontend, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.ok((connectionFrontend.match(/grid-template-columns:1fr/g) || []).length >= 3);
+  assert.doesNotMatch(connectionFrontend, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(connectionFrontend, /@media\(max-width:760px\)/);
   assert.match(connectionFrontend, /@media\(max-width:420px\)/);
   const start = connectionFrontend.indexOf("function installMsConnectionResponsiveV2");

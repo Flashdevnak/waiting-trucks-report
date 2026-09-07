@@ -1,0 +1,33 @@
+name: UI Copy Audit Temp
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ui-copy-audit-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit visible UI separator characters
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            index.html waiting.html main.js ms.html ms.js ms-report.html ms-report.js
+            proof.html proof.js proof-v2-core.js proof-v2-ui.js proof-v2-actions.js scan.html scan.js
+            worker/src/proof-ui-v5.js worker/src/proof-ui-v10.js worker/src/proof-ui-v14.js worker/src/proof-ui-v15.js
+          )
+          printf '%s\n' '=== VISIBLE_COPY_AUDIT_BEGIN ==='
+          for f in "${files[@]}"; do
+            [ -f "$f" ] || continue
+            grep -nE '[•—→·]' "$f" || true
+          done
+          printf '%s\n' '=== VISIBLE_COPY_AUDIT_END ==='
+          echo 'PRODUCTION_TOUCHED=NO'

@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const VERSION = '20260907-mobile-shell-v7-diag2';
+const VERSION = '20260907-mobile-shell-v7-diag3';
 const ORIGIN = process.env.MOBILE_SHELL_DEV_ORIGIN || 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
 const PAGES = ['ms.html','proof.html','waiting.html','ms-report.html'];
 const VIEWPORTS = [
@@ -84,12 +84,13 @@ async function waitForLiveRelease(){
 }
 
 async function waitReady(cdp,sessionId,page){
-  for(let i=0;i<180;i+=1){
-    const state=await evaluate(cdp,sessionId,`(()=>({ready:document.readyState,header:Boolean(document.querySelector('.dev-unified-header')),details:document.querySelectorAll('.dev-unified-header details.app-nav').length,central:document.querySelectorAll('#central-settings-btn,#settings-btn,.dev-central-settings').length,href:location.href}))()`);
-    if(state?.ready==='complete'&&state.header&&state.details===3&&state.central===1&&state.href.includes(`/${page}`)) return;
+  for(let i=0;i<240;i+=1){
+    const state=await evaluate(cdp,sessionId,`(()=>({ready:document.readyState,header:Boolean(document.querySelector('.dev-unified-header')),details:document.querySelectorAll('.dev-unified-header details.app-nav').length,central:document.querySelectorAll('#central-settings-btn,#settings-btn,.dev-central-settings').length,proofV16:Boolean(window.__PROOF_V16_READY__&&document.getElementById('proof-v16-style')&&document.querySelector('.proof-toolbar-v16')),href:location.href}))()`);
+    const proofReady=page!=='proof.html'||state?.proofV16===true;
+    if(state?.ready==='complete'&&state.header&&state.details===3&&state.central===1&&proofReady&&state.href.includes(`/${page}`)) return;
     await sleep(100);
   }
-  throw new Error(`${page}: shell did not become ready`);
+  throw new Error(`${page}: shell/final UI did not become ready`);
 }
 
 const BASE_PROBE = `(() => {
@@ -111,6 +112,7 @@ const BASE_PROBE = `(() => {
     centralCount:central.length,
     centralHidden:central.every(e=>getComputedStyle(e).display==='none'||e.classList.contains('hidden')),
     openCount:details.filter(d=>d.open).length,
+    proofV16Ready:Boolean(window.__PROOF_V16_READY__&&document.getElementById('proof-v16-style')&&document.querySelector('.proof-toolbar-v16')),
     overflowers,
   };
 })()`;
@@ -145,6 +147,7 @@ function assertBase(label,result,width,mobile){
   for(const box of [...result.summaries,result.status,result.refresh]){
     assert.ok(box&&box.x>=-1&&box.right<=width+1,`${label}: header control overflow ${JSON.stringify(box)}${diagnostic}`);
   }
+  if(label.includes('/proof.html')) assert.equal(result.proofV16Ready,true,`${label}: Proof V16 final UI not ready`);
   if(mobile){
     assert.ok(result.header.height<310,`${label}: mobile header unexpectedly tall ${result.header.height}`);
     const [system,tools,account]=result.summaries;

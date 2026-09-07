@@ -9,12 +9,15 @@ import { maybeHandleProofUiV5 } from "./proof-ui-v5.js";
 import { maybeHandleProofUiV10 } from "./proof-ui-v10.js";
 import { maybeHandleProofUiV14 } from "./proof-ui-v14.js";
 import { maybeHandleProofUiV15 } from "./proof-ui-v15.js";
-import { enrichProofRoutesV15 } from "./proof-route-meta-v15.js";
+import { maybeHandleProofUiV16 } from "./proof-ui-v16.js";
+import { enrichProofRoutesV16, captureProofEditorMetaV16 } from "./proof-route-meta-v16.js";
 import { maybeHandleProofHistoryV10 } from "./proof-history-v10.js";
 
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
+    const proofUiV16Response = await maybeHandleProofUiV16(request, runtimeEnv, ctx, worker);
+    if (proofUiV16Response) return proofUiV16Response;
     const proofUiV15Response = await maybeHandleProofUiV15(request, runtimeEnv, ctx, worker);
     if (proofUiV15Response) return proofUiV15Response;
     const proofUiV14Response = await maybeHandleProofUiV14(request, runtimeEnv, ctx, worker);
@@ -24,7 +27,7 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === "/proof-v10.js") {
         const base = await proofUiV10Response.text();
-        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-02','proofV15Loader');})();`;
+        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-03','proofV15Loader');add('/proof-v16.js?v=20260907-01','proofV16Loader');})();`;
         return new Response(base + loader, {
           status: proofUiV10Response.status,
           headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -39,11 +42,11 @@ export default {
     const proofPlateV5Response = await maybeHandleProofPlateSearchV5(request, runtimeEnv, ctx, worker);
     if (proofPlateV5Response) return proofPlateV5Response;
     const proofEditorResponse = await maybeHandleProofEditor(request, runtimeEnv, ctx, worker);
-    if (proofEditorResponse) return proofEditorResponse;
+    if (proofEditorResponse) return captureProofEditorMetaV16(request, proofEditorResponse, runtimeEnv);
     const proofPreviewResponse = await maybeHandleProofPreview(request, runtimeEnv, ctx, worker);
     if (proofPreviewResponse) return proofPreviewResponse;
     const proofV2Response = await maybeHandleProofLiveV2(request, runtimeEnv, ctx, worker, maybeHandleProofRequest);
-    if (proofV2Response) return enrichProofRoutesV15(request, proofV2Response, runtimeEnv);
+    if (proofV2Response) return enrichProofRoutesV16(request, proofV2Response, runtimeEnv, ctx);
     const proofResponse = await maybeHandleProofRequest(request, runtimeEnv, ctx, worker);
     if (proofResponse) return proofResponse;
     return worker.fetch(request, runtimeEnv, ctx);

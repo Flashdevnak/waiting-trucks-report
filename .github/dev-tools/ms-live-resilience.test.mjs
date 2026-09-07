@@ -38,6 +38,20 @@ test("live resilience keeps existing realtime invariants", () => {
   assert.ok(source.includes("const preserveObservedCompletion ="));
 });
 
-test("staging the already integrated public frontend is idempotent", () => {
-  assert.equal(stageFrontend(source), source);
+test("DEV-only frontend staging is complete, idempotent, and stays out of canonical public source", () => {
+  const first = stageFrontend(source);
+  const second = stageFrontend(first);
+
+  assert.notEqual(first, source);
+  assert.equal(second, first);
+
+  assert.ok(!source.includes("MS_CONNECTION_ERROR_KV_V1"));
+  assert.ok(!source.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V9"));
+  assert.ok(first.includes("MS_CONNECTION_ERROR_KV_V1"));
+  assert.ok(first.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V9"));
+
+  assert.ok(first.includes("LIVE_RESILIENCE_V1"));
+  assert.ok(first.includes(`CONFIG.apiUrl = "${promotedApi}"`));
+  assert.match(first, /pollMs:\s*4000/);
+  assert.ok(first.includes("DEV: archive stays lazy"));
 });

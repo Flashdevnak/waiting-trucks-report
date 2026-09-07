@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { maybeHandleProofUiV16 } from '../src/proof-ui-v16.js';
 
 const source = await fs.readFile(new URL('../src/proof-ui-v16.js', import.meta.url), 'utf8');
+const tursoSource = await fs.readFile(new URL('../src/turso-index.js', import.meta.url), 'utf8');
 
 test('Proof V16 asset serves only the quick-day Proof enhancement', async () => {
   const ok = await maybeHandleProofUiV16(new Request('https://dev.test/proof-v16.js'));
@@ -32,4 +33,14 @@ test('Proof V16 quick date buttons are mobile-safe', () => {
   assert.match(source, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.match(source, /proof-quick-day-v16 button\{[^}]*min-height:44px/);
   assert.match(source, /@media\(max-width:430px\)/);
+});
+
+test('Proof V16 owns deterministic header dropdown switching and V17 stays absent', () => {
+  assert.match(tursoSource, /__PROOF_V16_DROPDOWN_SWITCH_FIX__/);
+  assert.match(tursoSource, /event\.preventDefault\(\)/);
+  assert.match(tursoSource, /event\.stopImmediatePropagation\(\)/);
+  assert.match(tursoSource, /const shouldOpen=!owner\.open/);
+  assert.match(tursoSource, /owner\.open=shouldOpen/);
+  assert.match(tursoSource, /proof-v16\.js\?v=20260907-06/);
+  assert.doesNotMatch(tursoSource, /proof-v17|maybeHandleProofUiV17/i);
 });

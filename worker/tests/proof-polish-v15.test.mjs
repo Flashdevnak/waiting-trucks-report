@@ -37,3 +37,9 @@ test('Proof V15 removes AI-like visible separators without adding background pol
   assert.doesNotMatch(source, /\/api\/proof\/plate-options[^\n]*setTimeout/);
   assert.doesNotMatch(source, /\/api\/proof\/driver-options[^\n]*setTimeout/);
 });
+
+test('Proof V15 popup text polish is event-scoped and never observes the whole DOM continuously', () => {
+  assert.match(source, /PROOF_EDITOR_EVENT_POLISH_V15/);
+  assert.match(source, /P\.renderEditorSearchItems = \(\.\.\.args\) =>/);
+  assert.doesNotMatch(source, /new MutationObserver\s*\(/);
+});

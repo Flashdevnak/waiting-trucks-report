@@ -1,4 +1,4 @@
-const VERSION = '20260907-05';
+const VERSION = '20260907-06';
 
 export async function maybeHandleProofUiV16(request) {
   const url = new URL(request.url);
@@ -13,7 +13,7 @@ function proofUiV16() {
     const P = window.ProofV2;
     if (!window.__PROOF_V15_READY__ || !P || typeof P.loadRoutes !== 'function' || !P.state) return setTimeout(boot, 40);
     if (window.__PROOF_V16_READY__) return;
-    window.__PROOF_V16_READY__ = true; // PROOF_QUICK_DAY_V16 PROOF_LAYOUT_FIX_V16_05
+    window.__PROOF_V16_READY__ = true; // PROOF_QUICK_DAY_V16 PROOF_LAYOUT_FIX_V16_06
 
     const dayInput = P.el('day-filter');
     const dayLabel = dayInput?.closest('label');
@@ -191,11 +191,11 @@ function proofUiV16() {
       .proof-toolbar-v16 .proof-hub-field-v16{order:2!important}
       .proof-toolbar-v16 .proof-day-field-v16{order:3!important;align-self:start!important;height:auto!important;min-width:0}
       .proof-toolbar-v16 label:not(.proof-search-field-v16):not(.proof-hub-field-v16):not(.proof-day-field-v16){order:4!important}
-      .proof-toolbar-v16>#clear-filter-btn{order:5!important;min-height:40px!important;margin-top:22px!important}
-      .proof-toolbar-v16 select,.proof-toolbar-v16 input{height:40px!important;min-height:40px!important;box-sizing:border-box}
-      .proof-toolbar-v16 .proof-day-field-v16 #day-filter{height:40px!important;min-height:40px!important}
+      .proof-toolbar-v16>#clear-filter-btn{order:5!important;min-height:44px!important;height:44px!important;margin-top:22px!important}
+      .proof-toolbar-v16 select,.proof-toolbar-v16 input{height:44px!important;min-height:44px!important;box-sizing:border-box}
+      .proof-toolbar-v16 .proof-day-field-v16 #day-filter{height:44px!important;min-height:44px!important}
       .proof-quick-day-v16{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;width:100%;min-width:0;box-sizing:border-box;margin-top:5px}
-      .proof-quick-day-v16 button{min-width:0;max-width:100%;overflow:hidden;border:1px solid #aebbc4;background:#fff;color:#20313e;border-radius:8px;padding:5px 3px;cursor:pointer;text-align:center;line-height:1.15;box-sizing:border-box}
+      .proof-quick-day-v16 button{min-width:0;max-width:100%;min-height:44px;overflow:hidden;border:1px solid #aebbc4;background:#fff;color:#20313e;border-radius:8px;padding:5px 3px;cursor:pointer;text-align:center;line-height:1.15;box-sizing:border-box}
       .proof-quick-day-v16 button strong,.proof-quick-day-v16 button span{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .proof-quick-day-v16 button strong{font-size:10.5px}.proof-quick-day-v16 button span{font-size:9px;color:#536572;margin-top:2px}
       .proof-quick-day-v16 button:hover{border-color:#a88900;background:#fff8cf}.proof-quick-day-v16 button.is-active{background:#151515;border-color:#151515;color:#ffd400}

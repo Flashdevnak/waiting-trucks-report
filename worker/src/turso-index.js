@@ -25,16 +25,28 @@ const DEV_TABLET_SHELL_CSS = `
   .dev-unified-header .site-header-inner,.dev-unified-header .dev-unified-actions { overflow:visible !important; }
   .dev-unified-header .app-nav { position:static !important; }
   .dev-unified-header .app-nav-menu { position:absolute !important; left:12px !important; right:12px !important; top:calc(100% + 6px) !important; bottom:auto !important; width:auto !important; max-width:none !important; max-height:calc(100dvh - 180px) !important; margin:0 !important; overflow-y:auto !important; overflow-x:hidden !important; overscroll-behavior:contain !important; z-index:999 !important; }
+  .proof-page .proof-toolbar.proof-toolbar-v16 { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:10px !important; align-items:start !important; }
+  .proof-page .proof-toolbar.proof-toolbar-v16 .proof-search-field-v16 { grid-column:1/-1 !important; order:1 !important; min-width:0 !important; }
+  .proof-page .proof-toolbar.proof-toolbar-v16 .proof-hub-field-v16 { grid-column:auto !important; order:2 !important; min-width:0 !important; }
+  .proof-page .proof-toolbar.proof-toolbar-v16 .proof-day-field-v16 { grid-column:auto !important; order:3 !important; width:100% !important; min-width:0 !important; }
+  .proof-page .proof-toolbar.proof-toolbar-v16 label:not(.proof-search-field-v16):not(.proof-hub-field-v16):not(.proof-day-field-v16) { grid-column:auto !important; order:4 !important; min-width:0 !important; }
+  .proof-page .proof-toolbar.proof-toolbar-v16>#clear-filter-btn { grid-column:auto !important; order:5 !important; margin-top:0 !important; min-width:0 !important; width:100% !important; }
+}
+@media (max-width:700px) {
+  .report-page .multi-menu { width:100% !important; max-width:100% !important; min-width:0 !important; overflow-x:hidden !important; }
+  .report-page .multi-menu label { min-width:0 !important; white-space:normal !important; overflow-wrap:anywhere !important; }
 }
 `;
 
 async function appendDevTabletShellCss(response) {
   if (!response?.ok) return response;
   const base = await response.text();
-  if (base.includes('DEV_TABLET_SHELL_CONTAINMENT_V1')) return new Response(base, response);
   const headers = new Headers(response.headers);
   headers.set('Content-Type', 'text/css; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
+  if (base.includes('DEV_TABLET_SHELL_CONTAINMENT_V1')) {
+    return new Response(base, { status: response.status, headers });
+  }
   return new Response(`${base.trimEnd()}\n${DEV_TABLET_SHELL_CSS}`, { status: response.status, headers });
 }
 

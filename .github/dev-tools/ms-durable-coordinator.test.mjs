@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { patchDevDurableCoordinator } from "./patch-ms-durable-coordinator.mjs";
+import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
 import {
   ManifestRefreshCache,
   ORIGIN_MANIFEST_POLICY,
@@ -15,6 +16,7 @@ import {
 
 const root = new URL("../../", import.meta.url);
 const workerSource = await readFile(new URL("worker/src/index.js", root), "utf8");
+const msFrontendSource = await readFile(new URL("ms.js", root), "utf8");
 const config = JSON.parse(
   await readFile(new URL("worker/wrangler.dev.jsonc", root), "utf8"),
 );
@@ -27,6 +29,7 @@ const stage = await readFile(
   "utf8",
 );
 const worker = patchDevDurableCoordinator(workerSource);
+const connectionFrontend = patchMsConnectionErrorKvFrontend(msFrontendSource);
 
 test("DEV routes cross-isolate refresh through one Durable Object per HUB", () => {
   assert.match(worker, /export class MsRefreshCoordinator/);
@@ -64,6 +67,27 @@ test("DEV deployment stages and validates coordinator before deploy", () => {
   assert.match(stage, /patchDevDurableCoordinator/);
   assert.match(stage, /output = patchDevDurableCoordinator\(output\)/);
   assert.match(workflow, /node --check src\/index\.js/);
+});
+
+test("five-source HAR setup is responsive and explains HBI SSO without extra polling", () => {
+  for (const marker of [
+    "MS_CONNECTION_RESPONSIVE_V2",
+    "อัปโหลด HAR ทั้ง 5 แหล่ง",
+    "5. LH Manifest (พัสดุออกจริง / น้ำหนัก Kg)",
+    "5. HAR LH Manifest · พัสดุออกจริง + น้ำหนัก Kg",
+    "5. เปิด LH Manifest (หลังเข้า HBI SSO)",
+    "NEED_LOGIN",
+    "HBI SSO แยกจากการล็อกอินหน้า MS",
+    "ms-har-cards-v2",
+  ]) assert.ok(connectionFrontend.includes(marker), `connection UI missing ${marker}`);
+  assert.match(connectionFrontend, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(connectionFrontend, /@media\(max-width:760px\)/);
+  assert.match(connectionFrontend, /@media\(max-width:420px\)/);
+  const start = connectionFrontend.indexOf("function installMsConnectionResponsiveV2");
+  const end = connectionFrontend.indexOf("async function loadMsConnectionObservedError", start);
+  const responsiveBlock = connectionFrontend.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.doesNotMatch(responsiveBlock, /\bfetch\s*\(|\bapiGet\s*\(|\bapiPost\s*\(|setInterval\s*\(/);
 });
 
 test("Origin LH Manifest V1 keeps authority and quota boundaries", () => {

@@ -24,7 +24,7 @@ test('Proof V16.06 keeps quick-day controls inside the date field', () => {
   assert.match(ui, /#day-filter\{height:44px!important;min-height:44px!important/);
   assert.match(ui, /select,.proof-toolbar-v16 input\{height:44px!important;min-height:44px!important/);
   assert.match(ui, /proof-quick-day-v16 button\{[^}]*min-height:44px/);
-  assert.match(ui, /@media\(max-width:430px\)\{[\s\S]*proof-day-row-v16\{grid-template-columns:minmax\(0,1fr\) 210px\}/);
+  assert.match(ui, /@media\(max-width:430px\)\{[\s\S]*proof-day-row-v16\{grid-template-columns:minmax\(0,1fr\) 216px\}/);
 });
 
 test('Proof toolbar prioritizes search HUB date and stays responsive', () => {

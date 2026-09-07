@@ -6,12 +6,14 @@ import {
   normalizeProofServiceDate,
   patchDevProofCoreServiceDate,
   patchDevProofHtmlServiceDate,
+  proofAssetRequestWithoutQuery,
 } from '../src/proof-service-date-dev.js';
 
 const proofHtml = await fs.readFile(new URL('../../proof.html', import.meta.url), 'utf8');
 const proofCore = await fs.readFile(new URL('../../proof-v2-core.js', import.meta.url), 'utf8');
 const proofLive = await fs.readFile(new URL('../src/proof-live-v2.js', import.meta.url), 'utf8');
 const proofControl = await fs.readFile(new URL('../src/proof-control.js', import.meta.url), 'utf8');
+const tursoIndex = await fs.readFile(new URL('../src/turso-index.js', import.meta.url), 'utf8');
 
 test('DEV Proof service date validates exact calendar days without rewriting valid prior days', () => {
   assert.equal(normalizeProofServiceDate('2026-09-07'), '2026-09-07');
@@ -20,6 +22,17 @@ test('DEV Proof service date validates exact calendar days without rewriting val
   assert.equal(normalizeProofServiceDate('2026-02-30'), '');
   assert.equal(normalizeProofServiceDate('2026-13-01'), '');
   assert.equal(normalizeProofServiceDate('09/06/2026'), '');
+});
+
+test('DEV Proof asset lookup strips query internally while the browser request stays exact', () => {
+  const original = new Request('https://dev.test/proof.html?date=2026-09-06&smoke=1');
+  const assetRequest = proofAssetRequestWithoutQuery(original);
+  assert.equal(original.url, 'https://dev.test/proof.html?date=2026-09-06&smoke=1');
+  assert.equal(assetRequest.url, 'https://dev.test/proof.html');
+  assert.equal(assetRequest.method, original.method);
+  assert.match(tursoIndex, /url\.pathname === '\/proof\.html'/);
+  assert.match(tursoIndex, /proofAssetRequestWithoutQuery\(request\)/);
+  assert.match(tursoIndex, /return applyDevProofServiceDate\(request, response\)/);
 });
 
 test('DEV Proof HTML preserves ?date= so the initial request cannot silently fall back to today', () => {

@@ -1,6 +1,6 @@
 import worker, * as workerModule from "./index.js";
 import { databaseEnv } from "./turso-d1.js";
-import { applyDevProofServiceDate } from "./proof-service-date-dev.js";
+import { applyDevProofServiceDate, proofAssetRequestWithoutQuery } from "./proof-service-date-dev.js";
 import { maybeHandleProofRequest, runProofScheduled } from "./proof-control.js";
 import { maybeHandleProofLiveV2 } from "./proof-live-v2.js";
 import { maybeHandleProofPreview } from "./proof-preview.js";
@@ -96,9 +96,14 @@ export default {
     if (proofV2Response) return enrichProofRoutesV16(request, proofV2Response, runtimeEnv, ctx);
     const proofResponse = await maybeHandleProofRequest(request, runtimeEnv, ctx, worker);
     if (proofResponse) return proofResponse;
-    const response = await worker.fetch(request, runtimeEnv, ctx);
     const url = new URL(request.url);
-    if (request.method === 'GET' && (url.pathname === '/proof.html' || url.pathname === '/proof-v2-core.js')) {
+    if (request.method === 'GET' && url.pathname === '/proof.html') {
+      const assetRequest = proofAssetRequestWithoutQuery(request);
+      const response = await worker.fetch(assetRequest, runtimeEnv, ctx);
+      return applyDevProofServiceDate(request, response);
+    }
+    const response = await worker.fetch(request, runtimeEnv, ctx);
+    if (request.method === 'GET' && url.pathname === '/proof-v2-core.js') {
       return applyDevProofServiceDate(request, response);
     }
     if (request.method === 'GET' && url.pathname === '/style.css') return appendDevTabletShellCss(response);

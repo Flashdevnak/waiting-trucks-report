@@ -16,6 +16,12 @@ export function normalizeProofServiceDate(value) {
     : '';
 }
 
+export function proofAssetRequestWithoutQuery(request) {
+  const assetUrl = new URL(request.url);
+  assetUrl.search = '';
+  return new Request(assetUrl.toString(), request);
+}
+
 function responseWithText(response, text, contentType) {
   const headers = new Headers(response.headers);
   headers.set('Content-Type', contentType);

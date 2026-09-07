@@ -67,6 +67,8 @@ jobs:
       - run: node --test ../.github/dev-tools/daily-history.test.mjs
       - run: node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
+      - name: Verify LH Manifest session replay and compact HAR actions
+        run: node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs --self-test
 
       - name: Reject D1 and verify DEV cron
         run: |
@@ -90,6 +92,7 @@ jobs:
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
+          node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js src/origin-manifest-v1.js
           node --check .dev-assets/main.js
           node --check .dev-assets/ms-report.js
           node --check .dev-assets/ms.js
@@ -98,6 +101,7 @@ jobs:
           node --check .dev-assets/proof-v2-ui.js
           node --check .dev-assets/proof-v2-actions.js
           node --check src/index.js
+          node --check src/origin-manifest-v1.js
           node --check src/turso-d1.js
           node --check src/turso-index.js
           node --check src/proof-control.js
@@ -110,6 +114,7 @@ jobs:
           const proofHtml=fs.readFileSync('.dev-assets/proof.html','utf8');
           const proofWorker=fs.readFileSync('src/proof-control.js','utf8');
           const proofV2=fs.readFileSync('src/proof-live-v2.js','utf8');
+          const originManifest=fs.readFileSync('src/origin-manifest-v1.js','utf8');
           const proofV2Front=fs.readFileSync('.dev-assets/proof-v2-core.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-ui.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-actions.js','utf8');
           const worker=fs.readFileSync('src/index.js','utf8');
           const style=fs.readFileSync('.dev-assets/style.css','utf8');
@@ -120,6 +125,10 @@ jobs:
             if(!worker.includes(marker)) throw new Error(`staged worker missing ${marker}`);
           if(!worker.includes('upstreamMsCalls: 0')||!worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
           if(!worker.includes('baselineRows: (currentCache || cache)?.rows || null')) throw new Error('live-cache baseline missing');
+          if(!front.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('compact HAR action marker missing');
+          if(!originManifest.includes('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2')) throw new Error('origin manifest session replay marker missing');
+          if(!originManifest.includes('requestHeaders.Cookie = credentials.cookie')||!originManifest.includes('requestHeaders.Authorization = credentials.authorization')) throw new Error('origin manifest exact HAR session replay missing');
+          if(!originManifest.includes('MANIFEST_REFRESH_MS = 5 * 60 * 1000')||!originManifest.includes('dataPersistenceWrites: 0')||!originManifest.includes('extraMsPolling: 0')) throw new Error('origin manifest quota contract changed');
 
           for(const marker of ['/api/proof/routes','/api/proof/profile','/api/proof/print','pollMs: 30_000'])
             if(!proofFront.includes(marker)) throw new Error(`proof frontend missing ${marker}`);
@@ -151,6 +160,8 @@ jobs:
           console.log('STAGED_DEV_HEADER_POLISH_V3=PASS');
           console.log('STAGED_HAR_SHARED_ENTRY=PASS');
           console.log('STAGED_AUTH_SESSION_RESILIENCE=PASS');
+          console.log('STAGED_HAR_COMPACT_ACTIONS_V3=PASS');
+          console.log('STAGED_ORIGIN_MANIFEST_SESSION_REPLAY_V2=PASS');
           console.log('STAGED_POLL_MS=4000');
           console.log('STAGED_PROOF_CONTROL=PASS');
           console.log('STAGED_PROOF_CANCEL_COMMANDS=0');
@@ -228,8 +239,11 @@ jobs:
           }
           const ms=await get('ms.html');
           const proof=await get('proof.html');
+          const msJs=await get('ms.js');
           if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');
           if(!proof.includes('ms.html#connection')) throw new Error('Proof shared connection link missing');
+          if(!msJs.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('live compact HAR action marker missing');
+          if(!msJs.includes('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2')) throw new Error('live origin manifest session replay marker missing');
           const cssResponse=await fetch(`${base}/${style}`,{cache:'no-store'});
           const css=await cssResponse.text();
           if(!cssResponse.ok||!css.includes('DEV_HEADER_POLISH_V3')) throw new Error('live UI v3 CSS missing');
@@ -242,6 +256,8 @@ jobs:
           console.log(`DEV_UI_SHARED_STYLE=${style}`);
           console.log('DEV_UI_PASSWORD_ACCOUNT=PASS');
           console.log('DEV_UI_HAR_SHARED_ENTRY=PASS');
+          console.log('DEV_HAR_COMPACT_ACTIONS_V3=PASS');
+          console.log('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2=PASS');
           console.log('DEV_UI_LIVE_AUDIT=PASS');
           console.log('DEV_DATABASE_BACKEND=TURSO');
           console.log('DEV_D1_RUNTIME_BINDING=0');

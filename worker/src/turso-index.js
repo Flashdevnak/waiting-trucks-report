@@ -1,5 +1,6 @@
 import worker, * as workerModule from "./index.js";
 import { databaseEnv } from "./turso-d1.js";
+import { applyDevProofServiceDate } from "./proof-service-date-dev.js";
 import { maybeHandleProofRequest, runProofScheduled } from "./proof-control.js";
 import { maybeHandleProofLiveV2 } from "./proof-live-v2.js";
 import { maybeHandleProofPreview } from "./proof-preview.js";
@@ -97,6 +98,9 @@ export default {
     if (proofResponse) return proofResponse;
     const response = await worker.fetch(request, runtimeEnv, ctx);
     const url = new URL(request.url);
+    if (request.method === 'GET' && (url.pathname === '/proof.html' || url.pathname === '/proof-v2-core.js')) {
+      return applyDevProofServiceDate(request, response);
+    }
     if (request.method === 'GET' && url.pathname === '/style.css') return appendDevTabletShellCss(response);
     return response;
   },

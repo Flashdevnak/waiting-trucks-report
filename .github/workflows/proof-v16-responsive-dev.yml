@@ -8,12 +8,15 @@ on:
     paths:
       - .github/workflows/proof-v16-responsive-dev.yml
       - .github/dev-tools/proof-v16-live-responsive-smoke.mjs
+      - .github/dev-tools/proof-service-date-live-smoke.mjs
       - proof.html
       - 'proof-v2-*.js'
+      - worker/src/proof-service-date-dev.js
       - worker/src/proof-ui-v15.js
       - worker/src/proof-ui-v16.js
       - worker/src/turso-index.js
       - worker/tests/proof-quick-day-v16.test.mjs
+      - worker/tests/proof-service-date-dev.test.mjs
       - .github/dev-tools/ms-proof-ui-v16.test.mjs
   workflow_dispatch:
 
@@ -29,7 +32,9 @@ jobs:
         with:
           node-version: 22
       - name: Verify smoke source syntax
-        run: node --check .github/dev-tools/proof-v16-live-responsive-smoke.mjs
+        run: |
+          node --check .github/dev-tools/proof-v16-live-responsive-smoke.mjs
+          node --check .github/dev-tools/proof-service-date-live-smoke.mjs
       - name: Verify live V16 dropdown patch
         env:
           PROOF_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
@@ -52,3 +57,7 @@ jobs:
           PROOF_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
           PROOF_V16_ASSET: proof-v16.js?v=20260907-06
         run: node .github/dev-tools/proof-v16-live-responsive-smoke.mjs
+      - name: Verify live DEV Proof service-date contract
+        env:
+          PROOF_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+        run: node .github/dev-tools/proof-service-date-live-smoke.mjs

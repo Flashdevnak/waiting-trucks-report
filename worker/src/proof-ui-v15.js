@@ -277,10 +277,15 @@ function proofUiV15() {
       return result;
     };
 
-    const editorObserver = new MutationObserver(() => {
-      if (document.getElementById('proof-editor-dialog')?.open) polishEditor();
-    });
-    editorObserver.observe(document.body, { childList:true, subtree:true, characterData:true });
+    // PROOF_EDITOR_EVENT_POLISH_V15: polish only when search results are rendered; no continuous DOM observer.
+    const baseRenderEditorSearchItems = P.renderEditorSearchItems;
+    if (typeof baseRenderEditorSearchItems === 'function') {
+      P.renderEditorSearchItems = (...args) => {
+        const result = baseRenderEditorSearchItems(...args);
+        queueMicrotask(polishEditor);
+        return result;
+      };
+    }
 
     const style = document.createElement('style');
     style.id = 'proof-v15-style';

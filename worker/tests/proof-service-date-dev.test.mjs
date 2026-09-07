@@ -6,7 +6,6 @@ import {
   normalizeProofServiceDate,
   patchDevProofCoreServiceDate,
   patchDevProofHtmlServiceDate,
-  proofAssetRequestWithoutQuery,
 } from '../src/proof-service-date-dev.js';
 
 const proofHtml = await fs.readFile(new URL('../../proof.html', import.meta.url), 'utf8');
@@ -24,15 +23,12 @@ test('DEV Proof service date validates exact calendar days without rewriting val
   assert.equal(normalizeProofServiceDate('09/06/2026'), '');
 });
 
-test('DEV Proof asset lookup strips query internally while the browser request stays exact', () => {
-  const original = new Request('https://dev.test/proof.html?date=2026-09-06&smoke=1');
-  const assetRequest = proofAssetRequestWithoutQuery(original);
-  assert.equal(original.url, 'https://dev.test/proof.html?date=2026-09-06&smoke=1');
-  assert.equal(assetRequest.url, 'https://dev.test/proof.html');
-  assert.equal(assetRequest.method, original.method);
+test('DEV Proof service date decorates the V5 HTML response before it can return', () => {
+  assert.match(tursoIndex, /const proofUiV5Response = await maybeHandleProofUiV5/);
+  assert.match(tursoIndex, /if \(proofUiV5Response\) \{/);
   assert.match(tursoIndex, /url\.pathname === '\/proof\.html'/);
-  assert.match(tursoIndex, /proofAssetRequestWithoutQuery\(request\)/);
-  assert.match(tursoIndex, /return applyDevProofServiceDate\(request, response\)/);
+  assert.match(tursoIndex, /return applyDevProofServiceDate\(request, proofUiV5Response\)/);
+  assert.doesNotMatch(tursoIndex, /proofAssetRequestWithoutQuery/);
 });
 
 test('DEV Proof HTML preserves ?date= so the initial request cannot silently fall back to today', () => {

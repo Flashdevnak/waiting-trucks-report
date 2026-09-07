@@ -35,27 +35,35 @@ jobs:
         run: |
           node --check .github/dev-tools/proof-v16-live-responsive-smoke.mjs
           node --check .github/dev-tools/proof-service-date-live-smoke.mjs
-      - name: Verify exact live Proof service-date response
+      - name: Wait for exact live Proof service-date response
         env:
           PROOF_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
         run: |
           node <<'NODE'
           const origin=process.env.PROOF_DEV_ORIGIN;
           const date='2026-09-06';
-          const url=`${origin}/proof.html?date=${date}&responseGate=${Date.now()}`;
-          const response=await fetch(url,{redirect:'manual',cache:'no-store',headers:{'cache-control':'no-cache'}});
-          const text=await response.text();
-          const location=response.headers.get('location')||'';
-          const marker=text.includes('DEV_PROOF_SERVICE_DATE_HTML_V1');
-          const cleanup=text.includes("if(location.search)history.replaceState(null,'',location.pathname+location.hash);");
-          console.log(`PROOF_DATE_RESPONSE_STATUS=${response.status}`);
-          console.log(`PROOF_DATE_RESPONSE_LOCATION=${location||'NONE'}`);
-          console.log(`PROOF_DATE_HTML_MARKER=${marker?'PASS':'MISSING'}`);
-          console.log(`PROOF_DATE_QUERY_CLEANUP=${cleanup?'PRESENT':'ABSENT'}`);
-          if(response.status!==200) throw new Error(`Proof date response must be 200, got ${response.status} location=${location}`);
-          if(location) throw new Error(`Proof date response unexpectedly redirects to ${location}`);
-          if(!marker) throw new Error('Proof date HTML marker missing from live response');
-          if(cleanup) throw new Error('Proof date HTML still contains query cleanup');
+          const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          let last={};
+          for(let attempt=1;attempt<=60;attempt+=1){
+            const url=`${origin}/proof.html?date=${date}&responseGate=${Date.now()}-${attempt}`;
+            const response=await fetch(url,{redirect:'manual',cache:'no-store',headers:{'cache-control':'no-cache'}});
+            const text=await response.text();
+            const location=response.headers.get('location')||'';
+            const marker=text.includes('DEV_PROOF_SERVICE_DATE_HTML_V1');
+            const cleanup=text.includes("if(location.search)history.replaceState(null,'',location.pathname+location.hash);");
+            last={status:response.status,location,marker,cleanup};
+            const ready=response.status===200&&!location&&marker&&!cleanup;
+            console.log(`PROOF_DATE_RESPONSE_ATTEMPT=${attempt} STATUS=${response.status} LOCATION=${location||'NONE'} MARKER=${marker?'PASS':'MISSING'} CLEANUP=${cleanup?'PRESENT':'ABSENT'}`);
+            if(ready){
+              console.log('PROOF_DATE_RESPONSE_STATUS=200');
+              console.log('PROOF_DATE_RESPONSE_LOCATION=NONE');
+              console.log('PROOF_DATE_HTML_MARKER=PASS');
+              console.log('PROOF_DATE_QUERY_CLEANUP=ABSENT');
+              process.exit(0);
+            }
+            if(attempt<60) await sleep(2000);
+          }
+          throw new Error(`Proof date response did not converge to exact contract: ${JSON.stringify(last)}`);
           NODE
       - name: Verify live V16 dropdown patch
         env:

@@ -1,0 +1,37 @@
+name: Mobile Shell Responsive DEV
+
+# Permanent read-only DEV gate. Runs only after the existing DEV deployment finishes.
+# It opens every shared header menu at multiple viewport sizes. No login, DB write or MS mutation.
+on:
+  workflow_run:
+    workflows:
+      - Deploy Worker DEV
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  responsive-smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify permanent mobile shell source regression
+        run: node --test .github/dev-tools/ms-mobile-shell-v7.test.mjs
+      - name: Verify live smoke syntax
+        run: node --check .github/dev-tools/ms-mobile-shell-live-smoke.mjs
+      - name: Smoke all DEV pages and dropdowns at desktop tablet mobile
+        env:
+          MOBILE_SHELL_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+        run: node .github/dev-tools/ms-mobile-shell-live-smoke.mjs

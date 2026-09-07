@@ -1,4 +1,5 @@
 name: Proof V16 Live Temp
+# Rerun after DEV deploy of Proof V16 mobile quick-date fix.
 on:
   push:
     branches: [main]
@@ -43,28 +44,23 @@ jobs:
               assert(initial.buttons.length===3,'quick buttons '+JSON.stringify(initial));
               assert(initial.buttons.some(x=>x.includes('เมื่อวาน'))&&initial.buttons.some(x=>x.includes('วันนี้'))&&initial.buttons.some(x=>x.includes('พรุ่งนี้')),'labels '+JSON.stringify(initial));
               assert(initial.value===initial.today,'initial day '+JSON.stringify(initial));
-
               await page.evaluate(()=>{window.__v16Loads=[];window.ProofV2.loadRoutes=async silent=>{window.__v16Loads.push(silent);};});
               await page.click('[data-proof-day-offset="1"]');
               const tomorrow=await page.evaluate(()=>({day:window.ProofV2.state.day,value:document.getElementById('day-filter').value,loads:window.__v16Loads.slice(),today:window.ProofV2.thaiDay()}));
               assert(tomorrow.day===dayOffset(tomorrow.today,1)&&tomorrow.value===tomorrow.day,'tomorrow '+JSON.stringify(tomorrow));
               assert(tomorrow.loads.length===1&&tomorrow.loads[0]===false,'tomorrow load '+JSON.stringify(tomorrow));
-
               await page.evaluate(()=>{window.__v16Loads=[];});
               await page.click('[data-proof-day-offset="-1"]');
               const yesterday=await page.evaluate(()=>({day:window.ProofV2.state.day,value:document.getElementById('day-filter').value,loads:window.__v16Loads.slice(),today:window.ProofV2.thaiDay()}));
               assert(yesterday.day===dayOffset(yesterday.today,-1)&&yesterday.value===yesterday.day,'yesterday '+JSON.stringify(yesterday));
-
               const supplier=await page.evaluate(()=>{
                 const P=window.ProofV2; P.state.branch='NE1';P.state.profile={canPrint:true,canCreateProof:true};
                 const row={lineId:'S1',departureDate:P.state.day,lineName:'LH-6W7.2-NE1-EA1-23:00-BD-193-RS2',lineType:2,lineTypeText:'LH',lineMode:1,plateNumber:'',plateTypeText:'6W7.2',driver:'',driverPhone:'',fleetId:'654',fleetName:'KAMO (KAMOL)',proofId:'',proofState:1,startTime:1380,plannedDepartureTime:1380,standbyTime:1140,detailReady:true,destinationCode:'EA1',destinationName:'19 EA1_HUB-พานทอง'};
-                const host=document.createElement('div');host.id='v16-supplier-test';host.innerHTML=P.groupedHtml([row]);document.body.appendChild(host);
-                return host.textContent;
+                const host=document.createElement('div');host.id='v16-supplier-test';host.innerHTML=P.groupedHtml([row]);document.body.appendChild(host);return host.textContent;
               });
               assert(supplier.includes('KAMO (KAMOL)'),'supplier not visible '+supplier);
               assert(editorRequests.length===0,'editor request before print '+JSON.stringify(editorRequests));
               assert(mutations.length===0,'mutation '+JSON.stringify(mutations));
-
               const mobile=await browser.newPage({viewport:{width:390,height:844}});
               await mobile.goto(base+'/proof.html?v16m='+Date.now(),{waitUntil:'domcontentloaded',timeout:20000});
               await mobile.waitForFunction(()=>window.__PROOF_V16_READY__===true,{timeout:10000});

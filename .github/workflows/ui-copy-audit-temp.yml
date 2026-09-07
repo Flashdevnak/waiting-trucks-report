@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
-      - name: Audit visible UI separator characters
+      - name: Confirm user-visible separators are removed
         shell: bash
         run: |
           set -euo pipefail
@@ -25,21 +25,22 @@ jobs:
             worker/src/proof-ui-v5.js worker/src/proof-ui-v10.js worker/src/proof-ui-v14.js
           )
           bad=0
-          printf '%s\n' '=== BANNED_BULLET_ARROW_AUDIT ==='
+          echo '=== BANNED_VISIBLE_COPY_AUDIT ==='
           for f in "${files[@]}"; do
             [ -f "$f" ] || continue
             if grep -nE '[•→]' "$f"; then bad=1; fi
+            if grep -nE "['\"]—['\"]|>—<| — " "$f"; then bad=1; fi
           done
-          printf '%s\n' '=== EM_DASH_REVIEW ==='
-          for f in "${files[@]}"; do
+          echo '=== INTERNAL_EM_DASH_NORMALIZERS_ALLOWED ==='
+          for f in proof-v2-core.js proof-v2-actions.js proof-v2-ui.js; do
             [ -f "$f" ] || continue
             grep -n '—' "$f" || true
           done
-          printf '%s\n' '=== V15_SANITIZER_INTERNALS ==='
+          echo '=== V15_SANITIZER_INTERNALS_ALLOWED ==='
           grep -nE '[•—→]' worker/src/proof-ui-v15.js || true
           if [ "$bad" -ne 0 ]; then
-            echo 'VISIBLE_BULLET_ARROW_AUDIT=FAIL'
+            echo 'VISIBLE_COPY_AUDIT=FAIL'
             exit 1
           fi
-          echo 'VISIBLE_BULLET_ARROW_AUDIT=PASS'
+          echo 'VISIBLE_COPY_AUDIT=PASS'
           echo 'PRODUCTION_TOUCHED=NO'

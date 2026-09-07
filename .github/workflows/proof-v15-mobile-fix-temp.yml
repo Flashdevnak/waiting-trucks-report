@@ -1,0 +1,50 @@
+name: Proof V15 Mobile Fix Temp
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/proof-v15-mobile-fix-temp.yml
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Patch mobile footer without changing desktop
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('worker/src/proof-ui-v15.js')
+          s=p.read_text()
+          old=".proof-v15-editor .proof-editor-actions{margin:0 -10px -10px!important;padding:9px 10px 12px!important;display:grid!important;grid-template-columns:1fr 1fr!important}.proof-v15-editor .proof-editor-actions .btn{min-width:0!important;width:100%!important;font-size:12px!important}}"
+          new=old+"\n      @media(max-width:430px){.proof-v15-editor .proof-editor-actions{grid-template-columns:1fr!important}.proof-v15-editor .proof-editor-actions .btn{width:100%!important;max-width:100%!important;overflow:hidden!important}}"
+          if old not in s:
+              raise SystemExit('target mobile footer CSS not found')
+          if '@media(max-width:430px){.proof-v15-editor .proof-editor-actions' in s:
+              raise SystemExit('mobile footer fix already exists')
+          s=s.replace("const VERSION = '20260907-02';","const VERSION = '20260907-03';",1)
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+          node --check worker/src/proof-ui-v15.js
+      - name: Run worker checks
+        working-directory: worker
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+          node --test tests/proof-smart-v8.test.mjs tests/auth-session-resilience.test.mjs
+      - name: Commit source fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add worker/src/proof-ui-v15.js
+          git diff --cached --check
+          git commit -m "Fix Proof V15 mobile footer overflow"
+          git push origin HEAD:main

@@ -22,12 +22,24 @@ jobs:
           files=(
             index.html waiting.html main.js ms.html ms.js ms-report.html ms-report.js
             proof.html proof.js proof-v2-core.js proof-v2-ui.js proof-v2-actions.js scan.html scan.js
-            worker/src/proof-ui-v5.js worker/src/proof-ui-v10.js worker/src/proof-ui-v14.js worker/src/proof-ui-v15.js
+            worker/src/proof-ui-v5.js worker/src/proof-ui-v10.js worker/src/proof-ui-v14.js
           )
-          printf '%s\n' '=== VISIBLE_COPY_AUDIT_BEGIN ==='
+          bad=0
+          printf '%s\n' '=== BANNED_BULLET_ARROW_AUDIT ==='
           for f in "${files[@]}"; do
             [ -f "$f" ] || continue
-            grep -nE '[•—→·]' "$f" || true
+            if grep -nE '[•→]' "$f"; then bad=1; fi
           done
-          printf '%s\n' '=== VISIBLE_COPY_AUDIT_END ==='
+          printf '%s\n' '=== EM_DASH_REVIEW ==='
+          for f in "${files[@]}"; do
+            [ -f "$f" ] || continue
+            grep -n '—' "$f" || true
+          done
+          printf '%s\n' '=== V15_SANITIZER_INTERNALS ==='
+          grep -nE '[•—→]' worker/src/proof-ui-v15.js || true
+          if [ "$bad" -ne 0 ]; then
+            echo 'VISIBLE_BULLET_ARROW_AUDIT=FAIL'
+            exit 1
+          fi
+          echo 'VISIBLE_BULLET_ARROW_AUDIT=PASS'
           echo 'PRODUCTION_TOUCHED=NO'

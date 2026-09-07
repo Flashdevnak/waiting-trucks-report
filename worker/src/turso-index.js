@@ -8,11 +8,15 @@ import { maybeHandleProofPlateSearchV5 } from "./proof-plate-search-v5.js";
 import { maybeHandleProofUiV5 } from "./proof-ui-v5.js";
 import { maybeHandleProofUiV10 } from "./proof-ui-v10.js";
 import { maybeHandleProofUiV14 } from "./proof-ui-v14.js";
+import { maybeHandleProofUiV15 } from "./proof-ui-v15.js";
+import { enrichProofRoutesV15 } from "./proof-route-meta-v15.js";
 import { maybeHandleProofHistoryV10 } from "./proof-history-v10.js";
 
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
+    const proofUiV15Response = await maybeHandleProofUiV15(request, runtimeEnv, ctx, worker);
+    if (proofUiV15Response) return proofUiV15Response;
     const proofUiV14Response = await maybeHandleProofUiV14(request, runtimeEnv, ctx, worker);
     if (proofUiV14Response) return proofUiV14Response;
     const proofUiV10Response = await maybeHandleProofUiV10(request, runtimeEnv, ctx, worker);
@@ -20,7 +24,7 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === "/proof-v10.js") {
         const base = await proofUiV10Response.text();
-        const loader = `\n;(()=>{if(document.querySelector('script[data-proof-v14-loader]'))return;const s=document.createElement('script');s.dataset.proofV14Loader='1';s.src='/proof-v14.js?v=20260907-01';s.defer=true;document.head.appendChild(s);})();`;
+        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-02','proofV15Loader');})();`;
         return new Response(base + loader, {
           status: proofUiV10Response.status,
           headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -39,7 +43,7 @@ export default {
     const proofPreviewResponse = await maybeHandleProofPreview(request, runtimeEnv, ctx, worker);
     if (proofPreviewResponse) return proofPreviewResponse;
     const proofV2Response = await maybeHandleProofLiveV2(request, runtimeEnv, ctx, worker, maybeHandleProofRequest);
-    if (proofV2Response) return proofV2Response;
+    if (proofV2Response) return enrichProofRoutesV15(request, proofV2Response, runtimeEnv);
     const proofResponse = await maybeHandleProofRequest(request, runtimeEnv, ctx, worker);
     if (proofResponse) return proofResponse;
     return worker.fetch(request, runtimeEnv, ctx);

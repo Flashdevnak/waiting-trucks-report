@@ -4,6 +4,9 @@ import test from 'node:test';
 
 const ui = await readFile(new URL('../../worker/src/proof-ui-v16.js', import.meta.url), 'utf8');
 const loader = await readFile(new URL('../../worker/src/turso-index.js', import.meta.url), 'utf8');
+const responsiveWorkflow = await readFile(new URL('../workflows/proof-v16-responsive-dev.yml', import.meta.url), 'utf8');
+const postCutoverWorkflow = await readFile(new URL('../workflows/post-cutover-regression.yml', import.meta.url), 'utf8');
+const responsiveSmoke = await readFile(new URL('./proof-v16-live-responsive-smoke.mjs', import.meta.url), 'utf8');
 
 test('Proof V16.06 keeps quick-day controls inside the date field', () => {
   assert.match(ui, /const VERSION = '20260907-06'/);
@@ -50,4 +53,15 @@ test('Turso loader and served V16 asset use the same cache-buster', () => {
   assert.match(loader, /maybeHandleProofUiV16/);
   assert.match(loader, /databaseEnv\(env\)/);
   assert.doesNotMatch(loader, /proof-ui-v17|proof-v17\.js/);
+});
+
+test('permanent responsive and post-cutover gates track the same V16.06 release', () => {
+  assert.match(responsiveWorkflow, /PROOF_V16_ASSET: proof-v16\.js\?v=20260907-06/);
+  assert.match(responsiveSmoke, /EXPECTED_ASSET = process\.env\.PROOF_V16_ASSET \|\| 'proof-v16\.js\?v=20260907-06'/);
+  assert.match(responsiveSmoke, /SMOKE_VERSION = '20260907-02'/);
+  assert.match(responsiveSmoke, /BROWSER_MUTATION_METHODS=0/);
+  assert.match(postCutoverWorkflow, /- worker\/tests\/\*\*/);
+  assert.doesNotMatch(postCutoverWorkflow, /- worker\/test\/\*\*/);
+  assert.match(postCutoverWorkflow, /- \.github\/dev-tools\/proof-v16-live-responsive-smoke\.mjs/);
+  assert.match(postCutoverWorkflow, /- \.github\/workflows\/proof-v16-responsive-dev\.yml/);
 });

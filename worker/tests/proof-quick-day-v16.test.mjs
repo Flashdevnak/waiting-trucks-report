@@ -30,5 +30,6 @@ test('Proof V16 supplier completion does only one session-scoped refresh and no 
 
 test('Proof V16 quick date buttons are mobile-safe', () => {
   assert.match(source, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(source, /proof-quick-day-v16 button\{[^}]*min-height:44px/);
   assert.match(source, /@media\(max-width:430px\)/);
 });

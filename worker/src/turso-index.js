@@ -7,11 +7,14 @@ import { maybeHandleProofEditor } from "./proof-editor.js";
 import { maybeHandleProofPlateSearchV5 } from "./proof-plate-search-v5.js";
 import { maybeHandleProofUiV5 } from "./proof-ui-v5.js";
 import { maybeHandleProofUiV10 } from "./proof-ui-v10.js";
+import { maybeHandleProofUiV14 } from "./proof-ui-v14.js";
 import { maybeHandleProofHistoryV10 } from "./proof-history-v10.js";
 
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
+    const proofUiV14Response = await maybeHandleProofUiV14(request, runtimeEnv, ctx, worker);
+    if (proofUiV14Response) return proofUiV14Response;
     const proofUiV10Response = await maybeHandleProofUiV10(request, runtimeEnv, ctx, worker);
     if (proofUiV10Response) return proofUiV10Response;
     const proofUiV5Response = await maybeHandleProofUiV5(request, runtimeEnv, ctx, worker);

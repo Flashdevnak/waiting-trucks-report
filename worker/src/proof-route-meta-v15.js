@@ -2,6 +2,7 @@ const META_TTL_MS = 4 * 60 * 60_000;
 const META_SWEEP_MS = 60_000;
 const META_BATCH = 20;
 const META_CONCURRENCY = 5;
+const META_LEASE_MS = 45_000;
 const PRINTABLE_STATES = new Set([1, 2, 7]);
 
 let schemaReady = null;
@@ -33,8 +34,11 @@ export async function enrichProofRoutesV15(request, response, env) {
       let task = activeSweeps.get(key);
       if (!task) {
         lastSweepAt.set(key, now);
-        task = hydrateMeta(env, hub, day, candidates.slice(0, META_BATCH))
-          .finally(() => activeSweeps.delete(key));
+        task = (async () => {
+          const lease = await acquireMetaLease(env, hub, day, now);
+          if (!lease) return;
+          await hydrateMeta(env, hub, day, candidates.slice(0, META_BATCH));
+        })().finally(() => activeSweeps.delete(key));
         activeSweeps.set(key, task);
       }
       await task;
@@ -76,6 +80,23 @@ export function applyMeta(rows, cache) {
     row.supplierCheckedAt = item.checkedAt || '';
   }
   return rows;
+}
+
+async function acquireMetaLease(env, hub, day, now = Date.now()) {
+  const token = crypto.randomUUID();
+  const leaseUntil = now + META_LEASE_MS;
+  await env.DB.prepare(
+    `INSERT INTO ms_proof_meta_lease_v15(hub,business_day,lease_token,lease_until)
+     VALUES(?,?,?,?)
+     ON CONFLICT(hub,business_day) DO UPDATE SET
+       lease_token=excluded.lease_token,
+       lease_until=excluded.lease_until
+     WHERE ms_proof_meta_lease_v15.lease_until < ?`,
+  ).bind(hub, day, token, leaseUntil, now).run();
+  const row = await env.DB.prepare(
+    'SELECT lease_token,lease_until FROM ms_proof_meta_lease_v15 WHERE hub=? AND business_day=?',
+  ).bind(hub, day).first();
+  return row?.lease_token === token && Number(row?.lease_until || 0) === leaseUntil;
 }
 
 async function hydrateMeta(env, hub, day, rows) {
@@ -128,7 +149,7 @@ async function readProofPopup(credentials, lineId, departureDate) {
   const url = new URL('https://ms-api.flashexpress.com/gw/nws/staff/ms/fleet/van/proof/popup');
   url.searchParams.set('lineId', String(lineId || ''));
   url.searchParams.set('departureDate', String(departureDate || ''));
-  const response = await fetch(url, { headers: msHeaders(credentials) });
+  const response = await fetch(url, { headers:msHeaders(credentials) });
   let payload = null;
   try { payload = await response.json(); } catch {}
   if (!response.ok || Number(payload?.code) !== 1) {
@@ -147,7 +168,7 @@ async function msCredentials(env, hub) {
     deviceId: await decryptMs(row.device_cipher, env),
   };
   if (hub === cleanHub(env.MS_BRANCH || 'NE1') && env.MS_SESSION_ID && env.MS_DEVICE_ID) {
-    return { sessionId: env.MS_SESSION_ID, deviceId: env.MS_DEVICE_ID };
+    return { sessionId:env.MS_SESSION_ID, deviceId:env.MS_DEVICE_ID };
   }
   return null;
 }
@@ -177,15 +198,24 @@ function msHeaders(credentials) {
 
 async function ensureSchema(env) {
   if (schemaReady) return schemaReady;
-  schemaReady = env.DB.prepare(`CREATE TABLE IF NOT EXISTS ms_proof_route_meta_v15(
-    hub TEXT NOT NULL,
-    business_day TEXT NOT NULL,
-    line_id TEXT NOT NULL,
-    fleet_id TEXT NOT NULL DEFAULT '',
-    fleet_name TEXT NOT NULL DEFAULT '',
-    checked_at TEXT NOT NULL,
-    PRIMARY KEY(hub,business_day,line_id)
-  )`).run().catch(error => { schemaReady = null; throw error; });
+  schemaReady = env.DB.batch([
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS ms_proof_route_meta_v15(
+      hub TEXT NOT NULL,
+      business_day TEXT NOT NULL,
+      line_id TEXT NOT NULL,
+      fleet_id TEXT NOT NULL DEFAULT '',
+      fleet_name TEXT NOT NULL DEFAULT '',
+      checked_at TEXT NOT NULL,
+      PRIMARY KEY(hub,business_day,line_id)
+    )`),
+    env.DB.prepare(`CREATE TABLE IF NOT EXISTS ms_proof_meta_lease_v15(
+      hub TEXT NOT NULL,
+      business_day TEXT NOT NULL,
+      lease_token TEXT NOT NULL,
+      lease_until INTEGER NOT NULL,
+      PRIMARY KEY(hub,business_day)
+    )`),
+  ]).catch(error => { schemaReady = null; throw error; });
   return schemaReady;
 }
 
@@ -198,7 +228,7 @@ async function mapLimit(items, limit, fn) {
       output[current] = await fn(items[current], current);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length || 1) }, worker));
+  await Promise.all(Array.from({ length:Math.min(Math.max(1, limit), items.length || 1) }, worker));
   return output;
 }
 
@@ -206,7 +236,7 @@ function responseJson(response, payload) {
   const headers = new Headers(response.headers || {});
   headers.set('Content-Type', 'application/json; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
-  return new Response(JSON.stringify(payload), { status: response.status, headers });
+  return new Response(JSON.stringify(payload), { status:response.status, headers });
 }
 
 function cleanHub(value) { return text(value, 80).toUpperCase(); }

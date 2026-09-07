@@ -45,9 +45,7 @@ async function appendDevTabletShellCss(response) {
   const headers = new Headers(response.headers);
   headers.set('Content-Type', 'text/css; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
-  if (base.includes('DEV_TABLET_SHELL_CONTAINMENT_V1')) {
-    return new Response(base, { status: response.status, headers });
-  }
+  if (base.includes('DEV_TABLET_SHELL_CONTAINMENT_V1')) return new Response(base, { status: response.status, headers });
   return new Response(`${base.trimEnd()}\n${DEV_TABLET_SHELL_CSS}`, { status: response.status, headers });
 }
 
@@ -74,20 +72,15 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === "/proof-v10.js") {
         const base = await proofUiV10Response.text();
-        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-03','proofV15Loader');add('/proof-v16.js?v=20260908-01','proofV16Loader');})();`;
-        return new Response(base + loader, {
-          status: proofUiV10Response.status,
-          headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' },
-        });
+        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-03','proofV15Loader');add('/proof-v16.js?v=20260908-02','proofV16Loader');})();`;
+        return new Response(base + loader, { status: proofUiV10Response.status, headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' } });
       }
       return proofUiV10Response;
     }
     const proofUiV5Response = await maybeHandleProofUiV5(request, runtimeEnv, ctx, worker);
     if (proofUiV5Response) {
       const url = new URL(request.url);
-      if (request.method === 'GET' && url.pathname === '/proof.html') {
-        return applyDevProofServiceDate(request, proofUiV5Response);
-      }
+      if (request.method === 'GET' && url.pathname === '/proof.html') return applyDevProofServiceDate(request, proofUiV5Response);
       return proofUiV5Response;
     }
     const proofHistoryV10Response = await maybeHandleProofHistoryV10(request, runtimeEnv, ctx, worker);
@@ -104,22 +97,16 @@ export default {
     if (proofResponse) return proofResponse;
     const url = new URL(request.url);
     const response = await worker.fetch(request, runtimeEnv, ctx);
-    if (request.method === 'GET' && url.pathname === '/proof-v2-core.js') {
-      return applyDevProofServiceDate(request, response);
-    }
+    if (request.method === 'GET' && url.pathname === '/proof-v2-core.js') return applyDevProofServiceDate(request, response);
     if (request.method === 'GET' && url.pathname === '/style.css') return appendDevTabletShellCss(response);
     return response;
   },
-
   async scheduled(controller, env, ctx) {
     const runtimeEnv = databaseEnv(env);
     ctx.waitUntil(runProofScheduled(runtimeEnv));
   },
 };
 
-// The DEV staging step injects this Durable Object class into index.js.
-// Wrap its environment too, otherwise refreshes coordinated through the DO
-// would silently keep using the original D1 binding.
 export class MsRefreshCoordinator {
   constructor(ctx, env) {
     const Coordinator = workerModule.MsRefreshCoordinator;
@@ -130,8 +117,5 @@ export class MsRefreshCoordinator {
     }
     this.inner = new Coordinator(ctx, databaseEnv(env));
   }
-
-  fetch(request) {
-    return this.inner.fetch(request);
-  }
+  fetch(request) { return this.inner.fetch(request); }
 }

@@ -4,175 +4,19 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const SMOKE_VERSION = '20260908-01';
+const SMOKE_VERSION = '20260908-02';
 const ORIGIN = process.env.PROOF_DEV_ORIGIN || 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
-const EXPECTED_ASSET = process.env.PROOF_V16_ASSET || 'proof-v16.js?v=20260908-01';
+const EXPECTED_ASSET = process.env.PROOF_V16_ASSET || 'proof-v16.js?v=20260908-02';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-function chromePath() {
-  for (const name of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
-    try {
-      const value = execFileSync('bash', ['-lc', `command -v ${name}`], { encoding:'utf8' }).trim();
-      if (value) return value;
-    } catch {}
-  }
-  throw new Error('Chrome/Chromium not found');
-}
+function chromePath(){for(const name of ['google-chrome','google-chrome-stable','chromium','chromium-browser']){try{const value=execFileSync('bash',['-lc',`command -v ${name}`],{encoding:'utf8'}).trim();if(value)return value;}catch{}}throw new Error('Chrome/Chromium not found');}
+class CDP{constructor(url){this.url=url;this.seq=0;this.pending=new Map();this.events=[];}async connect(){this.ws=new WebSocket(this.url);await new Promise((resolve,reject)=>{this.ws.onopen=resolve;this.ws.onerror=reject;});this.ws.onmessage=event=>{const message=JSON.parse(event.data);if(!message.id){this.events.push(message);return;}const pending=this.pending.get(message.id);if(!pending)return;this.pending.delete(message.id);message.error?pending.reject(new Error(JSON.stringify(message.error))):pending.resolve(message.result);};}send(method,params={},sessionId=''){return new Promise((resolve,reject)=>{const id=++this.seq;this.pending.set(id,{resolve,reject});this.ws.send(JSON.stringify({id,method,params,...(sessionId?{sessionId}:{})}));});}close(){this.ws?.close();}}
+async function launch(){const port=9337;const profile=await mkdtemp(join(tmpdir(),'proof-v16-smoke-'));const child=spawn(chromePath(),['--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-extensions',`--remote-debugging-port=${port}`,`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','pipe']});let version;for(let i=0;i<100;i+=1){if(child.exitCode!==null)throw new Error(`Chrome exited before CDP ready (${child.exitCode})`);try{const r=await fetch(`http://127.0.0.1:${port}/json/version`);if(r.ok){version=await r.json();break;}}catch{}await sleep(100);}if(!version?.webSocketDebuggerUrl)throw new Error('Chrome DevTools endpoint not ready');return{child,profile,version};}
+async function evaluate(cdp,sessionId,expression){const reply=await cdp.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},sessionId);if(reply.exceptionDetails)throw new Error(reply.exceptionDetails.text||'Browser evaluate failed');return reply.result?.value;}
+async function waitReady(cdp,sessionId){for(let i=0;i<180;i+=1){const state=await evaluate(cdp,sessionId,'({href:location.href,ready:document.readyState,v16:Boolean(window.__PROOF_V16_READY__)})');if(state?.href?.startsWith(`${ORIGIN}/proof.html`)&&state.ready==='complete'&&state.v16)return;await sleep(100);}throw new Error('Proof V16 not ready');}
 
-class CDP {
-  constructor(url) { this.url=url; this.seq=0; this.pending=new Map(); this.events=[]; }
-  async connect() {
-    this.ws = new WebSocket(this.url);
-    await new Promise((resolve,reject) => { this.ws.onopen=resolve; this.ws.onerror=reject; });
-    this.ws.onmessage = event => {
-      const message = JSON.parse(event.data);
-      if (!message.id) { this.events.push(message); return; }
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      message.error ? pending.reject(new Error(JSON.stringify(message.error))) : pending.resolve(message.result);
-    };
-  }
-  send(method, params={}, sessionId='') {
-    return new Promise((resolve,reject) => {
-      const id=++this.seq;
-      this.pending.set(id,{resolve,reject});
-      this.ws.send(JSON.stringify({id,method,params,...(sessionId?{sessionId}:{})}));
-    });
-  }
-  close(){ this.ws?.close(); }
-}
-
-async function launch() {
-  const port=9337;
-  const profile=await mkdtemp(join(tmpdir(),'proof-v16-smoke-'));
-  const child=spawn(chromePath(),[
-    '--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-extensions',
-    `--remote-debugging-port=${port}`,`--user-data-dir=${profile}`,'about:blank',
-  ],{stdio:['ignore','ignore','pipe']});
-  let version;
-  for(let i=0;i<100;i+=1){
-    if(child.exitCode!==null) throw new Error(`Chrome exited before CDP ready (${child.exitCode})`);
-    try { const r=await fetch(`http://127.0.0.1:${port}/json/version`); if(r.ok){version=await r.json();break;} } catch {}
-    await sleep(100);
-  }
-  if(!version?.webSocketDebuggerUrl) throw new Error('Chrome DevTools endpoint not ready');
-  return {child,profile,version};
-}
-
-async function evaluate(cdp, sessionId, expression) {
-  const reply=await cdp.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},sessionId);
-  if(reply.exceptionDetails) throw new Error(reply.exceptionDetails.text || 'Browser evaluate failed');
-  return reply.result?.value;
-}
-
-async function waitReady(cdp, sessionId) {
-  for(let i=0;i<180;i+=1){
-    const state=await evaluate(cdp,sessionId,'({href:location.href,ready:document.readyState,v16:Boolean(window.__PROOF_V16_READY__)})');
-    if(state?.href?.startsWith(`${ORIGIN}/proof.html`) && state.ready==='complete' && state.v16) return;
-    await sleep(100);
-  }
-  throw new Error(`Proof V16 not ready: ${JSON.stringify(await evaluate(cdp,sessionId,'({href:location.href,title:document.title,ready:document.readyState,v16:Boolean(window.__PROOF_V16_READY__),body:document.body?.innerText?.slice(0,220)})'))}`);
-}
-
-const probe = `(() => {
-  const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:b.x,y:b.y,width:b.width,height:b.height,right:b.right,bottom:b.bottom}};
-  const css=e=>e?getComputedStyle(e):null;
-  const toolbar=document.querySelector('.proof-toolbar-v16');
-  const search=document.querySelector('.proof-search-field-v16');
-  const hub=document.querySelector('.proof-hub-field-v16');
-  const day=document.querySelector('.proof-day-field-v16');
-  const dayInput=document.querySelector('#day-filter');
-  const quick=document.querySelector('#proof-quick-day-v16');
-  const departedCard=document.querySelector("[data-proof-v10-count='departed']")?.closest('[data-proof-v10-filter]');
-  const extraCard=document.querySelector("[data-proof-v10-count='extra']")?.closest('[data-proof-v10-filter]');
-  const stateFilterValues=[...document.querySelectorAll('#state-filter option')].map(option=>option.value);
-  const resources=performance.getEntriesByType('resource').map(entry=>entry.name);
-  const fixture=document.createElement('div');
-  fixture.style.cssText='position:absolute;left:0;top:0;width:100%;max-width:100%;opacity:0;pointer-events:none;z-index:-9999;overflow:hidden';
-  fixture.innerHTML=\`<section class='proof-v15-lane' data-proof-lane='FD'><section class='proof-v15-branch'><div class='proof-v15-columns'><b>เส้นทาง</b><b>บาร์รถ</b><b>เวลา</b><b>คนขับ</b><b>บริษัทซัพและรถ</b><b>สถานะ</b></div><article class='proof-v15-row is-ready'><button class='proof-v15-route'><small>เส้นทาง</small><strong>NE1 TEST</strong><div class='proof-v15-tags'><span>FD</span></div></button><div class='proof-v15-cell barcode'><small>บาร์รถ</small><strong>TEST</strong><span>เปิดใช้แล้ว</span></div><div class='proof-v15-cell time'><small>เวลา</small><strong>ปล่อย 05:30</strong><span>Standby 03:30</span></div><div class='proof-v15-cell driver'><small>คนขับและเบอร์โทร</small><strong>ทดสอบ UI</strong><span>0000000000</span></div><div class='proof-v15-cell supplier'><small>บริษัทซัพและรถ</small><strong>ทดสอบ UI</strong><div class='proof-v15-vehicle'><span>ทะเบียน TEST</span><span>รถ 4WJ</span></div></div><div class='proof-v15-status'><div><small>สถานะ</small><strong>เปิดบาร์โค้ดแล้ว</strong></div></div></article></section></section><div class='proof-v15-editor'><div class='proof-editor-route-box'><div class='proof-v16-editor-hero'><div class='proof-v16-editor-route-label'>เส้นทาง</div><strong id='proof-editor-route'>NE1 TEST</strong><div class='proof-v16-editor-status-row'><span class='proof-v16-editor-status is-state-2'>เปิดบาร์โค้ดแล้ว</span></div><div class='proof-v16-editor-meta-grid'><div class='proof-v16-editor-meta-card proof-v16-time-card'><small>เวลาเที่ยวรถ</small><div class='proof-v16-time-grid'><div class='proof-v16-time-item standby'><small>Standby</small><strong>03:30</strong></div><div class='proof-v16-time-item release'><small>ปล่อยรถ</small><strong>05:30</strong></div></div></div><div class='proof-v16-editor-meta-card'><small>ผู้ใช้งาน</small><strong>ทดสอบ UI</strong></div></div></div></div></div>\`;
-  document.body.appendChild(fixture);
-  const columns=fixture.querySelector('.proof-v15-columns');
-  const cellLabel=fixture.querySelector('.proof-v15-cell > small:first-child');
-  const status=fixture.querySelector('.proof-v15-status strong');
-  const tag=fixture.querySelector('.proof-v15-tags span');
-  const vehicle=fixture.querySelector('.proof-v15-vehicle span');
-  const hero=fixture.querySelector('.proof-v16-editor-hero');
-  const timeGrid=fixture.querySelector('.proof-v16-time-grid');
-  const result={
-    viewport:innerWidth,docWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,
-    toolbar:rect(toolbar),search:rect(search),hub:rect(hub),day:rect(day),
-    controlHeights:[...(toolbar?.querySelectorAll('select,input')||[])].map(e=>Math.round(rect(e).height)),
-    quickInside:Boolean(dayInput?.closest('label')?.contains(quick)),quickCount:quick?.querySelectorAll('button').length||0,
-    quickLabels:[...(quick?.querySelectorAll('button strong')||[])].map(e=>e.textContent.trim()),quickButtons:[...(quick?.querySelectorAll('button')||[])].map(rect),
-    departedFilter:departedCard?.dataset?.proofV10Filter||'',extraFilter:extraCard?.dataset?.proofV10Filter||'',stateFilterValues,
-    v16Asset:resources.some(name=>name.includes('/${EXPECTED_ASSET}')),v17Asset:resources.some(name=>name.includes('/proof-v17')),
-    columnsDisplay:css(columns)?.display||'',cellLabelDisplay:css(cellLabel)?.display||'',
-    statusBg:css(status)?.backgroundColor||'',tagBg:css(tag)?.backgroundColor||'',vehicleBg:css(vehicle)?.backgroundColor||'',
-    heroWidth:rect(hero)?.width||0,timeGridDisplay:css(timeGrid)?.display||''
-  };
-  fixture.remove();
-  return result;
-})()`;
-
-function common(name,r,width){
-  assert.equal(r.viewport,width,`${name}: viewport mismatch`);
-  assert.ok(r.docWidth<=width+1,`${name}: document overflow ${r.docWidth}/${width}`);
-  assert.ok(r.bodyWidth<=width+1,`${name}: body overflow ${r.bodyWidth}/${width}`);
-  assert.equal(r.quickInside,true,`${name}: quick-date detached`);
-  assert.equal(r.quickCount,3,`${name}: quick-date count`);
-  assert.deepEqual(r.quickLabels,['เมื่อวาน','วันนี้','พรุ่งนี้'],`${name}: quick-date labels`);
-  assert.ok(r.controlHeights.length>=7,`${name}: toolbar controls missing`);
-  assert.ok(r.controlHeights.every(h=>Math.abs(h-44)<=1),`${name}: controls must be equal 44px: ${r.controlHeights}`);
-  assert.equal(r.departedFilter,'departed',`${name}: ออกแล้ว command card is not mapped to departed`);
-  assert.equal(r.extraFilter,'extra',`${name}: รถเสริม command card is not mapped to extra`);
-  assert.ok(r.stateFilterValues.includes('departed'),`${name}: departed state option missing`);
-  assert.ok(r.stateFilterValues.includes('extra'),`${name}: extra state option missing`);
-  assert.equal(r.v16Asset,true,`${name}: current V16 asset missing`);
-  assert.equal(r.v17Asset,false,`${name}: V17 asset requested`);
-  for(const box of [r.toolbar,r.search,r.hub,r.day]) assert.ok(box&&box.x>=-1&&box.right<=width+1,`${name}: toolbar box overflow ${JSON.stringify(box)}`);
-  for(const value of [r.statusBg,r.tagBg,r.vehicleBg]) assert.notEqual(value,'rgba(0, 0, 0, 0)',`${name}: badge contrast missing`);
-  assert.equal(r.timeGridDisplay,'grid',`${name}: Hero A time split missing`);
-  assert.ok(r.heroWidth<=width+1,`${name}: Hero A overflow`);
-}
-
-function viewport(name,r){
-  if(name==='desktop'){
-    assert.ok(Math.abs(r.search.y-r.hub.y)<=2&&Math.abs(r.hub.y-r.day.y)<=2,'desktop: Search/HUB/Date not aligned');
-    assert.ok(r.search.x<r.hub.x&&r.hub.x<r.day.x,'desktop: Search/HUB/Date order wrong');
-    assert.equal(r.columnsDisplay,'grid','desktop: header must be visible');
-    assert.equal(r.cellLabelDisplay,'none','desktop: duplicate labels must be hidden');
-  } else if(name==='tablet'){
-    assert.equal(r.columnsDisplay,'none','tablet: desktop header must hide');
-    assert.notEqual(r.cellLabelDisplay,'none','tablet: cell labels required');
-  } else {
-    assert.equal(r.columnsDisplay,'none','mobile: desktop header must hide');
-    assert.notEqual(r.cellLabelDisplay,'none','mobile: cell labels required');
-    assert.ok(r.quickButtons.every(box=>box.width>=70&&box.height>=44),`mobile: quick-date touch targets too small ${JSON.stringify(r.quickButtons)}`);
-  }
-}
-
-async function main(){
-  const {child,profile,version}=await launch();
-  const cdp=new CDP(version.webSocketDebuggerUrl);
-  try{
-    await cdp.connect();
-    const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
-    const {sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});
-    await cdp.send('Page.enable',{},sessionId); await cdp.send('Runtime.enable',{},sessionId); await cdp.send('Network.enable',{},sessionId); await cdp.send('Network.setCacheDisabled',{cacheDisabled:true},sessionId);
-    console.log(`PROOF_V16_RESPONSIVE_SMOKE_VERSION=${SMOKE_VERSION}`);
-    for(const [name,width,height,mobile] of [['desktop',1440,1000,false],['tablet',1024,900,false],['mobile',390,844,true]]){
-      await cdp.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile},sessionId);
-      await cdp.send('Page.navigate',{url:`${ORIGIN}/proof.html?responsiveSmoke=${Date.now()}-${name}`},sessionId);
-      await waitReady(cdp,sessionId);
-      const result=await evaluate(cdp,sessionId,probe);
-      common(name,result,width); viewport(name,result);
-      console.log(`PROOF_V16_${name.toUpperCase()}_RESPONSIVE=PASS`);
-      console.log(`PROOF_V16_${name.toUpperCase()}_OVERFLOW=${result.docWidth-width}`);
-    }
-    const mutationMethods=cdp.events.filter(e=>e.method==='Network.requestWillBeSent').map(e=>e.params?.request?.method).filter(m=>m&&!['GET','HEAD','OPTIONS'].includes(m));
-    assert.deepEqual(mutationMethods,[],'Browser smoke emitted a mutation HTTP method');
-    console.log('PROOF_V16_LIVE_ASSET=PASS'); console.log('PROOF_V17_LIVE_REQUESTS=0'); console.log('PROOF_V16_QUICK_DATE=PASS'); console.log('PROOF_V16_COMMAND_FILTERS=PASS'); console.log('PROOF_V16_TABLE_BADGES=PASS'); console.log('PROOF_V16_HERO_A=PASS'); console.log('BROWSER_MUTATION_METHODS=0'); console.log('MS_MUTATION_TESTED=NO'); console.log('PRODUCTION_TOUCHED=NO');
-  } finally { cdp.close(); child.kill('SIGTERM'); await sleep(300); await rm(profile,{recursive:true,force:true}).catch(()=>{}); }
-}
+const probe=`(()=>{const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:b.x,y:b.y,width:b.width,height:b.height,right:b.right,bottom:b.bottom}};const css=e=>e?getComputedStyle(e):null;const toolbar=document.querySelector('.proof-toolbar-v16');const search=document.querySelector('.proof-search-field-v16');const hub=document.querySelector('.proof-hub-field-v16');const day=document.querySelector('.proof-day-field-v16');const dayInput=document.querySelector('#day-filter');const quick=document.querySelector('#proof-quick-day-v16');const departedCard=document.querySelector("[data-proof-v10-count='departed']")?.closest('[data-proof-v10-filter]');const extraCard=document.querySelector("[data-proof-v10-count='extra']")?.closest('[data-proof-v10-filter]');const stateFilterValues=[...document.querySelectorAll('#state-filter option')].map(option=>option.value);const resources=performance.getEntriesByType('resource').map(entry=>entry.name);const fixture=document.createElement('div');fixture.style.cssText='position:absolute;left:0;top:0;width:100%;max-width:100%;opacity:0;pointer-events:none;z-index:-9999;overflow:hidden';fixture.innerHTML=\`<section class='proof-v15-lane' data-proof-lane='FD'><section class='proof-v15-branch'><div class='proof-v15-columns'><b>เส้นทาง</b><b>บาร์รถ</b><b>เวลา</b><b>คนขับ</b><b>บริษัทซัพและรถ</b><b>สถานะ</b></div><article class='proof-v15-row is-ready'><button class='proof-v15-route'><small>เส้นทาง</small><strong>NE1 TEST</strong><div class='proof-v15-tags'><span>FD</span></div></button><div class='proof-v15-cell barcode'><small>บาร์รถ</small><strong>TEST</strong><span>เปิดใช้แล้ว</span></div><div class='proof-v15-cell time'><small>เวลา</small><strong>ปล่อย 05:30</strong><span>Standby 03:30</span></div><div class='proof-v15-cell driver'><small>คนขับและเบอร์โทร</small><strong>ทดสอบ UI</strong><span>0000000000</span></div><div class='proof-v15-cell supplier'><small>บริษัทซัพและรถ</small><strong>ทดสอบ UI</strong><div class='proof-v15-vehicle'><span>ทะเบียน TEST</span><span>รถ 4WJ</span></div></div><div class='proof-v15-status'><div><small>สถานะ</small><strong>เปิดบาร์โค้ดแล้ว</strong></div></div></article></section></section><div class='proof-v15-editor'><div class='proof-editor-route-box'><div class='proof-v16-editor-hero'><div class='proof-v16-editor-route-label'>เส้นทาง</div><strong id='proof-editor-route'>NE1 TEST</strong><div class='proof-v16-editor-status-row'><span class='proof-v16-editor-status is-state-2'>เปิดบาร์โค้ดแล้ว</span></div><div class='proof-v16-editor-meta-grid'><div class='proof-v16-editor-meta-card proof-v16-time-card'><small>เวลาเที่ยวรถ</small><div class='proof-v16-time-grid'><div class='proof-v16-time-item standby'><small>Standby</small><strong>03:30</strong></div><div class='proof-v16-time-item release'><small>ปล่อยรถ</small><strong>05:30</strong></div></div></div><div class='proof-v16-editor-meta-card'><small>ผู้ใช้งาน</small><strong>ทดสอบ UI</strong></div></div></div></div></div>\`;document.body.appendChild(fixture);const columns=fixture.querySelector('.proof-v15-columns');const cellLabel=fixture.querySelector('.proof-v15-cell > small:first-child');const status=fixture.querySelector('.proof-v15-status strong');const tag=fixture.querySelector('.proof-v15-tags span');const vehicle=fixture.querySelector('.proof-v15-vehicle span');const hero=fixture.querySelector('.proof-v16-editor-hero');const timeGrid=fixture.querySelector('.proof-v16-time-grid');const result={viewport:innerWidth,docWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,toolbar:rect(toolbar),search:rect(search),hub:rect(hub),day:rect(day),controlHeights:[...(toolbar?.querySelectorAll('select,input')||[])].map(e=>Math.round(rect(e).height)),quickInside:Boolean(dayInput?.closest('label')?.contains(quick)),quickCount:quick?.querySelectorAll('button').length||0,quickLabels:[...(quick?.querySelectorAll('button strong')||[])].map(e=>e.textContent.trim()),quickButtons:[...(quick?.querySelectorAll('button')||[])].map(rect),commandFilterFlag:window.__PROOF_V16_COMMAND_FILTER_FIX__||'',departedFilter:departedCard?.dataset?.proofV10Filter||'',extraFilter:extraCard?.dataset?.proofV10Filter||'',stateFilterValues,v16Asset:resources.some(name=>name.includes('/${EXPECTED_ASSET}')),v17Asset:resources.some(name=>name.includes('/proof-v17')),columnsDisplay:css(columns)?.display||'',cellLabelDisplay:css(cellLabel)?.display||'',statusBg:css(status)?.backgroundColor||'',tagBg:css(tag)?.backgroundColor||'',vehicleBg:css(vehicle)?.backgroundColor||'',heroWidth:rect(hero)?.width||0,timeGridDisplay:css(timeGrid)?.display||''};fixture.remove();return result;})()`;
+function common(name,r,width){assert.equal(r.viewport,width,`${name}: viewport mismatch`);assert.ok(r.docWidth<=width+1,`${name}: document overflow ${r.docWidth}/${width}`);assert.ok(r.bodyWidth<=width+1,`${name}: body overflow ${r.bodyWidth}/${width}`);assert.equal(r.quickInside,true,`${name}: quick-date detached`);assert.equal(r.quickCount,3,`${name}: quick-date count`);assert.deepEqual(r.quickLabels,['เมื่อวาน','วันนี้','พรุ่งนี้'],`${name}: quick-date labels`);assert.ok(r.controlHeights.length>=7,`${name}: toolbar controls missing`);assert.ok(r.controlHeights.every(h=>Math.abs(h-44)<=1),`${name}: controls must be equal 44px: ${r.controlHeights}`);assert.equal(r.commandFilterFlag,'departed-extra-v1',`${name}: command filter runtime flag missing`);assert.equal(r.departedFilter,'departed',`${name}: ออกแล้ว command card is not mapped to departed`);assert.equal(r.extraFilter,'extra',`${name}: รถเสริม command card is not mapped to extra`);assert.ok(r.stateFilterValues.includes('departed'),`${name}: departed state option missing`);assert.ok(r.stateFilterValues.includes('extra'),`${name}: extra state option missing`);assert.equal(r.v16Asset,true,`${name}: current V16 asset missing`);assert.equal(r.v17Asset,false,`${name}: V17 asset requested`);for(const box of [r.toolbar,r.search,r.hub,r.day])assert.ok(box&&box.x>=-1&&box.right<=width+1,`${name}: toolbar box overflow ${JSON.stringify(box)}`);for(const value of [r.statusBg,r.tagBg,r.vehicleBg])assert.notEqual(value,'rgba(0, 0, 0, 0)',`${name}: badge contrast missing`);assert.equal(r.timeGridDisplay,'grid',`${name}: Hero A time split missing`);assert.ok(r.heroWidth<=width+1,`${name}: Hero A overflow`);}
+function viewport(name,r){if(name==='desktop'){assert.ok(Math.abs(r.search.y-r.hub.y)<=2&&Math.abs(r.hub.y-r.day.y)<=2,'desktop: Search/HUB/Date not aligned');assert.ok(r.search.x<r.hub.x&&r.hub.x<r.day.x,'desktop: Search/HUB/Date order wrong');assert.equal(r.columnsDisplay,'grid','desktop: header must be visible');assert.equal(r.cellLabelDisplay,'none','desktop: duplicate labels must be hidden');}else if(name==='tablet'){assert.equal(r.columnsDisplay,'none','tablet: desktop header must hide');assert.notEqual(r.cellLabelDisplay,'none','tablet: cell labels required');}else{assert.equal(r.columnsDisplay,'none','mobile: desktop header must hide');assert.notEqual(r.cellLabelDisplay,'none','mobile: cell labels required');assert.ok(r.quickButtons.every(box=>box.width>=70&&box.height>=44),`mobile: quick-date touch targets too small ${JSON.stringify(r.quickButtons)}`);}}
+async function main(){const{child,profile,version}=await launch();const cdp=new CDP(version.webSocketDebuggerUrl);try{await cdp.connect();const{targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});const{sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});await cdp.send('Page.enable',{},sessionId);await cdp.send('Runtime.enable',{},sessionId);await cdp.send('Network.enable',{},sessionId);await cdp.send('Network.setCacheDisabled',{cacheDisabled:true},sessionId);console.log(`PROOF_V16_RESPONSIVE_SMOKE_VERSION=${SMOKE_VERSION}`);for(const[name,width,height,mobile]of[['desktop',1440,1000,false],['tablet',1024,900,false],['mobile',390,844,true]]){await cdp.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile},sessionId);await cdp.send('Page.navigate',{url:`${ORIGIN}/proof.html?responsiveSmoke=${Date.now()}-${name}`},sessionId);await waitReady(cdp,sessionId);const result=await evaluate(cdp,sessionId,probe);common(name,result,width);viewport(name,result);console.log(`PROOF_V16_${name.toUpperCase()}_RESPONSIVE=PASS`);console.log(`PROOF_V16_${name.toUpperCase()}_OVERFLOW=${result.docWidth-width}`);}const mutationMethods=cdp.events.filter(e=>e.method==='Network.requestWillBeSent').map(e=>e.params?.request?.method).filter(m=>m&&!['GET','HEAD','OPTIONS'].includes(m));assert.deepEqual(mutationMethods,[],'Browser smoke emitted a mutation HTTP method');console.log('PROOF_V16_LIVE_ASSET=PASS');console.log('PROOF_V17_LIVE_REQUESTS=0');console.log('PROOF_V16_QUICK_DATE=PASS');console.log('PROOF_V16_COMMAND_FILTERS=PASS');console.log('PROOF_V16_TABLE_BADGES=PASS');console.log('PROOF_V16_HERO_A=PASS');console.log('BROWSER_MUTATION_METHODS=0');console.log('MS_MUTATION_TESTED=NO');console.log('PRODUCTION_TOUCHED=NO');}finally{cdp.close();child.kill('SIGTERM');await sleep(300);await rm(profile,{recursive:true,force:true}).catch(()=>{});}}
 main().catch(error=>{console.error(error);process.exitCode=1;});

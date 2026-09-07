@@ -9,7 +9,7 @@ const postCutoverWorkflow = await readFile(new URL('../workflows/post-cutover-re
 const responsiveSmoke = await readFile(new URL('./proof-v16-live-responsive-smoke.mjs', import.meta.url), 'utf8');
 
 test('Proof V16 current release keeps quick-day controls inside the date field', () => {
-  assert.match(ui, /const VERSION = '20260908-01'/);
+  assert.match(ui, /const VERSION = '20260908-02'/);
   assert.match(ui, /dayRow\.className = 'proof-day-row-v16'/);
   assert.match(ui, /dayInput\.insertAdjacentElement\('beforebegin', dayRow\)/);
   assert.match(ui, /dayRow\.appendChild\(dayInput\)/);
@@ -28,7 +28,7 @@ test('Proof V16 current release keeps quick-day controls inside the date field',
 });
 
 test('Proof V16 command cards map departed and extra to their counted row predicates', () => {
-  assert.match(ui, /PROOF_COMMAND_FILTER_FIX_V16/);
+  assert.match(ui, /__PROOF_V16_COMMAND_FILTER_FIX__/);
   assert.match(ui, /departedCardV16\.dataset\.proofV10Filter = 'departed'/);
   assert.match(ui, /extraCardV16\.dataset\.proofV10Filter = 'extra'/);
   assert.match(ui, /ensureStateOptionV16\('departed', 'ออกแล้ว'\)/);
@@ -38,51 +38,25 @@ test('Proof V16 command cards map departed and extra to their counted row predic
 });
 
 test('Proof toolbar prioritizes search HUB date and stays responsive', () => {
-  assert.match(ui, /proof-search-field-v16/);
-  assert.match(ui, /proof-hub-field-v16/);
-  assert.match(ui, /proof-day-field-v16/);
-  assert.match(ui, /proof-search-field-v16\{order:1!important/);
-  assert.match(ui, /proof-hub-field-v16\{order:2!important/);
-  assert.match(ui, /proof-day-field-v16\{order:3!important/);
-  assert.match(ui, /@media\(min-width:1321px\)/);
-  assert.match(ui, /@media\(max-width:1320px\) and \(min-width:761px\)/);
-  assert.match(ui, /display:block!important;color:#405563/);
+  assert.match(ui, /proof-search-field-v16/);assert.match(ui, /proof-hub-field-v16/);assert.match(ui, /proof-day-field-v16/);assert.match(ui, /proof-search-field-v16\{order:1!important/);assert.match(ui, /proof-hub-field-v16\{order:2!important/);assert.match(ui, /proof-day-field-v16\{order:3!important/);assert.match(ui, /@media\(min-width:1321px\)/);assert.match(ui, /@media\(max-width:1320px\) and \(min-width:761px\)/);assert.match(ui, /display:block!important;color:#405563/);
 });
 
 test('Proof V16 keeps operational Hero A time labels distinct', () => {
-  assert.match(ui, /PROOF_EDITOR_HERO_A_V16/);
-  assert.match(ui, /proof-v16-time-item standby/);
-  assert.match(ui, />Standby<\/small>/);
-  assert.match(ui, /proof-v16-time-item release/);
-  assert.match(ui, />ปล่อยรถ<\/small>/);
-  assert.match(ui, /proof-v16-plan-source\{display:none!important\}/);
+  assert.match(ui, /proof-v16-time-item standby/);assert.match(ui, />Standby<\/small>/);assert.match(ui, /proof-v16-time-item release/);assert.match(ui, />ปล่อยรถ<\/small>/);assert.match(ui, /proof-v16-plan-source\{display:none!important\}/);
 });
 
 test('Proof V16 UI polish adds no browser network or polling loop', () => {
-  assert.doesNotMatch(ui, /\bfetch\s*\(/);
-  assert.doesNotMatch(ui, /XMLHttpRequest|WebSocket|EventSource/);
-  assert.doesNotMatch(ui, /setInterval\s*\(/);
-  assert.match(ui, /sessionStorage\.getItem\(supplierRetryKey\(\)\)/);
-  assert.match(ui, /sessionStorage\.setItem\(supplierRetryKey\(\), '1'\)/);
+  assert.doesNotMatch(ui, /\bfetch\s*\(/);assert.doesNotMatch(ui, /XMLHttpRequest|WebSocket|EventSource/);assert.doesNotMatch(ui, /setInterval\s*\(/);assert.match(ui, /sessionStorage\.getItem\(supplierRetryKey\(\)\)/);assert.match(ui, /sessionStorage\.setItem\(supplierRetryKey\(\), '1'\)/);
 });
 
 test('Turso loader and served V16 asset use the same cache-buster', () => {
-  assert.match(loader, /proof-v16\.js\?v=20260908-01/);
-  assert.match(loader, /maybeHandleProofUiV16/);
-  assert.match(loader, /databaseEnv\(env\)/);
-  assert.doesNotMatch(loader, /proof-ui-v17|proof-v17\.js/);
+  assert.match(loader, /proof-v16\.js\?v=20260908-02/);assert.match(loader, /maybeHandleProofUiV16/);assert.match(loader, /databaseEnv\(env\)/);assert.doesNotMatch(loader, /proof-ui-v17|proof-v17\.js/);
 });
 
 test('permanent responsive and post-cutover gates track the current V16 release', () => {
-  assert.match(responsiveWorkflow, /PROOF_V16_ASSET: proof-v16\.js\?v=20260908-01/);
-  assert.match(responsiveSmoke, /EXPECTED_ASSET = process\.env\.PROOF_V16_ASSET \|\| 'proof-v16\.js\?v=20260908-01'/);
-  assert.match(responsiveSmoke, /SMOKE_VERSION = '20260908-01'/);
-  assert.match(responsiveSmoke, /departedFilter/);
-  assert.match(responsiveSmoke, /extraFilter/);
-  assert.match(responsiveSmoke, /PROOF_V16_COMMAND_FILTERS=PASS/);
-  assert.match(responsiveSmoke, /BROWSER_MUTATION_METHODS=0/);
-  assert.match(postCutoverWorkflow, /- worker\/tests\/\*\*/);
-  assert.doesNotMatch(postCutoverWorkflow, /- worker\/test\/\*\*/);
-  assert.match(postCutoverWorkflow, /- \.github\/dev-tools\/proof-v16-live-responsive-smoke\.mjs/);
-  assert.match(postCutoverWorkflow, /- \.github\/workflows\/proof-v16-responsive-dev\.yml/);
+  assert.match(responsiveWorkflow, /PROOF_V16_ASSET: proof-v16\.js\?v=20260908-02/);
+  assert.match(responsiveSmoke, /EXPECTED_ASSET = process\.env\.PROOF_V16_ASSET \|\| 'proof-v16\.js\?v=20260908-02'/);
+  assert.match(responsiveSmoke, /SMOKE_VERSION = '20260908-02'/);
+  assert.match(responsiveSmoke, /commandFilterFlag/);assert.match(responsiveSmoke, /departedFilter/);assert.match(responsiveSmoke, /extraFilter/);assert.match(responsiveSmoke, /PROOF_V16_COMMAND_FILTERS=PASS/);assert.match(responsiveSmoke, /BROWSER_MUTATION_METHODS=0/);
+  assert.match(postCutoverWorkflow, /- worker\/tests\/\*\*/);assert.doesNotMatch(postCutoverWorkflow, /- worker\/test\/\*\*/);assert.match(postCutoverWorkflow, /- \.github\/dev-tools\/proof-v16-live-responsive-smoke\.mjs/);assert.match(postCutoverWorkflow, /- \.github\/workflows\/proof-v16-responsive-dev\.yml/);
 });

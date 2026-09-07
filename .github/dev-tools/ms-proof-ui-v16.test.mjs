@@ -56,7 +56,7 @@ test('Turso loader and served V16 asset use the same cache-buster', () => {
 test('permanent responsive and post-cutover gates track the current V16 release', () => {
   assert.match(responsiveWorkflow, /PROOF_V16_ASSET: proof-v16\.js\?v=20260908-02/);
   assert.match(responsiveSmoke, /EXPECTED_ASSET = process\.env\.PROOF_V16_ASSET \|\| 'proof-v16\.js\?v=20260908-02'/);
-  assert.match(responsiveSmoke, /SMOKE_VERSION = '20260908-02'/);
+  assert.match(responsiveSmoke, /SMOKE_VERSION = '20260908-03'/);
   assert.match(responsiveSmoke, /commandFilterFlag/);assert.match(responsiveSmoke, /departedFilter/);assert.match(responsiveSmoke, /extraFilter/);assert.match(responsiveSmoke, /PROOF_V16_COMMAND_FILTERS=PASS/);assert.match(responsiveSmoke, /BROWSER_MUTATION_METHODS=0/);
   assert.match(postCutoverWorkflow, /- worker\/tests\/\*\*/);assert.doesNotMatch(postCutoverWorkflow, /- worker\/test\/\*\*/);assert.match(postCutoverWorkflow, /- \.github\/dev-tools\/proof-v16-live-responsive-smoke\.mjs/);assert.match(postCutoverWorkflow, /- \.github\/workflows\/proof-v16-responsive-dev\.yml/);
 });

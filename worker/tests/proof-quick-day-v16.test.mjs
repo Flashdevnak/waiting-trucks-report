@@ -5,6 +5,7 @@ import { maybeHandleProofUiV16 } from '../src/proof-ui-v16.js';
 
 const source = await fs.readFile(new URL('../src/proof-ui-v16.js', import.meta.url), 'utf8');
 const tursoSource = await fs.readFile(new URL('../src/turso-index.js', import.meta.url), 'utf8');
+const devConfigSource = await fs.readFile(new URL('../wrangler.dev.jsonc', import.meta.url), 'utf8');
 
 test('Proof V16 asset serves only the quick-day Proof enhancement', async () => {
   const ok = await maybeHandleProofUiV16(new Request('https://dev.test/proof-v16.js'));
@@ -45,6 +46,15 @@ test('Proof V16 owns deterministic header dropdown switching and V17 stays absen
   assert.match(tursoSource, /setTimeout\(\(\)=>apply\('timeout0'\),0\)/);
   assert.match(tursoSource, /setTimeout\(\(\)=>apply\('timeout32'\),32\)/);
   assert.match(tursoSource, /if\(token!==sequence\)return/);
+  assert.match(tursoSource, /proof-v16\.js\?v=20260907-06/);
+  assert.doesNotMatch(tursoSource, /proof-v17|maybeHandleProofUiV17/i);
+});
+
+test('DEV closure contract stays Turso-only with no D1 binding and V16 as the final Proof asset', () => {
+  assert.match(devConfigSource, /"main"\s*:\s*"src\/turso-index\.js"/);
+  assert.match(devConfigSource, /"DB_BACKEND"\s*:\s*"turso"/);
+  assert.doesNotMatch(devConfigSource, /"d1_databases"\s*:/);
+  assert.doesNotMatch(devConfigSource, /"binding"\s*:\s*"DB"/);
   assert.match(tursoSource, /proof-v16\.js\?v=20260907-06/);
   assert.doesNotMatch(tursoSource, /proof-v17|maybeHandleProofUiV17/i);
 });

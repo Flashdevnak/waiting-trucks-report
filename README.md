@@ -34,7 +34,8 @@ API เดิมที่ยังเป็น fallback ระหว่าง mi
 - API parity test: `worker/tests/parity.mjs`
 - Production preflight SQL: `worker/scripts/production-preflight.sql`
 - DEV Worker config: `worker/wrangler.dev.jsonc`
-- Manual DEV deploy workflow: `.github/workflows/deploy-worker-dev.yml`
+- DEV Worker entrypoint: `worker/src/turso-index.js`
+- Manual/automatic DEV deploy workflow: `.github/workflows/deploy-worker-dev.yml`
 
 Backend ใน `worker/src/index.js` ถูกนำมาจาก deployment เดิมโดยตรงเพื่อรักษา API
 contract และ business logic เดิม ไม่ได้ rewrite ระหว่าง migration
@@ -57,9 +58,22 @@ Environment variables/secrets ที่ backend ใช้:
 
 ห้าม deploy ด้วย database ID ที่เดา ห้ามสร้าง Production D1 ใหม่แทนของเดิม
 
-DEV shadow ใช้ฐาน `waiting-trucks-report-dev-db` เท่านั้น และ Worker ชื่อ
-`waiting-trucks-report-api-dev` การ deploy ถูกตั้งเป็น `workflow_dispatch` เพื่อไม่ให้
-commit ปกติแก้ DEV D1 หรือ deploy Worker โดยอัตโนมัติ
+## DEV current state
+
+DEV Worker ชื่อ `waiting-trucks-report-api-dev` ใช้ `worker/src/turso-index.js` เป็น
+entrypoint และใช้ Turso เป็นฐานข้อมูล canonical ของ DEV (`DB_BACKEND=turso`) เท่านั้น
+`worker/wrangler.dev.jsonc` ต้องไม่มี `d1_databases` binding ดังนั้น DEV D1 usage ต้องเป็น 0
+และห้ามนำ D1 กลับมาเป็น fallback โดยไม่ได้ออกแบบและทดสอบใหม่โดยชัดเจน
+
+DEV deploy ใช้ `.github/workflows/deploy-worker-dev.yml` จาก `main` ล่าสุด โดย workflow
+ต้องตรวจ exact checkout SHA, Turso-only preflight, active Worker bindings และ base smoke
+ก่อนถือว่า deploy ผ่าน Cron ของ DEV ยังคงเป็น `* * * * *` และการเปลี่ยน UI ต้องไม่เพิ่ม
+polling หรือ MS read แยกต่อ widget โดยไม่จำเป็น
+
+Proof DEV ใช้ V16 เป็น canonical asset (`/proof-v16.js`) และ V17 ถูกถอดออกแล้ว ห้าม
+สร้าง V17 กลับมาเป็น asset/loader แยก การทดสอบ responsive ของ Proof และ shared mobile
+shell เป็น read-only browser gates และต้องไม่มี mutation HTTP methods ไปยัง MS ส่วน
+cancellation/MS mutation tests ยังคงปิดตามขอบเขต DEV safety
 
 ## Development
 

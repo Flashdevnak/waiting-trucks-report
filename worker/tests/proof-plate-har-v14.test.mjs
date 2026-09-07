@@ -14,7 +14,8 @@ test('captured 6W7.2 HAR produces the same first car/info query and result', asy
   const seen = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async input => {
-    const url = new URL(typeof input === 'string' ? input : input.url);
+    const raw = input instanceof URL ? input.toString() : typeof input === 'string' ? input : input.url;
+    const url = new URL(raw);
     seen.push(url.toString());
     if (url.pathname.endsWith('/proof/popup')) {
       return new Response(JSON.stringify({ code: 1, message: 'success', data: {

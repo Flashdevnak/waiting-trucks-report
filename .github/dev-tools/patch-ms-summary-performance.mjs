@@ -10,6 +10,7 @@ const FRONTEND_MARKER = "function renderRowsProgressively(rows)";
 const STYLE_MARKER = "/* MS summary performance */";
 const MOBILE_EXPORT_MARKER = "/* MS mobile export single-column v2 */";
 const PROOF_MOBILE_TOOLBAR_MARKER = "/* Proof V16 mobile toolbar containment v2 */";
+const PROOF_MOBILE_HEADER_MARKER = "/* Proof mobile header dropdown anchor v2 */";
 
 export function patchMsSummaryPerformanceFrontend(source) {
   let output = String(source || "");
@@ -52,6 +53,10 @@ export function patchMsSummaryPerformanceStyle(source) {
 
   if (!output.includes(PROOF_MOBILE_TOOLBAR_MARKER)) {
     output = `${output.trimEnd()}\n\n${PROOF_MOBILE_TOOLBAR_MARKER}\n@media (max-width:760px){body.proof-page .proof-toolbar-v16{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;grid-auto-columns:minmax(0,1fr)!important;width:100%!important;min-width:0!important;max-width:100%!important}body.proof-page .proof-toolbar-v16>label,body.proof-page .proof-toolbar-v16>#clear-filter-btn{min-width:0!important;max-width:100%!important;width:100%!important;grid-column:auto!important}body.proof-page .proof-toolbar-v16>.proof-search,body.proof-page .proof-toolbar-v16>.proof-search-field-v16{grid-column:1/-1!important}body.proof-page .proof-toolbar-v16 select,body.proof-page .proof-toolbar-v16 input{min-width:0!important;max-width:100%!important;width:100%!important}}\n@media (max-width:430px){body.proof-page .proof-toolbar-v16{grid-template-columns:minmax(0,1fr)!important;grid-auto-columns:minmax(0,1fr)!important}body.proof-page .proof-toolbar-v16>label,body.proof-page .proof-toolbar-v16>#clear-filter-btn,body.proof-page .proof-toolbar-v16>.proof-search,body.proof-page .proof-toolbar-v16>.proof-search-field-v16{grid-column:1!important}}\n`;
+  }
+
+  if (!output.includes(PROOF_MOBILE_HEADER_MARKER)) {
+    output = `${output.trimEnd()}\n\n${PROOF_MOBILE_HEADER_MARKER}\n@media (max-width:700px){body.proof-page .dev-unified-header{position:relative!important;overflow:visible!important}body.proof-page .dev-unified-header .site-header-inner,body.proof-page .dev-unified-header .dev-unified-actions{overflow:visible!important}body.proof-page .dev-unified-header .app-nav{position:static!important;width:100%!important;min-width:0!important}body.proof-page .dev-unified-header .app-nav-menu{position:absolute!important;left:10px!important;right:10px!important;top:calc(100% + 6px)!important;bottom:auto!important;width:auto!important;max-width:none!important;max-height:calc(100dvh - 235px)!important;margin:0!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain!important;z-index:999!important}}\n`;
   }
 
   return output;

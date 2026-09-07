@@ -35,3 +35,17 @@ test('Proof V16 mobile toolbar cannot create implicit overflow tracks', () => {
   assert.match(tail, /@media \(max-width:430px\)\{body\.proof-page \.proof-toolbar-v16\{[^}]*grid-template-columns:minmax\(0,1fr\)!important/s);
   assert.equal(patchMsSummaryPerformanceStyle(patched), patched, 'Proof toolbar containment patch must remain idempotent');
 });
+
+test('Proof mobile dropdown is anchored to the full header and bounded by the viewport', () => {
+  const patched = patchMsSummaryPerformanceStyle(source);
+  const marker = '/* Proof mobile header dropdown anchor v2 */';
+  const index = patched.lastIndexOf(marker);
+
+  assert.ok(index >= 0, 'Proof mobile header marker missing');
+  const tail = patched.slice(index);
+  assert.match(tail, /@media \(max-width:700px\)/);
+  assert.match(tail, /body\.proof-page \.dev-unified-header\{[^}]*position:relative!important;[^}]*overflow:visible!important/s);
+  assert.match(tail, /body\.proof-page \.dev-unified-header \.app-nav\{[^}]*position:static!important;[^}]*width:100%!important;[^}]*min-width:0!important/s);
+  assert.match(tail, /body\.proof-page \.dev-unified-header \.app-nav-menu\{[^}]*position:absolute!important;[^}]*left:10px!important;[^}]*right:10px!important;[^}]*top:calc\(100% \+ 6px\)!important;[^}]*width:auto!important;[^}]*max-height:calc\(100dvh - 235px\)!important;[^}]*overflow-y:auto!important/s);
+  assert.equal(patchMsSummaryPerformanceStyle(patched), patched, 'Proof header dropdown patch must remain idempotent');
+});

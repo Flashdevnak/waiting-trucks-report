@@ -107,7 +107,7 @@ export function patchDevWorkerCompletedSummary(source) {
   return output;
 }
 
-const DEV_MOBILE_SPACING_MARKER = "/* DEV mobile MS card spacing */";
+const DEV_MOBILE_SPACING_MARKER = "/* DEV mobile MS card spacing v7 base */";
 const DEV_MOBILE_SHELL_MARKER = "/* DEV mobile unified shell v7 */";
 
 export function patchDevMsMobileStyle(source) {

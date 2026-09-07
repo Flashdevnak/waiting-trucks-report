@@ -10,15 +10,12 @@ import { maybeHandleProofUiV10 } from "./proof-ui-v10.js";
 import { maybeHandleProofUiV14 } from "./proof-ui-v14.js";
 import { maybeHandleProofUiV15 } from "./proof-ui-v15.js";
 import { maybeHandleProofUiV16 } from "./proof-ui-v16.js";
-import { maybeHandleProofUiV17 } from "./proof-ui-v17.js";
 import { enrichProofRoutesV16, captureProofEditorMetaV16 } from "./proof-route-meta-v16.js";
 import { maybeHandleProofHistoryV10 } from "./proof-history-v10.js";
 
 export default {
   async fetch(request, env, ctx) {
     const runtimeEnv = databaseEnv(env);
-    const proofUiV17Response = await maybeHandleProofUiV17(request, runtimeEnv, ctx, worker);
-    if (proofUiV17Response) return proofUiV17Response;
     const proofUiV16Response = await maybeHandleProofUiV16(request, runtimeEnv, ctx, worker);
     if (proofUiV16Response) return proofUiV16Response;
     const proofUiV15Response = await maybeHandleProofUiV15(request, runtimeEnv, ctx, worker);
@@ -30,7 +27,7 @@ export default {
       const url = new URL(request.url);
       if (url.pathname === "/proof-v10.js") {
         const base = await proofUiV10Response.text();
-        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-03','proofV15Loader');add('/proof-v16.js?v=20260907-03','proofV16Loader');add('/proof-v17.js?v=20260907-01','proofV17Loader');})();`;
+        const loader = `\n;(()=>{const add=(src,key)=>{if(document.querySelector('script[data-'+key+']'))return;const s=document.createElement('script');s.dataset[key]='1';s.src=src;s.defer=true;document.head.appendChild(s);};add('/proof-v14.js?v=20260907-01','proofV14Loader');add('/proof-v15.js?v=20260907-03','proofV15Loader');add('/proof-v16.js?v=20260907-04','proofV16Loader');})();`;
         return new Response(base + loader, {
           status: proofUiV10Response.status,
           headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-store' },

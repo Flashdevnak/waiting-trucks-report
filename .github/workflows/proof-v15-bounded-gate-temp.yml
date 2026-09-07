@@ -1,5 +1,6 @@
 name: Proof V15 Bounded Gate Temp
 
+# Rerun after mobile footer overflow fix.
 on:
   push:
     branches: [main]

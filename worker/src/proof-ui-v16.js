@@ -13,7 +13,7 @@ function proofUiV16() {
     const P = window.ProofV2;
     if (!window.__PROOF_V15_READY__ || !P || typeof P.loadRoutes !== 'function' || !P.state) return setTimeout(boot, 40);
     if (window.__PROOF_V16_READY__) return;
-    window.__PROOF_V16_READY__ = true; // PROOF_QUICK_DAY_V16 PROOF_LAYOUT_FIX_V16_06
+    window.__PROOF_V16_READY__ = true; // PROOF_QUICK_DAY_V16 PROOF_LAYOUT_FIX_V16_06 PROOF_QUICK_DAY_SEGMENTED_V16
 
     const dayInput = P.el('day-filter');
     const dayLabel = dayInput?.closest('label');
@@ -33,18 +33,15 @@ function proofUiV16() {
       const value = new Date(Date.UTC(base[0], base[1] - 1, base[2] + Number(offset || 0), 12, 0, 0));
       return value.toISOString().slice(0, 10);
     };
-    const shortDay = value => {
-      const [y,m,d] = String(value || '').split('-');
-      return y && m && d ? `${d}/${m}` : '';
-    };
 
     const syncQuickDays = () => {
       const current = String(dayInput?.value || P.state.day || '');
       document.querySelectorAll('[data-proof-day-offset]').forEach(button => {
-        button.classList.toggle('is-active', current === dayOffset(Number(button.dataset.proofDayOffset || 0)));
+        const active = current === dayOffset(Number(button.dataset.proofDayOffset || 0));
+        button.classList.toggle('is-active', active);
+        if (active) button.setAttribute('aria-current', 'date');
+        else button.removeAttribute('aria-current');
       });
-      const caption = document.getElementById('proof-day-caption-v16');
-      if (caption) caption.textContent = current ? `วันที่ ${current}` : '';
     };
 
     const setDay = async value => {
@@ -59,17 +56,30 @@ function proofUiV16() {
       await P.loadRoutes(false);
     };
 
-    // Keep quick-day controls inside the date field. This prevents the detached floating day box.
+    // Compact segmented navigator: keep the three quick-day actions beside the date input.
     if (dayLabel && dayInput && !document.getElementById('proof-quick-day-v16')) {
+      let dayRow = dayInput.closest('.proof-day-row-v16');
+      if (!dayRow) {
+        dayRow = document.createElement('div');
+        dayRow.className = 'proof-day-row-v16';
+        dayInput.insertAdjacentElement('beforebegin', dayRow);
+        dayRow.appendChild(dayInput);
+      }
+
       const quick = document.createElement('div');
       quick.id = 'proof-quick-day-v16';
       quick.className = 'proof-quick-day-v16';
+      quick.setAttribute('role', 'group');
+      quick.setAttribute('aria-label', 'เลือกวันแบบด่วน');
       quick.innerHTML = [
         [-1,'เมื่อวาน'],
         [0,'วันนี้'],
         [1,'พรุ่งนี้'],
-      ].map(([offset,label]) => `<button type='button' data-proof-day-offset='${offset}'><strong>${label}</strong><span>${shortDay(dayOffset(offset))}</span></button>`).join('') + `<small id='proof-day-caption-v16'></small>`;
-      dayInput.insertAdjacentElement('afterend', quick);
+      ].map(([offset,label]) => {
+        const value = dayOffset(offset);
+        return `<button type='button' data-proof-day-offset='${offset}' aria-label='${label} ${value}' title='${label} ${value}'><strong>${label}</strong></button>`;
+      }).join('');
+      dayRow.appendChild(quick);
       quick.addEventListener('click', event => {
         const button = event.target.closest('[data-proof-day-offset]');
         if (!button) return;
@@ -186,20 +196,21 @@ function proofUiV16() {
     const style = document.createElement('style');
     style.id = 'proof-v16-style';
     style.textContent = `
-      .proof-toolbar-v16{grid-template-columns:minmax(250px,1.45fr) 110px minmax(300px,1.2fr) repeat(4,minmax(125px,.72fr)) auto!important;gap:10px!important;align-items:start!important}
+      .proof-toolbar-v16{grid-template-columns:minmax(250px,1.45fr) 110px minmax(330px,1.28fr) repeat(4,minmax(125px,.72fr)) auto!important;gap:10px!important;align-items:start!important}
       .proof-toolbar-v16 .proof-search-field-v16{order:1!important;grid-column:auto!important}
       .proof-toolbar-v16 .proof-hub-field-v16{order:2!important}
       .proof-toolbar-v16 .proof-day-field-v16{order:3!important;align-self:start!important;height:auto!important;min-width:0}
       .proof-toolbar-v16 label:not(.proof-search-field-v16):not(.proof-hub-field-v16):not(.proof-day-field-v16){order:4!important}
       .proof-toolbar-v16>#clear-filter-btn{order:5!important;min-height:44px!important;height:44px!important;margin-top:22px!important}
       .proof-toolbar-v16 select,.proof-toolbar-v16 input{height:44px!important;min-height:44px!important;box-sizing:border-box}
-      .proof-toolbar-v16 .proof-day-field-v16 #day-filter{height:44px!important;min-height:44px!important}
-      .proof-quick-day-v16{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;width:100%;min-width:0;box-sizing:border-box;margin-top:5px}
-      .proof-quick-day-v16 button{min-width:0;max-width:100%;min-height:44px;overflow:hidden;border:1px solid #aebbc4;background:#fff;color:#20313e;border-radius:8px;padding:5px 3px;cursor:pointer;text-align:center;line-height:1.15;box-sizing:border-box}
-      .proof-quick-day-v16 button strong,.proof-quick-day-v16 button span{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .proof-quick-day-v16 button strong{font-size:10.5px}.proof-quick-day-v16 button span{font-size:9px;color:#536572;margin-top:2px}
-      .proof-quick-day-v16 button:hover{border-color:#a88900;background:#fff8cf}.proof-quick-day-v16 button.is-active{background:#151515;border-color:#151515;color:#ffd400}
-      .proof-quick-day-v16 button.is-active span{color:#fff0a0}.proof-quick-day-v16>small{grid-column:1/-1;text-align:center;color:#52636f;font-size:9px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .proof-toolbar-v16 .proof-day-field-v16 #day-filter{height:44px!important;min-height:44px!important;width:100%!important;min-width:0!important}
+      .proof-day-row-v16{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(150px,.92fr);gap:6px;align-items:stretch;width:100%;min-width:0}
+      .proof-quick-day-v16{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;width:100%;height:44px;min-width:0;box-sizing:border-box;margin:0;border:1px solid #aebbc4;border-radius:8px;overflow:hidden;background:#fff}
+      .proof-quick-day-v16 button{min-width:0;max-width:100%;min-height:44px;height:44px;overflow:hidden;border:0;border-left:1px solid #d2d9de;background:#fff;color:#20313e;border-radius:0;padding:0 5px;cursor:pointer;text-align:center;line-height:1;box-sizing:border-box;transition:background .15s ease,color .15s ease,border-color .15s ease}
+      .proof-quick-day-v16 button:first-child{border-left:0}
+      .proof-quick-day-v16 button strong{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;font-weight:900}
+      .proof-quick-day-v16 button:hover{background:#fff8cf;color:#4a3d00}.proof-quick-day-v16 button.is-active{background:#151515;color:#ffd400}
+      .proof-quick-day-v16 button:focus-visible{position:relative;z-index:2;outline:2px solid #d6b400;outline-offset:-2px}
 
       /* Column labels stay visible exactly when V15 hides the desktop column header. */
       @media(min-width:1321px){
@@ -246,7 +257,7 @@ function proofUiV16() {
       .proof-v16-time-item.standby{box-shadow:inset 0 4px 0 #58778d}.proof-v16-time-item.release{box-shadow:inset 0 4px 0 #c2a500;background:#fff9dc}
 
       @media(max-width:1180px){
-        .proof-toolbar-v16{grid-template-columns:minmax(220px,1.4fr) 110px minmax(280px,1.25fr) repeat(2,minmax(130px,1fr))!important}
+        .proof-toolbar-v16{grid-template-columns:minmax(220px,1.4fr) 110px minmax(300px,1.25fr) repeat(2,minmax(130px,1fr))!important}
         .proof-toolbar-v16 label:not(.proof-search-field-v16):not(.proof-hub-field-v16):not(.proof-day-field-v16),.proof-toolbar-v16>#clear-filter-btn{order:4!important}
       }
       @media(max-width:760px){
@@ -255,12 +266,14 @@ function proofUiV16() {
         .proof-toolbar-v16 .proof-hub-field-v16{order:2!important}.proof-toolbar-v16 .proof-day-field-v16{order:3!important;width:100%!important}
         .proof-toolbar-v16 label:not(.proof-search-field-v16):not(.proof-hub-field-v16):not(.proof-day-field-v16){order:4!important}
         .proof-toolbar-v16>#clear-filter-btn{order:5!important;margin-top:0!important;align-self:end!important}
-        .proof-quick-day-v16{gap:7px}.proof-quick-day-v16 button{padding:7px 5px}.proof-quick-day-v16 button strong{font-size:12px}.proof-quick-day-v16 button span{font-size:9.5px}
+        .proof-day-row-v16{grid-template-columns:minmax(0,1.08fr) minmax(145px,.92fr)}
+        .proof-quick-day-v16 button strong{font-size:11px}
         .proof-v16-editor-meta-grid{grid-template-columns:1fr}.proof-v16-editor-hero #proof-editor-route{font-size:19px!important}
       }
       @media(max-width:430px){
         .proof-toolbar-v16{grid-template-columns:1fr!important}.proof-toolbar-v16 .proof-search-field-v16,.proof-toolbar-v16 .proof-hub-field-v16,.proof-toolbar-v16 .proof-day-field-v16{grid-column:1!important}
-        .proof-quick-day-v16{gap:6px}.proof-quick-day-v16 button{padding:8px 4px}.proof-quick-day-v16 button strong{font-size:11.5px}
+        .proof-day-row-v16{grid-template-columns:minmax(0,1.08fr) minmax(150px,.92fr)}
+        .proof-quick-day-v16 button{padding:0 3px}.proof-quick-day-v16 button strong{font-size:10.5px}
         .proof-v15-editor .proof-editor-route-box{padding:14px 12px!important}.proof-v16-editor-meta-grid{gap:8px;margin-top:12px}.proof-v16-time-grid{grid-template-columns:1fr 1fr;gap:6px}.proof-v16-time-item{padding:8px 6px}.proof-v16-time-item strong{font-size:16px!important}
       }
     `;

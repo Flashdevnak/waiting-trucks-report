@@ -32,6 +32,7 @@ jobs:
             Path('proof.html'),
             Path('proof.js'),
             Path('proof-v2-ui.js'),
+            Path('proof-v2-actions.js'),
             Path('worker/src/proof-ui-v5.js'),
             Path('worker/src/proof-ui-v10.js'),
             Path('worker/src/proof-ui-v14.js'),
@@ -56,19 +57,29 @@ jobs:
               path.write_text(text, encoding='utf-8')
               print(f'updated {path}')
 
-          test_path = Path('worker/tests/proof-command-center-v10.test.mjs')
-          test = test_path.read_text(encoding='utf-8')
+          command_test = Path('worker/tests/proof-command-center-v10.test.mjs')
+          test = command_test.read_text(encoding='utf-8')
           test = test.replace("assert.match(ui, /FD • Feeder \\/ รถเสริม \\/ อื่น ๆ/);", "assert.match(ui, /FD\\s+Feeder \\/ รถเสริม \\/ อื่น ๆ/);")
           test = test.replace("assert.match(ui, /LH • HUB TO HUB/);", "assert.match(ui, /LH\\s+HUB TO HUB/);")
           marker = "  assert.match(ui, /รถเสริม/);\n"
           if "doesNotMatch(ui, /[•→]/)" not in test:
             test = test.replace(marker, marker + "  assert.doesNotMatch(ui, /[•→]/);\n")
-          test_path.write_text(test, encoding='utf-8')
+          command_test.write_text(test, encoding='utf-8')
+
+          polish_test = Path('worker/tests/proof-polish-v15.test.mjs')
+          polish = polish_test.read_text(encoding='utf-8')
+          source_line = "const source = await fs.readFile(new URL('../src/proof-ui-v15.js', import.meta.url), 'utf8');\n"
+          if 'const baseActionsSource' not in polish:
+            polish = polish.replace(source_line, source_line + "const baseActionsSource = await fs.readFile(new URL('../../proof-v2-actions.js', import.meta.url), 'utf8');\n")
+          if "Proof base editor copy has no visible bullet arrow or dash placeholders" not in polish:
+            polish += "\ntest('Proof base editor copy has no visible bullet arrow or dash placeholders', () => {\n  assert.doesNotMatch(baseActionsSource, /[•→]/);\n  assert.doesNotMatch(baseActionsSource, /['\"]—['\"]/);\n  assert.doesNotMatch(baseActionsSource, />—</);\n});\n"
+          polish_test.write_text(polish, encoding='utf-8')
           PY
 
           node --check main.js
           node --check proof.js
           node --check proof-v2-ui.js
+          node --check proof-v2-actions.js
           node --check worker/src/proof-ui-v5.js
           node --check worker/src/proof-ui-v10.js
           node --check worker/src/proof-ui-v14.js
@@ -98,11 +109,11 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add main.js proof.html proof.js proof-v2-ui.js worker/src/proof-ui-v5.js worker/src/proof-ui-v10.js worker/src/proof-ui-v14.js worker/tests/proof-command-center-v10.test.mjs
+          git add main.js proof.html proof.js proof-v2-ui.js proof-v2-actions.js worker/src/proof-ui-v5.js worker/src/proof-ui-v10.js worker/src/proof-ui-v14.js worker/tests/proof-command-center-v10.test.mjs worker/tests/proof-polish-v15.test.mjs
           if git diff --cached --quiet; then
             echo 'No source cleanup needed'
             exit 0
           fi
-          git commit -m 'Polish visible UI copy across Proof and Waiting'
+          git commit -m 'Finish Proof visible copy cleanup'
           git pull --rebase origin main
           git push origin HEAD:main

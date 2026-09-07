@@ -37,10 +37,14 @@ test('Proof V16 quick date buttons are mobile-safe', () => {
 
 test('Proof V16 owns deterministic header dropdown switching and V17 stays absent', () => {
   assert.match(tursoSource, /__PROOF_V16_DROPDOWN_SWITCH_FIX__/);
+  assert.match(tursoSource, /__PROOF_V16_DROPDOWN_SWITCH_LAST__/);
   assert.match(tursoSource, /event\.preventDefault\(\)/);
   assert.match(tursoSource, /event\.stopImmediatePropagation\(\)/);
   assert.match(tursoSource, /const shouldOpen=!owner\.open/);
-  assert.match(tursoSource, /owner\.open=shouldOpen/);
+  assert.match(tursoSource, /queueMicrotask\(\(\)=>apply\('microtask'\)\)/);
+  assert.match(tursoSource, /setTimeout\(\(\)=>apply\('timeout0'\),0\)/);
+  assert.match(tursoSource, /setTimeout\(\(\)=>apply\('timeout32'\),32\)/);
+  assert.match(tursoSource, /if\(token!==sequence\)return/);
   assert.match(tursoSource, /proof-v16\.js\?v=20260907-06/);
   assert.doesNotMatch(tursoSource, /proof-v17|maybeHandleProofUiV17/i);
 });

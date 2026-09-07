@@ -23,6 +23,18 @@ test('Proof V16 provides yesterday today tomorrow and preserves manual date sele
   assert.match(source, /await P\.loadRoutes\(false\)/);
 });
 
+test('Proof V16 command cards filter departed and extra rows instead of falling back to all', () => {
+  assert.match(source, /PROOF_COMMAND_FILTER_FIX_V16/);
+  assert.match(source, /departedCardV16\.dataset\.proofV10Filter = 'departed'/);
+  assert.match(source, /extraCardV16\.dataset\.proofV10Filter = 'extra'/);
+  assert.match(source, /ensureStateOptionV16\('departed', 'ออกแล้ว'\)/);
+  assert.match(source, /ensureStateOptionV16\('extra', 'รถเสริม'\)/);
+  assert.match(source, /filter !== 'departed' && filter !== 'extra'/);
+  assert.match(source, /P\.proofDepartedVehicle\(row\)/);
+  assert.match(source, /Number\(row\?\.lineMode\) === 2/);
+  assert.doesNotMatch(source, /setInterval\s*\(/);
+});
+
 test('Proof V16 supplier completion does only one session-scoped refresh and no polling', () => {
   assert.match(source, /sessionStorage\.getItem\(supplierRetryKey\(\)\)/);
   assert.match(source, /sessionStorage\.setItem\(supplierRetryKey\(\), '1'\)/);
@@ -46,7 +58,7 @@ test('Proof V16 owns deterministic header dropdown switching and V17 stays absen
   assert.match(tursoSource, /setTimeout\(\(\)=>apply\('timeout0'\),0\)/);
   assert.match(tursoSource, /setTimeout\(\(\)=>apply\('timeout32'\),32\)/);
   assert.match(tursoSource, /if\(token!==sequence\)return/);
-  assert.match(tursoSource, /proof-v16\.js\?v=20260907-06/);
+  assert.match(tursoSource, /proof-v16\.js\?v=20260908-01/);
   assert.doesNotMatch(tursoSource, /proof-v17|maybeHandleProofUiV17/i);
 });
 
@@ -55,6 +67,6 @@ test('DEV closure contract stays Turso-only with no D1 binding and V16 as the fi
   assert.match(devConfigSource, /"DB_BACKEND"\s*:\s*"turso"/);
   assert.doesNotMatch(devConfigSource, /"d1_databases"\s*:/);
   assert.doesNotMatch(devConfigSource, /"binding"\s*:\s*"DB"/);
-  assert.match(tursoSource, /proof-v16\.js\?v=20260907-06/);
+  assert.match(tursoSource, /proof-v16\.js\?v=20260908-01/);
   assert.doesNotMatch(tursoSource, /proof-v17|maybeHandleProofUiV17/i);
 });

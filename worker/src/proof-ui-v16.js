@@ -1,4 +1,4 @@
-const VERSION = '20260907-06';
+const VERSION = '20260908-01';
 
 export async function maybeHandleProofUiV16(request) {
   const url = new URL(request.url);
@@ -13,7 +13,7 @@ function proofUiV16() {
     const P = window.ProofV2;
     if (!window.__PROOF_V15_READY__ || !P || typeof P.loadRoutes !== 'function' || !P.state) return setTimeout(boot, 40);
     if (window.__PROOF_V16_READY__) return;
-    window.__PROOF_V16_READY__ = true; // PROOF_QUICK_DAY_V16 PROOF_LAYOUT_FIX_V16_06 PROOF_QUICK_DAY_SEGMENTED_V16
+    window.__PROOF_V16_READY__ = true; // PROOF_QUICK_DAY_V16 PROOF_LAYOUT_FIX_V16_06 PROOF_QUICK_DAY_SEGMENTED_V16 PROOF_COMMAND_FILTER_FIX_V16
 
     const dayInput = P.el('day-filter');
     const dayLabel = dayInput?.closest('label');
@@ -87,6 +87,41 @@ function proofUiV16() {
         setDay(dayOffset(Number(button.dataset.proofDayOffset || 0)));
       });
       dayInput.addEventListener('change', syncQuickDays);
+    }
+
+    // The V10 command center originally used "all" for these two cards, so clicking them
+    // only re-rendered the full list. V16 owns the final compatibility layer and maps both
+    // cards to predicates that are already used for their counters. No API call is added.
+    const stateFilterV16 = P.el('state-filter');
+    const ensureStateOptionV16 = (value, label) => {
+      if (!stateFilterV16 || stateFilterV16.querySelector(`option[value='${value}']`)) return;
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      stateFilterV16.appendChild(option);
+    };
+    ensureStateOptionV16('departed', 'ออกแล้ว');
+    ensureStateOptionV16('extra', 'รถเสริม');
+
+    const departedCardV16 = document.querySelector("[data-proof-v10-count='departed']")?.closest('[data-proof-v10-filter]');
+    const extraCardV16 = document.querySelector("[data-proof-v10-count='extra']")?.closest('[data-proof-v10-filter]');
+    if (departedCardV16) departedCardV16.dataset.proofV10Filter = 'departed';
+    if (extraCardV16) extraCardV16.dataset.proofV10Filter = 'extra';
+
+    const baseFilteredRowsV16 = P.filteredRows;
+    if (typeof baseFilteredRowsV16 === 'function') {
+      P.filteredRows = () => {
+        const filter = String(P.state.stateFilter || 'all');
+        if (filter !== 'departed' && filter !== 'extra') return baseFilteredRowsV16();
+        P.state.stateFilter = 'all';
+        let rows;
+        try { rows = baseFilteredRowsV16(); }
+        finally { P.state.stateFilter = filter; }
+        if (filter === 'departed') {
+          return rows.filter(row => typeof P.proofDepartedVehicle === 'function' && P.proofDepartedVehicle(row));
+        }
+        return rows.filter(row => Number(row?.lineMode) === 2);
+      };
     }
 
     const missingSupplierRows = () => (P.state.rows || []).filter(row => printableStates.has(Number(row?.proofState)) && !String(row?.fleetName || '').trim());

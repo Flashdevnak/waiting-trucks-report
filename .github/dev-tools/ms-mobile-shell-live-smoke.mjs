@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const VERSION = '20260907-mobile-shell-v7';
+const VERSION = '20260907-mobile-shell-v7-diag1';
 const ORIGIN = process.env.MOBILE_SHELL_DEV_ORIGIN || 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
 const PAGES = ['ms.html','proof.html','waiting.html','ms-report.html'];
 const VIEWPORTS = [
@@ -93,12 +93,14 @@ async function waitReady(cdp,sessionId,page){
 }
 
 const BASE_PROBE = `(() => {
-  const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:b.x,y:b.y,width:b.width,height:b.height,right:b.right,bottom:b.bottom}};
+  const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:+b.x.toFixed(1),y:+b.y.toFixed(1),width:+b.width.toFixed(1),height:+b.height.toFixed(1),right:+b.right.toFixed(1),bottom:+b.bottom.toFixed(1)}};
+  const selector=e=>{const id=e.id?('#'+e.id):'';const classes=[...e.classList].slice(0,5).map(x=>'.'+x).join('');return e.tagName.toLowerCase()+id+classes};
   const header=document.querySelector('.dev-unified-header');
   const details=[...document.querySelectorAll('.dev-unified-header details.app-nav')];
   const status=document.querySelector('.dev-shell-status>*');
   const refresh=document.querySelector('.dev-shell-refresh>*');
   const central=[...document.querySelectorAll('#central-settings-btn,#settings-btn,.dev-central-settings')];
+  const overflowers=[...document.querySelectorAll('body *')].map(e=>{const s=getComputedStyle(e),r=rect(e);return{selector:selector(e),rect:r,display:s.display,position:s.position,minWidth:s.minWidth,width:s.width,overflowX:s.overflowX,whiteSpace:s.whiteSpace}}).filter(x=>x.display!=='none'&&x.rect&&x.rect.width>0&&(x.rect.right>innerWidth+1||x.rect.x<-1||x.rect.width>innerWidth+1)).sort((a,b)=>Math.max(b.rect.right-innerWidth,b.rect.width-innerWidth)-Math.max(a.rect.right-innerWidth,a.rect.width-innerWidth)).slice(0,15);
   return {
     viewport:{width:innerWidth,height:innerHeight},
     documentWidth:document.documentElement.scrollWidth,
@@ -109,6 +111,7 @@ const BASE_PROBE = `(() => {
     centralCount:central.length,
     centralHidden:central.every(e=>getComputedStyle(e).display==='none'||e.classList.contains('hidden')),
     openCount:details.filter(d=>d.open).length,
+    overflowers,
   };
 })()`;
 
@@ -131,14 +134,15 @@ function menuProbe(index){
 }
 
 function assertBase(label,result,width,mobile){
+  const diagnostic=` overflowers=${JSON.stringify(result.overflowers)}`;
   assert.equal(result.viewport.width,width,`${label}: viewport mismatch`);
-  assert.ok(result.documentWidth<=width+1,`${label}: document overflow ${result.documentWidth}/${width}`);
-  assert.ok(result.bodyWidth<=width+1,`${label}: body overflow ${result.bodyWidth}/${width}`);
+  assert.ok(result.documentWidth<=width+1,`${label}: document overflow ${result.documentWidth}/${width}${diagnostic}`);
+  assert.ok(result.bodyWidth<=width+1,`${label}: body overflow ${result.bodyWidth}/${width}${diagnostic}`);
   assert.equal(result.centralCount,1,`${label}: central admin control must exist exactly once`);
   assert.equal(result.centralHidden,true,`${label}: central admin control must stay hidden without admin auth`);
   assert.equal(result.summaries.length,3,`${label}: missing System/Tools/Account summary`);
   for(const box of [...result.summaries,result.status,result.refresh]){
-    assert.ok(box&&box.x>=-1&&box.right<=width+1,`${label}: header control overflow ${JSON.stringify(box)}`);
+    assert.ok(box&&box.x>=-1&&box.right<=width+1,`${label}: header control overflow ${JSON.stringify(box)}${diagnostic}`);
   }
   if(mobile){
     assert.ok(result.header.height<310,`${label}: mobile header unexpectedly tall ${result.header.height}`);
@@ -190,6 +194,7 @@ async function main(){
         await waitReady(cdp,sessionId,page);
         const base=await evaluate(cdp,sessionId,BASE_PROBE);
         const label=`${view}/${page}`;
+        if(base.overflowers?.length) console.log(`OVERFLOW_DIAG_${view.toUpperCase()}_${page.replace('.html','').toUpperCase()}=${JSON.stringify(base.overflowers)}`);
         assertBase(label,base,width,mobile);
         const system=await evaluate(cdp,sessionId,menuProbe(0));
         assertMenu(`${label}/system`,system,width,height,mobile,true);

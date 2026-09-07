@@ -19,7 +19,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,7 +30,13 @@ jobs:
       - name: Verify permanent mobile shell source regression
         run: node --test .github/dev-tools/ms-mobile-shell-v7.test.mjs
       - name: Verify live smoke syntax
-        run: node --check .github/dev-tools/ms-mobile-shell-live-smoke.mjs
+        run: |
+          node --check .github/dev-tools/wait-mobile-style-release.mjs
+          node --check .github/dev-tools/ms-mobile-shell-live-smoke.mjs
+      - name: Wait for exact DEV style release
+        env:
+          MOBILE_SHELL_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+        run: node .github/dev-tools/wait-mobile-style-release.mjs
       - name: Smoke all DEV pages and dropdowns at desktop tablet mobile
         env:
           MOBILE_SHELL_DEV_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev

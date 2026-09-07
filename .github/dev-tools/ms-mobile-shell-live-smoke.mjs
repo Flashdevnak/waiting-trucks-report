@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const VERSION = '20260907-mobile-shell-v7-diag1';
+const VERSION = '20260907-mobile-shell-v7-diag2';
 const ORIGIN = process.env.MOBILE_SHELL_DEV_ORIGIN || 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
 const PAGES = ['ms.html','proof.html','waiting.html','ms-report.html'];
 const VIEWPORTS = [
@@ -118,9 +118,9 @@ const BASE_PROBE = `(() => {
 function menuProbe(index){
   return `(async()=>{
     const details=[...document.querySelectorAll('.dev-unified-header details.app-nav')];
-    details.forEach(d=>d.open=false);
+    const beforeOpen=details.map(d=>Boolean(d.open));
     details[${index}]?.querySelector('summary')?.click();
-    await new Promise(r=>setTimeout(r,70));
+    await new Promise(r=>setTimeout(r,90));
     const d=details[${index}],menu=d?.querySelector('.app-nav-menu');
     const rect=e=>{if(!e)return null;const b=e.getBoundingClientRect();return{x:b.x,y:b.y,width:b.width,height:b.height,right:b.right,bottom:b.bottom}};
     const rgb=value=>{const m=String(value||'').match(/rgba?\\((\\d+)[, ]+\\s*(\\d+)[, ]+\\s*(\\d+)/i);return m?[+m[1],+m[2],+m[3]]:null};
@@ -129,7 +129,7 @@ function menuProbe(index){
     const menuBg=getComputedStyle(menu).backgroundColor;
     const links=[...(menu?.querySelectorAll('a')||[])];
     const contrasts=links.map(link=>{const own=getComputedStyle(link).backgroundColor,bg=own==='rgba(0, 0, 0, 0)'?menuBg:own,b=link.querySelector('b'),small=link.querySelector('small');return{b:b?ratio(getComputedStyle(b).color,bg):99,small:small?ratio(getComputedStyle(small).color,bg):99}});
-    return {open:Boolean(d?.open),openCount:details.filter(x=>x.open).length,menu:rect(menu),linkCount:links.length,contrasts};
+    return {beforeOpen,open:Boolean(d?.open),openCount:details.filter(x=>x.open).length,openStates:details.map(x=>Boolean(x.open)),menu:rect(menu),linkCount:links.length,contrasts};
   })()`;
 }
 
@@ -140,6 +140,7 @@ function assertBase(label,result,width,mobile){
   assert.ok(result.bodyWidth<=width+1,`${label}: body overflow ${result.bodyWidth}/${width}${diagnostic}`);
   assert.equal(result.centralCount,1,`${label}: central admin control must exist exactly once`);
   assert.equal(result.centralHidden,true,`${label}: central admin control must stay hidden without admin auth`);
+  assert.equal(result.openCount,0,`${label}: dropdown must start closed`);
   assert.equal(result.summaries.length,3,`${label}: missing System/Tools/Account summary`);
   for(const box of [...result.summaries,result.status,result.refresh]){
     assert.ok(box&&box.x>=-1&&box.right<=width+1,`${label}: header control overflow ${JSON.stringify(box)}${diagnostic}`);
@@ -157,8 +158,8 @@ function assertBase(label,result,width,mobile){
 }
 
 function assertMenu(label,result,width,height,mobile,isSystem){
-  assert.equal(result.open,true,`${label}: menu did not open`);
-  assert.equal(result.openCount,1,`${label}: more than one dropdown open`);
+  assert.equal(result.open,true,`${label}: menu did not open states=${JSON.stringify(result.openStates)} before=${JSON.stringify(result.beforeOpen)}`);
+  assert.equal(result.openCount,1,`${label}: more than one dropdown open states=${JSON.stringify(result.openStates)}`);
   assert.ok(result.menu&&result.menu.x>=-1&&result.menu.right<=width+1,`${label}: dropdown horizontal overflow ${JSON.stringify(result.menu)}`);
   if(mobile){
     assert.ok(result.menu.bottom<=height+2,`${label}: dropdown exceeds viewport height ${JSON.stringify(result.menu)}`);

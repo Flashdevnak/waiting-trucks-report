@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+const SMOKE_VERSION = '20260907-02';
 const ORIGIN = process.env.PROOF_DEV_ORIGIN || 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
 const EXPECTED_ASSET = process.env.PROOF_V16_ASSET || 'proof-v16.js?v=20260907-06';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -151,6 +152,7 @@ async function main(){
     const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
     const {sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});
     await cdp.send('Page.enable',{},sessionId); await cdp.send('Runtime.enable',{},sessionId); await cdp.send('Network.enable',{},sessionId); await cdp.send('Network.setCacheDisabled',{cacheDisabled:true},sessionId);
+    console.log(`PROOF_V16_RESPONSIVE_SMOKE_VERSION=${SMOKE_VERSION}`);
     for(const [name,width,height,mobile] of [['desktop',1440,1000,false],['tablet',1024,900,false],['mobile',390,844,true]]){
       await cdp.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile},sessionId);
       await cdp.send('Page.navigate',{url:`${ORIGIN}/proof.html?responsiveSmoke=${Date.now()}-${name}`},sessionId);

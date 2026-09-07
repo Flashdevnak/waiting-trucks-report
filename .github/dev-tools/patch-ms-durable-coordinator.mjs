@@ -43,11 +43,13 @@ export function patchDevDurableCoordinator(source) {
   }
 
   if (!output.includes('action === "saveMsOriginManifestConnection"')) {
+    // Keep the verify+import pair untouched because the route-cancellation patch
+    // runs after this patch and deliberately anchors on that exact pair.
     output = replaceUnique(
       output,
-      `  const actor = await verify(body.token, env);\n  if (action === "import") return ok(await importRows(body, actor, env));`,
-      `  const actor = await verify(body.token, env);\n  if (action === "saveMsOriginManifestConnection")\n    return ok(await saveOriginManifestConnection(\n      env,\n      actor,\n      pickBranch(actor, body.hub),\n      body.credentials,\n    ));\n  if (action === "import") return ok(await importRows(body, actor, env));`,
-      "origin manifest save action",
+      `  if (action === "import") return ok(await importRows(body, actor, env));\n  if (action === "start") return ok(await work(body.id, actor, env, true));`,
+      `  if (action === "import") return ok(await importRows(body, actor, env));\n  if (action === "saveMsOriginManifestConnection")\n    return ok(await saveOriginManifestConnection(\n      env,\n      actor,\n      pickBranch(actor, body.hub),\n      body.credentials,\n    ));\n  if (action === "start") return ok(await work(body.id, actor, env, true));`,
+      "origin manifest save action after import compatibility anchor",
     );
   }
 

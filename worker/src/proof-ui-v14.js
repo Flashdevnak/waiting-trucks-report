@@ -25,7 +25,7 @@ function proofUiV14() {
     const destination = row => {
       const code = String(row?.destinationCode || P.destinationShort?.(row) || '').trim();
       const name = String(row?.destinationName || '').trim();
-      if (code && name && !name.toUpperCase().startsWith(code.toUpperCase())) return `${code} — ${name}`;
+      if (code && name && !name.toUpperCase().startsWith(code.toUpperCase())) return `${code} ${name}`;
       if (name) return name;
       if (code) return code;
       const route = String(row?.lineName || '');
@@ -35,13 +35,13 @@ function proofUiV14() {
       return i >= 0 ? route.slice(i + marker.length).split('-')[0] : 'ไม่ระบุปลายทาง';
     };
     const detailFor = row => detailCache.get(keyOf(row))?.data || row?._proofDetailV14 || row?._proofDetailV13 || null;
-    const supplier = row => detailFor(row)?.fleetName || row?.fleetName || row?.supplierName || '—';
-    const driver = row => detailFor(row)?.driver || row?.driver || '—';
-    const phone = row => detailFor(row)?.driverPhone || row?.driverPhone || '—';
-    const plate = row => [detailFor(row)?.plateNumber || row?.plateNumber, detailFor(row)?.plateTypeText || row?.plateTypeText].filter(Boolean).join(' • ') || '—';
+    const supplier = row => detailFor(row)?.fleetName || row?.fleetName || row?.supplierName || 'ยังไม่ระบุ';
+    const driver = row => detailFor(row)?.driver || row?.driver || 'ยังไม่ระบุ';
+    const phone = row => detailFor(row)?.driverPhone || row?.driverPhone || 'ยังไม่ระบุ';
+    const plate = row => [detailFor(row)?.plateNumber || row?.plateNumber, detailFor(row)?.plateTypeText || row?.plateTypeText].filter(Boolean).join('   ') || 'ยังไม่ระบุ';
     const barcode = row => detailFor(row)?.proofId || row?.proofId || 'ยังไม่มี';
     const status = row => typeof P.isMissedVehicle === 'function' && P.isMissedVehicle(row) ? 'รถไม่เข้า' : P.stateText(row);
-    const standby = row => row?.detailReady && Number.isFinite(Number(row?.standbyTime)) ? P.minuteText(row.standbyTime) : '—';
+    const standby = row => row?.detailReady && Number.isFinite(Number(row?.standbyTime)) ? P.minuteText(row.standbyTime) : 'ยังไม่ระบุ';
     const release = row => P.minuteText(row?.plannedDepartureTime ?? row?.startTime);
     const hasBarcode = row => Boolean(String(detailFor(row)?.proofId || row?.proofId || '').trim());
 
@@ -65,10 +65,10 @@ function proofUiV14() {
       const detail = detailFor(row);
       if (!detail && expanded.has(keyOf(row))) return `<div class='proof-v14-detail-loading'>กำลังโหลดข้อมูลเที่ยวรถ…</div>`;
       if (!detail) return '';
-      const routeType = [detail.lineModeText || row.lineModeText, detail.lineTypeText || row.lineTypeText].filter(Boolean).join(' / ') || '—';
-      const origin = detail.originName || P.state.branch || '—';
+      const routeType = [detail.lineModeText || row.lineModeText, detail.lineTypeText || row.lineTypeText].filter(Boolean).join(' / ') || 'ยังไม่ระบุ';
+      const origin = detail.originName || P.state.branch || 'ยังไม่ระบุ';
       const dest = destination(row);
-      const fleet = detail.fleetName || '—';
+      const fleet = detail.fleetName || 'ยังไม่ระบุ';
       const fleetId = detail.fleetId ? `รหัสซัพ ${detail.fleetId}` : '';
       return `<div class='proof-v14-detail-grid'>
         <div><small>บริษัทซัพ</small><strong>${P.esc(fleet)}</strong>${fleetId ? `<span>${P.esc(fleetId)}</span>` : ''}</div>
@@ -85,10 +85,10 @@ function proofUiV14() {
       const ready = hasBarcode(row);
       return `<article class='proof-v14-row ${missed ? 'is-missed' : ready ? 'is-ready' : 'is-pending'}' data-proof-v14-row='${P.escAttr(key)}'>
         <button class='proof-v14-route-cell' type='button' data-proof-v14-expand='${P.escAttr(key)}' aria-expanded='${isOpen ? 'true' : 'false'}'>
-          <small>เส้นทาง</small><strong>${P.esc(row.lineName || '—')}</strong><span>${P.esc(plate(row))}</span>
+          <small>เส้นทาง</small><strong>${P.esc(row.lineName || 'ยังไม่ระบุ')}</strong><span>${P.esc(plate(row))}</span>
         </button>
         <div><small>บาร์รถ</small><strong class='proof-v14-barcode'>${P.esc(barcode(row))}</strong><span>${ready ? 'เปิดใช้แล้ว' : 'ยังไม่มีบาร์'}</span></div>
-        <div><small>เวลา</small><strong>${P.esc(standby(row))} → ${P.esc(release(row))}</strong><span>${P.standbyBadge(row)}</span></div>
+        <div><small>เวลา</small><strong>${P.esc(standby(row))} ถึง ${P.esc(release(row))}</strong><span>${P.standbyBadge(row)}</span></div>
         <div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(driver(row))}</strong><span>${P.esc(phone(row))}</span></div>
         <div><small>บริษัทซัพ / รถ</small><strong>${P.esc(supplier(row))}</strong><span>${P.esc(plate(row))}</span></div>
         <div class='proof-v14-status-actions'><div><small>สถานะ</small><strong>${P.esc(status(row))}</strong></div>${actionPair(row)}</div>
@@ -120,11 +120,11 @@ function proofUiV14() {
             <div class='proof-v14-columns'><b>เส้นทาง</b><b>บาร์รถ</b><b>เวลา</b><b>คนขับ / โทรศัพท์</b><b>บริษัทซัพ / รถ</b><b>สถานะ / จัดการ</b></div>
             ${branchRows.map(rowHtml).join('')}
           </section>`).join('');
-        return `<section class='proof-v14-lane'><div class='proof-v14-lane-head'><strong>${l}</strong><span>${P.nf.format(items.length)} เที่ยว${extra ? ` • รถเสริม ${P.nf.format(extra)}` : ''}</span></div>${body}</section>`;
+        return `<section class='proof-v14-lane'><div class='proof-v14-lane-head'><strong>${l}</strong><span>${P.nf.format(items.length)} เที่ยว${extra ? `   รถเสริม ${P.nf.format(extra)}` : ''}</span></div>${body}</section>`;
       }).join('');
     };
 
-    P.tableRow = row => `<tr><td><strong>${P.esc(row.lineName || '—')}</strong><small>${P.esc(destination(row))}</small></td><td><strong>${P.esc(barcode(row))}</strong></td><td><strong>${P.esc(standby(row))} → ${P.esc(release(row))}</strong></td><td><strong>${P.esc(driver(row))}</strong><small>${P.esc(phone(row))}</small></td><td><strong>${P.esc(supplier(row))}</strong><small>${P.esc(plate(row))}</small></td><td><strong>${P.esc(status(row))}</strong></td><td>${actionPair(row)}</td></tr>`;
+    P.tableRow = row => `<tr><td><strong>${P.esc(row.lineName || 'ยังไม่ระบุ')}</strong><small>${P.esc(destination(row))}</small></td><td><strong>${P.esc(barcode(row))}</strong></td><td><strong>${P.esc(standby(row))} ถึง ${P.esc(release(row))}</strong></td><td><strong>${P.esc(driver(row))}</strong><small>${P.esc(phone(row))}</small></td><td><strong>${P.esc(supplier(row))}</strong><small>${P.esc(plate(row))}</small></td><td><strong>${P.esc(status(row))}</strong></td><td>${actionPair(row)}</td></tr>`;
 
     const loadDetail = async row => {
       const key = keyOf(row);
@@ -163,7 +163,7 @@ function proofUiV14() {
         dialog.classList.add('proof-v14-editor');
         const headSmall = dialog.querySelector('.proof-editor-head small'); if (headSmall) headSmall.textContent = 'ข้อมูลเที่ยวรถ';
         const title = dialog.querySelector('.proof-editor-head h2'); if (title) title.textContent = 'ตรวจข้อมูลก่อนปริ้นบาร์รถ';
-        const plan = document.getElementById('proof-editor-plan'); if (plan) plan.textContent = `Standby ${standby(row)} → ปล่อย ${release(row)}`;
+        const plan = document.getElementById('proof-editor-plan'); if (plan) plan.textContent = `Standby ${standby(row)} ถึง ปล่อย ${release(row)}`;
         const userLabel = dialog.querySelector('.proof-editor-meta span:last-child'); if (userLabel) userLabel.firstChild && (userLabel.firstChild.textContent = 'ผู้ใช้งาน: ');
         const warning = dialog.querySelector('.proof-editor-warning'); if (warning) warning.remove();
         const checkText = dialog.querySelector('.proof-confirm-check span'); if (checkText) checkText.textContent = 'ตรวจข้อมูลแล้ว';

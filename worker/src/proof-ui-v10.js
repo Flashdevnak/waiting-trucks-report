@@ -66,19 +66,19 @@ function proofCommandCenterV10() {
       return 5;
     };
     const nextActionText = row => {
-      if (missedVehicle(row)) return 'รถไม่เข้า • เลยเวลาปล่อย';
+      if (missedVehicle(row)) return 'รถไม่เข้า   เลยเวลาปล่อย';
       if (!barcodeEnabled(row)) return 'ยังไม่ปริ้นบาร์';
       if (departedVehicle(row)) return 'ออกจากต้นทางแล้ว';
       if (arrivedVehicle(row)) return 'ถึงต้นทางแล้ว';
-      if (extraVehicle(row)) return 'รถเสริม • บาร์พร้อม';
-      return 'บาร์พร้อม • รอรถถึงต้นทาง';
+      if (extraVehicle(row)) return 'รถเสริม   บาร์พร้อม';
+      return 'บาร์พร้อม   รอรถถึงต้นทาง';
     };
     P.proofLaneScope = laneScope;
     P.proofDepartedVehicle = departedVehicle;
     P.proofArrivedVehicle = arrivedVehicle;
     P.proofRemainingVehicle = remainingVehicle;
     P.destinationKey = row => `proof-lane:${laneScope(row)}`;
-    P.destinationLabel = row => laneScope(row) === 'LH' ? 'LH • HUB TO HUB' : 'FD • Feeder / รถเสริม / อื่น ๆ';
+    P.destinationLabel = row => laneScope(row) === 'LH' ? 'LH   HUB TO HUB' : 'FD   Feeder / รถเสริม / อื่น ๆ';
     P.destinationGroupLabel = row => P.destinationLabel(row); // PROOF_FD_LH_HEADER_V12
     P.state.proofLaneScopeV11 = P.state.proofLaneScopeV11 || 'all';
 
@@ -99,20 +99,20 @@ function proofCommandCenterV10() {
       if (!panel) return;
       const supplier = detail?.fleetName || 'ไม่พบชื่อซัพจาก MS';
       const fleet = detail?.fleetId ? `Fleet ${detail.fleetId}` : 'อ่านเมื่อกดรายละเอียด';
-      const origin = detail?.originName || P.state.branch || '—';
-      const track = detail?.track || routeDestinationLabel(row) || '—';
+      const origin = detail?.originName || P.state.branch || 'ยังไม่ระบุ';
+      const track = detail?.track || routeDestinationLabel(row) || 'ยังไม่ระบุ';
       const driver = detail?.driver || row.driver || 'ยังไม่กำหนดคนขับ';
       const phone = detail?.driverPhone || row.driverPhone || 'ไม่มีเบอร์โทร';
-      const plate = [detail?.plateNumber || row.plateNumber, detail?.plateTypeText || row.plateTypeText].filter(Boolean).join(' • ') || 'ยังไม่กำหนดทะเบียน';
+      const plate = [detail?.plateNumber || row.plateNumber, detail?.plateTypeText || row.plateTypeText].filter(Boolean).join('   ') || 'ยังไม่กำหนดทะเบียน';
       row._proofDetailV13 = detail; // PROOF_GRID_V13
-      panel.innerHTML = `<div><small>บริษัทซัพ</small><strong>${P.esc(supplier)}</strong><span>${P.esc(fleet)}</span></div><div><small>ต้นทาง / เส้นทาง</small><strong>${P.esc(origin)}</strong><span>${P.esc(track)}</span></div><div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(driver)}</strong><span>${P.esc(phone)}</span></div><div><small>รถ / ทะเบียน</small><strong>${P.esc(plate)}</strong><span>${P.esc(detail?.proofStateText || P.stateText(row))}</span></div><div><small>บาร์รถ</small><strong>${P.esc(detail?.proofId || row.proofId || 'ยังไม่มี')}</strong><span>${P.esc(barcodeStatus({ ...row, proofId: detail?.proofId || row.proofId }))}</span></div><div><small>เวลา</small><strong>Standby ${P.esc(P.minuteText(row.standbyTime))} → ปล่อย ${P.esc(P.minuteText(row.plannedDepartureTime ?? row.startTime))}</strong><span>${P.esc(row.departureDate || '')}</span></div>`;
+      panel.innerHTML = `<div><small>บริษัทซัพ</small><strong>${P.esc(supplier)}</strong><span>${P.esc(fleet)}</span></div><div><small>ต้นทาง / เส้นทาง</small><strong>${P.esc(origin)}</strong><span>${P.esc(track)}</span></div><div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(driver)}</strong><span>${P.esc(phone)}</span></div><div><small>รถ / ทะเบียน</small><strong>${P.esc(plate)}</strong><span>${P.esc(detail?.proofStateText || P.stateText(row))}</span></div><div><small>บาร์รถ</small><strong>${P.esc(detail?.proofId || row.proofId || 'ยังไม่มี')}</strong><span>${P.esc(barcodeStatus({ ...row, proofId: detail?.proofId || row.proofId }))}</span></div><div><small>เวลา</small><strong>Standby ${P.esc(P.minuteText(row.standbyTime))} ถึง ปล่อย ${P.esc(P.minuteText(row.plannedDepartureTime ?? row.startTime))}</strong><span>${P.esc(row.departureDate || '')}</span></div>`;
     };
 
     P.alertForRow = (row, now = Date.now()) => {
       const a = row?.acknowledgements || {};
       if (missedVehicle(row, now)) {
         const late = now - releaseTimestamp(row);
-        return { key: 'missed', priority: 5, tone: 'danger', icon: '', title: `รถไม่เข้า • เลยเวลาปล่อย ${P.durationShort(late)}` };
+        return { key: 'missed', priority: 5, tone: 'danger', icon: '', title: `รถไม่เข้า   เลยเวลาปล่อย ${P.durationShort(late)}` };
       }
       if (Number(row?.proofState) !== 1) return null;
       const standby = P.routeStandbyMs(row);
@@ -120,10 +120,10 @@ function proofCommandCenterV10() {
       if (Number.isFinite(standby)) {
         const diff = standby - now;
         if (diff > 0 && diff <= P.CONFIG.standbyLeadMinutes * 60_000 && !a['standby-soon']) {
-          return { key: 'standby-soon', priority: 2, tone: 'warning', icon: '', title: `ใกล้ Standby • เหลือ ${P.durationShort(diff)}` };
+          return { key: 'standby-soon', priority: 2, tone: 'warning', icon: '', title: `ใกล้ Standby   เหลือ ${P.durationShort(diff)}` };
         }
         if (diff <= 0 && Number.isFinite(release) && release > now && !a['standby-due']) {
-          return { key: 'standby-due', priority: 2, tone: 'warning', icon: '', title: `เลย Standby • เหลือ ${P.durationShort(release - now)} ก่อนเวลาปล่อย` };
+          return { key: 'standby-due', priority: 2, tone: 'warning', icon: '', title: `เลย Standby   เหลือ ${P.durationShort(release - now)} ก่อนเวลาปล่อย` };
         }
       }
       if (row?.firstSeenAt && !a.new) {
@@ -146,8 +146,8 @@ function proofCommandCenterV10() {
       if (Number(row?.proofState) !== 1) return Number.isFinite(release) ? `<span class='proof-v10-time'>ปล่อย ${P.esc(P.minuteText(row.plannedDepartureTime ?? row.startTime))}</span>` : '';
       if (!row.detailReady || !Number.isFinite(Number(row.standbyTime))) return `<span class='proof-v10-time muted'>กำลังอ่าน Standby</span>`;
       const standby = P.routeStandbyMs(row), now = Date.now();
-      if (Number.isFinite(standby) && standby <= now && Number.isFinite(release) && release > now) return `<span class='proof-v10-time warning'>เลย Standby • เหลือ ${P.esc(P.durationShort(release - now))} ก่อนปล่อย</span>`;
-      if (Number.isFinite(standby) && standby > now && standby - now <= P.CONFIG.standbyLeadMinutes * 60_000) return `<span class='proof-v10-time warning'>ใกล้ Standby • ${P.esc(P.durationShort(standby - now))}</span>`;
+      if (Number.isFinite(standby) && standby <= now && Number.isFinite(release) && release > now) return `<span class='proof-v10-time warning'>เลย Standby   เหลือ ${P.esc(P.durationShort(release - now))} ก่อนปล่อย</span>`;
+      if (Number.isFinite(standby) && standby > now && standby - now <= P.CONFIG.standbyLeadMinutes * 60_000) return `<span class='proof-v10-time warning'>ใกล้ Standby   ${P.esc(P.durationShort(standby - now))}</span>`;
       return `<span class='proof-v10-time'>Standby ${P.esc(P.minuteText(row.standbyTime))}</span>`;
     };
 
@@ -210,7 +210,7 @@ function proofCommandCenterV10() {
         center.style.setProperty('--proof-print-progress', `${Math.round(printed * 100 / total)}%`);
         center.style.setProperty('--proof-depart-progress', `${Math.round(departed * 100 / total)}%`);
         const progress = document.getElementById('proof-flow-progress-v11');
-        if (progress) progress.textContent = `บาร์พร้อม ${P.nf.format(printed)}/${P.nf.format(rows.length)} • ออกแล้ว ${P.nf.format(departed)}/${P.nf.format(rows.length)}`;
+        if (progress) progress.textContent = `บาร์พร้อม ${P.nf.format(printed)}/${P.nf.format(rows.length)}   ออกแล้ว ${P.nf.format(departed)}/${P.nf.format(rows.length)}`;
       }
       document.querySelectorAll('[data-proof-v11-lane]').forEach(button => button.classList.toggle('is-active', button.dataset.proofV11Lane === String(P.state.proofLaneScopeV11 || 'all')));
       document.querySelectorAll('[data-proof-v10-filter]').forEach(button => {
@@ -237,40 +237,40 @@ function proofCommandCenterV10() {
       else if (!P.state.profile?.canPrint) title = 'บัญชี MS ยังไม่พร้อม หรือบัญชีนี้ไม่มีสิทธิ์ปริ้น';
       else if (!hasBarcode && code === 1 && !P.state.profile?.canCreateProof) title = 'บัญชี MS นี้ไม่มีสิทธิ์เปิดใช้งานบาร์โค้ด';
       else if (!P.PRINTABLE_STATES.has(code)) title = 'สถานะนี้ไม่รองรับการปริ้นจากหน้าเว็บ';
-      const label = missed ? 'รถไม่เข้า • เลยเวลาปล่อย' : hasBarcode ? 'ตรวจข้อมูล + ปริ้น PDF' : 'ตรวจข้อมูล + เปิดบาร์/ปริ้น';
+      const label = missed ? 'รถไม่เข้า   เลยเวลาปล่อย' : hasBarcode ? 'ตรวจข้อมูล + ปริ้น PDF' : 'ตรวจข้อมูล + เปิดบาร์/ปริ้น';
       return `<div class='proof-actions proof-actions-v10'><button class='btn ${missed ? 'btn-header' : 'btn-accent'}' type='button' data-proof-print='${P.escAttr(P.rowKey(row))}' ${enabled ? '' : 'disabled'} title='${P.escAttr(title)}'>${P.esc(label)}</button></div>`;
     };
 
     const card = row => {
       const missed = missedVehicle(row), enabled = barcodeEnabled(row), departed = departedVehicle(row), arrived = arrivedVehicle(row);
-      const plate = [row.plateNumber, row.plateTypeText].filter(Boolean).join(' • ') || 'ยังไม่กำหนดทะเบียน';
+      const plate = [row.plateNumber, row.plateTypeText].filter(Boolean).join('   ') || 'ยังไม่กำหนดทะเบียน';
       const release = P.minuteText(row.plannedDepartureTime ?? row.startTime);
-      const standby = row.detailReady && Number.isFinite(Number(row.standbyTime)) ? P.minuteText(row.standbyTime) : '—';
-      const destination = routeDestinationLabel(row) || '—';
+      const standby = row.detailReady && Number.isFinite(Number(row.standbyTime)) ? P.minuteText(row.standbyTime) : 'ยังไม่ระบุ';
+      const destination = routeDestinationLabel(row) || 'ยังไม่ระบุ';
       const cls = missed ? 'is-missed' : !enabled ? 'is-pending' : departed ? 'is-departed' : arrived ? 'is-arrived' : 'is-enabled';
       return `<article class='proof-ops-card proof-ops-card-v11 ${cls}'>
         <div class='proof-v11-row'>
-          <div class='proof-v11-route'><small>${P.esc(destination)}</small><strong>${P.esc(row.lineName || '—')}</strong><span>${P.esc(plate)}</span></div>
+          <div class='proof-v11-route'><small>${P.esc(destination)}</small><strong>${P.esc(row.lineName || 'ยังไม่ระบุ')}</strong><span>${P.esc(plate)}</span></div>
           <div class='proof-v11-signal'><small>สถานะตอนนี้</small><strong>${P.esc(nextActionText(row))}</strong><span>${P.stateBadge(row)}</span></div>
-          <div class='proof-v11-time'><small>เวลา</small><strong>Standby ${P.esc(standby)} → ปล่อย ${P.esc(release)}</strong><span>${P.standbyBadge(row)}</span></div>
+          <div class='proof-v11-time'><small>เวลา</small><strong>Standby ${P.esc(standby)} ถึง ปล่อย ${P.esc(release)}</strong><span>${P.standbyBadge(row)}</span></div>
           <div class='proof-v11-barcode'><small>บาร์รถ</small><strong>${P.esc(row.proofId || 'ยังไม่มี')}</strong><span>${enabled ? 'ปริ้น/เปิดใช้แล้ว' : 'ต้องตรวจและเปิดบาร์'}</span></div>
           <div class='proof-v11-actions'><button class='btn btn-header' type='button' data-proof-v11-detail='${P.escAttr(P.rowKey(row))}'>รายละเอียด</button>${P.actionButtons(row)}</div>
         </div>
         <div class='proof-v11-detail hidden' data-proof-v11-detail-panel='${P.escAttr(P.rowKey(row))}'>
-          <div><small>บริษัทซัพ</small><strong>—</strong><span>ข้อมูลจาก MS</span></div>
-          <div><small>ปลายทาง / กลุ่ม</small><strong>${P.esc(destination)}</strong><span>${P.esc(laneScope(row))} • ${extraVehicle(row) ? 'รถเสริม' : 'รถปกติ'}</span></div>
+          <div><small>บริษัทซัพ</small><strong>ยังไม่ระบุ</strong><span>ข้อมูลจาก MS</span></div>
+          <div><small>ปลายทาง / กลุ่ม</small><strong>${P.esc(destination)}</strong><span>${P.esc(laneScope(row))}   ${extraVehicle(row) ? 'รถเสริม' : 'รถปกติ'}</span></div>
           <div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(row.driver || 'ยังไม่กำหนด')}</strong><span>${P.esc(row.driverPhone || 'ไม่มีเบอร์โทร')}</span></div>
-          <div><small>รถ / ทะเบียน</small><strong>${P.esc(plate)}</strong><span>${P.esc(row.plateTypeText || '—')}</span></div>
+          <div><small>รถ / ทะเบียน</small><strong>${P.esc(plate)}</strong><span>${P.esc(row.plateTypeText || 'ยังไม่ระบุ')}</span></div>
           <div><small>บาร์รถ</small><strong>${P.esc(row.proofId || 'ยังไม่มี')}</strong><span>${P.esc(barcodeStatus(row))}</span></div>
-          <div><small>เวลา</small><strong>Standby ${P.esc(standby)} → ปล่อย ${P.esc(release)}</strong><span>${P.esc(row.departureDate || '')}</span></div>
+          <div><small>เวลา</small><strong>Standby ${P.esc(standby)} ถึง ปล่อย ${P.esc(release)}</strong><span>${P.esc(row.departureDate || '')}</span></div>
         </div>
       </article>`;
     };
     P.groupRouteCard = card;
     P.mobileCard = card;
     P.tableRow = row => {
-      const plate = [row.plateNumber, row.plateTypeText].filter(Boolean).join(' • ') || 'ยังไม่กำหนด';
-      return `<tr class='${missedVehicle(row) ? 'proof-row-missed' : ''}'><td class='proof-route'><strong>${P.esc(row.lineName || '—')}</strong><small>${P.esc(P.destinationLabel(row))} ${P.routeBadges(row)}</small></td><td class='proof-car'><strong>${P.esc(plate)}</strong></td><td class='proof-driver'><strong>${P.esc(row.driver || 'ยังไม่กำหนด')}</strong><small>${P.esc(row.driverPhone || '—')}</small></td><td><strong>${P.esc(P.standbyText(row))}</strong>${P.standbyBadge(row)}</td><td><strong>${P.esc(row.proofId || 'ยังไม่มี')}</strong><small>${P.esc(barcodeStatus(row))}</small></td><td>${P.stateBadge(row)}</td><td>${P.actionButtons(row)}</td></tr>`;
+      const plate = [row.plateNumber, row.plateTypeText].filter(Boolean).join('   ') || 'ยังไม่กำหนด';
+      return `<tr class='${missedVehicle(row) ? 'proof-row-missed' : ''}'><td class='proof-route'><strong>${P.esc(row.lineName || 'ยังไม่ระบุ')}</strong><small>${P.esc(P.destinationLabel(row))} ${P.routeBadges(row)}</small></td><td class='proof-car'><strong>${P.esc(plate)}</strong></td><td class='proof-driver'><strong>${P.esc(row.driver || 'ยังไม่กำหนด')}</strong><small>${P.esc(row.driverPhone || 'ยังไม่ระบุ')}</small></td><td><strong>${P.esc(P.standbyText(row))}</strong>${P.standbyBadge(row)}</td><td><strong>${P.esc(row.proofId || 'ยังไม่มี')}</strong><small>${P.esc(barcodeStatus(row))}</small></td><td>${P.stateBadge(row)}</td><td>${P.actionButtons(row)}</td></tr>`;
     };
 
     let alertsExpanded = false;
@@ -281,7 +281,7 @@ function proofCommandCenterV10() {
       panel.classList.remove('hidden'); panel.classList.add('proof-alert-dock-v10');
       const missedCount = alerts.filter(x => x.alert?.key === 'missed').length;
       const head = panel.querySelector('.proof-alert-panel-head');
-      const title = head?.querySelector('strong'); if (title) title.textContent = missedCount ? `งานด่วน • รถไม่เข้า ${P.nf.format(missedCount)}` : 'งานที่ต้องดู';
+      const title = head?.querySelector('strong'); if (title) title.textContent = missedCount ? `งานด่วน   รถไม่เข้า ${P.nf.format(missedCount)}` : 'งานที่ต้องดู';
       count.textContent = `${P.nf.format(alerts.length)} รายการ`;
       let toggle = head?.querySelector('#proof-alert-toggle-v10');
       if (head && !toggle) { toggle = document.createElement('button'); toggle.id = 'proof-alert-toggle-v10'; toggle.type = 'button'; toggle.className = 'btn btn-header proof-alert-toggle-v10'; head.appendChild(toggle); }
@@ -291,8 +291,8 @@ function proofCommandCenterV10() {
       const shown = alerts.slice(0, 12);
       list.innerHTML = shown.map(({ row, alert }) => {
         const ack = alert.key === 'missed' ? '' : `<button class='btn btn-header' type='button' data-proof-ack='${P.escAttr(P.rowKey(row))}' data-alert-key='${P.escAttr(alert.key)}'>รับทราบ</button>`;
-        return `<article class='proof-alert-v10 ${P.escAttr(alert.tone)}'><div><strong>${P.esc(alert.title)}</strong><span>${P.esc(row.lineName || '—')} • ${P.esc(P.destinationLabel(row))}</span></div><div class='proof-alert-actions-v10'>${ack}<button class='btn btn-header' type='button' data-proof-open-group='${P.escAttr(P.destinationKey(row))}'>ดูเที่ยว</button></div></article>`;
-      }).join('') + (alerts.length > shown.length ? `<div class='proof-alert-more'>อีก ${P.nf.format(alerts.length - shown.length)} รายการ • ใช้ตัวกรองด้านบนเพื่อดูทั้งหมด</div>` : '');
+        return `<article class='proof-alert-v10 ${P.escAttr(alert.tone)}'><div><strong>${P.esc(alert.title)}</strong><span>${P.esc(row.lineName || 'ยังไม่ระบุ')}   ${P.esc(P.destinationLabel(row))}</span></div><div class='proof-alert-actions-v10'>${ack}<button class='btn btn-header' type='button' data-proof-open-group='${P.escAttr(P.destinationKey(row))}'>ดูเที่ยว</button></div></article>`;
+      }).join('') + (alerts.length > shown.length ? `<div class='proof-alert-more'>อีก ${P.nf.format(alerts.length - shown.length)} รายการ   ใช้ตัวกรองด้านบนเพื่อดูทั้งหมด</div>` : '');
     };
 
     const historyCache = new Map();
@@ -309,9 +309,9 @@ function proofCommandCenterV10() {
       const total = document.getElementById('proof-history-total-v10'); if (total) total.textContent = `${P.nf.format(rows.length)} รายการ`;
       if (!rows.length) { list.innerHTML = `<div class='proof-history-empty'>ไม่พบประวัติบาร์รถในช่วงที่เลือก</div>`; return; }
       list.innerHTML = rows.map(item => `<article class='proof-history-row-v10'>
-        <div class='proof-history-id'><small>${P.esc(item.businessDay || '')}</small><strong>${P.esc(item.proofId || '—')}</strong><span>${P.esc(item.routeName || 'ไม่พบชื่อเส้นทาง')}</span></div>
-        <div><small>ทะเบียน</small><strong>${P.esc(item.plateNumber || '—')}</strong><span>${P.esc(item.plateTypeText || '')}</span></div>
-        <div><small>คนขับ</small><strong>${P.esc(item.driver || '—')}</strong><span>${P.esc(item.driverPhone || '')}</span></div>
+        <div class='proof-history-id'><small>${P.esc(item.businessDay || '')}</small><strong>${P.esc(item.proofId || 'ยังไม่ระบุ')}</strong><span>${P.esc(item.routeName || 'ไม่พบชื่อเส้นทาง')}</span></div>
+        <div><small>ทะเบียน</small><strong>${P.esc(item.plateNumber || 'ยังไม่ระบุ')}</strong><span>${P.esc(item.plateTypeText || '')}</span></div>
+        <div><small>คนขับ</small><strong>${P.esc(item.driver || 'ยังไม่ระบุ')}</strong><span>${P.esc(item.driverPhone || '')}</span></div>
         <div><small>บันทึกล่าสุด</small><strong>${P.esc(item.statusText || barcodeStatus(item))}</strong><span>${P.esc(item.recordedAtText || '')}</span></div>
         <div class='proof-history-actions-v10'><button class='btn btn-header' type='button' data-proof-history-copy='${P.escAttr(item.proofId || '')}'>คัดลอกบาร์</button><button class='btn btn-accent' type='button' data-proof-history-pdf='${P.escAttr(item.proofId || '')}'>เปิด PDF</button></div>
       </article>`).join('');
@@ -344,7 +344,7 @@ function proofCommandCenterV10() {
       const legacyMetrics = document.getElementById('metric-grid'); if (legacyMetrics) legacyMetrics.classList.add('proof-v10-legacy-metrics');
       const heading = document.querySelector('.proof-heading');
       if (heading && !document.getElementById('proof-command-center-v10')) heading.insertAdjacentHTML('afterend', `<section id='proof-command-center-v10' class='proof-command-center-v10'>
-        <div class='proof-command-head'><div><small>ศูนย์ควบคุมเที่ยวรถ</small><strong>ดูแล้วรู้ทันทีว่าเหลืออะไร ต้องทำอะไร และรถอยู่ขั้นตอนไหน</strong><span>คำนวณจากข้อมูล Proof ที่โหลดอยู่แล้ว • ไม่เพิ่ม polling หรือ background API</span></div><button id='proof-history-open-v10' class='btn btn-header' type='button'>ประวัติบาร์รถ</button></div>
+        <div class='proof-command-head'><div><small>ศูนย์ควบคุมเที่ยวรถ</small><strong>ดูแล้วรู้ทันทีว่าเหลืออะไร ต้องทำอะไร และรถอยู่ขั้นตอนไหน</strong><span>คำนวณจากข้อมูล Proof ที่โหลดอยู่แล้ว   ไม่เพิ่ม polling หรือ background API</span></div><button id='proof-history-open-v10' class='btn btn-header' type='button'>ประวัติบาร์รถ</button></div>
         <div class='proof-v11-lanes'><button type='button' data-proof-v11-lane='all' class='is-active'>ทั้งหมด <b data-proof-v10-count='all'>0</b></button><button type='button' data-proof-v11-lane='FD'>FD <b data-proof-v10-count='fd'>0</b></button><button type='button' data-proof-v11-lane='LH'>LH <b data-proof-v10-count='lh'>0</b></button></div>
         <div class='proof-command-grid proof-command-grid-v11'>
           <button type='button' data-proof-v10-filter='all' class='primary'><span>รถคงเหลือ</span><strong data-proof-v10-count='remaining'>0</strong><small>ยังไม่ออกจากต้นทาง</small></button>
@@ -368,7 +368,7 @@ function proofCommandCenterV10() {
       const listBtn = P.el('list-view-btn'); if (listBtn) listBtn.textContent = 'ตารางรวม';
       const tableHeads = document.querySelectorAll('.proof-table thead th'); const tableLabels = ['เส้นทาง / ปลายทาง','รถ / ทะเบียน','คนขับ / โทรศัพท์','เวลา Standby / ปล่อย','บาร์รถ','สถานะ','ตรวจ / ปริ้น']; tableHeads.forEach((th,i)=>{ if(tableLabels[i]) th.textContent=tableLabels[i]; });
       const searchLabel = search?.closest('label'); const toolbar = document.querySelector('.proof-toolbar'); if (toolbar && searchLabel) toolbar.prepend(searchLabel);
-      if (!document.getElementById('proof-history-dialog-v10')) document.body.insertAdjacentHTML('beforeend', `<dialog id='proof-history-dialog-v10' class='proof-history-dialog-v10'><div class='proof-history-card-v10'><header><div><small>อ่านเมื่อเปิดเท่านั้น • ไม่มี polling ประวัติ</small><h2>ประวัติบาร์รถ</h2></div><button id='proof-history-close-v10' class='dialog-close' type='button'>×</button></header><div class='proof-history-toolbar-v10'><div class='proof-history-days-v10'><button class='btn btn-header' data-proof-history-days='7' type='button'>7 วัน</button><button class='btn btn-header is-active' data-proof-history-days='30' type='button'>30 วัน</button><button class='btn btn-header' data-proof-history-days='90' type='button'>90 วัน</button></div><input id='proof-history-search-v10' type='search' placeholder='ค้นบาร์โค้ด ทะเบียน เส้นทาง หรือคนขับ'><strong id='proof-history-total-v10'>0 รายการ</strong></div><div id='proof-history-list-v10' class='proof-history-list-v10'><div class='proof-history-empty'>กดเปิดประวัติเพื่อโหลดข้อมูล</div></div><p class='proof-history-note-v10'>ประวัตินี้อ่านจาก event/print log ที่ระบบมีอยู่แล้ว จึงไม่เพิ่มการเขียนทุกครั้งที่รีเฟรช</p></div></dialog>`);
+      if (!document.getElementById('proof-history-dialog-v10')) document.body.insertAdjacentHTML('beforeend', `<dialog id='proof-history-dialog-v10' class='proof-history-dialog-v10'><div class='proof-history-card-v10'><header><div><small>อ่านเมื่อเปิดเท่านั้น   ไม่มี polling ประวัติ</small><h2>ประวัติบาร์รถ</h2></div><button id='proof-history-close-v10' class='dialog-close' type='button'>×</button></header><div class='proof-history-toolbar-v10'><div class='proof-history-days-v10'><button class='btn btn-header' data-proof-history-days='7' type='button'>7 วัน</button><button class='btn btn-header is-active' data-proof-history-days='30' type='button'>30 วัน</button><button class='btn btn-header' data-proof-history-days='90' type='button'>90 วัน</button></div><input id='proof-history-search-v10' type='search' placeholder='ค้นบาร์โค้ด ทะเบียน เส้นทาง หรือคนขับ'><strong id='proof-history-total-v10'>0 รายการ</strong></div><div id='proof-history-list-v10' class='proof-history-list-v10'><div class='proof-history-empty'>กดเปิดประวัติเพื่อโหลดข้อมูล</div></div><p class='proof-history-note-v10'>ประวัตินี้อ่านจาก event/print log ที่ระบบมีอยู่แล้ว จึงไม่เพิ่มการเขียนทุกครั้งที่รีเฟรช</p></div></dialog>`);
 
       document.querySelectorAll('[data-proof-v10-filter]').forEach(button => button.onclick = () => { const f = button.dataset.proofV10Filter; const value = f === 'unprinted' ? '1' : f === 'printed' ? 'barcode-enabled' : f; P.state.stateFilter = value; if (stateFilter) stateFilter.value = value; P.render(); });
       document.querySelectorAll('[data-proof-v11-lane]').forEach(button => button.onclick = () => { P.state.proofLaneScopeV11 = button.dataset.proofV11Lane || 'all'; P.render(); });
@@ -431,18 +431,18 @@ function proofCommandCenterV10() {
         const routeBox = document.querySelector('.proof-editor-route-box');
         let context = document.getElementById('proof-editor-context-v12');
         if (!context) { context = document.createElement('div'); context.id = 'proof-editor-context-v12'; routeBox?.insertAdjacentElement('afterend', context); }
-        if (context) context.innerHTML = `<div><small>บริษัทซัพ</small><strong>${P.esc(detail.fleetName || 'ไม่พบชื่อซัพจาก MS')}</strong><span>${P.esc(detail.fleetId ? `Fleet ${detail.fleetId}` : '')}</span></div><div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(detail.driver || row.driver || 'ยังไม่กำหนด')}</strong><span>${P.esc(detail.driverPhone || row.driverPhone || 'ไม่มีเบอร์โทร')}</span></div><div><small>รถ / ทะเบียน</small><strong>${P.esc([detail.plateNumber || row.plateNumber, detail.plateTypeText || row.plateTypeText].filter(Boolean).join(' • ') || 'ยังไม่กำหนด')}</strong><span>${P.esc(detail.originName || detail.track || '')}</span></div>`;
+        if (context) context.innerHTML = `<div><small>บริษัทซัพ</small><strong>${P.esc(detail.fleetName || 'ไม่พบชื่อซัพจาก MS')}</strong><span>${P.esc(detail.fleetId ? `Fleet ${detail.fleetId}` : '')}</span></div><div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(detail.driver || row.driver || 'ยังไม่กำหนด')}</strong><span>${P.esc(detail.driverPhone || row.driverPhone || 'ไม่มีเบอร์โทร')}</span></div><div><small>รถ / ทะเบียน</small><strong>${P.esc([detail.plateNumber || row.plateNumber, detail.plateTypeText || row.plateTypeText].filter(Boolean).join('   ') || 'ยังไม่กำหนด')}</strong><span>${P.esc(detail.originName || detail.track || '')}</span></div>`;
         const input = P.el('proof-editor-plate-search');
-        if (input) input.placeholder = 'ค้นทะเบียน เช่น ฒม2816 หรือ 2816 • กด Enter/ค้นหา';
+        if (input) input.placeholder = 'ค้นทะเบียน เช่น ฒม2816 หรือ 2816   กด Enter/ค้นหา';
         const hint = P.el('proof-editor-plate-results')?.querySelector('.proof-option-hint');
         if (hint) hint.textContent = 'พิมพ์ทะเบียนอย่างน้อย 2 ตัว แล้วกด Enter หรือ “ค้นหา”';
       }, 0);
     };
     // PROOF_GRID_V13: dense operational grid, nested destination headings, plain field language.
-    const supplierTextV13 = row => row?._proofDetailV13?.fleetName || row?.fleetName || row?.supplierName || '—';
-    const driverTextV13 = row => row?._proofDetailV13?.driver || row?.driver || '—';
-    const phoneTextV13 = row => row?._proofDetailV13?.driverPhone || row?.driverPhone || '—';
-    const plateTextV13 = row => [row?._proofDetailV13?.plateNumber || row?.plateNumber, row?._proofDetailV13?.plateTypeText || row?.plateTypeText].filter(Boolean).join(' • ') || '—';
+    const supplierTextV13 = row => row?._proofDetailV13?.fleetName || row?.fleetName || row?.supplierName || 'ยังไม่ระบุ';
+    const driverTextV13 = row => row?._proofDetailV13?.driver || row?.driver || 'ยังไม่ระบุ';
+    const phoneTextV13 = row => row?._proofDetailV13?.driverPhone || row?.driverPhone || 'ยังไม่ระบุ';
+    const plateTextV13 = row => [row?._proofDetailV13?.plateNumber || row?.plateNumber, row?._proofDetailV13?.plateTypeText || row?.plateTypeText].filter(Boolean).join('   ') || 'ยังไม่ระบุ';
     const branchTextV13 = row => routeDestinationLabel(row) || P.destinationShort?.(row) || 'ปลายทางไม่ระบุ';
     const compactStatusV13 = row => missedVehicle(row) ? 'รถไม่เข้า' : P.stateText(row);
 
@@ -457,17 +457,17 @@ function proofCommandCenterV10() {
 
     const rowCardV13 = row => {
       const release=P.minuteText(row.plannedDepartureTime??row.startTime);
-      const standby=row.detailReady&&Number.isFinite(Number(row.standbyTime))?P.minuteText(row.standbyTime):'—';
+      const standby=row.detailReady&&Number.isFinite(Number(row.standbyTime))?P.minuteText(row.standbyTime):'ยังไม่ระบุ';
       const barcode=row.proofId||'ยังไม่มี';
       return `<article class='proof-grid-row-v13 ${missedVehicle(row)?'is-missed':barcodeEnabled(row)?'is-ready':'is-pending'}'>
-        <div class='proof-grid-route-v13'><small>เส้นทาง</small><strong>${P.esc(row.lineName||'—')}</strong><span>${P.esc(plateTextV13(row))}</span></div>
+        <div class='proof-grid-route-v13'><small>เส้นทาง</small><strong>${P.esc(row.lineName||'ยังไม่ระบุ')}</strong><span>${P.esc(plateTextV13(row))}</span></div>
         <div class='proof-grid-bar-v13'><small>บาร์รถ</small><strong>${P.esc(barcode)}</strong><span>${P.esc(barcodeStatus(row))}</span></div>
-        <div><small>เวลา</small><strong>${P.esc(standby)} → ${P.esc(release)}</strong><span>${P.standbyBadge(row)}</span></div>
+        <div><small>เวลา</small><strong>${P.esc(standby)} ถึง ${P.esc(release)}</strong><span>${P.standbyBadge(row)}</span></div>
         <div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(driverTextV13(row))}</strong><span>${P.esc(phoneTextV13(row))}</span></div>
         <div><small>ซัพ / รถ</small><strong>${P.esc(supplierTextV13(row))}</strong><span>${P.esc(plateTextV13(row))}</span></div>
         <div class='proof-grid-actions-v13'><div class='proof-grid-status-v13'><small>สถานะ</small><strong>${P.esc(compactStatusV13(row))}</strong></div><div class='proof-grid-btns-v13'><button class='btn btn-header' type='button' data-proof-v11-detail='${P.escAttr(P.rowKey(row))}'>รายละเอียด</button>${P.actionButtons(row)}</div></div>
         <div class='proof-v11-detail hidden' data-proof-v11-detail-panel='${P.escAttr(P.rowKey(row))}'>
-          <div><small>บริษัทซัพ</small><strong>${P.esc(supplierTextV13(row))}</strong></div><div><small>ปลายทาง</small><strong>${P.esc(branchTextV13(row))}</strong></div><div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(driverTextV13(row))}</strong><span>${P.esc(phoneTextV13(row))}</span></div><div><small>รถ / ทะเบียน</small><strong>${P.esc(plateTextV13(row))}</strong></div><div><small>บาร์รถ</small><strong>${P.esc(barcode)}</strong></div><div><small>เวลา</small><strong>${P.esc(standby)} → ${P.esc(release)}</strong></div>
+          <div><small>บริษัทซัพ</small><strong>${P.esc(supplierTextV13(row))}</strong></div><div><small>ปลายทาง</small><strong>${P.esc(branchTextV13(row))}</strong></div><div><small>คนขับ / โทรศัพท์</small><strong>${P.esc(driverTextV13(row))}</strong><span>${P.esc(phoneTextV13(row))}</span></div><div><small>รถ / ทะเบียน</small><strong>${P.esc(plateTextV13(row))}</strong></div><div><small>บาร์รถ</small><strong>${P.esc(barcode)}</strong></div><div><small>เวลา</small><strong>${P.esc(standby)} ถึง ${P.esc(release)}</strong></div>
         </div>
       </article>`;
     };
@@ -481,11 +481,11 @@ function proofCommandCenterV10() {
         for(const row of items){const b=branchTextV13(row);if(!branches.has(b))branches.set(b,[]);branches.get(b).push(row);}
         const pending=items.filter(x=>Number(x.proofState)===1).length, extra=items.filter(x=>Number(x.lineMode)===2).length;
         const body=[...branches.entries()].sort((a,b)=>a[0].localeCompare(b[0],'th')).map(([branch,branchRows])=>`<section class='proof-branch-v13'><header><strong>${P.esc(branch)}</strong><span>${P.nf.format(branchRows.length)} เที่ยว</span></header><div class='proof-branch-columns-v13'><b>เส้นทาง</b><b>บาร์รถ</b><b>เวลา</b><b>คนขับ / โทรศัพท์</b><b>ซัพ / รถ</b><b>สถานะ / จัดการ</b></div>${branchRows.map(rowCardV13).join('')}</section>`).join('');
-        return `<section class='proof-group is-open proof-lane-v13'><div class='proof-group-head proof-lane-head-v13'><span class='proof-group-name'><strong>${lane==='LH'?'LH • HUB TO HUB':'FD • Feeder / รถเสริม / อื่น ๆ'}</strong><small>${P.nf.format(items.length)} รายการ${pending?` • รอจัดการ ${P.nf.format(pending)}`:''}${extra?` • รถเสริม ${P.nf.format(extra)}`:''}</small></span></div><div class='proof-group-body proof-lane-body-v13'>${body}</div></section>`;
+        return `<section class='proof-group is-open proof-lane-v13'><div class='proof-group-head proof-lane-head-v13'><span class='proof-group-name'><strong>${lane==='LH'?'LH   HUB TO HUB':'FD   Feeder / รถเสริม / อื่น ๆ'}</strong><small>${P.nf.format(items.length)} รายการ${pending?`   รอจัดการ ${P.nf.format(pending)}`:''}${extra?`   รถเสริม ${P.nf.format(extra)}`:''}</small></span></div><div class='proof-group-body proof-lane-body-v13'>${body}</div></section>`;
       }).join('');
     };
 
-    P.tableRow = row => `<tr><td class='proof-route'><strong>${P.esc(row.lineName||'—')}</strong><small>${P.esc(branchTextV13(row))}</small></td><td><strong>${P.esc(row.proofId||'ยังไม่มี')}</strong></td><td><strong>${P.esc(driverTextV13(row))}</strong><small>${P.esc(phoneTextV13(row))}</small></td><td><strong>${P.esc(supplierTextV13(row))}</strong><small>${P.esc(plateTextV13(row))}</small></td><td><strong>${P.esc(P.minuteText(row.standbyTime))} → ${P.esc(P.minuteText(row.plannedDepartureTime??row.startTime))}</strong></td><td>${P.stateBadge(row)}</td><td>${P.actionButtons(row)}</td></tr>`;
+    P.tableRow = row => `<tr><td class='proof-route'><strong>${P.esc(row.lineName||'ยังไม่ระบุ')}</strong><small>${P.esc(branchTextV13(row))}</small></td><td><strong>${P.esc(row.proofId||'ยังไม่มี')}</strong></td><td><strong>${P.esc(driverTextV13(row))}</strong><small>${P.esc(phoneTextV13(row))}</small></td><td><strong>${P.esc(supplierTextV13(row))}</strong><small>${P.esc(plateTextV13(row))}</small></td><td><strong>${P.esc(P.minuteText(row.standbyTime))} ถึง ${P.esc(P.minuteText(row.plannedDepartureTime??row.startTime))}</strong></td><td>${P.stateBadge(row)}</td><td>${P.actionButtons(row)}</td></tr>`;
     const tableHeadsV13=document.querySelectorAll('.proof-table thead th');['เส้นทาง / ปลายทาง','บาร์รถ','คนขับ / โทรศัพท์','ซัพ / รถ','เวลา','สถานะ','จัดการ'].forEach((x,i)=>{if(tableHeadsV13[i])tableHeadsV13[i].textContent=x;});
 
     const commandHead=document.querySelector('.proof-command-head'); if(commandHead){const s=commandHead.querySelector('small'),strong=commandHead.querySelector('strong'),span=commandHead.querySelector('span');if(s)s.textContent='ภาพรวมเที่ยวรถ';if(strong)strong.textContent='สถานะเที่ยวรถวันนี้';if(span)span.remove();}

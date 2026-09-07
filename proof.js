@@ -208,11 +208,11 @@ function renderFilterActive() {
 
 function tableRow(row) {
   return `<tr>
-    <td class="proof-route"><strong>${esc(row.lineName || '—')}</strong><small>${esc(routeMeta(row))}</small></td>
-    <td class="proof-car"><strong>${esc(row.plateNumber || 'ยังไม่กำหนดทะเบียน')}</strong><small>${esc(row.plateTypeText || '—')}</small></td>
-    <td class="proof-driver"><strong>${esc(row.driver || 'ยังไม่กำหนดคนขับ')}</strong><small>${esc(row.driverPhone || '—')}</small></td>
+    <td class="proof-route"><strong>${esc(row.lineName || 'ยังไม่ระบุ')}</strong><small>${esc(routeMeta(row))}</small></td>
+    <td class="proof-car"><strong>${esc(row.plateNumber || 'ยังไม่กำหนดทะเบียน')}</strong><small>${esc(row.plateTypeText || 'ยังไม่ระบุ')}</small></td>
+    <td class="proof-driver"><strong>${esc(row.driver || 'ยังไม่กำหนดคนขับ')}</strong><small>${esc(row.driverPhone || 'ยังไม่ระบุ')}</small></td>
     <td><strong>${esc(timeRange(row))}</strong><small>${esc(row.departureDate || '')}</small></td>
-    <td><strong>${esc(row.proofId || '—')}</strong></td>
+    <td><strong>${esc(row.proofId || 'ยังไม่ระบุ')}</strong></td>
     <td>${stateBadge(row)}</td>
     <td>${actionButtons(row)}</td>
   </tr>`;
@@ -220,12 +220,12 @@ function tableRow(row) {
 
 function mobileCard(row) {
   return `<article class="proof-card">
-    <div class="proof-card-top"><h3>${esc(row.lineName || '—')}</h3>${stateBadge(row)}</div>
+    <div class="proof-card-top"><h3>${esc(row.lineName || 'ยังไม่ระบุ')}</h3>${stateBadge(row)}</div>
     <div class="proof-card-grid">
       <div><small>รถ / ทะเบียน</small><strong>${esc([row.plateTypeText, row.plateNumber].filter(Boolean).join(' / ') || 'ยังไม่กำหนด')}</strong></div>
-      <div><small>บาร์โค้ดรถ</small><strong>${esc(row.proofId || '—')}</strong></div>
+      <div><small>บาร์โค้ดรถ</small><strong>${esc(row.proofId || 'ยังไม่ระบุ')}</strong></div>
       <div><small>คนขับ</small><strong>${esc(row.driver || 'ยังไม่กำหนด')}</strong></div>
-      <div><small>เบอร์โทร</small><strong>${esc(row.driverPhone || '—')}</strong></div>
+      <div><small>เบอร์โทร</small><strong>${esc(row.driverPhone || 'ยังไม่ระบุ')}</strong></div>
       <div><small>เวลาแผน</small><strong>${esc(timeRange(row))}</strong></div>
       <div><small>ประเภทเส้นทาง</small><strong>${esc(routeMeta(row))}</strong></div>
     </div>
@@ -235,7 +235,7 @@ function mobileCard(row) {
 
 function stateBadge(row) {
   const code = Number(row.proofState);
-  const label = row.proofStateText || STATE_LABELS[code] || `สถานะ ${code || '—'}`;
+  const label = row.proofStateText || STATE_LABELS[code] || `สถานะ ${code || 'ยังไม่ระบุ'}`;
   return `<span class="proof-state s${Number.isFinite(code) ? code : ''}">${esc(label)}</span>`;
 }
 
@@ -343,7 +343,7 @@ async function printRoute(key) {
     if (preview) preview.location.replace(objectUrl);
     else window.open(objectUrl, '_blank');
     setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000);
-    setLive('ปริ้นท์สำเร็จ • กำลังอัปเดตสถานะล่าสุด', 'ok');
+    setLive('ปริ้นท์สำเร็จ   กำลังอัปเดตสถานะล่าสุด', 'ok');
     await new Promise((resolve) => setTimeout(resolve, 800));
     await loadRoutes(true);
   } catch (error) {
@@ -422,12 +422,12 @@ function renderProfile(error) {
     el('ms-user-badge').textContent = `บัญชี MS: ${state.profile.organizationShortName || state.branch}`;
     el('ms-user-badge').className = 'badge badge-ok';
     el('ms-user-name').textContent = state.profile.name || 'ไม่พบชื่อบัญชี';
-    el('ms-user-org').textContent = `${state.profile.organizationName || state.branch} • ชื่อบนใบปริ้นยึดจาก MS Session นี้`;
+    el('ms-user-org').textContent = `${state.profile.organizationName || state.branch}   ชื่อบนใบปริ้นยึดจาก MS Session นี้`;
     return;
   }
   el('ms-user-badge').textContent = error ? 'บัญชี MS: อ่านไม่ได้' : 'บัญชี MS: ยังไม่ทราบ';
   el('ms-user-badge').className = 'badge badge-neutral';
-  el('ms-user-name').textContent = '—';
+  el('ms-user-name').textContent = 'ยังไม่ระบุ';
   el('ms-user-org').textContent = error?.message || 'ชื่อบนใบปริ้นจะยึดจาก MS Session นี้';
 }
 
@@ -462,7 +462,7 @@ function renderFreshness() {
   const checked = Date.parse(state.checkedAt || '');
   if (!Number.isFinite(checked)) return setLive('ยังไม่มีข้อมูลจาก MS', 'stale');
   const age = Date.now() - checked;
-  if (age <= CONFIG.staleMs) setLive(`ข้อมูลสด • ${Math.max(0, Math.round(age / 1000))} วินาทีที่แล้ว`, 'ok');
+  if (age <= CONFIG.staleMs) setLive(`ข้อมูลสด   ${Math.max(0, Math.round(age / 1000))} วินาทีที่แล้ว`, 'ok');
   else setLive(`ข้อมูลล่าสุด ${Math.round(age / 1000)} วินาทีที่แล้ว`, 'stale');
 }
 
@@ -529,7 +529,7 @@ function closeLogin() {
 }
 
 function routeMeta(row) {
-  return [row.lineTypeText, row.lineModeText].filter(Boolean).join(' • ') || '—';
+  return [row.lineTypeText, row.lineModeText].filter(Boolean).join('   ') || 'ยังไม่ระบุ';
 }
 function lineTypeKey(row) { return row.lineType == null ? `T:${row.lineTypeText || 'unknown'}` : String(row.lineType); }
 function vehicleKey(row) { return row.plateType == null ? `V:${row.plateTypeText || 'unknown'}` : String(row.plateType); }
@@ -537,7 +537,7 @@ function rowKey(row) { return `${row.lineId || ''}|${row.departureDate || ''}`; 
 function timeRange(row) { return `${minuteText(row.startTime)} – ${minuteText(row.endTime)}`; }
 function minuteText(value) {
   const total = Number(value);
-  if (!Number.isFinite(total)) return '—';
+  if (!Number.isFinite(total)) return 'ยังไม่ระบุ';
   const days = Math.floor(total / 1440);
   const minute = ((Math.round(total) % 1440) + 1440) % 1440;
   const hh = String(Math.floor(minute / 60)).padStart(2, '0');

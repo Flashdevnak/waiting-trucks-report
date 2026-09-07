@@ -604,7 +604,7 @@ function confirmAction(action, id) {
     action === "complete" ? "ยืนยันว่าลงงานเสร็จสิ้น" : "ลบออกจากรายการรอลงงาน";
   el("confirm-message").textContent =
     action === "complete"
-      ? `${r?.previous || "รถรายการนี้"} · ${r?.route || ""} — หากกดผิด สามารถกู้คืนได้ในหน้าประวัติ`
+      ? `${r?.previous || "รถรายการนี้"} · ${r?.route || ""} หากกดผิด สามารถกู้คืนได้ในหน้าประวัติ`
       : `${r?.previous || "รถรายการนี้"} · ${r?.route || ""}`;
   el("confirm-submit").textContent =
     action === "complete" ? "ยืนยันเสร็จสิ้น" : "ยืนยันลบ";
@@ -1006,11 +1006,11 @@ function mapExcel(r) {
 }
 function refreshStatusUi() {
   const labels = {
-    normal: "ปกติ — เหลือมากกว่า 90 นาที",
-    ready: "เตรียมพร้อม — เหลือ 61–90 นาที",
-    watch: "เฝ้าระวัง — เหลือ 31–60 นาที",
-    near: "ใกล้ครบ — เหลือ 0–30 นาที",
-    overdue: "เกินเวลา — ตั้งแต่ 1 นาทีขึ้นไป",
+    normal: "ปกติ เหลือมากกว่า 90 นาที",
+    ready: "เตรียมพร้อม เหลือ 61–90 นาที",
+    watch: "เฝ้าระวัง เหลือ 31–60 นาที",
+    near: "ใกล้ครบ เหลือ 0–30 นาที",
+    overdue: "เกินเวลา ตั้งแต่ 1 นาทีขึ้นไป",
   };
   el("status-filter").innerHTML =
     `<option value="all">ทุกช่วงเวลา</option>` +

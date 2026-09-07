@@ -28,12 +28,13 @@ test('Proof V10 command center is Proof-only and keeps polling unchanged', async
   assert.match(ui, /DETAIL_CACHE_MS_V12/);
   assert.match(ui, /PROOF_ALERT_HEADER_REMOVED_V11/);
   assert.match(ui, /proofLaneScope/);
-  assert.match(ui, /FD • Feeder \/ รถเสริม \/ อื่น ๆ/);
-  assert.match(ui, /LH • HUB TO HUB/);
+  assert.match(ui, /FD\s+Feeder \/ รถเสริม \/ อื่น ๆ/);
+  assert.match(ui, /LH\s+HUB TO HUB/);
   assert.match(ui, /รถคงเหลือ/);
   assert.match(ui, /ยังไม่ปริ้นบาร์/);
   assert.match(ui, /ออกจากต้นทางแล้ว/);
   assert.match(ui, /รถเสริม/);
+  assert.doesNotMatch(ui, /[•→]/);
   assert.match(ui, /proof-v11-detail/);
   assert.doesNotMatch(ui, /setInterval\s*\(/);
   assert.match(ui, /proof-history-dialog-v10/);

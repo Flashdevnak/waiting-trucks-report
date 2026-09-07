@@ -272,7 +272,7 @@ function proofUiV16() {
       }
       @media(max-width:430px){
         .proof-toolbar-v16{grid-template-columns:1fr!important}.proof-toolbar-v16 .proof-search-field-v16,.proof-toolbar-v16 .proof-hub-field-v16,.proof-toolbar-v16 .proof-day-field-v16{grid-column:1!important}
-        .proof-day-row-v16{grid-template-columns:minmax(0,1fr) 210px}
+        .proof-day-row-v16{grid-template-columns:minmax(0,1fr) 216px}
         .proof-quick-day-v16 button{padding:0 3px}.proof-quick-day-v16 button strong{font-size:10.5px}
         .proof-v15-editor .proof-editor-route-box{padding:14px 12px!important}.proof-v16-editor-meta-grid{gap:8px;margin-top:12px}.proof-v16-time-grid{grid-template-columns:1fr 1fr;gap:6px}.proof-v16-time-item{padding:8px 6px}.proof-v16-time-item strong{font-size:16px!important}
       }

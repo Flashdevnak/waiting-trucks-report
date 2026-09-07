@@ -3,14 +3,14 @@ const REQUIRED = [
   'DEV mobile unified shell v7',
   'MS mobile export single-column v2',
   'Proof V16 mobile toolbar containment v2',
-  'Proof mobile header dropdown anchor v2',
+  'Proof mobile header dropdown viewport anchor v3',
 ];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 for (let attempt = 1; attempt <= 120; attempt += 1) {
   try {
     const url = `${ORIGIN}/style.css?v=20260905-dev-shell-v3&releaseGate=${Date.now()}-${attempt}`;
-    const response = await fetch(url, { cache: 'no-store', headers: { 'cache-control': 'no-cache' } });
+    const response = await fetch(url, { cache: 'no-store', headers: { 'cache-control':'no-cache' } });
     const text = await response.text();
     const missing = REQUIRED.filter(marker => !text.includes(marker));
     if (response.ok && missing.length === 0) {

@@ -13,6 +13,31 @@ import { maybeHandleProofUiV16 } from "./proof-ui-v16.js";
 import { enrichProofRoutesV16, captureProofEditorMetaV16 } from "./proof-route-meta-v16.js";
 import { maybeHandleProofHistoryV10 } from "./proof-history-v10.js";
 
+const DEV_TABLET_SHELL_CSS = `
+/* DEV_TABLET_SHELL_CONTAINMENT_V1 */
+@media (min-width:701px) and (max-width:900px) {
+  html,body,.ms-page,.ms-page .app-shell { max-width:100% !important; overflow-x:hidden !important; }
+  .ms-page .toolbar-panel,.ms-page .ms-toolbar { min-width:0 !important; max-width:100% !important; }
+  .ms-page .toolbar-panel { overflow:hidden !important; }
+  .ms-page .ms-export-actions { display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)) !important; width:100% !important; max-width:100% !important; min-width:0 !important; gap:8px !important; }
+  .ms-page .ms-export-actions .btn { width:100% !important; min-width:0 !important; max-width:100% !important; white-space:normal !important; overflow-wrap:anywhere !important; }
+  .dev-unified-header { position:relative !important; overflow:visible !important; }
+  .dev-unified-header .site-header-inner,.dev-unified-header .dev-unified-actions { overflow:visible !important; }
+  .dev-unified-header .app-nav { position:static !important; }
+  .dev-unified-header .app-nav-menu { position:absolute !important; left:12px !important; right:12px !important; top:calc(100% + 6px) !important; bottom:auto !important; width:auto !important; max-width:none !important; max-height:calc(100dvh - 180px) !important; margin:0 !important; overflow-y:auto !important; overflow-x:hidden !important; overscroll-behavior:contain !important; z-index:999 !important; }
+}
+`;
+
+async function appendDevTabletShellCss(response) {
+  if (!response?.ok) return response;
+  const base = await response.text();
+  if (base.includes('DEV_TABLET_SHELL_CONTAINMENT_V1')) return new Response(base, response);
+  const headers = new Headers(response.headers);
+  headers.set('Content-Type', 'text/css; charset=utf-8');
+  headers.set('Cache-Control', 'no-store');
+  return new Response(`${base.trimEnd()}\n${DEV_TABLET_SHELL_CSS}`, { status: response.status, headers });
+}
+
 async function appendProofV16ShellSwitchFix(response) {
   const base = await response.text();
   const shellSwitch = `\n;(()=>{if(window.__PROOF_V16_DROPDOWN_SWITCH_FIX__)return;window.__PROOF_V16_DROPDOWN_SWITCH_FIX__=true;const selector='.dev-unified-header details.app-nav';let sequence=0;const snapshot=(owner,shouldOpen,phase)=>{const items=[...document.querySelectorAll(selector)];items.forEach((item)=>{item.open=item===owner?shouldOpen:false;});window.__PROOF_V16_DROPDOWN_SWITCH_LAST__={phase,shouldOpen,states:items.map((item)=>item.open),label:String(owner?.querySelector('summary')?.innerText||'').trim().replace(/\\s+/g,' ').slice(0,80)};};document.addEventListener('click',(event)=>{const token=++sequence;const target=event.target;const summary=target&&typeof target.closest==='function'?target.closest(selector+' > summary'):null;if(!summary)return;event.preventDefault();event.stopImmediatePropagation();const owner=summary.parentElement;const shouldOpen=!owner.open;const apply=(phase)=>{if(token!==sequence)return;snapshot(owner,shouldOpen,phase);};apply('sync');queueMicrotask(()=>apply('microtask'));setTimeout(()=>apply('timeout0'),0);setTimeout(()=>apply('timeout32'),32);},true);})();`;
@@ -58,7 +83,10 @@ export default {
     if (proofV2Response) return enrichProofRoutesV16(request, proofV2Response, runtimeEnv, ctx);
     const proofResponse = await maybeHandleProofRequest(request, runtimeEnv, ctx, worker);
     if (proofResponse) return proofResponse;
-    return worker.fetch(request, runtimeEnv, ctx);
+    const response = await worker.fetch(request, runtimeEnv, ctx);
+    const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname === '/style.css') return appendDevTabletShellCss(response);
+    return response;
   },
 
   async scheduled(controller, env, ctx) {

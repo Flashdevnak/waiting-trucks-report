@@ -9,9 +9,11 @@ on:
       - .github/workflows/post-cutover-regression.yml
       - ms.js
       - worker/src/**
-      - worker/test/**
+      - worker/tests/**
       - cloudflare-browser-test/src/**
       - .github/dev-tools/*.test.mjs
+      - .github/dev-tools/proof-v16-live-responsive-smoke.mjs
+      - .github/workflows/proof-v16-responsive-dev.yml
 
 permissions:
   contents: read

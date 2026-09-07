@@ -61,21 +61,22 @@ async function readPlateOptions(credentials, detail, q) {
   const primary='https://ms-api.flashexpress.com/gw/fms/ms/car/car/info';
   const fallback=`https://ms-api.flashexpress.com/gw/nws/staff/ms/fleet/van/${encodeURIComponent(fleetId)}`;
   let lastError=null, anySuccess=false;
+  // PROOF_PLATE_HAR_EXACT_V14: first request mirrors captured MS car/info: no id param, pageSize 20.
   for(const variant of variants){
-    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
+    try{const items=await fetchPlateSearch(credentials,primary,{fleetId,plateNumber:variant,pageSize:'20',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
   }
   for(const variant of variants.slice(0,2)){
-    try{const items=await fetchPlateSearch(credentials,fallback,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
+    try{const items=await fetchPlateSearch(credentials,fallback,{fleetId,plateNumber:variant,pageSize:'50',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
   }
   // PROOF_PLATE_UNTYPED_FALLBACK_V13: MS can place a registration in another car-type bucket; only run after an explicit typed search missed.
   for(const variant of variants.slice(0,2)){
     for(const endpoint of [primary,fallback]){
-      try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,id:'',plateNumber:variant,pageSize:'50',pageNum:'1',plateType:''});anySuccess=true;const ranked=rankPlateItems(items,q,'');if(ranked.length)return ranked;}catch(error){lastError=error;}
+      try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,plateNumber:variant,pageSize:'50',pageNum:'1',plateType:''});anySuccess=true;const ranked=rankPlateItems(items,q,'');if(ranked.length)return ranked;}catch(error){lastError=error;}
     }
   }
   // PROOF_PLATE_SEARCH_RECOVERY_V10: only after an explicit user search misses, scan a small fleet page and filter locally.
   for(const endpoint of [primary,fallback]){
-    try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,id:'',plateNumber:'',pageSize:'100',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
+    try{const items=await fetchPlateSearch(credentials,endpoint,{fleetId,plateNumber:'',pageSize:'100',pageNum:'1',plateType:requiredType});anySuccess=true;const ranked=rankPlateItems(items,q,requiredType);if(ranked.length)return ranked;}catch(error){lastError=error;}
   }
   if(!anySuccess&&lastError)throw lastError;
   return [];

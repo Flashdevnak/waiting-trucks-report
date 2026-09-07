@@ -196,7 +196,7 @@ function proofUiV16() {
     const style = document.createElement('style');
     style.id = 'proof-v16-style';
     style.textContent = `
-      .proof-toolbar-v16{grid-template-columns:minmax(250px,1.45fr) 110px minmax(330px,1.28fr) repeat(4,minmax(125px,.72fr)) auto!important;gap:10px!important;align-items:start!important}
+      .proof-toolbar-v16{grid-template-columns:minmax(250px,1.45fr) 110px minmax(300px,1.2fr) repeat(4,minmax(125px,.72fr)) auto!important;gap:10px!important;align-items:start!important}
       .proof-toolbar-v16 .proof-search-field-v16{order:1!important;grid-column:auto!important}
       .proof-toolbar-v16 .proof-hub-field-v16{order:2!important}
       .proof-toolbar-v16 .proof-day-field-v16{order:3!important;align-self:start!important;height:auto!important;min-width:0}

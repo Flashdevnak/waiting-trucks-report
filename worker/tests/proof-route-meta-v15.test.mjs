@@ -5,11 +5,14 @@ import { applyMeta, metaCandidatesV15 } from '../src/proof-route-meta-v15.js';
 
 const source = await fs.readFile(new URL('../src/proof-route-meta-v15.js', import.meta.url), 'utf8');
 
-test('supplier metadata hydration is shared, bounded, and popup-backed', () => {
+test('supplier metadata hydration is shared, bounded, leased, and popup-backed', () => {
   assert.match(source, /META_TTL_MS = 4 \* 60 \* 60_000/);
   assert.match(source, /META_SWEEP_MS = 60_000/);
   assert.match(source, /META_BATCH = 20/);
   assert.match(source, /META_CONCURRENCY = 5/);
+  assert.match(source, /META_LEASE_MS = 45_000/);
+  assert.match(source, /ms_proof_meta_lease_v15/);
+  assert.match(source, /WHERE ms_proof_meta_lease_v15\.lease_until < \?/);
   assert.match(source, /\/gw\/nws\/staff\/ms\/fleet\/van\/proof\/popup/);
   assert.doesNotMatch(source, /setInterval\s*\(/);
   assert.doesNotMatch(source, /setTimeout\s*\(/);

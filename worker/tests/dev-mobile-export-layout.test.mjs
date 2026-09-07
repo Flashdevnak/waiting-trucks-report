@@ -36,21 +36,22 @@ test('Proof V16 mobile toolbar cannot create implicit overflow tracks', () => {
   assert.equal(patchMsSummaryPerformanceStyle(patched), patched, 'Proof toolbar containment patch must remain idempotent');
 });
 
-test('Proof mobile dropdown is viewport-sized even if an ancestor becomes a containing block', () => {
+test('Proof mobile dropdown follows the actual header bottom while staying viewport-wide', () => {
   const patched = patchMsSummaryPerformanceStyle(source);
-  const marker = '/* Proof mobile header dropdown viewport anchor v3 */';
+  const marker = '/* Proof mobile header full-width anchor v4 */';
   const index = patched.lastIndexOf(marker);
 
-  assert.ok(index >= 0, 'Proof mobile viewport anchor marker missing');
+  assert.ok(index >= 0, 'Proof mobile full-width anchor marker missing');
   const tail = patched.slice(index);
   assert.match(tail, /@media \(max-width:700px\)/);
+  assert.match(tail, /body\.ms-page\.proof-page header\.site-header\.dev-unified-header\{position:relative!important;overflow:visible!important\}/);
   assert.match(tail, /body\.ms-page\.proof-page header\.site-header\.dev-unified-header details\.app-nav\[open\]>\.app-nav-menu\{/);
-  assert.match(tail, /position:fixed!important/);
-  assert.match(tail, /left:10px!important;right:auto!important;top:auto!important;bottom:auto!important/);
+  assert.match(tail, /position:absolute!important/);
+  assert.match(tail, /left:10px!important;right:auto!important;top:calc\(100% \+ 6px\)!important;bottom:auto!important/);
   assert.match(tail, /width:calc\(100vw - 20px\)!important/);
   assert.match(tail, /max-width:calc\(100vw - 20px\)!important/);
   assert.match(tail, /max-height:calc\(100dvh - 210px\)!important/);
   assert.match(tail, /overflow-y:auto!important/);
   assert.match(tail, /z-index:9999!important/);
-  assert.equal(patchMsSummaryPerformanceStyle(patched), patched, 'Proof viewport dropdown patch must remain idempotent');
+  assert.equal(patchMsSummaryPerformanceStyle(patched), patched, 'Proof full-width dropdown patch must remain idempotent');
 });

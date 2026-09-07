@@ -10,7 +10,7 @@ const FRONTEND_MARKER = "function renderRowsProgressively(rows)";
 const STYLE_MARKER = "/* MS summary performance */";
 const MOBILE_EXPORT_MARKER = "/* MS mobile export single-column v2 */";
 const PROOF_MOBILE_TOOLBAR_MARKER = "/* Proof V16 mobile toolbar containment v2 */";
-const PROOF_MOBILE_HEADER_MARKER = "/* Proof mobile header dropdown viewport anchor v3 */";
+const PROOF_MOBILE_HEADER_MARKER = "/* Proof mobile header full-width anchor v4 */";
 
 export function patchMsSummaryPerformanceFrontend(source) {
   let output = String(source || "");
@@ -56,7 +56,7 @@ export function patchMsSummaryPerformanceStyle(source) {
   }
 
   if (!output.includes(PROOF_MOBILE_HEADER_MARKER)) {
-    output = `${output.trimEnd()}\n\n${PROOF_MOBILE_HEADER_MARKER}\n@media (max-width:700px){body.ms-page.proof-page header.site-header.dev-unified-header{overflow:visible!important}body.ms-page.proof-page header.site-header.dev-unified-header .site-header-inner,body.ms-page.proof-page header.site-header.dev-unified-header .dev-unified-actions,body.ms-page.proof-page header.site-header.dev-unified-header .dev-shell-slot,body.ms-page.proof-page header.site-header.dev-unified-header details.app-nav{position:static!important}body.ms-page.proof-page header.site-header.dev-unified-header details.app-nav[open]>.app-nav-menu{position:fixed!important;left:10px!important;right:auto!important;top:auto!important;bottom:auto!important;width:calc(100vw - 20px)!important;min-width:0!important;max-width:calc(100vw - 20px)!important;max-height:calc(100dvh - 210px)!important;box-sizing:border-box!important;margin-top:6px!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain!important;z-index:9999!important}}\n`;
+    output = `${output.trimEnd()}\n\n${PROOF_MOBILE_HEADER_MARKER}\n@media (max-width:700px){body.ms-page.proof-page header.site-header.dev-unified-header{position:relative!important;overflow:visible!important}body.ms-page.proof-page header.site-header.dev-unified-header .site-header-inner,body.ms-page.proof-page header.site-header.dev-unified-header .dev-unified-actions,body.ms-page.proof-page header.site-header.dev-unified-header .dev-shell-slot,body.ms-page.proof-page header.site-header.dev-unified-header details.app-nav{position:static!important}body.ms-page.proof-page header.site-header.dev-unified-header details.app-nav[open]>.app-nav-menu{position:absolute!important;left:10px!important;right:auto!important;top:calc(100% + 6px)!important;bottom:auto!important;width:calc(100vw - 20px)!important;min-width:0!important;max-width:calc(100vw - 20px)!important;max-height:calc(100dvh - 210px)!important;box-sizing:border-box!important;margin:0!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior:contain!important;z-index:9999!important}}\n`;
   }
 
   return output;

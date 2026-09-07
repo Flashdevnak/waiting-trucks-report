@@ -3,7 +3,7 @@ const REQUIRED = [
   'DEV mobile unified shell v7',
   'MS mobile export single-column v2',
   'Proof V16 mobile toolbar containment v2',
-  'Proof mobile header dropdown viewport anchor v3',
+  'Proof mobile header full-width anchor v4',
 ];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 

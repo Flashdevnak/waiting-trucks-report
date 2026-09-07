@@ -8,6 +8,7 @@ function replaceUnique(output, from, to, label) {
 
 const FRONTEND_MARKER = "function renderRowsProgressively(rows)";
 const STYLE_MARKER = "/* MS summary performance */";
+const MOBILE_EXPORT_MARKER = "/* MS mobile export single-column v2 */";
 
 export function patchMsSummaryPerformanceFrontend(source) {
   let output = String(source || "");
@@ -38,7 +39,15 @@ export function patchMsSummaryPerformanceFrontend(source) {
 }
 
 export function patchMsSummaryPerformanceStyle(source) {
-  const output = String(source || "");
-  if (output.includes(STYLE_MARKER)) return output;
-  return `${output.trimEnd()}\n\n${STYLE_MARKER}\n@media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}\n@media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}\n@media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}\n`;
+  let output = String(source || "");
+
+  if (!output.includes(STYLE_MARKER)) {
+    output = `${output.trimEnd()}\n\n${STYLE_MARKER}\n@media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}\n@media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}\n@media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}\n`;
+  }
+
+  if (!output.includes(MOBILE_EXPORT_MARKER)) {
+    output = `${output.trimEnd()}\n\n${MOBILE_EXPORT_MARKER}\n@media (max-width:520px){.ms-page .ms-export-actions{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:8px!important;width:100%!important}.ms-page .ms-export-actions .btn{width:100%!important;min-width:0!important;max-width:100%!important;white-space:normal!important}}\n`;
+  }
+
+  return output;
 }

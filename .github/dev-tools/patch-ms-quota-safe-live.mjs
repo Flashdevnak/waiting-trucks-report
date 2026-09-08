@@ -7,6 +7,7 @@ function replaceUnique(output, from, to, label) {
 }
 
 const MARKER = "MS_QUOTA_SAFE_LIVE_V1";
+const COMPLETION_HISTORY_MARKER = "MS_COMPLETION_DAILY_HISTORY_TRUTH_V2";
 
 export function patchMsQuotaSafeLiveWorker(source) {
   let output = String(source || "");
@@ -28,27 +29,9 @@ export function patchMsQuotaSafeLiveWorker(source) {
 
   output = replaceUnique(
     output,
-    `      priorCompletedAt = old?.unloading_completed_at,`,
-    `      priorCompletedAt = old?.unloadingCompletedAt,`,
-    "read completion timestamp from normalized baseline snapshot",
-  );
-
-  output = replaceUnique(
-    output,
     `  const plan = planMsChanges(\n      oldRows.map(output),`,
     `  const plan = planMsChanges(\n      oldRows,`,
     "diff normalized snapshots directly",
-  );
-
-  const stateNeedle = `Number(old?.unloading_state) !== 2`;
-  const stateCount = output.split(stateNeedle).length - 1;
-  if (stateCount !== 2)
-    throw new Error(
-      `MS quota-safe live patch failed: expected 2 normalized completion comparisons, got ${stateCount}`,
-    );
-  output = output.replaceAll(
-    stateNeedle,
-    `Number(old?.unloadingState) !== 2`,
   );
 
   output = replaceUnique(
@@ -74,9 +57,30 @@ export function patchMsQuotaSafeLiveWorker(source) {
 
   output = replaceUnique(
     output,
-    `            sync = await syncMs(\n              { branch, rows: mappedRows },\n              { username: "MS_AUTO", role: "admin", branches: ["*"] },\n              env,\n            );`,
+    `    return {\n      format: legacy ? 1 : Number(parsed.version) || 0,`,
+    `    return {\n      sourceHash: String(row.source_hash || ""),\n      format: legacy ? 1 : Number(parsed.version) || 0,`,
+    "expose cache hash so pre-fix baselines are never trusted",
+  );
+
+  output = replaceUnique(
+    output,
     `            sync = await syncMs(\n              {\n                branch,\n                rows: mappedRows,\n                baselineRows: (currentCache || cache)?.rows || null,\n              },\n              { username: "MS_AUTO", role: "admin", branches: ["*"] },\n              env,\n            );`,
-    "pass current live-cache snapshot into changed-source sync",
+    `            const baselineCache = currentCache || cache;\n            sync = await syncMs(\n              {\n                branch,\n                rows: mappedRows,\n                baselineRows:\n                  String(baselineCache?.sourceHash || "").startsWith("completion-v2:")\n                    ? baselineCache?.rows || null\n                    : null,\n              },\n              { username: "MS_AUTO", role: "admin", branches: ["*"] },\n              env,\n            );`,
+    "pass only completion-v2 live-cache snapshot into changed-source sync",
+  );
+
+  output = replaceUnique(
+    output,
+    `  const cancellations = new Map(\n    cancellationResult.results.map((row) => [row.route_id, row]),\n  );\n  const rows = [];`,
+    `  // ${COMPLETION_HISTORY_MARKER}: history reads expose only completion times backed by a recorded 0/1 -> 2 transition.\n  const verifiedCompletionRoutes = await verifiedCompletionRouteIds(env, hub);\n  const cancellations = new Map(\n    cancellationResult.results.map((row) => [row.route_id, row]),\n  );\n  const rows = [];`,
+    "daily history loads verified completion evidence on demand",
+  );
+
+  output = replaceUnique(
+    output,
+    `      row.archivedAt = item.snapshot_at;\n      row.businessDay = item.business_day;`,
+    `      row.archivedAt = item.snapshot_at;\n      row.businessDay = item.business_day;\n      row.completionObservedLive =\n        Boolean(row.unloadingCompletedAt) && verifiedCompletionRoutes.has(row.id);\n      if (row.unloadingCompletedAt && !row.completionObservedLive)\n        row.unloadingCompletedAt = "";`,
+    "daily history never exports fabricated completion timestamp",
   );
 
   return output;

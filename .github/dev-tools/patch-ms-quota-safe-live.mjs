@@ -84,7 +84,7 @@ export function patchMsQuotaSafeLiveWorker(source) {
 
   output = replaceUnique(
     output,
-    `            sync = await syncMs(\n              {\n                branch,\n                rows: mappedRows,\n                baselineRows: (currentCache || cache)?.rows || null,\n              },\n              { username: "MS_AUTO", role: "admin", branches: ["*"] },\n              env,\n            );`,
+    `            sync = await syncMs(\n              { branch, rows: mappedRows },\n              { username: "MS_AUTO", role: "admin", branches: ["*"] },\n              env,\n            );`,
     `            const baselineCache = currentCache || cache;\n            sync = await syncMs(\n              {\n                branch,\n                rows: mappedRows,\n                baselineRows:\n                  String(baselineCache?.sourceHash || "").startsWith("completion-v2:")\n                    ? baselineCache?.rows || null\n                    : null,\n              },\n              { username: "MS_AUTO", role: "admin", branches: ["*"] },\n              env,\n            );`,
     "pass only completion-v2 live-cache snapshot into changed-source sync",
   );

@@ -10,7 +10,6 @@ const FRONTEND_MARKER = "function resetLowerDailyViewOnBangkokDayChange()";
 const FRONTEND_TRUTH_MARKER = "MS_COMPLETION_TIME_TRUTH_UI_V2";
 const WORKER_MARKER = "completion cache only trusts observed live unloading transitions";
 const COMPLETION_TRUTH_MARKER = "MS_COMPLETION_TIME_TRUTH_V2";
-const COMPLETE_ARCHIVE_MARKER = "MS_ARCHIVE_COMPLETE_V1";
 
 export function patchMsDailyCompletionObservationFrontend(source) {
   let output = String(source || "");
@@ -153,32 +152,9 @@ export function patchMsDailyCompletionObservationWorker(source) {
   output = replaceUnique(
     output,
     `async function readMsLiveCache(env, hub, sourceHash = "") {`,
-    `// ${COMPLETION_TRUTH_MARKER}: completion time is authoritative only when this system observed 0/1 -> 2.\nasync function verifiedCompletionRouteIds(env, hub) {\n  const result = await env.DB.prepare(\n    \`SELECT DISTINCT h2.route_id\n      FROM ms_route_history h2\n      WHERE h2.hub=?\n        AND json_valid(h2.payload_json)=1\n        AND CAST(json_extract(h2.payload_json,'$.unloadingState') AS INTEGER)=2\n        AND COALESCE(h2.event_type,'UPDATED')<>'FIRST_SEEN'\n        AND COALESCE(h2.synced_by,'')<>'MS_RANGE'\n        AND COALESCE(json_extract(h2.payload_json,'$.unloadingCompletedAt'),'')<>''\n        AND EXISTS (\n          SELECT 1\n          FROM ms_route_history h1\n          WHERE h1.hub=h2.hub\n            AND h1.route_id=h2.route_id\n            AND json_valid(h1.payload_json)=1\n            AND CAST(json_extract(h1.payload_json,'$.unloadingState') AS INTEGER) IN (0,1)\n            AND (h1.snapshot_at<h2.snapshot_at OR (h1.snapshot_at=h2.snapshot_at AND h1.rowid<h2.rowid))\n        )\`,\n  ).bind(hub).all();\n  return new Set((result.results || []).map((row) => String(row.route_id || "")).filter(Boolean));\n}\n\nasync function ensureMsCompletionRepair(env, hub) {\n  if (completionRepairChecked.has(hub)) return;\n  const cache = await env.DB.prepare(\n    "SELECT source_hash FROM ms_live_cache WHERE hub=?",\n  ).bind(hub).first();\n  if (!String(cache?.source_hash || "").startsWith(MS_LIVE_CACHE_VERSION + ":")) {\n    await env.DB.prepare(\n      \`UPDATE ms_routes AS current\n       SET unloading_completed_at=''\n       WHERE current.hub=?\n         AND current.unloading_state=2\n         AND COALESCE(current.unloading_completed_at,'')<>''\n         AND NOT EXISTS (\n           SELECT 1\n           FROM ms_route_history h2\n           WHERE h2.hub=current.hub\n             AND h2.route_id=current.id\n             AND json_valid(h2.payload_json)=1\n             AND CAST(json_extract(h2.payload_json,'$.unloadingState') AS INTEGER)=2\n             AND COALESCE(h2.event_type,'UPDATED')<>'FIRST_SEEN'\n             AND COALESCE(h2.synced_by,'')<>'MS_RANGE'\n             AND COALESCE(json_extract(h2.payload_json,'$.unloadingCompletedAt'),'')<>''\n             AND EXISTS (\n               SELECT 1\n               FROM ms_route_history h1\n               WHERE h1.hub=h2.hub\n                 AND h1.route_id=h2.route_id\n                 AND json_valid(h1.payload_json)=1\n                 AND CAST(json_extract(h1.payload_json,'$.unloadingState') AS INTEGER) IN (0,1)\n                 AND (h1.snapshot_at<h2.snapshot_at OR (h1.snapshot_at=h2.snapshot_at AND h1.rowid<h2.rowid))\n             )\n         )\`,\n    ).bind(hub).run();\n  }\n  completionRepairChecked.add(hub);\n}\n\nasync function readMsLiveCache(env, hub, sourceHash = "") {`,
+    `// ${COMPLETION_TRUTH_MARKER}: completion time is authoritative only when this system observed 0/1 -> 2.\nasync function verifiedCompletionRouteIds(env, hub) {\n  const result = await env.DB.prepare(\n    \`SELECT DISTINCT h2.route_id\n      FROM ms_route_history h2\n      WHERE h2.hub=?\n        AND json_valid(h2.payload_json)=1\n        AND CAST(json_extract(h2.payload_json,'$.unloadingState') AS INTEGER)=2\n        AND COALESCE(h2.event_type,'UPDATED')<>'FIRST_SEEN'\n        AND COALESCE(h2.synced_by,'')<>'MS_RANGE'\n        AND COALESCE(json_extract(h2.payload_json,'$.unloadingCompletedAt'),'')<>''\n        AND CAST(json_extract((\n          SELECT h1.payload_json\n          FROM ms_route_history h1\n          WHERE h1.hub=h2.hub\n            AND h1.route_id=h2.route_id\n            AND json_valid(h1.payload_json)=1\n            AND (h1.snapshot_at<h2.snapshot_at OR (h1.snapshot_at=h2.snapshot_at AND h1.rowid<h2.rowid))\n          ORDER BY h1.snapshot_at DESC,h1.rowid DESC\n          LIMIT 1\n        ),'$.unloadingState') AS INTEGER) IN (0,1)\`,\n  ).bind(hub).all();\n  return new Set((result.results || []).map((row) => String(row.route_id || "")).filter(Boolean));\n}\n\nasync function ensureMsCompletionRepair(env, hub) {\n  if (completionRepairChecked.has(hub)) return;\n  const cache = await env.DB.prepare(\n    "SELECT source_hash FROM ms_live_cache WHERE hub=?",\n  ).bind(hub).first();\n  if (!String(cache?.source_hash || "").startsWith(MS_LIVE_CACHE_VERSION + ":")) {\n    const verified = await verifiedCompletionRouteIds(env, hub);\n    const polluted = (\n      await env.DB.prepare(\n        "SELECT id FROM ms_routes WHERE hub=? AND unloading_state=2 AND COALESCE(unloading_completed_at,'')<>''",\n      ).bind(hub).all()\n    ).results\n      .map((row) => String(row.id || ""))\n      .filter((id) => id && !verified.has(id));\n    if (polluted.length) {\n      const statements = polluted.map((id) =>\n        env.DB.prepare(\n          "UPDATE ms_routes SET unloading_completed_at='' WHERE hub=? AND id=?",\n        ).bind(hub, id),\n      );\n      await batches(env, statements);\n    }\n  }\n  completionRepairChecked.add(hub);\n}\n\nasync function readMsLiveCache(env, hub, sourceHash = "") {`,
     "inject one-time completion repair and verified history evidence",
   );
-
-  output = replaceUnique(
-    output,
-    `  const rows = [...latest.values()];\n  const totalDistinct = Math.max(`,
-    `  const archiveVerifiedCompletionRoutes = await verifiedCompletionRouteIds(env, hub);\n  for (const row of latest.values()) {\n    row.completionObservedLive =\n      Boolean(row.unloadingCompletedAt) && archiveVerifiedCompletionRoutes.has(row.id);\n    if (row.unloadingCompletedAt && !row.completionObservedLive)\n      row.unloadingCompletedAt = "";\n  }\n\n  const rows = [...latest.values()];\n  const totalDistinct = Math.max(`,
-    "archive never exposes fabricated completion timestamp",
-  );
-
-  if (!output.includes(COMPLETE_ARCHIVE_MARKER)) {
-    output = replaceUnique(
-      output,
-      `      "SELECT route_id,payload_json,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
-      `      "SELECT route_id,payload_json,event_type AS action,snapshot_at,synced_by FROM ms_route_history WHERE hub=? ORDER BY snapshot_at DESC LIMIT 10000",`,
-      "archive reads completion observation event type",
-    );
-
-    output = replaceUnique(
-      output,
-      `      if (row?.unloadingCompletedAt)\n        completionObserved.set(item.route_id, item.synced_by !== "MS_RANGE");`,
-      `      if (row?.unloadingCompletedAt) {\n        const explicit = row?.completionObservedLive;\n        completionObserved.set(\n          item.route_id,\n          explicit === true ||\n            (typeof explicit !== "boolean" &&\n              item.action !== "FIRST_SEEN" &&\n              item.synced_by !== "MS_RANGE"),\n        );\n      }`,
-      "archive excludes first-seen already-completed rows from daily completion",
-    );
-  }
 
   output = output.replace(
     `async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {`,

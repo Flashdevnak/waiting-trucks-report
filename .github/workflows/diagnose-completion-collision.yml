@@ -1,3 +1,4 @@
+# V3 post-deploy verification: read-only, no MS upstream calls, no database writes.
 name: Diagnose Completion Collision
 
 on:

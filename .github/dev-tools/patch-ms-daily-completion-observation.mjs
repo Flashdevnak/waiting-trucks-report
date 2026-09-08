@@ -82,8 +82,8 @@ export function patchMsDailyCompletionObservationWorker(source) {
 
   output = replaceUnique(
     output,
-    `  if (!branch || !access(branch, actor))\n    fail("ไม่มีสิทธิ์ซิงก์ HUB นี้", "FORBIDDEN", 403);\n  const oldRows = (`,
-    `  if (!branch || !access(branch, actor))\n    fail("ไม่มีสิทธิ์ซิงก์ HUB นี้", "FORBIDDEN", 403);\n  await ensureMsCompletionRepair(env, branch);\n  const oldRows = (`,
+    `  const [oldRowsResult, cancellationResult] = await Promise.all([`,
+    `  await ensureMsCompletionRepair(env, branch);\n  const [oldRowsResult, cancellationResult] = await Promise.all([`,
     "repair legacy fabricated current completion before sync",
   );
 

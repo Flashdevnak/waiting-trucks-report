@@ -19,7 +19,7 @@ jobs:
       TURSO_ORG: flashdevnak
       TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
     steps:
-      - name: Read-only EA2 completion collision diagnosis
+      - name: Read-only completion collision diagnosis
         run: |
           node <<'NODE'
           (async()=>{
@@ -48,6 +48,27 @@ jobs:
             }
             const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
             const rows=r=>(r?.rows||[]).map(row=>row.map(decode));
+
+            const globalGroups=rows(await query(`
+              SELECT hub,unloading_completed_at,COUNT(*) AS route_count,
+                     MIN(actual_arrival_at),MAX(actual_arrival_at)
+              FROM ms_routes
+              WHERE unloading_state=2
+                AND COALESCE(unloading_completed_at,'')<>''
+                AND unloading_completed_at<'2026-09-08T12:39:00.000Z'
+              GROUP BY hub,unloading_completed_at
+              HAVING COUNT(*)>=8
+              ORDER BY hub,route_count DESC`));
+            const candidates=globalGroups.filter((row)=>{
+              const min=Date.parse(String(row[3]||''));
+              const max=Date.parse(String(row[4]||''));
+              return Number.isFinite(min)&&Number.isFinite(max)&&max-min>=60*60*1000;
+            });
+            console.log('GLOBAL_LEGACY_BURST_GROUPS='+candidates.length);
+            console.log('GLOBAL_LEGACY_BURST_ROUTES='+candidates.reduce((sum,row)=>sum+Number(row[2]||0),0));
+            for(const row of candidates)
+              console.log(`LEGACY_BURST hub=${row[0]} completion=${row[1]} count=${row[2]} arrival_min=${row[3]||'-'} arrival_max=${row[4]||'-'}`);
+
             const collisions=rows(await query(`
               SELECT unloading_completed_at,COUNT(*) AS route_count,
                      MIN(actual_arrival_at),MAX(actual_arrival_at)

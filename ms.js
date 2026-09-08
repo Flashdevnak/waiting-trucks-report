@@ -1326,6 +1326,7 @@ function arrivalSources(row) {
 }
 
 // MS_UNLOAD_COMPLETION_UI_V1 compatibility marker; superseded by the lower operation renderer below.
+// MS_LOWER_OPERATION_DEPLOY_GATE_V2: compatibility-only retry after the pre-deploy checkpoint stopped.
 // MS_LOWER_OPERATION_UI_V2: one truth-safe SLA predicate shared by card and dropdown.
 function unloadStandard(row) {
   const value = Number(state.standards[normalizeVehicle(row.vehicleType)]);

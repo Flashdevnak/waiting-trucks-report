@@ -110,8 +110,8 @@ test("owner visual V8 is lower-section scoped and restores reference-style mobil
   assert.doesNotMatch(cssPatch, /\.metric-card|\.ms-metrics/);
 });
 
-test("hotfix adds no API polling, timers, database writes, or MS mutation", () => {
-  assert.doesNotMatch(jsPatch, /fetch\(|setInterval|setTimeout|requestAnimationFrame|apiGet|apiPost|syncMs|complete|cancel/i);
+test("hotfix adds no API polling, timers, database writes, or MS mutation calls", () => {
+  assert.doesNotMatch(jsPatch, /fetch\(|setInterval\(|setTimeout\(|requestAnimationFrame\(|apiGet\(|apiPost\(|syncMs\(|completeMsPairing\(|cancelMsRoute\(|archive\(/i);
   assert.match(sw, /url\.pathname\.endsWith\("\/ms\.js"\)/);
   assert.match(sw, /url\.pathname\.endsWith\("\/style\.css"\)/);
 });

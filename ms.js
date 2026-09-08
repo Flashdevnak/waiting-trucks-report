@@ -1382,9 +1382,16 @@ function operationIcon(kind) {
     check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
     truck: '<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
     pin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',
+    loading: '<path d="M3 7h9v10H3zM12 11h4l3 3v3h-7z"/><circle cx="6" cy="19" r="2"/><circle cx="16" cy="19" r="2"/><path d="M21 5h-6m3-3 3 3-3 3"/>',
+    unload: '<path d="M4 5h10v11H4zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M17 5h5m-2-3 2 3-2 3"/>',
+    release: '<path d="M3 8h10v8H3zM13 11h4l3 3v2h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M16 5h5m-2-2 2 2-2 2"/>',
     alert: '<path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17h.01"/>',
   };
   return `<svg class="operation-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[kind] || paths.clock}</svg>`;
+}
+
+function operationTimeline(stages, activeIndex) {
+  return `<div class="operation-timeline stages-${stages.length}">${stages.map((stage, index) => `<span class="operation-stage ${index < activeIndex ? "is-done" : index === activeIndex ? "is-active" : "is-next"}">${operationIcon(stage.icon)}<b>${stage.value}</b><small>${stage.label}</small></span>`).join('<i aria-hidden="true"></i>')}</div>`;
 }
 
 function unloadCompletionCard(row) {
@@ -1395,8 +1402,8 @@ function unloadCompletionCard(row) {
   const active = Number(row.unloadingState) === 1 || stateKey === "unloading";
   const done = Number(row.unloadingState) === 2 || stateKey === "completed";
   const waiting = !active && !done;
-  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังโหลดพัสดุลงรถ" : "ยังไม่เริ่มลงรถ";
-  const icon = done ? "check" : active ? "package" : "clock";
+  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังลงพัสดุ" : "ถึงปลายทางแล้ว · รอเริ่มลงรถ";
+  const icon = done ? "check" : active ? "unload" : "pin";
   const slaText = timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`;
   const slaLabel = done ? "ตั้งแต่รถถึงจนลงเสร็จ" : "ตั้งแต่รถถึง";
   const over = timing.overStandard
@@ -1405,8 +1412,14 @@ function unloadCompletionCard(row) {
       ? `<div class="operation-warning">${operationIcon("alert")}เกิน SLA ปัจจุบัน ${nf.format(timing.slaMinutes - timing.standard)} นาที</div>`
     : "";
   const timeline = waiting
-    ? `<div class="operation-timeline single"><span><b>${timing.arrival ? shortDateTime(timing.arrival) : "-"}</b>มาถึง</span><i></i><span><b>รอเริ่มลง</b>อยู่ในคิว</span></div>`
-    : `<div class="operation-timeline"><span><b>${timing.start ? shortDateTime(timing.start) : "-"}</b>เริ่มลง</span><i></i><span><b>${done && timing.finish ? shortDateTime(timing.finish) : "กำลังดำเนินการ"}</b>${done ? "เสร็จจริง" : "กำลังลงรถ"}</span></div>`;
+    ? operationTimeline([
+        { icon: "pin", value: timing.arrival ? shortDateTime(timing.arrival) : "-", label: "มาถึง" },
+        { icon: "unload", value: "รอเริ่มลง", label: "ขั้นตอนถัดไป" },
+      ], 0)
+    : operationTimeline([
+        { icon: "unload", value: timing.start ? shortDateTime(timing.start) : "-", label: "เริ่มลง" },
+        { icon: done ? "check" : "package", value: done && timing.finish ? shortDateTime(timing.finish) : "กำลังดำเนินการ", label: done ? "เสร็จจริง" : "กำลังลงพัสดุ" },
+      ], done ? 1 : 0);
   const work = done && timing.workMinutes !== null
     ? `<div class="operation-work-duration">ใช้เวลาลงจริง <strong>${nf.format(timing.workMinutes)} นาที</strong></div>` : "";
   return `<section class="lower-operation destination-operation ${timing.overStandard ? "is-over" : ""}"><header>${operationIcon(icon)}<strong>${headline}</strong></header><div class="operation-kpi"><strong>${slaText}</strong><span>${slaLabel}</span></div><div class="operation-standard">${timing.standard === null ? "ยังไม่มีมาตรฐานประเภทรถ" : `มาตรฐาน ${nf.format(timing.standard)} นาที`}</div>${over}${timeline}${work}</section>`;
@@ -1421,10 +1434,30 @@ function renderOriginOperation(row) {
   const stay = arrival && (departure || now) >= arrival ? Math.floor(((departure || now) - arrival) / 60000) : null;
   const releaseDiff = departure && planned ? Math.floor((departure - planned) / 60000) : null;
   const released = Boolean(departure);
-  const headline = released ? "ออกจาก HUB แล้ว" : "โหลดพัสดุขึ้นรถแล้ว · รอปล่อยรถ";
+  const loading = !released && Number(row.unloadingState) === 1;
+  const headline = released ? "ออกจาก HUB แล้ว" : loading ? "กำลังโหลดพัสดุขึ้นรถ" : "โหลดพัสดุขึ้นรถแล้ว · รอปล่อยรถ";
+  const untilRelease = !released && planned ? Math.floor((planned - now) / 60000) : null;
   const detail = released && releaseDiff !== null
-    ? `<div class="operation-warning ${releaseDiff <= 0 ? "is-ok" : ""}">${releaseDiff > 0 ? `ออกช้า ${nf.format(releaseDiff)} นาที` : `ออกก่อนแผน ${nf.format(Math.abs(releaseDiff))} นาที`}</div>` : "";
-  return `<section class="lower-operation origin-operation"><header>${operationIcon("truck")}<strong>${headline}</strong></header>${stay !== null ? `<div class="operation-kpi"><strong>${nf.format(stay)} นาที</strong><span>อยู่ในคลังแล้ว</span></div>` : ""}${detail}<div class="operation-timeline"><span><b>${arrival ? shortDateTime(arrival) : "-"}</b>มาถึง</span><i></i><span><b>${released ? shortDateTime(departure) : planned ? shortDateTime(planned) : "-"}</b>${released ? "ออกจริง" : "กำหนดออก"}</span></div></section>`;
+    ? `<div class="operation-warning ${releaseDiff <= 0 ? "is-ok" : ""}">${releaseDiff > 0 ? `ออกช้า ${nf.format(releaseDiff)} นาที` : `ออกก่อนแผน ${nf.format(Math.abs(releaseDiff))} นาที`}</div>`
+    : untilRelease !== null
+      ? `<div class="operation-warning ${untilRelease >= 0 ? "is-ok" : ""}">${untilRelease >= 0 ? `เหลือ ${nf.format(untilRelease)} นาที ถึงกำหนดปล่อย` : `เลยกำหนดปล่อย ${nf.format(Math.abs(untilRelease))} นาที`}</div>` : "";
+  const timeline = released
+    ? operationTimeline([
+        { icon: "pin", value: arrival ? shortDateTime(arrival) : "-", label: "มาถึง" },
+        { icon: "loading", value: row.unloadingCompletedAt ? shortDateTime(row.unloadingCompletedAt) : "โหลดเสร็จ", label: "โหลดเสร็จ" },
+        { icon: "release", value: shortDateTime(departure), label: "ออกจริง" },
+      ], 2)
+    : loading
+      ? operationTimeline([
+          { icon: "loading", value: row.scheduleUnloadingStartedAt ? shortDateTime(row.scheduleUnloadingStartedAt) : arrival ? shortDateTime(arrival) : "-", label: "เริ่มโหลด" },
+          { icon: "package", value: "กำลังดำเนินการ", label: "กำลังโหลดขึ้นรถ" },
+        ], 0)
+      : operationTimeline([
+          { icon: "pin", value: arrival ? shortDateTime(arrival) : "-", label: "มาถึง" },
+          { icon: "loading", value: "โหลดเสร็จ", label: "รอปล่อย" },
+          { icon: "release", value: planned ? shortDateTime(planned) : "-", label: "กำหนดออก" },
+        ], 1);
+  return `<section class="lower-operation origin-operation ${released ? "is-released" : loading ? "is-loading" : "is-wait-release"}"><header>${operationIcon(released ? "release" : "loading")}<strong>${headline}</strong></header>${stay !== null ? `<div class="operation-kpi"><strong>${nf.format(stay)} นาที</strong><span>${released ? "เวลาที่อยู่ในคลัง" : loading ? "ตั้งแต่เริ่มอยู่ในคลัง" : "อยู่ในคลังแล้ว"}</span></div>` : ""}${detail}${timeline}</section>`;
 }
 
 function renderDropOperation(row) {
@@ -1433,7 +1466,16 @@ function renderDropOperation(row) {
   if (!arrival) return "";
   const minutes = Math.floor(((departure || new Date()) - arrival) / 60000);
   if (minutes < 0) return "";
-  return `<section class="lower-operation drop-operation"><header>${operationIcon("pin")}<strong>ถึงจุดดรอปแล้ว</strong></header><div class="operation-kpi"><strong>${nf.format(minutes)} นาที</strong><span>${departure ? "อยู่ที่จุดดรอป" : "กำลังอยู่ที่จุดดรอป"}</span></div><div class="operation-timeline"><span><b>${shortDateTime(arrival)}</b>ถึงจุดดรอป</span><i></i><span><b>${departure ? shortDateTime(departure) : "กำลังดำเนินการ"}</b>${departure ? "ออกต่อ" : "สถานะปัจจุบัน"}</span></div></section>`;
+  const active = !departure && Number(row.unloadingState) === 1;
+  const released = Boolean(departure);
+  const started = parseDate(row.scheduleUnloadingStartedAt);
+  const headline = released ? "ออกต่อจากจุดดรอปแล้ว" : active ? "กำลังดำเนินการที่จุดดรอป" : "ถึงจุดดรอปแล้ว · รอเริ่มดำเนินการ";
+  const timeline = operationTimeline([
+    { icon: "pin", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
+    { icon: "package", value: started ? shortDateTime(started) : active ? "กำลังดำเนินการ" : "รอเริ่ม", label: "เริ่มดำเนินการ" },
+    { icon: "release", value: released ? shortDateTime(departure) : "ขั้นตอนถัดไป", label: "ออกต่อ" },
+  ], released ? 2 : active ? 1 : 0);
+  return `<section class="lower-operation drop-operation ${released ? "is-released" : active ? "is-active" : "is-waiting"}"><header>${operationIcon(released ? "release" : active ? "package" : "pin")}<strong>${headline}</strong></header><div class="operation-kpi"><strong>${nf.format(minutes)} นาที</strong><span>เวลาที่อยู่ ณ จุดดรอป</span></div>${timeline}<div class="operation-work-duration">ใช้เวลาที่จุดดรอป <strong>${nf.format(minutes)} นาที</strong></div></section>`;
 }
 
 function renderOperation(row) {

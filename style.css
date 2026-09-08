@@ -3952,3 +3952,83 @@ tbody tr.is-unloading:hover {
   .ms-page .operation-work-duration{margin:0 14px 12px;padding:9px;font-size:12px}
 }
 @media(max-width:430px){.ms-page #filter-summary button{grid-template-columns:32px minmax(0,1fr) auto;min-height:74px;padding:10px}.ms-page #filter-summary button .operation-icon{width:17px;height:17px;padding:7px}.ms-page #filter-summary button span{font-size:10px}.ms-page #filter-summary button strong{font-size:23px}}
+
+/* MS_OPERATION_PRESENTATION_V4: distinct C→A, B→D and C→A→D operation stories. */
+.ms-page .schedule-stack.single{
+  border-color:#e2e7e3;
+  border-radius:14px;
+  box-shadow:0 10px 28px #25362b0d,0 2px 5px #25362b0a;
+}
+.ms-page .schedule-stack.single .schedule-section.arrival{padding-bottom:13px;background:linear-gradient(155deg,#f4f7f5 0,#fff 58%)}
+.ms-page .schedule-stack.single .schedule-heading{padding:12px 14px 8px;font-size:13px;font-weight:900}
+.ms-page .schedule-stack.single .schedule-values{gap:22px;padding:8px 16px 3px}
+.ms-page .schedule-stack.single .schedule-values:after{top:12px;bottom:5px;background:#eef1ef}
+.ms-page .schedule-stack.single .schedule-values b{color:#7a847d;font-size:9px}
+.ms-page .schedule-stack.single .schedule-values strong{color:#19211b;font-size:15px}
+.ms-page .schedule-stack.single .timing-chip{margin-top:11px;padding:6px 12px;font-size:10px}
+.ms-page .schedule-stack.single .arrival-system-row{margin:0 10px 10px;border:0;border-radius:10px;background:#f7f9f7}
+.ms-page .schedule-stack.single .arrival-system-row>b{padding:8px 10px 2px;text-align:left;color:#7a847d}
+.ms-page .schedule-stack.single .arrival-system-row>div{padding:3px 7px 8px}
+.ms-page .schedule-stack.single .arrival-system-row>div span{position:relative;padding:4px 5px}
+.ms-page .schedule-stack.single .arrival-system-row>div span+span:before{content:"";position:absolute;left:0;top:5px;bottom:5px;width:1px;background:#e7ebe8}
+
+.ms-page .lower-operation{
+  --op-accent:#526c7e;--op-soft:#eef4f7;--op-line:#cad8df;
+  border:1px solid color-mix(in srgb,var(--op-accent) 15%,#e3e8e4);
+  border-radius:15px;
+  background:linear-gradient(160deg,#fff 52%,color-mix(in srgb,var(--op-soft) 62%,#fff));
+  box-shadow:0 11px 30px #25362b0e,0 2px 5px #25362b0a;
+}
+.ms-page .lower-operation:before{inset:0 0 auto;width:auto;height:3px;opacity:.88}
+.ms-page .lower-operation>header{justify-content:flex-start;gap:10px;padding:12px 14px;background:transparent;font-size:12px;text-align:left}
+.ms-page .lower-operation>header .operation-icon{width:17px;height:17px;padding:7px;border-radius:10px;background:var(--op-soft);box-shadow:none}
+.ms-page .operation-kpi{padding:10px 14px 4px;text-align:center}
+.ms-page .operation-kpi>strong{font-size:31px;line-height:1.05}
+.ms-page .operation-kpi>span{margin-top:2px;color:#68736b;font-size:10px}
+.ms-page .operation-standard{padding:0 14px 10px;color:#879089}
+.ms-page .operation-warning{margin-bottom:11px;border:0;background:#fff0f2;font-size:9px}
+.ms-page .operation-warning.is-ok{background:#edf8f2}
+
+.ms-page .operation-timeline{display:grid;align-items:start;gap:0;margin:3px 12px 11px;padding:12px 9px 10px;border:0;border-radius:12px;background:#f7f9f7}
+.ms-page .operation-timeline.stages-2{grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr)}
+.ms-page .operation-timeline.stages-3{grid-template-columns:minmax(0,1fr) 20px minmax(0,1fr) 20px minmax(0,1fr)}
+.ms-page .operation-timeline .operation-stage{display:grid;grid-template-rows:30px auto auto;place-items:center;align-content:start;gap:3px;min-width:0;color:#858e87;font-size:8px;text-align:center}
+.ms-page .operation-timeline .operation-stage .operation-icon{box-sizing:border-box;width:28px;height:28px;padding:6px;border:1px solid #dfe5e0;border-radius:9px;background:#fff;color:#929a94;box-shadow:0 2px 6px #25362b0b}
+.ms-page .operation-timeline .operation-stage.is-done .operation-icon,.ms-page .operation-timeline .operation-stage.is-active .operation-icon{border-color:color-mix(in srgb,var(--op-accent) 28%,#e2e7e3);background:var(--op-soft);color:var(--op-accent)}
+.ms-page .operation-timeline .operation-stage.is-active .operation-icon{box-shadow:0 0 0 3px color-mix(in srgb,var(--op-accent) 11%,transparent)}
+.ms-page .operation-timeline .operation-stage b{max-width:100%;color:#303832;font-size:9px;line-height:1.3;overflow-wrap:anywhere}
+.ms-page .operation-timeline .operation-stage small{color:#7d877f;font-size:8px;line-height:1.25}
+.ms-page .operation-timeline i{align-self:start;height:2px;margin-top:14px;border-radius:99px;background:#dce2dd;position:relative}
+.ms-page .operation-timeline i:before,.ms-page .operation-timeline i:after{display:none}
+.ms-page .operation-timeline .is-done+i,.ms-page .operation-timeline .is-active+i{background:linear-gradient(90deg,var(--op-accent),color-mix(in srgb,var(--op-accent) 35%,#dce2dd))}
+.ms-page .operation-work-duration{margin:0 12px 12px;padding:8px 10px;border:0;border-radius:9px;background:var(--op-soft);font-size:9px}
+
+.ms-page .destination-operation{--op-accent:#267068;--op-soft:#eaf6f3;--op-line:#bcd9d3}
+.ms-page .destination-operation>header{color:#1f625b}
+.ms-page .destination-operation.is-over{--op-accent:#ad3f51;--op-soft:#fff0f2}
+.ms-page .origin-operation{--op-accent:#4b67a2;--op-soft:#edf2fb;--op-line:#c7d3e8}
+.ms-page .origin-operation>header{background:transparent;color:#3f5c96}
+.ms-page .origin-operation.is-wait-release{--op-accent:#8a671c;--op-soft:#fbf5e6}
+.ms-page .origin-operation.is-released{--op-accent:#397351;--op-soft:#edf7f1}
+.ms-page .drop-operation{--op-accent:#795396;--op-soft:#f5eef9;--op-line:#d9c8e4}
+.ms-page .drop-operation>header{background:transparent;color:#694487}
+.ms-page .drop-operation.is-released{--op-accent:#39735f;--op-soft:#edf7f3}
+
+@media(max-width:900px){
+  .ms-page .compact-schedule .schedule-section.arrival{border-radius:14px 14px 0 0}
+  .ms-page .compact-schedule .arrival-system-row{margin:0;border-radius:0 0 14px 14px}
+  .ms-page .lower-operation>header{padding:13px 15px;font-size:13px}
+  .ms-page .operation-kpi>strong{font-size:34px}
+  .ms-page .operation-timeline,.ms-page .operation-timeline.stages-2,.ms-page .operation-timeline.stages-3{grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr) 34px minmax(0,1fr);gap:0;margin:4px 14px 12px;padding:13px 10px 11px}
+  .ms-page .operation-timeline.stages-2 .operation-stage:first-child{grid-column:1}.ms-page .operation-timeline.stages-2 i{grid-column:2}.ms-page .operation-timeline.stages-2 .operation-stage:last-child{grid-column:3}
+  .ms-page .operation-timeline .operation-stage{grid-template-rows:34px auto auto}
+  .ms-page .operation-timeline .operation-stage .operation-icon{width:32px;height:32px}
+  .ms-page .operation-timeline .operation-stage b{font-size:12px}.ms-page .operation-timeline .operation-stage small{font-size:10px}
+  .ms-page .operation-timeline i{width:auto;height:2px;margin-top:16px}
+  .ms-page .operation-work-duration{margin:0 14px 13px;font-size:11px}
+}
+@media(max-width:430px){
+  .ms-page .operation-timeline,.ms-page .operation-timeline.stages-3{grid-template-columns:minmax(0,1fr) 16px minmax(0,1fr) 16px minmax(0,1fr);margin-left:10px;margin-right:10px;padding-left:6px;padding-right:6px}
+  .ms-page .operation-timeline.stages-2{grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr)}
+  .ms-page .operation-timeline .operation-stage b{font-size:10px}.ms-page .operation-timeline .operation-stage small{font-size:9px}
+}

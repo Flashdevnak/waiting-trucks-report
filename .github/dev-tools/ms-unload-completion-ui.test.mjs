@@ -61,8 +61,29 @@ test("destination, origin and drop use separate operation renderers", () => {
   assert.match(front, /function renderDropOperation\(row\)/);
   assert.match(front, /if \(isDestination\(row\)\) return unloadCompletionCard\(row\)/);
   assert.match(front, /if \(isDrop\(row\)\) return renderDropOperation\(row\)/);
+  assert.match(front, /operationTimeline\(stages, activeIndex\)/);
+  assert.match(front, /ถึงปลายทางแล้ว · รอเริ่มลงรถ/);
+  assert.match(front, /กำลังลงพัสดุ/);
+  assert.match(front, /โหลดพัสดุลงรถเสร็จสิ้น/);
+  assert.match(front, /กำลังโหลดพัสดุขึ้นรถ/);
   assert.match(front, /โหลดพัสดุขึ้นรถแล้ว · รอปล่อยรถ/);
-  assert.match(front, /ถึงจุดดรอปแล้ว/);
+  assert.match(front, /ออกจาก HUB แล้ว/);
+  assert.match(front, /ถึงจุดดรอปแล้ว · รอเริ่มดำเนินการ/);
+  assert.match(front, /กำลังดำเนินการที่จุดดรอป/);
+  assert.match(front, /ออกต่อจากจุดดรอปแล้ว/);
+  assert.match(front, /stages-\$\{stages\.length\}/);
+});
+
+test("operation labels stay within their destination, origin and drop renderers", () => {
+  const destination = front.split("function unloadCompletionCard(row)")[1].split("function renderOriginOperation(row)")[0];
+  const origin = front.split("function renderOriginOperation(row)")[1].split("function renderDropOperation(row)")[0];
+  const drop = front.split("function renderDropOperation(row)")[1].split("function renderOperation(row)")[0];
+  assert.doesNotMatch(destination, /โหลดพัสดุขึ้นรถ|รอปล่อยรถ|ออกจาก HUB|จุดดรอป|ออกต่อ/);
+  assert.doesNotMatch(origin, /ลงพัสดุ|ลงรถ|ปลายทาง|จุดดรอป/);
+  assert.doesNotMatch(drop, /ลงรถ|ลงพัสดุ|โหลดพัสดุขึ้นรถ|รอปล่อยรถ|ออกจาก HUB/);
+  assert.match(destination, /มาถึง[\s\S]*รอเริ่มลง/);
+  assert.match(origin, /เริ่มโหลด[\s\S]*กำลังโหลดขึ้นรถ/);
+  assert.match(drop, /ถึงจุดดรอป[\s\S]*เริ่มดำเนินการ[\s\S]*ออกต่อ/);
 });
 
 test("responsive completion UI adds no network, polling or horizontal overflow", () => {
@@ -84,6 +105,21 @@ test("visual acceptance V3 is premium, scoped, and does not touch frozen upper m
   assert.match(visual, /destination-operation\.is-over/);
   assert.match(visual, /origin-operation/);
   assert.match(visual, /drop-operation/);
+  assert.doesNotMatch(visual, /\.metric-card|\.ms-metrics|data-metric/);
+  assert.doesNotMatch(visual, /fetch\(|apiGet\(|apiPost\(|setInterval\(/);
+});
+
+test("operation presentation V4 is centered, responsive and group-specific", () => {
+  const visual = style.split("MS_OPERATION_PRESENTATION_V4")[1];
+  assert.ok(visual, "operation presentation marker missing");
+  assert.match(visual, /operation-timeline\.stages-2/);
+  assert.match(visual, /operation-timeline\.stages-3/);
+  assert.match(visual, /place-items:center/);
+  assert.match(visual, /destination-operation/);
+  assert.match(visual, /origin-operation\.is-wait-release/);
+  assert.match(visual, /drop-operation\.is-released/);
+  assert.match(visual, /@media\(max-width:900px\)/);
+  assert.match(visual, /@media\(max-width:430px\)/);
   assert.doesNotMatch(visual, /\.metric-card|\.ms-metrics|data-metric/);
   assert.doesNotMatch(visual, /fetch\(|apiGet\(|apiPost\(|setInterval\(/);
 });

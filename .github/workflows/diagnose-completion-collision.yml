@@ -1,0 +1,80 @@
+name: Diagnose Completion Collision
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-completion-collision.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Read-only EA2 completion collision diagnosis
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!platform) throw new Error('Turso platform token missing');
+            const headers={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=read-only`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json();
+            const dbToken=tokenJson.jwt;
+            if(!tokenRes.ok||!dbToken) throw new Error(`Turso read-only token HTTP ${tokenRes.status}`);
+            console.log(`::add-mask::${dbToken}`);
+            async function query(sql,args=[]){
+              const response=await fetch(`https://${hostname}/v2/pipeline`,{
+                method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql,args:args.map(v=>({type:'text',value:String(v)}))}},{type:'close'}]}),
+              });
+              const payload=await response.json();
+              const item=payload?.results?.[0];
+              if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+              return item?.response?.result;
+            }
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const rows=r=>(r?.rows||[]).map(row=>row.map(decode));
+            const collisions=rows(await query(`
+              SELECT unloading_completed_at,COUNT(*) AS route_count,
+                     MIN(actual_arrival_at),MAX(actual_arrival_at)
+              FROM ms_routes
+              WHERE hub=? AND unloading_state=2 AND COALESCE(unloading_completed_at,'')<>''
+              GROUP BY unloading_completed_at
+              HAVING COUNT(*)>=3
+              ORDER BY route_count DESC
+              LIMIT 20`,['EA2']));
+            console.log('EA2_COLLISION_GROUPS='+collisions.length);
+            for(const row of collisions) console.log(`COLLISION completion=${row[0]} count=${row[1]} arrival_min=${row[2]||'-'} arrival_max=${row[3]||'-'}`);
+            const thirteen=rows(await query(`
+              SELECT COUNT(*) AS route_count,
+                     COUNT(DISTINCT actual_arrival_at) AS distinct_arrivals,
+                     MIN(actual_arrival_at),MAX(actual_arrival_at)
+              FROM ms_routes
+              WHERE hub=? AND unloading_state=2
+                AND COALESCE(unloading_completed_at,'')<>''
+                AND strftime('%Y-%m-%d %H:%M',unloading_completed_at,'+7 hours')='2026-09-08 13:29'`,['EA2']));
+            console.log('EA2_1329='+JSON.stringify(thirteen[0]||[]));
+            const hist=rows(await query(`
+              SELECT COUNT(DISTINCT route_id),MIN(snapshot_at),MAX(snapshot_at),
+                     COUNT(DISTINCT COALESCE(event_type,'')),COUNT(DISTINCT COALESCE(synced_by,''))
+              FROM ms_route_history
+              WHERE hub=? AND json_valid(payload_json)=1
+                AND strftime('%Y-%m-%d %H:%M',json_extract(payload_json,'$.unloadingCompletedAt'),'+7 hours')='2026-09-08 13:29'`,['EA2']));
+            console.log('EA2_1329_HISTORY='+JSON.stringify(hist[0]||[]));
+            console.log('READ_ONLY=TRUE');
+            console.log('MS_UPSTREAM_CALLS=0');
+            console.log('DB_WRITES=0');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

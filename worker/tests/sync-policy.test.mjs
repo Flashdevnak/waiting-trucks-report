@@ -70,15 +70,20 @@ test("invalid observation timestamp is never stored as completion truth", () => 
 
 test("DEV staging permanently wires completion truth, one-time repair and cache migration", async () => {
   const patch = await readFile(new URL("../../.github/dev-tools/patch-ms-daily-completion-observation.mjs", import.meta.url), "utf8");
+  const quotaPatch = await readFile(new URL("../../.github/dev-tools/patch-ms-quota-safe-live.mjs", import.meta.url), "utf8");
   assert.match(patch, /MS_COMPLETION_TIME_TRUTH_V2/);
   assert.match(patch, /MS_COMPLETION_TIME_TRUTH_UI_V2/);
   assert.match(patch, /unloadingCompletedAt = resolveUnloadingCompletedAt\(old, unloadingState, now\)/);
   assert.match(patch, /MS_LIVE_CACHE_VERSION/);
   assert.match(patch, /ensureMsCompletionRepair/);
   assert.match(patch, /verifiedCompletionRouteIds/);
+  assert.match(patch, /NOT EXISTS/);
   assert.match(patch, /Number\(row\.unloadingState\) === 2 \? null : new Date\(\)/);
-  assert.match(patch, /daily history never exports fabricated completion timestamp/);
   assert.match(patch, /archive never exposes fabricated completion timestamp/);
+  assert.match(quotaPatch, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);
+  assert.match(quotaPatch, /daily history never exports fabricated completion timestamp/);
+  assert.match(quotaPatch, /startsWith\("completion-v2:"\)/);
+  assert.match(quotaPatch, /sourceHash: String\(row\.source_hash \|\| ""\)/);
 });
 
 test("parcel and bus enrichment changes are business changes", () => {

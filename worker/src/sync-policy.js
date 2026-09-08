@@ -13,6 +13,35 @@ export const MS_SOURCE_KEYS = MS_SNAPSHOT_KEYS.filter(
   (key) => !["id", "hub", "unloadingCompletedAt"].includes(key),
 );
 
+function previousUnloadingState(row) {
+  const value = row?.unloading_state ?? row?.unloadingState;
+  if (value === "" || value === null || value === undefined) return null;
+  const state = Number(value);
+  return Number.isFinite(state) ? state : null;
+}
+
+function previousCompletionAt(row) {
+  return row?.unloading_completed_at ?? row?.unloadingCompletedAt ?? "";
+}
+
+export function isObservedUnloadingTransition(previousRow, nextState) {
+  const next = Number(nextState);
+  const previous = previousUnloadingState(previousRow);
+  return next === 2 && (previous === 0 || previous === 1);
+}
+
+export function resolveUnloadingCompletedAt(previousRow, nextState, observedAt) {
+  const next = Number(nextState);
+  if (next !== 2) return "";
+
+  const prior = String(previousCompletionAt(previousRow) || "");
+  if (Number.isFinite(Date.parse(prior))) return prior;
+
+  if (!isObservedUnloadingTransition(previousRow, next)) return "";
+  const observed = String(observedAt || "");
+  return Number.isFinite(Date.parse(observed)) ? observed : "";
+}
+
 export function canonicalMsSource(rows) {
   return (Array.isArray(rows) ? rows : [])
     .map((row) =>

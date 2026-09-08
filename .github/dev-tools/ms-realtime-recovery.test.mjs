@@ -99,8 +99,8 @@ test("failed optional enrichment preserves last-known fields instead of churning
 
   assert.match(
     refresh,
-    /const sourceHash = await sha\(canonicalMsSource\(mappedRows\)\)/,
-    "source hash must be computed only after last-known enrichment is restored",
+    /const sourceHash = MS_LIVE_CACHE_VERSION \+ ":" \+ await sha\(canonicalMsSource\(mappedRows\)\)/,
+    "versioned source hash must be computed only after last-known enrichment is restored",
   );
 });
 

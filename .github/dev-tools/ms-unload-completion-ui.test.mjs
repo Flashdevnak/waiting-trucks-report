@@ -73,6 +73,21 @@ test("responsive completion UI adds no network, polling or horizontal overflow",
   assert.doesNotMatch(front, /function renderOperation[\s\S]{0,400}(fetch|apiGet|apiPost|setInterval)\(/);
 });
 
+test("visual acceptance V3 is premium, scoped, and does not touch frozen upper metrics", () => {
+  const visual = style.split("MS_LOWER_VISUAL_ACCEPTANCE_V3")[1];
+  assert.ok(visual, "visual acceptance marker missing");
+  assert.match(visual, /#filter-summary button/);
+  assert.match(visual, /border-radius:12px/);
+  assert.match(visual, /linear-gradient/);
+  assert.match(visual, /schedule-stack\.single/);
+  assert.match(visual, /operation-timeline/);
+  assert.match(visual, /destination-operation\.is-over/);
+  assert.match(visual, /origin-operation/);
+  assert.match(visual, /drop-operation/);
+  assert.doesNotMatch(visual, /\.metric-card|\.ms-metrics|data-metric/);
+  assert.doesNotMatch(visual, /fetch\(|apiGet\(|apiPost\(|setInterval\(/);
+});
+
 test("Schedule S piggybacks on the existing BusTime response and coordinator", () => {
   assert.match(worker, /parseScheduleUnloadingStart\(item\.fleet_unloading_time\)/);
   assert.match(worker, /readBusTimeData\(env, branch\)/);

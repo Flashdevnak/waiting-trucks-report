@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   canonicalMsSource,
+  isObservedUnloadingTransition,
   planMsChanges,
+  resolveUnloadingCompletedAt,
   sameMsSnapshot,
   shouldWriteError,
   shouldWriteSuccessHeartbeat,
@@ -30,6 +33,53 @@ test("status and unloading transitions change once", () => {
   assert.deepEqual(planMsChanges([changed], [{ ...changed }]).changedIds, []);
 });
 
+test("first-seen completed route never fabricates unloading completion time", () => {
+  const now = "2026-09-08T06:29:00.000Z";
+  assert.equal(isObservedUnloadingTransition(null, 2), false);
+  assert.equal(resolveUnloadingCompletedAt(null, 2, now), "");
+  assert.equal(resolveUnloadingCompletedAt({}, 2, now), "");
+  assert.equal(resolveUnloadingCompletedAt({ unloading_state: null }, 2, now), "");
+});
+
+test("only a known live 0 or 1 to 2 transition records completion time", () => {
+  const now = "2026-09-08T06:29:04.000Z";
+  for (const previous of [0, 1]) {
+    assert.equal(isObservedUnloadingTransition({ unloading_state: previous }, 2), true);
+    assert.equal(resolveUnloadingCompletedAt({ unloading_state: previous }, 2, now), now);
+  }
+  assert.equal(isObservedUnloadingTransition({ unloading_state: 2 }, 2), false);
+  assert.equal(isObservedUnloadingTransition({ unloading_state: 3 }, 2), false);
+});
+
+test("verified completion time freezes until unloading state leaves completed", () => {
+  const prior = "2026-09-08T06:29:04.000Z";
+  assert.equal(
+    resolveUnloadingCompletedAt({ unloading_state: 2, unloading_completed_at: prior }, 2, "2026-09-08T10:00:00.000Z"),
+    prior,
+  );
+  assert.equal(
+    resolveUnloadingCompletedAt({ unloadingState: 2, unloadingCompletedAt: prior }, 2, "2026-09-08T10:00:00.000Z"),
+    prior,
+  );
+  assert.equal(resolveUnloadingCompletedAt({ unloading_state: 2, unloading_completed_at: prior }, 1, "2026-09-08T10:00:00.000Z"), "");
+});
+
+test("invalid observation timestamp is never stored as completion truth", () => {
+  assert.equal(resolveUnloadingCompletedAt({ unloading_state: 1 }, 2, "not-a-date"), "");
+});
+
+test("DEV staging permanently wires completion truth, one-time repair and cache migration", async () => {
+  const patch = await readFile(new URL("../../.github/dev-tools/patch-ms-daily-completion-observation.mjs", import.meta.url), "utf8");
+  assert.match(patch, /MS_COMPLETION_TIME_TRUTH_V2/);
+  assert.match(patch, /resolveUnloadingCompletedAt/);
+  assert.match(patch, /isObservedUnloadingTransition/);
+  assert.match(patch, /MS_LIVE_CACHE_VERSION/);
+  assert.match(patch, /ensureMsCompletionRepair/);
+  assert.match(patch, /verifiedCompletionRouteIds/);
+  assert.match(patch, /unloadingState\) === 2 && !parseDate\(row\.unloadingCompletedAt\)/);
+  assert.doesNotMatch(patch, /unloadingCompletedAt =\s*unloadingState === 2[\s\S]{0,180}: now/);
+});
+
 test("parcel and bus enrichment changes are business changes", () => {
   assert.equal(sameMsSnapshot(base, { ...base, pendingParcels: 4 }), false);
   assert.equal(sameMsSnapshot(base, { ...base, scheduleKitArrivalAt: "2026-09-01T01:05:00.000Z" }), false);
@@ -52,7 +102,6 @@ test("same error does not write repeatedly", () => {
   assert.equal(shouldWriteError("", "session expired"), true);
   assert.equal(shouldWriteError("session expired", ""), true);
 });
-
 
 test("canonical live source ignores row order and derived completion metadata", () => {
   const other = { ...base, id: "r2", proofId: "P2", routeName: "FD-NE1" };

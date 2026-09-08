@@ -1,3 +1,4 @@
+// V3_DEPLOY_TRIGGER_20260908: direct owner push so normal deployment workflows execute.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";

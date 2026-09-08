@@ -103,7 +103,10 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     const runtimeEnv = databaseEnv(env);
-    ctx.waitUntil(runProofScheduled(runtimeEnv));
+    ctx.waitUntil(Promise.all([
+      runProofScheduled(runtimeEnv),
+      workerModule.runMsScheduledRefresh(runtimeEnv),
+    ]));
   },
 };
 

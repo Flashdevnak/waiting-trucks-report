@@ -16,6 +16,7 @@ import {
 
 const root = new URL("../../", import.meta.url);
 const workerSource = await readFile(new URL("worker/src/index.js", root), "utf8");
+const tursoIndexSource = await readFile(new URL("worker/src/turso-index.js", root), "utf8");
 const msFrontendSource = await readFile(new URL("ms.js", root), "utf8");
 const config = JSON.parse(
   await readFile(new URL("worker/wrangler.dev.jsonc", root), "utf8"),
@@ -67,6 +68,27 @@ test("DEV deployment stages and validates coordinator before deploy", () => {
   assert.match(stage, /patchDevDurableCoordinator/);
   assert.match(stage, /output = patchDevDurableCoordinator\(output\)/);
   assert.match(workflow, /node --check src\/index\.js/);
+});
+
+test("existing one-minute cron keeps main MS routes alive after every browser closes", () => {
+  assert.deepEqual(config.triggers?.crons, ["* * * * *"]);
+  for (const marker of [
+    "MS_CRON_LIVE_REFRESH_V1",
+    "export async function runMsScheduledRefresh",
+    "SELECT hub FROM ms_connections ORDER BY hub",
+    'url.searchParams.set("cron", "1")',
+    "MS_CRON_ACTIVE_SKIP_MS = 45 * 1000",
+    "nowMs - this.lastSourceAt < MS_CRON_ACTIVE_SKIP_MS",
+    "this.lastSourceAt = Date.now()",
+  ]) assert.ok(worker.includes(marker), `staged cron worker missing ${marker}`);
+  assert.match(tursoIndexSource, /runProofScheduled\(runtimeEnv\)/);
+  assert.match(tursoIndexSource, /workerModule\.runMsScheduledRefresh\(runtimeEnv\)/);
+  const start = worker.indexOf("MS_CRON_LIVE_REFRESH_V1");
+  const end = worker.indexOf("async function runMsRefresh", start);
+  const cronBlock = worker.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.doesNotMatch(cronBlock, /INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM/i);
+  assert.doesNotMatch(cronBlock, /setInterval\s*\(/);
 });
 
 test("five-source HAR setup stacks every source on its own row across devices without extra polling", () => {

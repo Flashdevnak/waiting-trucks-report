@@ -42,7 +42,7 @@ test("quota optimization preserves cancellation and truth-only completion histor
   assert.match(sync, /snapshot\.queueCancelledAt = cancellation\.cancelled_at/);
   assert.match(sync, /INSERT INTO ms_route_history VALUES/);
   assert.match(sync, /completionObservedLive/);
-  assert.match(sync, /resolveUnloadingCompletedAt\(old, unloadingState, now\)/);
+  assert.match(sync, /completionTruth = resolveCompletionTruth/);
   assert.match(sync, /if \(!old\)\s*statements\.push\(\s*env\.DB\.prepare\(\s*"INSERT OR IGNORE INTO ms_route_registry/);
   assert.match(sync, /SELECT \* FROM ms_routes WHERE hub=\?/);
   assert.match(staged, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);

@@ -6,6 +6,7 @@ import {
   isObservedUnloadingTransition,
   planMsChanges,
   resolveUnloadingCompletedAt,
+  resolveCompletionTruth,
   sameMsSnapshot,
   shouldWriteError,
   shouldWriteSuccessHeartbeat,
@@ -68,12 +69,26 @@ test("invalid observation timestamp is never stored as completion truth", () => 
   assert.equal(resolveUnloadingCompletedAt({ unloading_state: 1 }, 2, "not-a-date"), "");
 });
 
+test("Schedule E is timestamp authority only after Route reports completed", () => {
+  const e = "2026-09-08T15:16:26.000Z";
+  assert.deepEqual(resolveCompletionTruth({ unloading_state: 1 }, 1, e, "later"), { at: "", source: "UNKNOWN" });
+  assert.deepEqual(resolveCompletionTruth({ unloading_state: 1 }, 2, e, "2026-09-08T15:17:00.000Z"), { at: e, source: "SCHEDULE" });
+});
+
+test("Schedule truth upgrades observed fallback and then remains stable", () => {
+  const observed = "2026-09-08T15:17:00.000Z";
+  const e = "2026-09-08T15:16:26.000Z";
+  assert.deepEqual(resolveCompletionTruth({ unloading_state: 1 }, 2, "", observed), { at: observed, source: "OBSERVED_ROUTE_TRANSITION" });
+  assert.deepEqual(resolveCompletionTruth({ unloading_state: 2, unloading_completed_at: observed }, 2, e, "later"), { at: e, source: "SCHEDULE" });
+  assert.deepEqual(resolveCompletionTruth({ unloading_state: 2, unloading_completed_at: e, completionSource: "SCHEDULE" }, 2, e, "later"), { at: e, source: "SCHEDULE" });
+});
+
 test("DEV staging permanently wires completion truth, repair, archive and daily-history sanitizers", async () => {
   const patch = await readFile(new URL("../../.github/dev-tools/patch-ms-daily-completion-observation.mjs", import.meta.url), "utf8");
   const quotaPatch = await readFile(new URL("../../.github/dev-tools/patch-ms-quota-safe-live.mjs", import.meta.url), "utf8");
   assert.match(patch, /MS_COMPLETION_TIME_TRUTH_V2/);
   assert.match(patch, /MS_COMPLETION_TIME_TRUTH_UI_V2/);
-  assert.match(patch, /unloadingCompletedAt = resolveUnloadingCompletedAt\(old, unloadingState, now\)/);
+  assert.match(patch, /completionTruth = resolveCompletionTruth/);
   assert.match(patch, /MS_LIVE_CACHE_VERSION/);
   assert.match(patch, /ensureMsCompletionRepair/);
   assert.match(patch, /verifiedCompletionRouteIds/);

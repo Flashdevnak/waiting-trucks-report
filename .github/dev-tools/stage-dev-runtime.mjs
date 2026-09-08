@@ -38,6 +38,7 @@ import {
   patchMsDailyCompletionObservationWorker,
 } from "./patch-ms-daily-completion-observation.mjs";
 import { patchMsCompletionBurstWorker } from "./patch-ms-completion-burst-v3.mjs";
+import { patchMsScheduleCompletionV4 } from "./patch-ms-schedule-completion-v4.mjs";
 import { patchMsCompletedViewStabilityFrontend } from "./patch-ms-completed-view-stability.mjs";
 import { patchMsLiveResilienceFrontend } from "./patch-ms-live-resilience.mjs";
 import {
@@ -409,6 +410,7 @@ export function stageWorker(source) {
   output = patchMsDailyHistoryWorker(output);
   output = patchMsQuotaSafeLiveWorker(output);
   output = patchMsCompletionBurstWorker(output);
+  output = patchMsScheduleCompletionV4(output);
   output = patchMsTbrShadowFeedWorker(output);
   output = patchDevRootEntryWorker(output);
   return output;

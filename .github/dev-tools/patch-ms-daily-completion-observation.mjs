@@ -61,7 +61,7 @@ export function patchMsDailyCompletionObservationWorker(source) {
   output = replaceUnique(
     output,
     `import { canonicalMsSource, planMsChanges } from "./sync-policy.js";`,
-    `import { canonicalMsSource, planMsChanges, resolveUnloadingCompletedAt } from "./sync-policy.js";`,
+    `import { canonicalMsSource, planMsChanges, resolveCompletionTruth } from "./sync-policy.js";`,
     "wire completion truth resolver",
   );
 
@@ -75,8 +75,24 @@ export function patchMsDailyCompletionObservationWorker(source) {
   output = replaceUnique(
     output,
     `      priorCompletedAt = old?.unloading_completed_at,\n      unloadingCompletedAt =\n        unloadingState === 2\n          ? Number.isFinite(Date.parse(priorCompletedAt || ""))\n            ? priorCompletedAt\n            : now\n          : "";`,
-    `      unloadingCompletedAt = resolveUnloadingCompletedAt(old, unloadingState, now);`,
+    `      completionTruth = resolveCompletionTruth(
+        old,
+        unloadingState,
+        r.scheduleUnloadingCompletedAt,
+        now,
+      ),
+      unloadingCompletedAt = completionTruth.at;`,
     "never stamp FIRST_SEEN state 2 with worker now",
+  );
+
+  output = replaceUnique(
+    output,
+    `      unloadingCompletedAt: values[21],\n      sourceUpdatedAt: values[22],`,
+    `      unloadingCompletedAt: values[21],
+      completionSource: completionTruth.source,
+      scheduleUnloadingCompletedAt: date(r.scheduleUnloadingCompletedAt),
+      sourceUpdatedAt: values[22],`,
+    "persist completion provenance in snapshots and live cache",
   );
 
   output = replaceUnique(

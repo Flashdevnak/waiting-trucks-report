@@ -116,7 +116,7 @@ test("live Route window includes tomorrow so midnight does not hide arrived cros
 test("daily completed only counts an observed 0\/1 to 2 transition and daily views roll at Bangkok midnight", () => {
   const first = stageFrontend(frontendSource);
   const worker = stageWorker(workerSource);
-  assert.match(worker, /resolveUnloadingCompletedAt\(old, unloadingState, now\)/);
+  assert.match(worker, /completionTruth = resolveCompletionTruth/);
   assert.match(worker, /completionObservedLive:\s*Boolean\(item\.snapshot\?\.unloadingCompletedAt\)/);
   assert.match(worker, /row\?\.completionObservedLive === true/);
   assert.match(worker, /item\.action !== "FIRST_SEEN" && item\.synced_by !== "MS_RANGE"/);

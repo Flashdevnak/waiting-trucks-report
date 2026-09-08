@@ -1226,12 +1226,13 @@ export function enrichMsRow(mapped, parcelCounts, busData) {
   // Cross-source matching is deliberately barcode-only. Never use plate,
   // driver or route name because regular vehicles repeat those values daily.
   const parcels = findEnrichment(parcelCounts, mapped);
-  const bus = findEnrichment(busData, mapped);
+  const bus = findBusEnrichment(busData, mapped);
   if (bus) {
     mapped.scheduleKitArrivalAt = bus.scheduleKitArrivalAt;
     mapped.scheduleTbrArrivalAt = bus.scheduleTbrArrivalAt;
     mapped.arrivedParcels = bus.arrivedParcels;
     mapped.arrivedBags = bus.arrivedBags;
+    mapped.scheduleUnloadingCompletedAt = bus.scheduleUnloadingCompletedAt || "";
   }
   if (mapped.attendanceType === "ปลายทาง" && parcels) Object.assign(mapped, parcels);
   return mapped;
@@ -1423,6 +1424,28 @@ function findEnrichment(map, row) {
   const proofId = normalizeProofId(row.proofId);
   return proofId ? map.get(`P:${proofId}`) : undefined;
 }
+function findBusEnrichment(map, row) {
+  const proofId = normalizeProofId(row.proofId);
+  if (!proofId) return undefined;
+  const attendance = normalizeMsAttendance(row.attendanceType);
+  return map.get(`P:${proofId}|A:${attendance}`) || map.get(`P:${proofId}`);
+}
+
+export function parseScheduleUnloadingEnd(field) {
+  if (!Array.isArray(field)) return "";
+  const raw = String(field[1]?.value || "").trim();
+  const match = raw.match(/^E:\s*(.+)$/i);
+  if (!match || !match[1] || match[1] === "-") return "";
+  return msDate(match[1].trim());
+}
+
+export function scheduleStoreMatchesHub(storeValue, hub) {
+  const store = String(storeValue || "").toUpperCase();
+  const branch = String(hub || "").trim().toUpperCase();
+  if (!store || !branch) return false;
+  const escaped = branch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`).test(store);
+}
 function numberOrNull(value) {
   return value === "" || value === null || value === undefined || !Number.isFinite(Number(value))
     ? null : Number(value);
@@ -1471,15 +1494,21 @@ async function readBusTimeData(env, hub, wantedDays = liveSourceDays()) {
     );
     const result = new Map();
     for (const item of rows) {
-      const targetStore = String(nestedValue(item.next_store_info, 0) || "").toUpperCase();
-      if (targetStore && !targetStore.includes(String(hub).toUpperCase())) continue;
+      const targetStore = String(nestedValue(item.next_store_info, 0) || "");
+      if (!scheduleStoreMatchesHub(targetStore, hub)) continue;
       const proofId = nestedValue(item.proof_id, 0);
       const key = normalizeProofId(proofId);
       const routeName = nestedValue(item.line_info, 0);
       if (!key) continue;
+      const attendance = normalizeMsAttendance(nestedValue(item.next_store_info, 1));
+      if (!attendance) continue;
       const kit = msDate(nestedValue(item.kit_arrive_time, 0));
       const tbr = msDate(nestedValue(item.fleet_sign_info, 0));
-      const current = result.get(`P:${key}`) || {};
+      const mapKey = `P:${key}|A:${attendance}`;
+      const current = result.get(mapKey) || {};
+      const unloadingEnd = parseScheduleUnloadingEnd(item.fleet_unloading_time);
+      const conflictingEnd = Boolean(current.scheduleUnloadingCompletedAt) &&
+        Boolean(unloadingEnd) && current.scheduleUnloadingCompletedAt !== unloadingEnd;
       const candidate = {
         proofId: text(proofId, 100),
         routeName: text(routeName, 300),
@@ -1487,8 +1516,14 @@ async function readBusTimeData(env, hub, wantedDays = liveSourceDays()) {
         scheduleTbrArrivalAt: earliestDate(current.scheduleTbrArrivalAt, tbr),
         arrivedParcels: Math.max(Number(current.arrivedParcels) || 0, Number(nestedValue(item.parcel_count, 0)) || 0),
         arrivedBags: Math.max(Number(current.arrivedBags) || 0, Number(nestedValue(item.pack_count, 0)) || 0),
+        scheduleUnloadingCompletedAt:
+          current.scheduleCompletionAmbiguous || conflictingEnd
+            ? ""
+            : unloadingEnd || current.scheduleUnloadingCompletedAt || "",
+        scheduleCompletionAmbiguous:
+          Boolean(current.scheduleCompletionAmbiguous) || conflictingEnd,
       };
-      setEnrichmentAliases(result, candidate, proofId);
+      result.set(mapKey, candidate);
     }
     return result;
   } catch (error) {

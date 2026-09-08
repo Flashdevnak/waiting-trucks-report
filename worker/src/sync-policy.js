@@ -6,7 +6,7 @@ export const MS_SNAPSHOT_KEYS = [
   "loadStatus", "unloadingState", "unloadingCompletedAt", "sourceUpdatedAt",
   "expectedParcels", "enteredParcels", "pendingParcels",
   "scheduleKitArrivalAt", "scheduleTbrArrivalAt", "arrivedParcels",
-  "arrivedBags",
+  "arrivedBags", "scheduleUnloadingCompletedAt", "completionSource",
 ];
 
 export const MS_SOURCE_KEYS = MS_SNAPSHOT_KEYS.filter(
@@ -40,6 +40,23 @@ export function resolveUnloadingCompletedAt(previousRow, nextState, observedAt) 
   if (!isObservedUnloadingTransition(previousRow, next)) return "";
   const observed = String(observedAt || "");
   return Number.isFinite(Date.parse(observed)) ? observed : "";
+}
+
+export function resolveCompletionTruth(previousRow, nextState, scheduleAt, observedAt) {
+  if (Number(nextState) !== 2) return { at: "", source: "UNKNOWN" };
+  const schedule = String(scheduleAt || "");
+  if (Number.isFinite(Date.parse(schedule)))
+    return { at: schedule, source: "SCHEDULE" };
+  const prior = String(previousCompletionAt(previousRow) || "");
+  if (Number.isFinite(Date.parse(prior)))
+    return {
+      at: prior,
+      source: String(previousRow?.completionSource || "OBSERVED_ROUTE_TRANSITION"),
+    };
+  const observed = resolveUnloadingCompletedAt(previousRow, nextState, observedAt);
+  return observed
+    ? { at: observed, source: "OBSERVED_ROUTE_TRANSITION" }
+    : { at: "", source: "UNKNOWN" };
 }
 
 export function canonicalMsSource(rows) {

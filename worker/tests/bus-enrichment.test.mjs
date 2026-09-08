@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { enrichMsRow, msDate } from "../src/index.js";
+import { enrichMsRow, msDate, parseScheduleUnloadingEnd, scheduleStoreMatchesHub } from "../src/index.js";
 
 test("MS/FBI naive datetime is interpreted as Asia/Bangkok", () => {
   assert.equal(msDate("2026-09-02 03:00:29"), "2026-09-01T20:00:29.000Z");
@@ -59,4 +59,21 @@ test("KIT/TBR enrichment does not cross-match another round barcode", () => {
 
   assert.equal(enriched.actualArrivalAt, "2026-09-02T02:10:00.000Z");
   assert.equal(enriched.scheduleTbrArrivalAt, undefined);
+});
+
+test("Schedule unloading E parses Bangkok wall-clock once", () => {
+  assert.equal(parseScheduleUnloadingEnd([{ value: "S:2026-09-08 22:03:57" }, { value: "E:2026-09-08 22:16:26" }]), "2026-09-08T15:16:26.000Z");
+  for (const value of [null, [], [{ value: "-" }, { value: "-" }], [{}, { value: "malformed" }]])
+    assert.equal(parseScheduleUnloadingEnd(value), "");
+});
+
+test("Schedule HUB matching uses a full token, not substring matching", () => {
+  assert.equal(scheduleStoreMatchesHub("02 NE1_HUB-นครราชสีมา", "NE1"), true);
+  assert.equal(scheduleStoreMatchesHub("02 NE10_HUB-test", "NE1"), false);
+});
+
+test("completion enrichment requires the same barcode and attendance role", () => {
+  const busData = new Map([["P:P1|A:ปลายทาง", { scheduleUnloadingCompletedAt: "2026-09-08T15:16:26.000Z" }]]);
+  assert.equal(enrichMsRow({ proofId: "P1", attendanceType: "ปลายทาง" }, new Map(), busData).scheduleUnloadingCompletedAt, "2026-09-08T15:16:26.000Z");
+  assert.equal(enrichMsRow({ proofId: "P1", attendanceType: "ต้นทาง" }, new Map(), busData).scheduleUnloadingCompletedAt, undefined);
 });

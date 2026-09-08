@@ -4033,6 +4033,69 @@ tbody tr.is-unloading:hover {
   .ms-page .operation-timeline .operation-stage b{font-size:10px}.ms-page .operation-timeline .operation-stage small{font-size:9px}
 }
 
+/* MS_STRICT_IMAGE1_VISUAL_V6: preserve a landscape operation story or switch
+   to the intentional card layout; never squeeze it into a narrow table cell. */
+@media (min-width:1025px){
+  .ms-page .table-panel{overflow:hidden;border-color:#dfe5e7;background:#fff;box-shadow:0 8px 26px #17324a0c}
+  .ms-page .table-scroll{overflow-x:visible}
+  .ms-page .ms-table{width:100%;min-width:0;table-layout:fixed}
+  .ms-page .ms-table col.col-route{width:17%}
+  .ms-page .ms-table col.col-meta{width:10%}
+  .ms-page .ms-table col.col-work{width:8%}
+  .ms-page .ms-table col.col-schedule{width:34%}
+  .ms-page .ms-table col.col-status{width:22%}
+  .ms-page .ms-table col.col-company{width:9%}
+  .ms-page .ms-table th:nth-child(1),
+  .ms-page .ms-table th:nth-child(2),
+  .ms-page .ms-table th:nth-child(3),
+  .ms-page .ms-table th:nth-child(4),
+  .ms-page .ms-table th:nth-child(5),
+  .ms-page .ms-table th:nth-child(6){width:auto!important}
+  .ms-page .ms-table thead th{padding:15px 12px;background:#172333;color:#fff;font-size:13px;line-height:1.35}
+  .ms-page .ms-table tbody td{padding:18px 12px;overflow-wrap:normal;word-break:normal}
+  .ms-page .work-summary{min-width:0;padding:0}
+  .ms-page .lower-operation{min-width:0}
+  .ms-page .operation-timeline .operation-stage b,
+  .ms-page .operation-timeline .operation-stage small{overflow-wrap:normal;word-break:normal}
+}
+
+@media (max-width:1024px){
+  .ms-page #desktop-table{display:none!important}
+  .ms-page #mobile-cards:not(.hidden){display:grid}
+  .ms-page .mobile-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  .ms-page .compact-card{min-width:0}
+  .ms-page .compact-card>.lower-operation{width:calc(100% - 28px);margin:0 14px 14px}
+  .ms-page .operation-timeline,
+  .ms-page .operation-timeline.stages-2,
+  .ms-page .operation-timeline.stages-3{grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr) 28px minmax(0,1fr)}
+  .ms-page .operation-timeline.stages-2 .operation-stage:first-child{grid-column:1}
+  .ms-page .operation-timeline.stages-2 i{grid-column:2}
+  .ms-page .operation-timeline.stages-2 .operation-stage:last-child{grid-column:3}
+  .ms-page .operation-timeline i{width:auto;height:2px;margin-top:16px;background:linear-gradient(90deg,color-mix(in srgb,var(--op-accent) 30%,#d8ddd9),var(--op-accent))}
+  .ms-page .operation-timeline i:before{left:-2px;top:50%;transform:translateY(-50%)}
+  .ms-page .operation-timeline i:after{left:auto;right:-2px;top:50%;bottom:auto;transform:translateY(-50%)}
+}
+
+@media (max-width:700px){
+  .ms-page .mobile-cards{grid-template-columns:1fr;gap:12px}
+}
+
+.ms-page #filter-summary button{background:var(--lower-soft,#f4f6f5);box-shadow:0 4px 13px #17324a0d}
+.ms-page #filter-summary .summary-all{--lower-accent:#4b6478;--lower-soft:#edf3f7}
+.ms-page #filter-summary .summary-wait{--lower-soft:#fff6dc}
+.ms-page #filter-summary .summary-work{--lower-soft:#e9f3fb}
+.ms-page #filter-summary .summary-done{--lower-soft:#eaf7ef}
+.ms-page #filter-summary .summary-origin{--lower-soft:#f0edfb}
+.ms-page #filter-summary .summary-overtime{--lower-soft:#fdecef}
+.ms-page #filter-summary .summary-drop{--lower-soft:#f5edfa}
+.ms-page #filter-summary .summary-cancelled{--lower-soft:#f0f2f1}
+
+.ms-page .schedule-stack.single{border-color:#dce4e8;background:#fff;box-shadow:0 5px 18px #17324a0d}
+.ms-page .schedule-stack.single .schedule-section.arrival{background:linear-gradient(180deg,#edf2f5 0,#fff 60%)}
+.ms-page .schedule-stack.single .arrival-system-row{background:#f6f8f9}
+.ms-page .lower-operation{box-shadow:0 6px 20px #17324a10}
+.ms-page .operation-timeline{min-width:0}
+
 /* MS_PRESENTATION_STATE_CORRECTION_V5: readable, truth-gated operation presentation. */
 .ms-page .ms-table tbody tr,
 .ms-page .ms-table tbody tr.is-unloading,

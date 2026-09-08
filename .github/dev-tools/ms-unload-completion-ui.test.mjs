@@ -163,6 +163,22 @@ test("presentation correction V5 enforces readable type, neutral rows and motion
   assert.doesNotMatch(visual, /\.metric-card|\.ms-metrics|data-metric|setInterval|requestAnimationFrame|fetch\(/);
 });
 
+test("strict image-one V6 keeps operation cards wide and aligns the card breakpoint", () => {
+  const visual = style.split("MS_STRICT_IMAGE1_VISUAL_V6")[1];
+  assert.ok(visual, "strict image-one marker missing");
+  assert.match(front, /matchMedia\("\(max-width: 1024px\)"\)/);
+  assert.match(visual, /@media \(min-width:1025px\)/);
+  assert.match(visual, /col\.col-schedule\{width:34%\}/);
+  assert.match(visual, /col\.col-status\{width:22%\}/);
+  assert.match(visual, /col\.col-company\{width:9%\}/);
+  assert.match(visual, /@media \(max-width:1024px\)/);
+  assert.match(visual, /#desktop-table\{display:none!important\}/);
+  assert.match(visual, /mobile-cards\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(visual, /@media \(max-width:700px\)[\s\S]*mobile-cards\{grid-template-columns:1fr/);
+  assert.match(visual, /operation-timeline\.stages-3\{grid-template-columns:minmax\(0,1fr\) 28px minmax\(0,1fr\) 28px minmax\(0,1fr\)\}/);
+  assert.doesNotMatch(visual, /\.metric-card|\.ms-metrics|data-metric|setInterval|requestAnimationFrame|fetch\(/);
+});
+
 test("operation copy uses title and subtitle rows without decorative middle dots", () => {
   const operations = front.split("function operationHeader(icon, title, subtitle")[1].split("function renderOperation(row)")[0];
   assert.doesNotMatch(operations, / · /);

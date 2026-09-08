@@ -988,7 +988,7 @@ let rowRenderGeneration = 0;
 
 function renderRowsProgressively(rows) {
   const generation = ++rowRenderGeneration;
-  const mobileLayout = window.matchMedia("(max-width: 700px)").matches;
+  const mobileLayout = window.matchMedia("(max-width: 1024px)").matches;
   const tableBody = el("table-body");
   const mobileCards = el("mobile-cards");
   tableBody.innerHTML = "";

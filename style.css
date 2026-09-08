@@ -3796,3 +3796,60 @@ tbody tr.is-unloading:hover {
 @media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}
 @media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}
 @media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
+
+/* MS_LOWER_OPERATION_UI_V2 — deliberately scoped below the frozen upper cards. */
+.ms-page #filter-summary button{position:relative;display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:7px;min-height:70px;padding:10px 12px;text-align:left;border-left:3px solid #b9bec0}
+.ms-page #filter-summary button .operation-icon{width:22px;height:22px;color:#596166}
+.ms-page #filter-summary button span{text-align:center}
+.ms-page #filter-summary button strong{min-width:28px;text-align:center;font-variant-numeric:tabular-nums}
+.ms-page #filter-summary .summary-wait{border-left-color:#e4a51b;background:#fffaf0}
+.ms-page #filter-summary .summary-work{border-left-color:#4e8ac9;background:#f3f8fd}
+.ms-page #filter-summary .summary-done{border-left-color:#42a36e;background:#f1faf5}
+.ms-page #filter-summary .summary-origin{border-left-color:#7267c7;background:#f7f5ff}
+.ms-page #filter-summary .summary-overtime{border-left-color:#d55763!important;background:#fff5f6}
+.ms-page #filter-summary .summary-drop{border-left-color:#9466bd;background:#faf6fd}
+.ms-page #filter-summary .summary-cancelled{border-left-color:#889096;background:#f6f7f7}
+.ms-page #filter-summary button:focus-visible{outline:3px solid #151515;outline-offset:2px}
+.ms-page #filter-summary button.is-active{border-color:#151515;box-shadow:inset 0 -3px 0 #ffd400,0 3px 9px #00000012}
+
+.ms-page .schedule-stack.single .arrival-system-row,.ms-page .compact-schedule .arrival-system-row{margin-top:0;border-top:1px solid #d5d9d5;background:#f8f9f7}
+.ms-page .arrival-system-row>b{display:block;padding:6px 8px;text-align:center;color:#3b423d;font-size:10px}
+.ms-page .arrival-system-row>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.ms-page .arrival-system-row>div span{display:flex;min-width:0;flex-direction:column;gap:2px;padding:7px 4px;border-top:1px solid #e0e3df;text-align:center;color:#68706a;font-size:9px;font-weight:800}
+.ms-page .arrival-system-row>div span+span{border-left:1px solid #e0e3df}
+.ms-page .arrival-system-row strong{color:#171917;font-size:12px;overflow-wrap:anywhere}
+.ms-page .arrival-system-row.is-empty{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px;color:#747b75;font-size:10px}
+.ms-page .arrival-system-row.is-empty>b{padding:0}
+
+.ms-page .lower-operation{width:100%;overflow:hidden;border:1px solid #d1d6d2;border-radius:9px;background:#fff;color:#242824;text-align:center;box-shadow:0 1px 3px #0000000a}
+.ms-page .lower-operation>header{display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 9px;background:#f1f3f1;border-bottom:1px solid #d9ddda;font-size:11px}
+.ms-page .lower-operation .operation-icon{width:18px;height:18px;flex:0 0 auto}
+.ms-page .operation-kpi{display:grid;gap:1px;padding:9px 8px 4px}
+.ms-page .operation-kpi>strong{font-size:22px;line-height:1.1;font-variant-numeric:tabular-nums}
+.ms-page .operation-kpi>span,.ms-page .operation-standard{color:#626a64;font-size:10px;font-weight:700}
+.ms-page .operation-standard{padding-bottom:7px}
+.ms-page .operation-warning{display:flex;align-items:center;justify-content:center;gap:5px;margin:0 8px 8px;padding:5px 7px;border-radius:6px;background:#fff0f1;color:#a42631;font-size:10px;font-weight:900}
+.ms-page .operation-warning .operation-icon{width:14px;height:14px}
+.ms-page .operation-warning.is-ok{background:#edf8f2;color:#176842}
+.ms-page .operation-timeline{display:grid;grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr);align-items:center;padding:7px 8px;border-top:1px solid #e0e3e0;background:#fafbfa}
+.ms-page .operation-timeline span{display:flex;min-width:0;flex-direction:column;color:#697069;font-size:9px;font-weight:700}
+.ms-page .operation-timeline b{color:#202420;font-size:10px;overflow-wrap:anywhere}
+.ms-page .operation-timeline i{height:2px;background:#aeb5af;position:relative}
+.ms-page .operation-timeline i:after{content:"";position:absolute;right:-1px;top:-3px;width:8px;height:8px;border-radius:50%;background:#59615b}
+.ms-page .operation-work-duration{padding:6px 8px;border-top:1px solid #e0e3e0;color:#525a54;font-size:10px}
+.ms-page .operation-work-duration strong{color:#202420}
+.ms-page .destination-operation.is-over{border-color:#e6a5aa}.ms-page .destination-operation.is-over .operation-kpi>strong{color:#b22b35}
+.ms-page .origin-operation>header{background:#f3f1fc;color:#4e458f}.ms-page .drop-operation>header{background:#f8f1fc;color:#704092}
+
+@media(max-width:900px){
+  .ms-page .compact-card>.lower-operation{width:calc(100% - 28px);margin:0 14px 14px}
+  .ms-page .compact-schedule .arrival-system-row{width:100%;margin-top:12px;border:1px solid #d5d9d5;border-radius:7px;overflow:hidden}
+  .ms-page .lower-operation>header{padding:11px;font-size:13px}
+  .ms-page .operation-kpi>strong{font-size:28px}
+  .ms-page .operation-kpi>span,.ms-page .operation-standard,.ms-page .operation-warning,.ms-page .operation-work-duration{font-size:12px}
+  .ms-page .operation-timeline{grid-template-columns:1fr;gap:7px;padding:10px 14px}
+  .ms-page .operation-timeline i{width:2px;height:16px;justify-self:center}
+  .ms-page .operation-timeline i:after{right:-3px;top:auto;bottom:-1px}
+  .ms-page .operation-timeline span{font-size:11px}.ms-page .operation-timeline b{font-size:14px}
+}
+@media(max-width:420px){.ms-page .compact-card>.lower-operation{width:calc(100% - 22px);margin-left:11px;margin-right:11px}.ms-page #filter-summary button{min-height:66px;padding:8px;grid-template-columns:22px 1fr auto}.ms-page #filter-summary button .operation-icon{width:19px;height:19px}.ms-page #filter-summary button span{font-size:11px}.ms-page #filter-summary button strong{font-size:20px}}

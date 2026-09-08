@@ -8,6 +8,26 @@ function replaceUnique(output, from, to, label) {
 
 const MARKER = "MS_QUOTA_SAFE_LIVE_V1";
 const COMPLETION_HISTORY_MARKER = "MS_COMPLETION_DAILY_HISTORY_TRUTH_V2";
+const COMPLETION_ARCHIVE_MARKER = "MS_COMPLETION_ARCHIVE_TRUTH_V2";
+
+function patchArchiveCompletionTruth(source) {
+  let output = String(source || "");
+  if (output.includes(COMPLETION_ARCHIVE_MARKER)) return output;
+  const start = output.indexOf("async function msArchive(env, actor, hub) {");
+  const end = output.indexOf("\nasync function msCryptoKey", start);
+  if (start < 0 || end < 0)
+    throw new Error("MS quota-safe live patch failed: archive truth section");
+  let section = output.slice(start, end);
+  const rowAnchor = "  const rows = [...latest.values()];";
+  const fallbackAnchor = "  const totalDistinct = Math.max(";
+  let insertAt = section.indexOf(rowAnchor);
+  if (insertAt < 0) insertAt = section.indexOf(fallbackAnchor);
+  if (insertAt < 0 || !section.includes("const latest = new Map()"))
+    throw new Error("MS quota-safe live patch failed: archive truth anchor");
+  const truth = `  // ${COMPLETION_ARCHIVE_MARKER}: never expose a completion timestamp unless history proves an observed 0/1 -> 2 transition.\n  const archiveVerifiedCompletionRoutes = await verifiedCompletionRouteIds(env, hub);\n  for (const row of latest.values()) {\n    row.completionObservedLive =\n      Boolean(row.unloadingCompletedAt) &&\n      archiveVerifiedCompletionRoutes.has(String(row.id || \"\"));\n    if (row.unloadingCompletedAt && !row.completionObservedLive)\n      row.unloadingCompletedAt = \"\";\n  }\n\n`;
+  section = section.slice(0, insertAt) + truth + section.slice(insertAt);
+  return output.slice(0, start) + section + output.slice(end);
+}
 
 export function patchMsQuotaSafeLiveWorker(source) {
   let output = String(source || "");
@@ -79,9 +99,10 @@ export function patchMsQuotaSafeLiveWorker(source) {
   output = replaceUnique(
     output,
     `      row.archivedAt = item.snapshot_at;\n      row.businessDay = item.business_day;`,
-    `      row.archivedAt = item.snapshot_at;\n      row.businessDay = item.business_day;\n      row.completionObservedLive =\n        Boolean(row.unloadingCompletedAt) && verifiedCompletionRoutes.has(row.id);\n      if (row.unloadingCompletedAt && !row.completionObservedLive)\n        row.unloadingCompletedAt = "";`,
+    `      row.archivedAt = item.snapshot_at;\n      row.businessDay = item.business_day;\n      row.completionObservedLive =\n        Boolean(row.unloadingCompletedAt) &&\n        verifiedCompletionRoutes.has(String(row.id || ""));\n      if (row.unloadingCompletedAt && !row.completionObservedLive)\n        row.unloadingCompletedAt = "";`,
     "daily history never exports fabricated completion timestamp",
   );
 
+  output = patchArchiveCompletionTruth(output);
   return output;
 }

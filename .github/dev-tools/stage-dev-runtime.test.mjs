@@ -50,7 +50,7 @@ test("live polling stays live-only while explicit history search uses the daily 
   assert.match(first, /const result = await apiGet\("msDailyArchive", \{/);
   assert.doesNotMatch(first, /const result = await apiGet\("msRange"/);
   assert.match(first, /input\.onchange = \(\) => \{\}/);
-  assert.match(first, /window\.matchMedia\("\(max-width: 700px\)"\)\.matches/);
+  assert.match(first, /window\.matchMedia\("\(max-width: 1024px\)"\)\.matches/);
   assert.match(first, /tableBody\.innerHTML = ""/);
   assert.match(first, /mobileCards\.innerHTML = ""/);
 });

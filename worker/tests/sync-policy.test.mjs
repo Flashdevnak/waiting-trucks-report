@@ -71,13 +71,14 @@ test("invalid observation timestamp is never stored as completion truth", () => 
 test("DEV staging permanently wires completion truth, one-time repair and cache migration", async () => {
   const patch = await readFile(new URL("../../.github/dev-tools/patch-ms-daily-completion-observation.mjs", import.meta.url), "utf8");
   assert.match(patch, /MS_COMPLETION_TIME_TRUTH_V2/);
-  assert.match(patch, /resolveUnloadingCompletedAt/);
-  assert.match(patch, /isObservedUnloadingTransition/);
+  assert.match(patch, /MS_COMPLETION_TIME_TRUTH_UI_V2/);
+  assert.match(patch, /unloadingCompletedAt = resolveUnloadingCompletedAt\(old, unloadingState, now\)/);
   assert.match(patch, /MS_LIVE_CACHE_VERSION/);
   assert.match(patch, /ensureMsCompletionRepair/);
   assert.match(patch, /verifiedCompletionRouteIds/);
-  assert.match(patch, /unloadingState\) === 2 && !parseDate\(row\.unloadingCompletedAt\)/);
-  assert.doesNotMatch(patch, /unloadingCompletedAt =\s*unloadingState === 2[\s\S]{0,180}: now/);
+  assert.match(patch, /Number\(row\.unloadingState\) === 2 \? null : new Date\(\)/);
+  assert.match(patch, /daily history never exports fabricated completion timestamp/);
+  assert.match(patch, /archive never exposes fabricated completion timestamp/);
 });
 
 test("parcel and bus enrichment changes are business changes", () => {

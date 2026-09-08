@@ -96,6 +96,28 @@ jobs:
               WHERE hub=? AND json_valid(payload_json)=1
                 AND strftime('%Y-%m-%d %H:%M',json_extract(payload_json,'$.unloadingCompletedAt'),'+7 hours')='2026-09-08 13:29'`,['EA2']));
             console.log('EA2_1329_HISTORY='+JSON.stringify(hist[0]||[]));
+            const exportEligible=rows(await query(`
+              WITH burst_keys AS (
+                SELECT json_extract(payload_json,'$.unloadingCompletedAt') AS completion_at
+                FROM ms_route_history
+                WHERE hub=? AND json_valid(payload_json)=1
+                  AND COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'')<>''
+                  AND json_extract(payload_json,'$.unloadingCompletedAt')<'2026-09-08T12:39:00.000Z'
+                GROUP BY json_extract(payload_json,'$.unloadingCompletedAt')
+                HAVING COUNT(DISTINCT route_id)>=8
+                  AND (julianday(MAX(json_extract(payload_json,'$.actualArrivalAt')))-
+                       julianday(MIN(json_extract(payload_json,'$.actualArrivalAt'))))*24>=1
+              )
+              SELECT COUNT(DISTINCT h.route_id)
+              FROM ms_route_history h
+              WHERE h.hub=? AND json_valid(h.payload_json)=1
+                AND strftime('%Y-%m-%d %H:%M',json_extract(h.payload_json,'$.unloadingCompletedAt'),'+7 hours')='2026-09-08 13:29'
+                AND json_extract(h.payload_json,'$.unloadingCompletedAt') NOT IN (SELECT completion_at FROM burst_keys)
+                AND (
+                  json_extract(h.payload_json,'$.completionSource')='SCHEDULE'
+                  OR (COALESCE(h.event_type,'UPDATED')<>'FIRST_SEEN' AND COALESCE(h.synced_by,'')<>'MS_RANGE')
+                )`,['EA2','EA2']));
+            console.log('EA2_1329_EXPORT_ELIGIBLE='+String(exportEligible[0]?.[0]||'0'));
             console.log('READ_ONLY=TRUE');
             console.log('MS_UPSTREAM_CALLS=0');
             console.log('DB_WRITES=0');

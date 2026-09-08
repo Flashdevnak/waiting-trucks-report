@@ -6,7 +6,8 @@ export const MS_SNAPSHOT_KEYS = [
   "loadStatus", "unloadingState", "unloadingCompletedAt", "sourceUpdatedAt",
   "expectedParcels", "enteredParcels", "pendingParcels",
   "scheduleKitArrivalAt", "scheduleTbrArrivalAt", "arrivedParcels",
-  "arrivedBags", "scheduleUnloadingCompletedAt", "completionSource",
+  "arrivedBags", "scheduleUnloadingStartedAt", "scheduleUnloadingCompletedAt",
+  "completionSource",
 ];
 
 export const MS_SOURCE_KEYS = MS_SNAPSHOT_KEYS.filter(

@@ -867,6 +867,7 @@ function filteredRows(ignoreSummary = false, queueMode = state.queue) {
         (state.summary === "unloading" && isDestination(row) && status.key === "unloading") ||
         (state.summary === "completed" && isCompletedToday(row)) ||
         (state.summary === "completed-all" && isCompletedAccumulated(row)) ||
+        (state.summary === "unload-overtime" && isCompletedUnloadOverStandard(row)) ||
         (state.summary === "origin" && isOrigin(row) && !queue.done && !queue.cancelled) ||
         (state.summary === "drop" && isDrop(row) && !queue.done && !queue.cancelled) ||
         (state.summary === "cancelled" && queue.cancelled && isCancelledToday(row));
@@ -950,6 +951,7 @@ function render() {
     true,
     state.summary === "completed" ||
     state.summary === "completed-all" ||
+    state.summary === "unload-overtime" ||
     state.summary === "cancelled"
       ? "queue"
       : state.queue,
@@ -1016,6 +1018,7 @@ function renderFilterSummary(rows) {
     origin: 0,
     drop: 0,
     cancelled: 0,
+    unloadOvertime: 0,
   };
   for (const row of rows) {
     const key = routeState(row).key;
@@ -1029,12 +1032,17 @@ function renderFilterSummary(rows) {
   counts.cancelled = state.currentRows.filter(
     (row) => queueInfo(row).cancelled && isCancelledToday(row),
   ).length;
+  const overtimeSource = mergeLatest(state.archiveRows, state.currentRows);
+  counts.unloadOvertime = overtimeSource.filter(
+    (row) => isCompletedToday(row) && isCompletedUnloadOverStandard(row) && matchesOvertimeContext(row),
+  ).length;
   el("filter-summary").innerHTML = `
     <button type="button" class="summary-all ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all"><span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
     <button type="button" class="summary-wait ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
     <button type="button" class="summary-work ${state.summary === "unloading" ? "is-active" : ""}" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
     <button type="button" class="summary-done ${state.summary === "completed" ? "is-active" : ""}" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
     <button type="button" class="summary-origin ${state.summary === "origin" ? "is-active" : ""}" data-summary-status="origin"><span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
+    <button type="button" class="summary-overtime ${state.summary === "unload-overtime" ? "is-active" : ""}" data-summary-status="unload-overtime"><span>ลงรถเกินเวลา</span><strong>${nf.format(counts.unloadOvertime)}</strong></button>
     <button type="button" class="summary-drop ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>
     <button type="button" class="summary-cancelled ${state.summary === "cancelled" ? "is-active" : ""}" data-summary-status="cancelled"><span>ยกเลิกรถแล้ว</span><strong>${nf.format(counts.cancelled)}</strong></button>`;
   el("filter-summary")
@@ -1042,7 +1050,7 @@ function renderFilterSummary(rows) {
     .forEach((button) => {
       button.onclick = async () => {
         const value = button.dataset.summaryStatus;
-        if (value === "completed") {
+        if (value === "completed" || value === "unload-overtime") {
           try {
             const cachedCompletedRows = state.archiveRows.filter(isCompletedToday);
             const expectedCompleted = Number(state.completedToday) || 0;
@@ -1057,6 +1065,7 @@ function renderFilterSummary(rows) {
             );
             state.rows = mergeLatest(state.archiveRows, state.currentRows);
             state.completedToday = Number(completed?.total) || completedRows.length;
+            if (value === "completed") {
             state.query = "";
             state.dateFrom = "";
             state.dateTo = "";
@@ -1073,6 +1082,7 @@ function renderFilterSummary(rows) {
             el("region-filter").value = "all";
             el("route-filter").value = "all";
             el("status-filter").value = "all";
+            }
             state.archiveView = true;
             state.queue = "all";
             el("queue-filter").value = "all";
@@ -1300,6 +1310,58 @@ function arrivalSources(row) {
   return `<div class="arrival-sources"><span>เวลาถึงจากระบบ</span><div><b>KIT <strong>${shortDateTime(row.scheduleKitArrivalAt)}</strong></b><b>TBR <strong>${shortDateTime(row.scheduleTbrArrivalAt)}</strong></b></div>${earliest ? `<small>ใช้เวลาที่มาก่อน · ${shortDateTime(earliest)}</small>` : ""}</div>`;
 }
 
+// MS_UNLOAD_COMPLETION_UI_V1: Schedule S/E display and completed-only overtime classification.
+function unloadStandard(row) {
+  return Number(state.standards[normalizeVehicle(row.vehicleType)]) || 120;
+}
+
+function unloadTiming(row, now = new Date()) {
+  const start = parseDate(row.scheduleUnloadingStartedAt);
+  const completed = Number(row.unloadingState) === 2;
+  const finish = completed ? parseDate(row.unloadingCompletedAt) : null;
+  const end = finish || (Number(row.unloadingState) === 1 && start ? now : null);
+  const durationMinutes = start && end && end >= start
+    ? Math.floor((end - start) / 60000)
+    : null;
+  const standard = unloadStandard(row);
+  return {
+    start,
+    finish,
+    completed,
+    durationMinutes,
+    standard,
+    overStandard: completed && durationMinutes !== null && durationMinutes > standard,
+  };
+}
+
+function isCompletedUnloadOverStandard(row) {
+  return unloadTiming(row).overStandard;
+}
+
+function matchesOvertimeContext(row) {
+  const haystack = [row.proofId, row.routeName, row.vehicleType, row.plate, row.driverName, row.supplier]
+    .join(" ").toLowerCase();
+  const day = rowBusinessDay(row);
+  return (!state.query || haystack.includes(state.query)) &&
+    (!state.dateFrom || day >= state.dateFrom) && (!state.dateTo || day <= state.dateTo) &&
+    (state.attendance === "all" || normalizeAttendance(row.attendanceType) === state.attendance) &&
+    (state.attribute === "all" || row.routeAttribute === state.attribute) &&
+    (state.region === "all" || row.region === state.region) &&
+    (state.route === "all" || row.routeType === state.route);
+}
+
+function unloadCompletionCard(row) {
+  if (!isDestination(row) && !isDrop(row)) return "";
+  const timing = unloadTiming(row);
+  const startText = timing.start ? shortDateTime(timing.start) : Number(row.unloadingState) === 0 ? "ยังไม่เริ่ม" : "ไม่ทราบ";
+  const finishText = timing.finish ? shortDateTime(timing.finish) : Number(row.unloadingState) === 1 ? "กำลังลง" : "-";
+  const durationText = timing.durationMinutes === null ? "ไม่ทราบ" : `${nf.format(timing.durationMinutes)} นาที`;
+  const over = timing.overStandard
+    ? `<small class="unload-over-note">เกินมาตรฐาน ${nf.format(timing.durationMinutes - timing.standard)} นาที</small>`
+    : "";
+  return `<div class="unload-completion ${timing.overStandard ? "is-over" : ""}"><span>เวลาลงรถเสร็จจริง</span><div><b>เริ่มลง<strong>${startText}</strong></b><b>เสร็จจริง<strong>${finishText}</strong></b><b>ใช้เวลา<strong>${durationText}</strong></b></div>${over}</div>`;
+}
+
 // LOCAL_ROUTE_BARCODE_V1: destination/drop only. Pure client-side Code 128; no API, MS, or database request.
 const CODE128_PATTERNS = [
   "212222","222122","222221","121223","121322","131222","122213","122312","132212","221213","221312","231212",
@@ -1429,8 +1491,8 @@ function tableRow(row) {
     <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</div></td>
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
     <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
-    <td><div class="schedule-stack ${isDestination(row) ? "single" : "dual"}">${scheduleHtml}</div></td>
-    <td><div class="work-summary"><div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}${departureCountdownHtml(row)}<small class="queue-label">${esc(queueText)}</small>${arrivalSources(row)}</div></td>
+    <td><div class="schedule-stack ${isDestination(row) ? "single" : "dual"}">${scheduleHtml}${arrivalSources(row)}</div></td>
+    <td><div class="work-summary"><div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${durationHtml}${departureCountdownHtml(row)}<small class="queue-label">${esc(queueText)}</small>${unloadCompletionCard(row)}</div></td>
     <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
   </tr>`;
 }
@@ -1498,10 +1560,10 @@ function card(row) {
   return `<article class="truck-card ms-card compact-card">
     <header class="compact-card-head"><div class="compact-card-tags"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.routeName || "-")}</h2><p>${esc(row.proofId || "-")} · ทะเบียน ${esc(row.plate || "-")}</p>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</header>
     <div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div>
-    <div class="compact-times compact-schedule">${compactSchedule}</div>
+    <div class="compact-times compact-schedule">${compactSchedule}${arrivalSources(row)}</div>
     <div class="compact-operation ${isDestination(row) && wait.over ? "late" : ""}"><div><span>${isDestination(row) ? "เวลารอ + ลงงาน" : "เวลาเทียบแผน"}</span><strong>${esc(durationText)}</strong><small>${esc(durationNote)}</small></div><div><span>สถานะล่าสุด</span><strong>${esc(workStatus)}</strong><small>${esc(queueText)}</small></div></div>
     ${isDrop(row) ? dropProgressHtml(drop, true) : ""}${departureCountdownHtml(row)}
-    ${arrivalSources(row)}
+    ${unloadCompletionCard(row)}
     <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button compact-cancel-route" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div>
   </article>`;
 }

@@ -141,10 +141,10 @@ test("daily history remains read-only after worker staging", () => {
   assert.doesNotMatch(daily, /readMsRoutes\(|syncMs\(|refreshMsIfStale\(/);
 });
 
-test("seven lower summary cards stay on one desktop row", () => {
+test("eight lower summary cards stay on one desktop row", () => {
   const first = stageStyle(styleSource);
   assert.match(first, /MS summary performance/);
-  assert.match(first, /grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
+  assert.match(first, /grid-template-columns:repeat\(8,minmax\(0,1fr\)\)/);
   assert.match(first, /@media \(min-width:1201px\)/);
 });
 

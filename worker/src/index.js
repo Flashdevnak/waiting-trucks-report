@@ -1232,6 +1232,7 @@ export function enrichMsRow(mapped, parcelCounts, busData) {
     mapped.scheduleTbrArrivalAt = bus.scheduleTbrArrivalAt;
     mapped.arrivedParcels = bus.arrivedParcels;
     mapped.arrivedBags = bus.arrivedBags;
+    mapped.scheduleUnloadingStartedAt = bus.scheduleUnloadingStartedAt || "";
     mapped.scheduleUnloadingCompletedAt = bus.scheduleUnloadingCompletedAt || "";
   }
   if (mapped.attendanceType === "ปลายทาง" && parcels) Object.assign(mapped, parcels);
@@ -1439,6 +1440,14 @@ export function parseScheduleUnloadingEnd(field) {
   return msDate(match[1].trim());
 }
 
+export function parseScheduleUnloadingStart(field) {
+  if (!Array.isArray(field)) return "";
+  const raw = String(field[0]?.value || "").trim();
+  const match = raw.match(/^S:\s*(.+)$/i);
+  if (!match || !match[1] || match[1] === "-") return "";
+  return msDate(match[1].trim());
+}
+
 export function scheduleStoreMatchesHub(storeValue, hub) {
   const store = String(storeValue || "").toUpperCase();
   const branch = String(hub || "").trim().toUpperCase();
@@ -1506,9 +1515,14 @@ async function readBusTimeData(env, hub, wantedDays = liveSourceDays()) {
       const tbr = msDate(nestedValue(item.fleet_sign_info, 0));
       const mapKey = `P:${key}|A:${attendance}`;
       const current = result.get(mapKey) || {};
+      const unloadingStart = parseScheduleUnloadingStart(item.fleet_unloading_time);
       const unloadingEnd = parseScheduleUnloadingEnd(item.fleet_unloading_time);
+      const conflictingStart = Boolean(current.scheduleUnloadingStartedAt) &&
+        Boolean(unloadingStart) && current.scheduleUnloadingStartedAt !== unloadingStart;
       const conflictingEnd = Boolean(current.scheduleUnloadingCompletedAt) &&
         Boolean(unloadingEnd) && current.scheduleUnloadingCompletedAt !== unloadingEnd;
+      const ambiguous = Boolean(current.scheduleCompletionAmbiguous) ||
+        conflictingStart || conflictingEnd;
       const candidate = {
         proofId: text(proofId, 100),
         routeName: text(routeName, 300),
@@ -1516,12 +1530,13 @@ async function readBusTimeData(env, hub, wantedDays = liveSourceDays()) {
         scheduleTbrArrivalAt: earliestDate(current.scheduleTbrArrivalAt, tbr),
         arrivedParcels: Math.max(Number(current.arrivedParcels) || 0, Number(nestedValue(item.parcel_count, 0)) || 0),
         arrivedBags: Math.max(Number(current.arrivedBags) || 0, Number(nestedValue(item.pack_count, 0)) || 0),
+        scheduleUnloadingStartedAt:
+          ambiguous ? "" : unloadingStart || current.scheduleUnloadingStartedAt || "",
         scheduleUnloadingCompletedAt:
-          current.scheduleCompletionAmbiguous || conflictingEnd
+          ambiguous
             ? ""
             : unloadingEnd || current.scheduleUnloadingCompletedAt || "",
-        scheduleCompletionAmbiguous:
-          Boolean(current.scheduleCompletionAmbiguous) || conflictingEnd,
+        scheduleCompletionAmbiguous: ambiguous,
       };
       result.set(mapKey, candidate);
     }

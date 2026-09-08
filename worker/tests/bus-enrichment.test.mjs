@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { enrichMsRow, msDate, parseScheduleUnloadingEnd, scheduleStoreMatchesHub } from "../src/index.js";
+import { enrichMsRow, msDate, parseScheduleUnloadingEnd, parseScheduleUnloadingStart, scheduleStoreMatchesHub } from "../src/index.js";
 
 test("MS/FBI naive datetime is interpreted as Asia/Bangkok", () => {
   assert.equal(msDate("2026-09-02 03:00:29"), "2026-09-01T20:00:29.000Z");
@@ -65,6 +65,12 @@ test("Schedule unloading E parses Bangkok wall-clock once", () => {
   assert.equal(parseScheduleUnloadingEnd([{ value: "S:2026-09-08 22:03:57" }, { value: "E:2026-09-08 22:16:26" }]), "2026-09-08T15:16:26.000Z");
   for (const value of [null, [], [{ value: "-" }, { value: "-" }], [{}, { value: "malformed" }]])
     assert.equal(parseScheduleUnloadingEnd(value), "");
+});
+
+test("Schedule unloading S parses Bangkok wall-clock once", () => {
+  assert.equal(parseScheduleUnloadingStart([{ value: "S:2026-09-08 22:03:57" }, { value: "E:2026-09-08 22:16:26" }]), "2026-09-08T15:03:57.000Z");
+  for (const value of [null, [], [{ value: "-" }], [{ value: "malformed" }]])
+    assert.equal(parseScheduleUnloadingStart(value), "");
 });
 
 test("Schedule HUB matching uses a full token, not substring matching", () => {

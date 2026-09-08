@@ -90,6 +90,7 @@ export function patchMsDailyCompletionObservationWorker(source) {
     `      unloadingCompletedAt: values[21],\n      sourceUpdatedAt: values[22],`,
     `      unloadingCompletedAt: values[21],
       completionSource: completionTruth.source,
+      scheduleUnloadingStartedAt: date(r.scheduleUnloadingStartedAt),
       scheduleUnloadingCompletedAt: date(r.scheduleUnloadingCompletedAt),
       sourceUpdatedAt: values[22],`,
     "persist completion provenance in snapshots and live cache",

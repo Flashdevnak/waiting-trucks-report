@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/diagnose-completion-collision.yml
+      - .github/diagnostics/completion-v3-trigger.txt
 
 permissions:
   contents: read

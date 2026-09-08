@@ -1322,7 +1322,16 @@ function arrivalSources(row) {
     return '<div class="arrival-system-row is-empty"><b>เวลาถึงจากระบบ</b><span>ยังไม่มีเวลาจากระบบ</span></div>';
   const earliest = [row.scheduleKitArrivalAt, row.scheduleTbrArrivalAt]
     .map(parseDate).filter(Boolean).sort((a, b) => a - b)[0];
-  return `<div class="arrival-system-row"><b>เวลาถึงจากระบบ</b><div><span>KIT<strong>${shortDateTime(row.scheduleKitArrivalAt)}</strong></span><span>TBR<strong>${shortDateTime(row.scheduleTbrArrivalAt)}</strong></span><span>ใช้เวลา<strong>${earliest ? shortDateTime(earliest) : "-"}</strong></span></div></div>`;
+  return `<div class="arrival-system-row"><b>เวลาถึงจากระบบ</b><div><span><em>KIT</em>${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ใช้เวลา</em>${arrivalSourceDateTime(earliest)}</span></div></div>`;
+}
+
+function arrivalSourceDateTime(value) {
+  const date = parseDate(value);
+  if (!date) return '<strong class="arrival-source-value">-</strong>';
+  const parts = dtf.format(date).replace(/\s*น\.\s*$/, "").match(/^(.*?)(\d{1,2}:\d{2})$/);
+  return parts
+    ? `<strong class="arrival-source-value"><span>${esc(parts[1].trim())}</span><span>${esc(parts[2])} น.</span></strong>`
+    : `<strong class="arrival-source-value"><span>${esc(dtf.format(date))} น.</span></strong>`;
 }
 
 // MS_UNLOAD_COMPLETION_UI_V1 compatibility marker; superseded by the lower operation renderer below.
@@ -1394,6 +1403,10 @@ function operationTimeline(stages, activeIndex) {
   return `<div class="operation-timeline stages-${stages.length}">${stages.map((stage, index) => `<span class="operation-stage ${index < activeIndex ? "is-done" : index === activeIndex ? "is-active" : "is-next"}">${operationIcon(stage.icon)}<b>${stage.value}</b><small>${stage.label}</small></span>`).join('<i aria-hidden="true"></i>')}</div>`;
 }
 
+function operationHeader(icon, title, subtitle = "") {
+  return `<header>${operationIcon(icon)}<div><strong>${title}</strong>${subtitle ? `<span>${subtitle}</span>` : ""}</div></header>`;
+}
+
 function unloadCompletionCard(row) {
   if (!isDestination(row)) return "";
   const timing = unloadTiming(row);
@@ -1402,7 +1415,8 @@ function unloadCompletionCard(row) {
   const active = Number(row.unloadingState) === 1 || stateKey === "unloading";
   const done = Number(row.unloadingState) === 2 || stateKey === "completed";
   const waiting = !active && !done;
-  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังลงพัสดุ" : "ถึงปลายทางแล้ว · รอเริ่มลงรถ";
+  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังลงพัสดุ" : "ถึงปลายทางแล้ว";
+  const subtitle = waiting ? "รอเริ่มลงรถ" : "";
   const icon = done ? "check" : active ? "unload" : "pin";
   const slaText = timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`;
   const slaLabel = done ? "ตั้งแต่รถถึงจนลงเสร็จ" : "ตั้งแต่รถถึง";
@@ -1419,10 +1433,10 @@ function unloadCompletionCard(row) {
     : operationTimeline([
         { icon: "unload", value: timing.start ? shortDateTime(timing.start) : "-", label: "เริ่มลง" },
         { icon: done ? "check" : "package", value: done && timing.finish ? shortDateTime(timing.finish) : "กำลังดำเนินการ", label: done ? "เสร็จจริง" : "กำลังลงพัสดุ" },
-      ], done ? 1 : 0);
+      ], 1);
   const work = done && timing.workMinutes !== null
     ? `<div class="operation-work-duration">ใช้เวลาลงจริง <strong>${nf.format(timing.workMinutes)} นาที</strong></div>` : "";
-  return `<section class="lower-operation destination-operation ${timing.overStandard ? "is-over" : ""}"><header>${operationIcon(icon)}<strong>${headline}</strong></header><div class="operation-kpi"><strong>${slaText}</strong><span>${slaLabel}</span></div><div class="operation-standard">${timing.standard === null ? "ยังไม่มีมาตรฐานประเภทรถ" : `มาตรฐาน ${nf.format(timing.standard)} นาที`}</div>${over}${timeline}${work}</section>`;
+  return `<section class="lower-operation destination-operation ${done ? "is-completed" : active ? "is-active" : "is-waiting"} ${timing.overStandard ? "is-over" : ""}">${operationHeader(icon, headline, subtitle)}<div class="operation-kpi"><strong>${slaText}</strong><span>${slaLabel}</span></div><div class="operation-standard">${timing.standard === null ? "ยังไม่มีมาตรฐานประเภทรถ" : `มาตรฐาน ${nf.format(timing.standard)} นาที`}</div>${over}${timeline}${work}</section>`;
 }
 
 function renderOriginOperation(row) {
@@ -1434,8 +1448,10 @@ function renderOriginOperation(row) {
   const stay = arrival && (departure || now) >= arrival ? Math.floor(((departure || now) - arrival) / 60000) : null;
   const releaseDiff = departure && planned ? Math.floor((departure - planned) / 60000) : null;
   const released = Boolean(departure);
-  const loading = !released && Number(row.unloadingState) === 1;
-  const headline = released ? "ออกจาก HUB แล้ว" : loading ? "กำลังโหลดพัสดุขึ้นรถ" : "โหลดพัสดุขึ้นรถแล้ว · รอปล่อยรถ";
+  const loadingComplete = !released && Number(row.unloadingState) === 2;
+  const loading = !released && !loadingComplete;
+  const headline = released ? "ออกจาก HUB แล้ว" : loadingComplete ? "โหลดพัสดุขึ้นรถแล้ว" : "กำลังโหลดพัสดุขึ้นรถ";
+  const subtitle = loadingComplete ? "รอปล่อยรถ" : loading ? "กำลังนำพัสดุออกจากคลัง" : "";
   const untilRelease = !released && planned ? Math.floor((planned - now) / 60000) : null;
   const detail = released && releaseDiff !== null
     ? `<div class="operation-warning ${releaseDiff <= 0 ? "is-ok" : ""}">${releaseDiff > 0 ? `ออกช้า ${nf.format(releaseDiff)} นาที` : `ออกก่อนแผน ${nf.format(Math.abs(releaseDiff))} นาที`}</div>`
@@ -1451,13 +1467,13 @@ function renderOriginOperation(row) {
       ? operationTimeline([
           { icon: "loading", value: row.scheduleUnloadingStartedAt ? shortDateTime(row.scheduleUnloadingStartedAt) : arrival ? shortDateTime(arrival) : "-", label: "เริ่มโหลด" },
           { icon: "package", value: "กำลังดำเนินการ", label: "กำลังโหลดขึ้นรถ" },
-        ], 0)
+        ], 1)
       : operationTimeline([
           { icon: "pin", value: arrival ? shortDateTime(arrival) : "-", label: "มาถึง" },
           { icon: "loading", value: "โหลดเสร็จ", label: "รอปล่อย" },
           { icon: "release", value: planned ? shortDateTime(planned) : "-", label: "กำหนดออก" },
         ], 1);
-  return `<section class="lower-operation origin-operation ${released ? "is-released" : loading ? "is-loading" : "is-wait-release"}"><header>${operationIcon(released ? "release" : "loading")}<strong>${headline}</strong></header>${stay !== null ? `<div class="operation-kpi"><strong>${nf.format(stay)} นาที</strong><span>${released ? "เวลาที่อยู่ในคลัง" : loading ? "ตั้งแต่เริ่มอยู่ในคลัง" : "อยู่ในคลังแล้ว"}</span></div>` : ""}${detail}${timeline}</section>`;
+  return `<section class="lower-operation origin-operation ${released ? "is-released" : loading ? "is-loading" : "is-wait-release"}">${operationHeader(released ? "release" : "loading", headline, subtitle)}${stay !== null ? `<div class="operation-kpi"><strong>${nf.format(stay)} นาที</strong><span>${released ? "เวลาที่อยู่ในคลัง" : loading ? "ตั้งแต่เริ่มอยู่ในคลัง" : "อยู่ในคลังแล้ว"}</span></div>` : ""}${detail}${timeline}</section>`;
 }
 
 function renderDropOperation(row) {
@@ -1469,13 +1485,14 @@ function renderDropOperation(row) {
   const active = !departure && Number(row.unloadingState) === 1;
   const released = Boolean(departure);
   const started = parseDate(row.scheduleUnloadingStartedAt);
-  const headline = released ? "ออกต่อจากจุดดรอปแล้ว" : active ? "กำลังดำเนินการที่จุดดรอป" : "ถึงจุดดรอปแล้ว · รอเริ่มดำเนินการ";
+  const headline = released ? "ออกต่อจากจุดดรอปแล้ว" : active ? "กำลังดำเนินการที่จุดดรอป" : "ถึงจุดดรอปแล้ว";
+  const subtitle = !released && !active ? "รอเริ่มดำเนินการ" : "";
   const timeline = operationTimeline([
     { icon: "pin", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
     { icon: "package", value: started ? shortDateTime(started) : active ? "กำลังดำเนินการ" : "รอเริ่ม", label: "เริ่มดำเนินการ" },
     { icon: "release", value: released ? shortDateTime(departure) : "ขั้นตอนถัดไป", label: "ออกต่อ" },
   ], released ? 2 : active ? 1 : 0);
-  return `<section class="lower-operation drop-operation ${released ? "is-released" : active ? "is-active" : "is-waiting"}"><header>${operationIcon(released ? "release" : active ? "package" : "pin")}<strong>${headline}</strong></header><div class="operation-kpi"><strong>${nf.format(minutes)} นาที</strong><span>เวลาที่อยู่ ณ จุดดรอป</span></div>${timeline}<div class="operation-work-duration">ใช้เวลาที่จุดดรอป <strong>${nf.format(minutes)} นาที</strong></div></section>`;
+  return `<section class="lower-operation drop-operation ${released ? "is-released" : active ? "is-active" : "is-waiting"}">${operationHeader(released ? "release" : active ? "package" : "pin", headline, subtitle)}<div class="operation-kpi"><strong>${nf.format(minutes)} นาที</strong><span>เวลาที่อยู่ ณ จุดดรอป</span></div>${timeline}<div class="operation-work-duration">ใช้เวลาที่จุดดรอป <strong>${nf.format(minutes)} นาที</strong></div></section>`;
 }
 
 function renderOperation(row) {

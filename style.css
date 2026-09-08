@@ -4032,3 +4032,61 @@ tbody tr.is-unloading:hover {
   .ms-page .operation-timeline.stages-2{grid-template-columns:minmax(0,1fr) 24px minmax(0,1fr)}
   .ms-page .operation-timeline .operation-stage b{font-size:10px}.ms-page .operation-timeline .operation-stage small{font-size:9px}
 }
+
+/* MS_PRESENTATION_STATE_CORRECTION_V5: readable, truth-gated operation presentation. */
+.ms-page .ms-table tbody tr,
+.ms-page .ms-table tbody tr.is-unloading,
+.ms-page .ms-table tbody tr.is-unloading:nth-child(even){background:#fff}
+.ms-page .ms-table tbody tr:nth-child(even){background:#fafcfd}
+.ms-page .ms-table tbody tr:hover td,
+.ms-page .ms-table tbody tr.is-unloading:hover td{background:#f4f8fa}
+.ms-page .ms-table th,.ms-page .ms-table td{border-left-color:#eef1f2;border-right-color:#eef1f2}
+
+.ms-page .schedule-stack.single .schedule-heading{font-size:14px}
+.ms-page .schedule-stack.single .schedule-values b{font-size:12px}
+.ms-page .schedule-stack.single .schedule-values strong{font-size:15px;white-space:nowrap}
+.ms-page .schedule-stack.single .timing-chip{font-size:12px}
+.ms-page .schedule-stack.single .arrival-system-row{padding:4px 2px;background:#f5f8f9}
+.ms-page .schedule-stack.single .arrival-system-row>b{padding:8px 10px 5px;font-size:12px}
+.ms-page .arrival-system-row>div{grid-template-columns:repeat(3,minmax(86px,1fr));gap:8px;padding:3px 8px 9px}
+.ms-page .arrival-system-row>div span{display:grid;align-content:start;gap:4px;min-width:0;padding:7px 6px;text-align:center}
+.ms-page .arrival-system-row>div span>em{color:#65716a;font-size:12px;font-style:normal;font-weight:900;line-height:1.2}
+.ms-page .arrival-system-row .arrival-source-value{display:grid;gap:2px;color:#172019;font-size:13px;font-weight:850;line-height:1.3;white-space:nowrap}
+.ms-page .arrival-system-row .arrival-source-value>span{display:block;padding:0;font-size:inherit;color:inherit;white-space:nowrap}
+
+.ms-page .lower-operation>header{font-size:inherit}
+.ms-page .lower-operation>header>div{display:grid;gap:2px;min-width:0}
+.ms-page .lower-operation>header>div>strong{color:inherit;font-size:14px;line-height:1.35}
+.ms-page .lower-operation>header>div>span{color:#647069;font-size:12px;font-weight:750;line-height:1.35}
+.ms-page .operation-kpi>strong{font-size:32px}
+.ms-page .operation-kpi>span{font-size:12px}
+.ms-page .operation-standard,.ms-page .operation-warning{font-size:12px;line-height:1.35}
+.ms-page .operation-timeline{margin-left:10px;margin-right:10px;padding-left:6px;padding-right:6px}
+.ms-page .operation-timeline .operation-stage{grid-template-rows:34px auto auto;gap:4px}
+.ms-page .operation-timeline .operation-stage .operation-icon{width:32px;height:32px}
+.ms-page .operation-timeline .operation-stage b{font-size:12px;line-height:1.35;white-space:normal}
+.ms-page .operation-timeline .operation-stage small{font-size:12px;line-height:1.3}
+.ms-page .operation-timeline i{margin-top:16px}
+.ms-page .operation-work-duration{font-size:12px;line-height:1.35}
+.ms-page .work-summary:has(.lower-operation)>.queue-label{display:none}
+
+@keyframes ms-operation-pulse{0%,100%{box-shadow:0 0 0 3px color-mix(in srgb,var(--op-accent) 10%,transparent)}50%{box-shadow:0 0 0 7px color-mix(in srgb,var(--op-accent) 4%,transparent)}}
+.ms-page .lower-operation.is-active .operation-stage.is-active .operation-icon,
+.ms-page .origin-operation.is-loading .operation-stage.is-active .operation-icon{animation:ms-operation-pulse 1.8s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){.ms-page .lower-operation .operation-stage.is-active .operation-icon{animation:none}}
+
+@media(max-width:900px){
+  .ms-page .arrival-system-row>div{grid-template-columns:repeat(3,minmax(90px,1fr));overflow-x:auto}
+  .ms-page .lower-operation>header>div>strong{font-size:15px}
+  .ms-page .lower-operation>header>div>span{font-size:13px}
+  .ms-page .operation-kpi>span,.ms-page .operation-standard,.ms-page .operation-warning,.ms-page .operation-work-duration{font-size:12px}
+  .ms-page .operation-timeline .operation-stage b,.ms-page .operation-timeline .operation-stage small{font-size:12px}
+}
+@media(max-width:430px){
+  .ms-page .arrival-system-row>div{grid-template-columns:1fr;overflow:visible;padding:4px 10px 10px}
+  .ms-page .arrival-system-row>div span{grid-template-columns:72px minmax(0,1fr);align-items:center;text-align:left}
+  .ms-page .arrival-system-row .arrival-source-value{grid-template-columns:max-content max-content;justify-content:end;gap:6px;font-size:13px}
+  .ms-page .operation-timeline,.ms-page .operation-timeline.stages-3{grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr) 14px minmax(0,1fr)}
+  .ms-page .operation-timeline.stages-2{grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr)}
+  .ms-page .operation-timeline .operation-stage b,.ms-page .operation-timeline .operation-stage small{font-size:12px}
+}

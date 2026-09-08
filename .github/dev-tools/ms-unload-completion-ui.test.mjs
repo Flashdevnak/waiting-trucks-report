@@ -62,13 +62,17 @@ test("destination, origin and drop use separate operation renderers", () => {
   assert.match(front, /if \(isDestination\(row\)\) return unloadCompletionCard\(row\)/);
   assert.match(front, /if \(isDrop\(row\)\) return renderDropOperation\(row\)/);
   assert.match(front, /operationTimeline\(stages, activeIndex\)/);
-  assert.match(front, /ถึงปลายทางแล้ว · รอเริ่มลงรถ/);
+  assert.match(front, /operationHeader\(icon, headline, subtitle\)/);
+  assert.match(front, /ถึงปลายทางแล้ว/);
+  assert.match(front, /รอเริ่มลงรถ/);
   assert.match(front, /กำลังลงพัสดุ/);
   assert.match(front, /โหลดพัสดุลงรถเสร็จสิ้น/);
   assert.match(front, /กำลังโหลดพัสดุขึ้นรถ/);
-  assert.match(front, /โหลดพัสดุขึ้นรถแล้ว · รอปล่อยรถ/);
+  assert.match(front, /โหลดพัสดุขึ้นรถแล้ว/);
+  assert.match(front, /รอปล่อยรถ/);
   assert.match(front, /ออกจาก HUB แล้ว/);
-  assert.match(front, /ถึงจุดดรอปแล้ว · รอเริ่มดำเนินการ/);
+  assert.match(front, /ถึงจุดดรอปแล้ว/);
+  assert.match(front, /รอเริ่มดำเนินการ/);
   assert.match(front, /กำลังดำเนินการที่จุดดรอป/);
   assert.match(front, /ออกต่อจากจุดดรอปแล้ว/);
   assert.match(front, /stages-\$\{stages\.length\}/);
@@ -84,6 +88,21 @@ test("operation labels stay within their destination, origin and drop renderers"
   assert.match(destination, /มาถึง[\s\S]*รอเริ่มลง/);
   assert.match(origin, /เริ่มโหลด[\s\S]*กำลังโหลดขึ้นรถ/);
   assert.match(drop, /ถึงจุดดรอป[\s\S]*เริ่มดำเนินการ[\s\S]*ออกต่อ/);
+});
+
+test("origin loading completion is never fabricated without Route state evidence", () => {
+  const origin = front.split("function renderOriginOperation(row)")[1].split("function renderDropOperation(row)")[0];
+  assert.match(origin, /const loadingComplete = !released && Number\(row\.unloadingState\) === 2/);
+  assert.match(origin, /const loading = !released && !loadingComplete/);
+  assert.match(origin, /loadingComplete \? "โหลดพัสดุขึ้นรถแล้ว" : "กำลังโหลดพัสดุขึ้นรถ"/);
+  assert.match(origin, /loadingComplete \? "รอปล่อยรถ" : loading \? "กำลังนำพัสดุออกจากคลัง"/);
+  assert.match(origin, /const released = Boolean\(departure\)/);
+  assert.doesNotMatch(origin, /attendanceType.*โหลดพัสดุขึ้นรถแล้ว|planned.*โหลดพัสดุขึ้นรถแล้ว|arrival.*โหลดพัสดุขึ้นรถแล้ว/);
+});
+
+test("completed operation card suppresses the external duplicate status pill", () => {
+  assert.match(front, /โหลดพัสดุลงรถเสร็จสิ้น/);
+  assert.match(style, /\.work-summary:has\(\.lower-operation\)>\.queue-label\{display:none\}/);
 });
 
 test("responsive completion UI adds no network, polling or horizontal overflow", () => {
@@ -122,6 +141,31 @@ test("operation presentation V4 is centered, responsive and group-specific", () 
   assert.match(visual, /@media\(max-width:430px\)/);
   assert.doesNotMatch(visual, /\.metric-card|\.ms-metrics|data-metric/);
   assert.doesNotMatch(visual, /fetch\(|apiGet\(|apiPost\(|setInterval\(/);
+});
+
+test("presentation correction V5 enforces readable type, neutral rows and motion safety", () => {
+  const visual = style.split("MS_PRESENTATION_STATE_CORRECTION_V5")[1];
+  assert.ok(visual, "presentation correction marker missing");
+  assert.match(visual, /tbody tr\.is-unloading[\s\S]*background:#fff/);
+  assert.match(visual, /tbody tr:hover td[\s\S]*background:#f4f8fa/);
+  assert.doesNotMatch(visual, /#fffdf5|#fff[0-9a-f]*d[0-9a-f]*|background:[^;}]*yellow/i);
+  assert.match(visual, /schedule-heading\{font-size:14px/);
+  assert.match(visual, /schedule-values b\{font-size:12px/);
+  assert.match(visual, /arrival-source-value[\s\S]*font-size:13px/);
+  assert.match(visual, /arrival-source-value[\s\S]*white-space:nowrap/);
+  assert.match(visual, /header>div>strong\{[^}]*font-size:14px/);
+  assert.match(visual, /operation-kpi>strong\{font-size:32px/);
+  assert.match(visual, /operation-stage b[^}]*font-size:12px/);
+  assert.match(visual, /operation-stage small\{font-size:12px/);
+  assert.match(visual, /@keyframes ms-operation-pulse/);
+  assert.match(visual, /lower-operation\.is-active[\s\S]*origin-operation\.is-loading/);
+  assert.match(visual, /@media\(prefers-reduced-motion:reduce\)/);
+  assert.doesNotMatch(visual, /\.metric-card|\.ms-metrics|data-metric|setInterval|requestAnimationFrame|fetch\(/);
+});
+
+test("operation copy uses title and subtitle rows without decorative middle dots", () => {
+  const operations = front.split("function operationHeader(icon, title, subtitle")[1].split("function renderOperation(row)")[0];
+  assert.doesNotMatch(operations, / · /);
 });
 
 test("Schedule S piggybacks on the existing BusTime response and coordinator", () => {

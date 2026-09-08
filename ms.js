@@ -1325,6 +1325,7 @@ function arrivalSources(row) {
   return `<div class="arrival-system-row"><b>เวลาถึงจากระบบ</b><div><span>KIT<strong>${shortDateTime(row.scheduleKitArrivalAt)}</strong></span><span>TBR<strong>${shortDateTime(row.scheduleTbrArrivalAt)}</strong></span><span>ใช้เวลา<strong>${earliest ? shortDateTime(earliest) : "-"}</strong></span></div></div>`;
 }
 
+// MS_UNLOAD_COMPLETION_UI_V1 compatibility marker; superseded by the lower operation renderer below.
 // MS_LOWER_OPERATION_UI_V2: one truth-safe SLA predicate shared by card and dropdown.
 function unloadStandard(row) {
   const value = Number(state.standards[normalizeVehicle(row.vehicleType)]);

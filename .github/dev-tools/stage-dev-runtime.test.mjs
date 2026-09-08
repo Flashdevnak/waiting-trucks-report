@@ -116,11 +116,13 @@ test("live Route window includes tomorrow so midnight does not hide arrived cros
 test("daily completed only counts an observed 0\/1 to 2 transition and daily views roll at Bangkok midnight", () => {
   const first = stageFrontend(frontendSource);
   const worker = stageWorker(workerSource);
-  assert.match(worker, /completionObservedLive:\s*Number\(item\.snapshot\?\.unloadingState\) === 2/);
-  assert.match(worker, /Boolean\(old\) &&\s*Number\(old\?\.unloadingState\) !== 2/);
+  assert.match(worker, /resolveUnloadingCompletedAt\(old, unloadingState, now\)/);
+  assert.match(worker, /completionObservedLive:\s*Boolean\(item\.snapshot\?\.unloadingCompletedAt\)/);
   assert.match(worker, /row\?\.completionObservedLive === true/);
   assert.match(worker, /item\.action !== "FIRST_SEEN" && item\.synced_by !== "MS_RANGE"/);
   assert.match(worker, /!completionCacheReady/);
+  assert.match(worker, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);
+  assert.match(worker, /MS_COMPLETION_ARCHIVE_TRUTH_V2/);
   assert.match(first, /state\.summary === "completed" \|\| state\.summary === "cancelled"/);
   assert.match(first, /state\.queue = "queue"/);
   assert.match(first, /resetLowerDailyViewOnBangkokDayChange\(\)/);
@@ -166,6 +168,9 @@ test("DEV staging still assembles all backend runtime patches from clean source"
   assert.match(worker, /DESTINATION_CANCEL_NOT_ALLOWED/);
   assert.match(worker, /planned across Bangkok midnight are already visible before 00:00/);
   assert.match(worker, /completion cache only trusts observed live unloading transitions/);
+  assert.match(worker, /MS_COMPLETION_TIME_TRUTH_V2/);
+  assert.match(worker, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);
+  assert.match(worker, /MS_COMPLETION_ARCHIVE_TRUTH_V2/);
   assert.match(worker, /MS_DAILY_HISTORY_V1: read-only daily history/);
 });
 
@@ -203,7 +208,6 @@ test("DEV tools empty-state is event-driven and cannot self-trigger an attribute
   assert.doesNotMatch(source, /new MutationObserver\(sync\)\.observe\(header/);
   assert.doesNotMatch(source, /attributeFilter:\['class','style','hidden'\]/);
 });
-
 
 
 test("DEV Proof connection exposes print HAR upload in the shared MS connection UI", async () => {

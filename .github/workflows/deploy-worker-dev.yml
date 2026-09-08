@@ -121,10 +121,11 @@ jobs:
 
           for(const marker of ['MS_DAILY_HISTORY_V1','pollMs: 4000','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
             if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
-          for(const marker of ['MS_DAILY_HISTORY_V1: read-only daily history','MS_QUOTA_SAFE_LIVE_V1','AUTH_SESSION_RESILIENCE_V1','AUTH_VERIFY_UNAVAILABLE','TBR_SHADOW_SPLIT_V2','TBR_ROUTE_OPERATING_WINDOW_V3','TBR_ROUTE_CHUNK_RETRY_V4','tbrShadowRouteRanges','readTbrRouteRangeWithRetry','todayStartBangkok - 86400000','todayStartBangkok + 86400000 - 1000'])
+          for(const marker of ['MS_DAILY_HISTORY_V1: read-only daily history','MS_QUOTA_SAFE_LIVE_V1','MS_COMPLETION_TIME_TRUTH_V2','MS_COMPLETION_DAILY_HISTORY_TRUTH_V2','MS_COMPLETION_ARCHIVE_TRUTH_V2','AUTH_SESSION_RESILIENCE_V1','AUTH_VERIFY_UNAVAILABLE','TBR_SHADOW_SPLIT_V2','TBR_ROUTE_OPERATING_WINDOW_V3','TBR_ROUTE_CHUNK_RETRY_V4','tbrShadowRouteRanges','readTbrRouteRangeWithRetry','todayStartBangkok - 86400000','todayStartBangkok + 86400000 - 1000'])
             if(!worker.includes(marker)) throw new Error(`staged worker missing ${marker}`);
           if(!worker.includes('upstreamMsCalls: 0')||!worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
-          if(!worker.includes('baselineRows: (currentCache || cache)?.rows || null')) throw new Error('live-cache baseline missing');
+          if(!worker.includes('const baselineCache = currentCache || cache')||!worker.includes('String(baselineCache?.sourceHash || "").startsWith("completion-v2:")')) throw new Error('completion-v2 live-cache baseline gate missing');
+          if(!worker.includes('resolveUnloadingCompletedAt(old, unloadingState, now)')||!worker.includes('ensureMsCompletionRepair')) throw new Error('completion truth resolver/repair missing');
           if(!front.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('compact HAR action marker missing');
           if(!originManifest.includes('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2')) throw new Error('origin manifest session replay marker missing');
           if(!originManifest.includes('requestHeaders.Cookie = credentials.cookie')||!originManifest.includes('requestHeaders.Authorization = credentials.authorization')) throw new Error('origin manifest exact HAR session replay missing');
@@ -156,6 +157,7 @@ jobs:
 
           console.log('STAGED_DAILY_HISTORY=PASS');
           console.log('STAGED_QUOTA_SAFE_LIVE=PASS');
+          console.log('STAGED_COMPLETION_TRUTH=PASS');
           console.log('STAGED_TBR_ROUTE_CHUNK_RETRY_V4=PASS');
           console.log('STAGED_DEV_HEADER_POLISH_V3=PASS');
           console.log('STAGED_HAR_SHARED_ENTRY=PASS');

@@ -19,145 +19,186 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply deterministic V3 repair
+      - name: Add permanent legacy completion burst guard
         run: |
-          node <<'NODE'
-          const fs=require('node:fs');
-          const patchPath='.github/dev-tools/patch-ms-daily-completion-observation.mjs';
-          let p=fs.readFileSync(patchPath,'utf8');
-          const mustReplace=(from,to,label)=>{
-            const count=p.split(from).length-1;
-            if(count!==1) throw new Error(`${label}: expected 1 anchor, got ${count}`);
-            p=p.replace(from,to);
-          };
+          cat > .github/dev-tools/patch-ms-completion-burst-v3.mjs <<'PATCH'
+          const MARKER = "MS_COMPLETION_BURST_TRUTH_V3";
+          export const LEGACY_COMPLETION_BURST_MIN_ROUTES = 8;
+          export const LEGACY_COMPLETION_BURST_MIN_SPREAD_MS = 60 * 60 * 1000;
+          export const LEGACY_COMPLETION_CONTINUOUS_CRON_AT = Date.parse("2026-09-08T12:39:00.000Z");
 
-          mustReplace(
-            'const COMPLETION_TRUTH_MARKER = "MS_COMPLETION_TIME_TRUTH_V2";\n',
-            `const COMPLETION_TRUTH_MARKER = "MS_COMPLETION_TIME_TRUTH_V2";\nconst COMPLETION_BURST_MARKER = "MS_COMPLETION_BURST_TRUTH_V3";\nconst FRONTEND_BURST_MARKER = "MS_COMPLETION_BURST_TRUTH_UI_V3";\nexport const LEGACY_COMPLETION_BURST_MIN_ROUTES = 8;\nexport const LEGACY_COMPLETION_BURST_MIN_SPREAD_MS = 60 * 60 * 1000;\nexport const LEGACY_COMPLETION_CONTINUOUS_CRON_AT = Date.parse("2026-09-08T12:39:00.000Z");\n\nexport function legacyCompletionBurstKeys(rows, options = {}) {\n  const minRoutes = Number(options.minRoutes) || LEGACY_COMPLETION_BURST_MIN_ROUTES;\n  const minSpreadMs = Number(options.minSpreadMs) || LEGACY_COMPLETION_BURST_MIN_SPREAD_MS;\n  const legacyBefore = Number(options.legacyBefore) || LEGACY_COMPLETION_CONTINUOUS_CRON_AT;\n  const groups = new Map();\n  for (const row of Array.isArray(rows) ? rows : []) {\n    const state = Number(row?.unloading_state ?? row?.unloadingState);\n    const completion = String(row?.unloading_completed_at ?? row?.unloadingCompletedAt ?? "");\n    const completionMs = Date.parse(completion);\n    const arrivalMs = Date.parse(String(row?.actual_arrival_at ?? row?.actualArrivalAt ?? ""));\n    const id = String(row?.id ?? row?.route_id ?? row?.proofId ?? "");\n    if (state !== 2 || !id || !Number.isFinite(completionMs) || !Number.isFinite(arrivalMs)) continue;\n    if (Number.isFinite(legacyBefore) && completionMs >= legacyBefore) continue;\n    const group = groups.get(completion) || { ids: new Set(), minArrival: Infinity, maxArrival: -Infinity };\n    group.ids.add(id);\n    group.minArrival = Math.min(group.minArrival, arrivalMs);\n    group.maxArrival = Math.max(group.maxArrival, arrivalMs);\n    groups.set(completion, group);\n  }\n  return new Set(\n    [...groups.entries()]\n      .filter(([, group]) =>\n        group.ids.size >= minRoutes &&\n        group.maxArrival - group.minArrival >= minSpreadMs\n      )\n      .map(([completion]) => completion),\n  );\n}\n`,
-            'add V3 burst classifier',
-          );
+          function replaceUnique(output, from, to, label) {
+            const first = output.indexOf(from);
+            const last = output.lastIndexOf(from);
+            if (first < 0 || first !== last)
+              throw new Error(`MS completion burst V3 patch failed: ${label}`);
+            return output.replace(from, to);
+          }
 
-          mustReplace(
-            '  return output;\n}\n\nexport function patchMsDailyCompletionObservationWorker(source) {',
-            `  if (!output.includes(FRONTEND_BURST_MARKER)) {\n    output = replaceUnique(\n      output,\n      \`function exportRow(row) {\`,\n      \`// \\${FRONTEND_BURST_MARKER}: legacy mass catch-up timestamps are observation artifacts, not real unload-finish times.\nconst LEGACY_COMPLETION_CONTINUOUS_CRON_AT = Date.parse("2026-09-08T12:39:00.000Z");\nfunction legacyCompletionBurstKeysUi(rows, minRoutes = 8, minSpreadMs = 60 * 60 * 1000) {\n  const groups = new Map();\n  for (const row of Array.isArray(rows) ? rows : []) {\n    const completion = String(row?.unloadingCompletedAt || "");\n    const completionMs = Date.parse(completion);\n    const arrivalMs = Date.parse(String(row?.actualArrivalAt || ""));\n    const id = String(row?.id || row?.proofId || "");\n    if (Number(row?.unloadingState) !== 2 || !id || !Number.isFinite(completionMs) || !Number.isFinite(arrivalMs)) continue;\n    if (completionMs >= LEGACY_COMPLETION_CONTINUOUS_CRON_AT) continue;\n    const group = groups.get(completion) || { ids: new Set(), minArrival: Infinity, maxArrival: -Infinity };\n    group.ids.add(id);\n    group.minArrival = Math.min(group.minArrival, arrivalMs);\n    group.maxArrival = Math.max(group.maxArrival, arrivalMs);\n    groups.set(completion, group);\n  }\n  return new Set([...groups.entries()]\n    .filter(([, group]) => group.ids.size >= minRoutes && group.maxArrival - group.minArrival >= minSpreadMs)\n    .map(([completion]) => completion));\n}\nfunction sanitizeLegacyCompletionBursts(rows) {\n  const list = Array.isArray(rows) ? rows : [];\n  const suspicious = legacyCompletionBurstKeysUi(list);\n  if (!suspicious.size) return list;\n  return list.map((row) => suspicious.has(String(row?.unloadingCompletedAt || ""))\n    ? { ...row, unloadingCompletedAt: "", completionObservedLive: false, completionTruth: "LEGACY_BURST_UNTRUSTED" }\n    : row);\n}\nfunction exportRow(row) {\`,\n      "add frontend legacy burst sanitizer",\n    );\n    output = replaceUnique(\n      output,\n      \`    state.currentRows = Array.isArray(result?.rows) ? result.rows : [];\`,\n      \`    state.currentRows = sanitizeLegacyCompletionBursts(Array.isArray(result?.rows) ? result.rows : []);\`,\n      "sanitize live rows before render/export",\n    );\n    output = output.replaceAll(\n      \`      state.archiveRows = archiveRows;\`,\n      \`      state.archiveRows = sanitizeLegacyCompletionBursts(archiveRows);\`,\n    );\n    output = output.replaceAll(\n      \`    state.archiveRows = rows;\`,\n      \`    state.archiveRows = sanitizeLegacyCompletionBursts(rows);\`,\n    );\n    output = output.replaceAll(\n      \`      state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];\`,\n      \`      state.archiveRows = sanitizeLegacyCompletionBursts(Array.isArray(archive?.rows) ? archive.rows : []);\`,\n    );\n  }\n\n  return output;\n}\n\nexport function patchMsDailyCompletionObservationWorker(source) {`,
-            'wire frontend burst sanitizer',
-          );
+          export function hasLegacyCompletionBurstRows(rows, options = {}) {
+            const minRoutes = Number(options.minRoutes) || LEGACY_COMPLETION_BURST_MIN_ROUTES;
+            const minSpreadMs = Number(options.minSpreadMs) || LEGACY_COMPLETION_BURST_MIN_SPREAD_MS;
+            const legacyBefore = Number(options.legacyBefore) || LEGACY_COMPLETION_CONTINUOUS_CRON_AT;
+            const groups = new Map();
+            for (const row of Array.isArray(rows) ? rows : []) {
+              const completion = String(row?.unloadingCompletedAt ?? row?.unloading_completed_at ?? "");
+              const completionMs = Date.parse(completion);
+              const arrivalMs = Date.parse(String(row?.actualArrivalAt ?? row?.actual_arrival_at ?? ""));
+              const id = String(row?.id ?? row?.route_id ?? row?.proofId ?? "");
+              if (!id || !Number.isFinite(completionMs) || !Number.isFinite(arrivalMs)) continue;
+              if (completionMs >= legacyBefore) continue;
+              const group = groups.get(completion) || { ids: new Set(), minArrival: Infinity, maxArrival: -Infinity };
+              group.ids.add(id);
+              group.minArrival = Math.min(group.minArrival, arrivalMs);
+              group.maxArrival = Math.max(group.maxArrival, arrivalMs);
+              groups.set(completion, group);
+            }
+            return [...groups.values()].some(
+              (group) => group.ids.size >= minRoutes && group.maxArrival - group.minArrival >= minSpreadMs,
+            );
+          }
 
-          // Bump the one-time repair gate so already-versioned V2 caches are repaired again exactly once.
-          p=p.replaceAll('const MS_LIVE_CACHE_VERSION = "completion-v2";', 'const MS_LIVE_CACHE_VERSION = "completion-v3";');
+          export function patchMsCompletionBurstWorker(source) {
+            let output = String(source || "");
+            if (output.includes(MARKER)) return output;
 
-          mustReplace(
-            'async function verifiedCompletionRouteIds(env, hub) {',
-            `// \\${COMPLETION_BURST_MARKER}: V2 could trust a mass catch-up poll as if every truck truly finished at the same instant.\nfunction legacyCompletionBurstKeysWorker(rows) {\n  const groups = new Map();\n  const legacyBefore = Date.parse("2026-09-08T12:39:00.000Z");\n  for (const row of Array.isArray(rows) ? rows : []) {\n    const completion = String(row?.unloading_completed_at || "");\n    const completionMs = Date.parse(completion);\n    const arrivalMs = Date.parse(String(row?.actual_arrival_at || ""));\n    const id = String(row?.id || "");\n    if (!id || !Number.isFinite(completionMs) || !Number.isFinite(arrivalMs)) continue;\n    if (completionMs >= legacyBefore) continue;\n    const group = groups.get(completion) || { ids: new Set(), minArrival: Infinity, maxArrival: -Infinity };\n    group.ids.add(id);\n    group.minArrival = Math.min(group.minArrival, arrivalMs);\n    group.maxArrival = Math.max(group.maxArrival, arrivalMs);\n    groups.set(completion, group);\n  }\n  return new Set([...groups.entries()]\n    .filter(([, group]) => group.ids.size >= 8 && group.maxArrival - group.minArrival >= 60 * 60 * 1000)\n    .map(([completion]) => completion));\n}\n\nasync function verifiedCompletionRouteIds(env, hub) {`,
-            'add worker burst classifier',
-          );
+            output = replaceUnique(
+              output,
+              `async function runMsRefresh(env, branch) {`,
+              `// ${MARKER}: legacy mass catch-up observations are not authoritative unload-finish times.\nfunction hasLegacyCompletionBurstRows(rows) {\n  const groups = new Map();\n  const legacyBefore = Date.parse("2026-09-08T12:39:00.000Z");\n  for (const row of Array.isArray(rows) ? rows : []) {\n    const completion = String(row?.unloadingCompletedAt ?? row?.unloading_completed_at ?? "");\n    const completionMs = Date.parse(completion);\n    const arrivalMs = Date.parse(String(row?.actualArrivalAt ?? row?.actual_arrival_at ?? ""));\n    const id = String(row?.id ?? row?.route_id ?? row?.proofId ?? "");\n    if (!id || !Number.isFinite(completionMs) || !Number.isFinite(arrivalMs)) continue;\n    if (completionMs >= legacyBefore) continue;\n    const group = groups.get(completion) || { ids: new Set(), minArrival: Infinity, maxArrival: -Infinity };\n    group.ids.add(id);\n    group.minArrival = Math.min(group.minArrival, arrivalMs);\n    group.maxArrival = Math.max(group.maxArrival, arrivalMs);\n    groups.set(completion, group);\n  }\n  return [...groups.values()].some((group) =>\n    group.ids.size >= 8 && group.maxArrival - group.minArrival >= 60 * 60 * 1000\n  );\n}\n\nasync function runMsRefresh(env, branch) {`,
+              "add legacy burst classifier",
+            );
 
-          mustReplace(
-            `    const verified = await verifiedCompletionRouteIds(env, hub);\n    const polluted = (\n      await env.DB.prepare(\n        "SELECT id FROM ms_routes WHERE hub=? AND unloading_state=2 AND COALESCE(unloading_completed_at,'')<>''",\n      ).bind(hub).all()\n    ).results\n      .map((row) => String(row.id || ""))\n      .filter((id) => id && !verified.has(id));`,
-            `    const verified = await verifiedCompletionRouteIds(env, hub);\n    const candidates = (\n      await env.DB.prepare(\n        "SELECT id,unloading_completed_at,actual_arrival_at FROM ms_routes WHERE hub=? AND unloading_state=2 AND COALESCE(unloading_completed_at,'')<>''",\n      ).bind(hub).all()\n    ).results || [];\n    const burstKeys = legacyCompletionBurstKeysWorker(candidates);\n    const polluted = candidates\n      .filter((row) => {\n        const id = String(row.id || "");\n        return id && (!verified.has(id) || burstKeys.has(String(row.unloading_completed_at || "")));\n      })\n      .map((row) => String(row.id || ""));`,
-            'clear verified-looking legacy mass catch-up timestamps',
-          );
+            output = replaceUnique(
+              output,
+              `    let cache = await readMsLiveCache(env, branch, sourceHash);`,
+              `    let cache = await readMsLiveCache(env, branch, sourceHash);\n    // A V2 cache containing a proven legacy catch-up burst must not short-circuit repair.\n    if (cache?.sourceMatch && hasLegacyCompletionBurstRows(cache?.rows))\n      cache = { ...cache, sourceMatch: false, legacyCompletionBurst: true };`,
+              "force source-match cache through repair",
+            );
 
-          fs.writeFileSync(patchPath,p);
-          NODE
+            output = replaceUnique(
+              output,
+              `                  String(baselineCache?.sourceHash || "").startsWith("completion-v2:")\n                    ? baselineCache?.rows || null\n                    : null,`,
+              `                  String(baselineCache?.sourceHash || "").startsWith("completion-v2:") &&\n                  !hasLegacyCompletionBurstRows(baselineCache?.rows)\n                    ? baselineCache?.rows || null\n                    : null,`,
+              "reject polluted V2 cache as diff baseline",
+            );
 
-          node <<'NODE'
-          const fs=require('node:fs');
-          (async()=>{
-            const mod=await import(process.cwd()+'/.github/dev-tools/patch-ms-daily-completion-observation.mjs?fix='+Date.now());
-            const path='ms.js';
-            const src=fs.readFileSync(path,'utf8');
-            const out=mod.patchMsDailyCompletionObservationFrontend(src);
-            if(!out.includes('MS_COMPLETION_BURST_TRUTH_UI_V3')) throw new Error('production frontend V3 marker missing');
-            if(!out.includes('sanitizeLegacyCompletionBursts')) throw new Error('production frontend sanitizer missing');
-            fs.writeFileSync(path,out);
-          })().catch(e=>{console.error(e);process.exit(1)});
-          NODE
+            output = replaceUnique(
+              output,
+              `async function verifiedCompletionRouteIds(env, hub) {\n  const result = await env.DB.prepare(\n    \`SELECT DISTINCT h2.route_id`,
+              `async function verifiedCompletionRouteIds(env, hub) {\n  const legacyBursts = await env.DB.prepare(\n    \`SELECT json_extract(payload_json,'$.unloadingCompletedAt') AS completion_at,\n            COUNT(DISTINCT route_id) AS route_count,\n            MIN(json_extract(payload_json,'$.actualArrivalAt')) AS min_arrival,\n            MAX(json_extract(payload_json,'$.actualArrivalAt')) AS max_arrival\n       FROM ms_route_history\n      WHERE hub=?\n        AND json_valid(payload_json)=1\n        AND COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'')<>''\n        AND json_extract(payload_json,'$.unloadingCompletedAt')<'2026-09-08T12:39:00.000Z'\n      GROUP BY json_extract(payload_json,'$.unloadingCompletedAt')\n      HAVING COUNT(DISTINCT route_id)>=8\`,\n  ).bind(hub).all();\n  const legacyBurstKeys = new Set(\n    (legacyBursts.results || [])\n      .filter((row) => {\n        const min = Date.parse(String(row.min_arrival || ""));\n        const max = Date.parse(String(row.max_arrival || ""));\n        return Number.isFinite(min) && Number.isFinite(max) && max - min >= 60 * 60 * 1000;\n      })\n      .map((row) => String(row.completion_at || ""))\n      .filter(Boolean),\n  );\n  const result = await env.DB.prepare(\n    \`SELECT DISTINCT h2.route_id,json_extract(h2.payload_json,'$.unloadingCompletedAt') AS completion_at`,
+              "exclude strong legacy burst timestamps from verified transitions",
+            );
+
+            output = replaceUnique(
+              output,
+              `  return new Set((result.results || []).map((row) => String(row.route_id || "")).filter(Boolean));`,
+              `  return new Set(\n    (result.results || [])\n      .filter((row) => !legacyBurstKeys.has(String(row.completion_at || "")))\n      .map((row) => String(row.route_id || ""))\n      .filter(Boolean),\n  );`,
+              "remove burst route ids from completion truth",
+            );
+
+            output = replaceUnique(
+              output,
+              `  if (!String(cache?.source_hash || "").startsWith(MS_LIVE_CACHE_VERSION + ":")) {`,
+              `  // Re-evaluate once per Worker lifetime even when V2 cache already exists; V2 could\n  // misclassify a catch-up poll after a long browser-off gap as a real transition.\n  if (!completionRepairChecked.has(hub)) {`,
+              "re-run repair for V2-era polluted rows",
+            );
+
+            return output;
+          }
+          PATCH
 
           cat > .github/dev-tools/ms-completion-burst-truth.test.mjs <<'TEST'
           import assert from "node:assert/strict";
           import { readFile } from "node:fs/promises";
           import test from "node:test";
           import {
-            legacyCompletionBurstKeys,
-            patchMsDailyCompletionObservationFrontend,
-          } from "./patch-ms-daily-completion-observation.mjs";
+            hasLegacyCompletionBurstRows,
+            patchMsCompletionBurstWorker,
+          } from "./patch-ms-completion-burst-v3.mjs";
+          import { stageWorker } from "./stage-dev-runtime.mjs";
 
           const completion = "2026-09-08T06:29:19.777Z";
-          const rows = Array.from({ length: 19 }, (_, i) => ({
-            id: `EA2-${i}`,
+          const ea2 = Array.from({ length: 19 }, (_, index) => ({
+            id: `EA2-${index}`,
             unloadingState: 2,
             unloadingCompletedAt: completion,
-            actualArrivalAt: new Date(Date.parse("2026-09-07T14:34:19.743Z") + i * 45 * 60 * 1000).toISOString(),
+            actualArrivalAt: new Date(Date.parse("2026-09-07T14:34:19.743Z") + index * 45 * 60 * 1000).toISOString(),
           }));
 
-          test("EA2-style 19-route 13:29 catch-up burst is rejected as completion truth", () => {
-            assert.deepEqual([...legacyCompletionBurstKeys(rows)], [completion]);
+          test("EA2 13:29 mass catch-up is classified as legacy observation artifact", () => {
+            assert.equal(hasLegacyCompletionBurstRows(ea2), true);
           });
 
-          test("small same-poll groups stay intact to avoid over-correcting legitimate transitions", () => {
-            const small = rows.slice(0, 5).map((row, i) => ({
+          test("small close-together groups are not guessed away", () => {
+            const rows = ea2.slice(0, 5).map((row, index) => ({
               ...row,
-              id: `SMALL-${i}`,
-              actualArrivalAt: new Date(Date.parse("2026-09-07T13:26:00Z") + i * 5 * 60 * 1000).toISOString(),
+              id: `SMALL-${index}`,
+              actualArrivalAt: new Date(Date.parse("2026-09-07T13:26:00Z") + index * 5 * 60 * 1000).toISOString(),
             }));
-            assert.equal(legacyCompletionBurstKeys(small).size, 0);
+            assert.equal(hasLegacyCompletionBurstRows(rows), false);
           });
 
-          test("continuous-cron era completion groups are never classified as legacy catch-up", () => {
-            const current = rows.map((row, i) => ({
+          test("post continuous-cron observations are never treated as legacy bursts", () => {
+            const rows = ea2.map((row, index) => ({
               ...row,
-              id: `CURRENT-${i}`,
+              id: `CURRENT-${index}`,
               unloadingCompletedAt: "2026-09-08T13:30:00.000Z",
             }));
-            assert.equal(legacyCompletionBurstKeys(current).size, 0);
+            assert.equal(hasLegacyCompletionBurstRows(rows), false);
           });
 
-          test("production ms.js permanently sanitizes burst timestamps before render and export", async () => {
-            const source = await readFile(new URL("../../ms.js", import.meta.url), "utf8");
-            assert.ok(source.includes("MS_COMPLETION_BURST_TRUTH_UI_V3"));
-            assert.ok(source.includes("sanitizeLegacyCompletionBursts"));
-            assert.equal(patchMsDailyCompletionObservationFrontend(source), source);
+          test("staged worker rejects polluted cache baseline and excludes burst history from truth", async () => {
+            const root = new URL("../../", import.meta.url);
+            const source = await readFile(new URL("worker/src/index.js", root), "utf8");
+            const staged = stageWorker(source);
+            assert.match(staged, /MS_COMPLETION_BURST_TRUTH_V3/);
+            assert.match(staged, /legacyCompletionBurst/);
+            assert.match(staged, /!hasLegacyCompletionBurstRows\(baselineCache\?\.rows\)/);
+            assert.match(staged, /COUNT\(DISTINCT route_id\)>=8/);
+            assert.match(staged, /legacyBurstKeys\.has/);
+            assert.match(staged, /startsWith\("completion-v2:"\)/);
+            assert.equal(patchMsCompletionBurstWorker(staged), staged);
           });
           TEST
 
           node <<'NODE'
           const fs=require('node:fs');
-          const path='.github/workflows/deploy-worker-dev.yml';
-          let s=fs.readFileSync(path,'utf8');
-          const anchor='      - run: node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs\n';
-          if(!s.includes('ms-completion-burst-truth.test.mjs')){
-            if((s.split(anchor).length-1)!==1) throw new Error('deploy test anchor mismatch');
-            s=s.replace(anchor,anchor+'      - run: node --test ../.github/dev-tools/ms-completion-burst-truth.test.mjs\n');
+          const path='.github/dev-tools/stage-dev-runtime.mjs';
+          let text=fs.readFileSync(path,'utf8');
+          const importAnchor='import { patchMsCompletedViewStabilityFrontend } from "./patch-ms-completed-view-stability.mjs";';
+          if(!text.includes('patchMsCompletionBurstWorker')){
+            if((text.split(importAnchor).length-1)!==1) throw new Error('V3 import anchor mismatch');
+            text=text.replace(importAnchor,'import { patchMsCompletionBurstWorker } from "./patch-ms-completion-burst-v3.mjs";\n'+importAnchor);
+            const workerAnchor='  output = patchMsQuotaSafeLiveWorker(output);\n  output = patchMsTbrShadowFeedWorker(output);';
+            if((text.split(workerAnchor).length-1)!==1) throw new Error('V3 worker stage anchor mismatch');
+            text=text.replace(workerAnchor,'  output = patchMsQuotaSafeLiveWorker(output);\n  output = patchMsCompletionBurstWorker(output);\n  output = patchMsTbrShadowFeedWorker(output);');
           }
-          fs.writeFileSync(path,s);
+          fs.writeFileSync(path,text);
           NODE
 
           node <<'NODE'
           const fs=require('node:fs');
-          const path='.github/workflows/current-system-acceptance.yml';
-          let s=fs.readFileSync(path,'utf8');
-          const anchor="              if(!js.includes('const preserveObservedCompletion =')) throw new Error(`${name} completed view stability missing`);";
-          if(!s.includes('completion burst truth V3 missing')){
-            if((s.split(anchor).length-1)!==1) throw new Error('acceptance marker anchor mismatch');
-            s=s.replace(anchor,anchor+"\n              if(!js.includes('MS_COMPLETION_BURST_TRUTH_UI_V3')) throw new Error(`${name} completion burst truth V3 missing`);");
-          }
-          fs.writeFileSync(path,s);
+          const path='worker/package.json';
+          const pkg=JSON.parse(fs.readFileSync(path,'utf8'));
+          const command='node --test ../.github/dev-tools/ms-completion-burst-truth.test.mjs';
+          if(!pkg.scripts.check.includes(command)) pkg.scripts.check += ' && '+command;
+          fs.writeFileSync(path,JSON.stringify(pkg,null,2)+'\n');
           NODE
 
-          node --check ms.js
+          node --check .github/dev-tools/patch-ms-completion-burst-v3.mjs
+          node --check .github/dev-tools/stage-dev-runtime.mjs
           node --test .github/dev-tools/ms-completion-burst-truth.test.mjs
           cd worker
           npm ci
           npm run check
+          node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
           node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
-          node --test ../.github/dev-tools/ms-completion-burst-truth.test.mjs
 
-      - name: Commit verified fix-forward changes
+      - name: Commit tested V3 code only
         run: |
           git config user.name "Flashdevnak"
           git config user.email "26nak.testdev@gmail.com"
-          git rm .github/workflows/fix-completion-burst-v3.yml
-          git add ms.js .github/dev-tools/patch-ms-daily-completion-observation.mjs .github/dev-tools/ms-completion-burst-truth.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/current-system-acceptance.yml
+          git add .github/dev-tools/patch-ms-completion-burst-v3.mjs .github/dev-tools/ms-completion-burst-truth.test.mjs .github/dev-tools/stage-dev-runtime.mjs worker/package.json
           git commit -m "Reject legacy mass catch-up completion timestamps"
           git push origin main

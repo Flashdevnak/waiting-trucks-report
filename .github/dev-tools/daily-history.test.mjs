@@ -52,13 +52,16 @@ test("worker daily history is read-only Turso history and never refreshes upstre
   assert.match(dailyArchive, /31 \* 86400000/);
 });
 
-test("daily history UI and cache release are current", () => {
+test("daily history UI release and owner live SW patch are current", () => {
   assert.match(html, /รายการรายวัน/);
   assert.match(html, /วันนี้ หรือช่วงวันที่ที่กดค้นหา/);
   assert.match(html, /Export ช่วงวันที่/);
   assert.match(html, /ms\.js\?v=20260904-01/);
-  assert.match(sw, /VERSION="20260904-01"/);
   assert.equal(version.version, "20260904-01");
+  // The base frontend release stays 20260904-01. The service worker has its own
+  // cache-busting revision because it carries the lower-section live presentation patch.
+  assert.match(sw, /VERSION="20260909-02"/);
+  assert.match(sw, /MS_OWNER_LIVE_FIX_V8/);
 });
 
 test("daily history read index is present", () => {

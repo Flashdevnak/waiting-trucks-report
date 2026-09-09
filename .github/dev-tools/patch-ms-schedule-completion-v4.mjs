@@ -5,16 +5,8 @@ function replaceUnique(output, from, to, label) {
   return output.replace(from, to);
 }
 
-function replaceCount(output, from, to, expected, label) {
-  const parts = output.split(from);
-  const count = parts.length - 1;
-  if (count !== expected)
-    throw new Error(`MS Schedule completion V4 patch failed: ${label} (expected ${expected}, got ${count})`);
-  return parts.join(to);
-}
-
 const SCHEDULE_MARKER = "MS_SCHEDULE_COMPLETION_TRUTH_V4";
-const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_0700_V1";
+const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
 
 export function patchMsScheduleCompletionV4(source) {
   let output = String(source || "");
@@ -62,54 +54,8 @@ export function patchMsScheduleCompletionV4(source) {
   }
 
   if (output.includes(`// ${DAILY_COUNTS_MARKER}: staged worker`)) return output;
-
-  output = replaceUnique(
-    output,
-    `function thaiDayForValue(value) {
-  const dateValue = new Date(value || "");
-  if (Number.isNaN(dateValue.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(dateValue);`,
-    `function thaiDayForValue(value) {
-  const dateValue = new Date(value || "");
-  if (Number.isNaN(dateValue.getTime())) return "";
-  // ${DAILY_COUNTS_MARKER}: Lower operational day rolls at 07:00 Bangkok, not midnight.
-  const operatingDateValue = new Date(dateValue.getTime() - 7 * 60 * 60 * 1000);
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(operatingDateValue);`,
-    "shift lower daily completion key to 07:00",
-  );
-
-  output = replaceCount(
-    output,
-    `const completedDay = thaiDay();`,
-    `const completedDay = thaiDayForValue(new Date());`,
-    1,
-    "refresh completion operating-day key",
-  );
-
-  output = replaceCount(
-    output,
-    `const day = thaiDay();`,
-    `const day = thaiDayForValue(new Date());`,
-    1,
-    "completed endpoint operating-day key",
-  );
-
-  output = replaceUnique(
-    output,
-    `const start = new Date(\`${"${day}T00:00:00+07:00"}\`).toISOString();`,
-    `const start = new Date(\`${"${day}T07:00:00+07:00"}\`).toISOString();`,
-    "completion bootstrap starts at 07:00",
-  );
+  if (output.includes("MS_LOWER_DAILY_COUNTS_0700_V1"))
+    throw new Error("MS lower daily worker counts must reset at Bangkok midnight, not 07:00");
 
   output = replaceUnique(
     output,
@@ -136,8 +82,8 @@ export function patchMsScheduleCompletionV4(source) {
 async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {`,
     `async function readMsCancelledToday(env, actor, hub) {
   if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
-  const day = thaiDayForValue(new Date());
-  const start = new Date(\`${"${day}T07:00:00+07:00"}\`).toISOString();
+  const day = thaiDay();
+  const start = new Date(\`${"${day}T00:00:00+07:00"}\`).toISOString();
   const end = new Date(Date.parse(start) + 86400000).toISOString();
   const row = await env.DB.prepare(
     "SELECT COUNT(*) AS total FROM ms_route_cancellations WHERE hub=? AND cancelled_at>=? AND cancelled_at<?",
@@ -147,10 +93,10 @@ async function markConnectionSuccess(env, table, hub, now = new Date().toISOStri
   return { hub, day, total: Number(row?.total) || 0 };
 }
 
-// ${DAILY_COUNTS_MARKER}: staged worker exposes lower daily facts without extra MS polling.
+// ${DAILY_COUNTS_MARKER}: staged worker exposes lower daily facts and resets them at Bangkok midnight.
 // completion cache only trusts observed live unloading transitions
 async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {`,
-    "add authoritative cancelled operating-day count",
+    "add authoritative cancelled calendar-day count",
   );
 
   return output;

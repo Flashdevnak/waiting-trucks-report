@@ -21,7 +21,9 @@ jobs:
           node-version: 22
 
       - name: Patch lower completed source
-        run: node .github/dev-tools/fix-lower-completed-current-day-v1.mjs
+        run: |
+          node .github/dev-tools/fix-lower-completed-current-day-v1.mjs
+          node .github/dev-tools/fix-lower-numeric-zero-staging-v1.mjs
 
       - name: Run lower completion regression
         run: |
@@ -44,8 +46,8 @@ jobs:
           fi
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
-          git add ms.js .github/dev-tools/ms-unload-completion-ui.test.mjs
+          git add ms.js .github/dev-tools/ms-unload-completion-ui.test.mjs .github/dev-tools/patch-ms-completed-view-stability.mjs
           git commit -m 'fix: align lower completed with accepted daily truth'
           git push origin HEAD:main
 
-# rerun-v2: preserve trusted Schedule staging marker while lower count mirrors frozen upper
+# rerun-v3: current-day completed truth plus numeric-zero lower cards

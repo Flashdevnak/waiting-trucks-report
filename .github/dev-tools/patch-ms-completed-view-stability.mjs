@@ -9,6 +9,7 @@ function replaceUnique(output, from, to, label) {
 const FRONTEND_MARKER = "const preserveObservedCompletion =";
 const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
 const SLA_EARLIEST_MARKER = "MS_SLA_EARLIEST_ARRIVAL_V2";
+const TRUSTED_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
 
 export function patchMsCompletedViewStabilityFrontend(source) {
   let output = String(source || "");
@@ -40,6 +41,15 @@ export function patchMsCompletedViewStabilityFrontend(source) {
       `    const slaRange = done ? "Route ถึงจริง → ลงเสร็จจริง" : "Route ถึงจริง → เวลาปัจจุบัน";`,
       `    const slaRange = done ? "เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง" : "เวลาถึงที่เร็วที่สุด → เวลาปัจจุบัน";`,
       "show SLA range truth",
+    );
+  }
+
+  if (!output.includes(TRUSTED_SCHEDULE_MARKER)) {
+    output = replaceUnique(
+      output,
+      `  if (row.completionObservedLive === false) return false;`,
+      `  // ${TRUSTED_SCHEDULE_MARKER}: safely matched Schedule E is accepted completion truth too.\n  if (row.completionObservedLive === false && row.completionSource !== "SCHEDULE") return false;`,
+      "daily completed card accepts trusted Schedule E",
     );
   }
 

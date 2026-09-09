@@ -1,4 +1,4 @@
-const VERSION = "20260909-04-overtime-snapshot";
+const VERSION = "20260909-05-classic-lower";
 
 // The approved lower-card/table presentation lives in first-class frontend assets.
 // Keep the service worker limited to freshness; do not inject runtime UI patches.

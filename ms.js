@@ -45,6 +45,7 @@ let completedTodayHydratedKey = "";
 let completedTodayHydratedLiveTotal = -1;
 let completedTodayNeedsRefresh = false;
 let completedTodayRetryAt = 0;
+let completedTodayZeroProbedKey = "";
 const el = (id) => document.getElementById(id);
 const nf = new Intl.NumberFormat("th-TH");
 const dtf = new Intl.DateTimeFormat("th-TH", {
@@ -322,6 +323,16 @@ async function loadData(silent = false) {
         ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
         : `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
     render();
+    const zeroProbeKey = completedTodayDatasetKey();
+    if (state.completedToday === 0 && completedTodayZeroProbedKey !== zeroProbeKey) {
+      completedTodayZeroProbedKey = zeroProbeKey;
+      const probeBranch = state.branch;
+      void loadCompletedTodayRows(true)
+        .then(() => {
+          if (state.auth && state.branch === probeBranch) render();
+        })
+        .catch(() => {});
+    }
     if (shouldHydrateCompletedTodayRows()) {
       const hydrationBranch = state.branch;
       void loadCompletedTodayRows(false)
@@ -617,6 +628,11 @@ function attendanceLabel(row) {
   if (isDrop(row)) return "เข้าจุดดรอป";
   return "รอออกจากคลัง";
 }
+function attendanceWorkLabel(row) {
+  if (isDestination(row)) return "เข้า · ปลายทาง";
+  if (isDrop(row)) return "ผ่าน · จุดดรอป";
+  return "ออก · ต้นทาง";
+}
 function punctuality(row) {
   const incoming = isDestination(row) || isDrop(row),
     plan = parseDate(
@@ -669,7 +685,7 @@ function scheduleSection(row, mode) {
   const incoming = mode === "arrival";
   const plan = incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt;
   const actual = incoming
-    ? row.actualArrivalAt
+    ? confirmedEffectiveArrival(row)
     : row.actualDepartureAt;
   // The arrival card presents Route truth. KIT/TBR remain advisory in the
   // three-column footer and never replace the actual-arrival value here.
@@ -1179,6 +1195,7 @@ async function loadCompletedTodayRows(force = false) {
   return promise;
 }
 
+// MS_LOWER_CLASSIC_V12: Owner-approved six-card lower summary on current data truth.
 function renderFilterSummary(rows) {
   el("filter-summary").classList.remove("hidden");
   const counts = {
@@ -1189,40 +1206,33 @@ function renderFilterSummary(rows) {
       : Number(state.completedToday) || 0,
     origin: 0,
     drop: 0,
-    cancelled: 0,
-    unloadOvertime: 0,
   };
   for (const row of rows) {
     const key = routeState(row).key;
     const queue = queueInfo(row);
     if (isDestination(row) && key === "arrived") counts.waiting++;
     if (isDestination(row) && key === "unloading") counts.unloading++;
-    // DEV: completed is a daily HUB total supplied by the lightweight live cache.
     if (isOrigin(row) && !queue.done && !queue.cancelled) counts.origin++;
     if (isDrop(row) && !queue.done && !queue.cancelled) counts.drop++;
   }
-  counts.cancelled = state.currentRows.filter(
-    (row) => queueInfo(row).cancelled && isCancelledToday(row),
-  ).length;
-  counts.unloadOvertime = completedTodayOvertimeRows().length;
+  const completedDisplay = completedTodayDatasetReady()
+    ? nf.format(counts.completed)
+    : "…";
   el("filter-summary").innerHTML = `
-    <button type="button" class="summary-all ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all">${operationIcon("truck")}<span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
-    <button type="button" class="summary-wait ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting">${operationIcon("clock")}<span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
-    <button type="button" class="summary-work ${state.summary === "unloading" ? "is-active" : ""}" data-summary-status="unloading">${operationIcon("package")}<span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
-    <button type="button" class="summary-done ${state.summary === "completed" ? "is-active" : ""}" data-summary-status="completed">${operationIcon("check")}<span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
-    <button type="button" class="summary-origin ${state.summary === "origin" ? "is-active" : ""}" data-summary-status="origin">${operationIcon("truck")}<span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
-    <button type="button" class="summary-overtime ${state.summary === "unload-overtime" ? "is-active" : ""}" data-summary-status="unload-overtime">${operationIcon("alert")}<span>ลงรถเกินเวลา</span><strong>${completedTodayDatasetReady() ? nf.format(counts.unloadOvertime) : "…"}</strong></button>
-    <button type="button" class="summary-drop ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop">${operationIcon("pin")}<span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>
-    <button type="button" class="summary-cancelled ${state.summary === "cancelled" ? "is-active" : ""}" data-summary-status="cancelled">${operationIcon("alert")}<span>ยกเลิกรถแล้ว</span><strong>${nf.format(counts.cancelled)}</strong></button>`;
+    <button type="button" class="summary-all ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all"><span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
+    <button type="button" class="summary-wait ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
+    <button type="button" class="summary-work ${state.summary === "unloading" ? "is-active" : ""}" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
+    <button type="button" class="summary-done ${state.summary === "completed" ? "is-active" : ""}" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${completedDisplay}</strong></button>
+    <button type="button" class="summary-origin ${state.summary === "origin" ? "is-active" : ""}" data-summary-status="origin"><span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
+    <button type="button" class="summary-drop ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>`;
   el("filter-summary")
     .querySelectorAll("button")
     .forEach((button) => {
       button.onclick = async () => {
         const value = button.dataset.summaryStatus;
-        if (value === "completed" || value === "unload-overtime") {
+        if (value === "completed") {
           try {
             await loadCompletedTodayRows(true);
-            if (value === "completed") {
             state.query = "";
             state.dateFrom = "";
             state.dateTo = "";
@@ -1239,7 +1249,6 @@ function renderFilterSummary(rows) {
             el("region-filter").value = "all";
             el("route-filter").value = "all";
             el("status-filter").value = "all";
-            }
             state.archiveView = true;
             state.queue = "all";
             el("queue-filter").value = "all";
@@ -1247,10 +1256,6 @@ function renderFilterSummary(rows) {
             toast(`โหลดรายการลงรถเสร็จวันนี้ไม่สำเร็จ: ${error.message}`, true);
             return;
           }
-        } else if (value === "cancelled") {
-          state.archiveView = false;
-          state.queue = "all";
-          el("queue-filter").value = "all";
         } else {
           state.archiveView = false;
           state.queue = "queue";
@@ -1536,149 +1541,49 @@ function matchesOvertimeContext(row) {
     (state.route === "all" || row.routeType === state.route);
 }
 
-function operationIcon(kind) {
-  const paths = {
-    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-    package: '<path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="M4 7v10l8 4 8-4V7M12 11v10"/>',
-    check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
-    truck: '<path d="M3 7h10v9H3zM13 10h4l4 4v2h-8z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
-    pin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',
-    loading: '<path d="M3 8h9v8H3zM12 11h4l3 3v2h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="16" cy="18" r="2"/><path d="M8 5h5v4H8zM20 4v6m-3-3 3 3 3-3"/>',
-    unload: '<path d="M3 7h10v9H3zM13 10h4l4 4v2h-8z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M18 3v6m-3-3 3 3 3-3"/>',
-    release: '<path d="M3 8h10v8H3zM13 11h4l3 3v2h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M15 5h7m-3-3 3 3-3 3"/>',
-    worker: '<circle cx="7" cy="5" r="2"/><path d="M5 9h4l2 3 3-1 1 2-5 2-2-3v8M5 10l-2 5"/><path d="M15 8h6v7h-6zM18 8V6M15 11h6"/>',
-    warehouse: '<path d="m3 10 9-6 9 6v10H3z"/><path d="M7 13h10v7H7zM9 16h6"/>',
-    alert: '<path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17h.01"/>',
-  };
-  return `<svg class="operation-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[kind] || paths.clock}</svg>`;
-}
-
-function operationTimeline(stages, activeIndex) {
-  return `<div class="operation-timeline stages-${stages.length}">${stages.map((stage, index) => `<span class="operation-stage ${index < activeIndex ? "is-done" : index === activeIndex ? "is-active" : "is-next"}">${operationIcon(stage.icon)}<b>${stage.label}</b><small>${stage.value}</small></span>`).join('<i aria-hidden="true"></i>')}</div>`;
-}
-
-function operationHeader(icon, title, subtitle = "") {
-  return `<header>${operationIcon(icon)}<div><strong>${title}</strong>${subtitle ? `<span>${subtitle}</span>` : ""}</div></header>`;
-}
-
-function unloadCompletionCard(row) {
-  if (!isDestination(row)) return "";
-  const timing = unloadTiming(row);
-  const stateKey = routeState(row).key;
-  if (!timing.arrival && !timing.start && !timing.finish) return "";
-  const active = Number(row.unloadingState) === 1 || stateKey === "unloading";
-  const done = Number(row.unloadingState) === 2 || stateKey === "completed";
-  const waiting = !active && !done;
-  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังลงพัสดุ" : "ถึงปลายทางแล้ว";
-  const subtitle = waiting ? "รอเริ่มลงรถ" : active ? "กำลังดำเนินการ" : "";
-  const icon = done ? "check" : active ? "worker" : "pin";
-  const slaText = timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`;
-  const slaLabel = done ? "ตั้งแต่รถถึงจนลงเสร็จ" : "ตั้งแต่รถถึง";
-  const over = timing.overStandard
-    ? `<div class="operation-warning">${operationIcon("alert")}เกินมาตรฐาน ${nf.format(timing.slaMinutes - timing.standard)} นาที</div>`
-    : active && timing.standard !== null && timing.slaMinutes !== null && timing.slaMinutes > timing.standard
-      ? `<div class="operation-warning">${operationIcon("alert")}เกิน SLA ปัจจุบัน ${nf.format(timing.slaMinutes - timing.standard)} นาที</div>`
-      : "";
-  const timeline = waiting
-    ? operationTimeline([
-        { icon: "pin", value: timing.arrival ? shortDateTime(timing.arrival) : "-", label: "ถึงปลายทาง" },
-        { icon: "worker", value: "รอเริ่ม", label: "รอเริ่มลง" },
-      ], 0)
-    : active
-      ? operationTimeline([
-          { icon: "pin", value: timing.arrival ? shortDateTime(timing.arrival) : "-", label: "มาถึง" },
-          { icon: "worker", value: timing.start ? shortDateTime(timing.start) : "กำลังดำเนินการ", label: "กำลังลงพัสดุ" },
-        ], 1)
-      : operationTimeline([
-          { icon: "worker", value: timing.start ? shortDateTime(timing.start) : "-", label: "เริ่มลง" },
-          { icon: "check", value: timing.finish ? shortDateTime(timing.finish) : "-", label: "เสร็จจริง" },
-        ], 1);
-  const work = done && timing.workMinutes !== null
-    ? `<div class="operation-work-duration">ใช้เวลาลงจริง <strong>${nf.format(timing.workMinutes)} นาที</strong></div>`
-    : "";
-  const standardContext = timing.standard === null
-    ? "ยังไม่มีมาตรฐานประเภทรถ"
-    : active && timing.start
-      ? `เริ่มลงรถ ${shortDateTime(timing.start)} / มาตรฐาน ${nf.format(timing.standard)} นาที`
-      : `มาตรฐาน ${nf.format(timing.standard)} นาที`;
-  return `<section class="lower-operation destination-operation ${done ? "is-completed" : active ? "is-active" : "is-waiting"} ${timing.overStandard ? "is-over" : ""}">${operationHeader(icon, headline, subtitle)}<div class="operation-kpi"><strong>${slaText}</strong><span>${slaLabel}</span></div><div class="operation-standard">${standardContext}</div>${over}${timeline}${work}</section>`;
-}
-
-function renderOriginOperation(row) {
-  const arrival = parseDate(row.actualArrivalAt);
-  const departure = parseDate(row.actualDepartureAt);
-  const planned = parseDate(row.estimatedDepartureAt);
-  if (!arrival && !departure && !planned) return "";
-  const now = new Date();
-  const stay = arrival && (departure || now) >= arrival ? Math.floor(((departure || now) - arrival) / 60000) : null;
-  const releaseDiff = departure && planned ? Math.floor((departure - planned) / 60000) : null;
-  const released = Boolean(departure);
-  const routeStillLoading = Number(row.unloadingState) === 1 || /กำลัง.*โหลด|loading/i.test(String(row.vehicleStatus || ""));
-  const loadingComplete = !released && !routeStillLoading && Number(row.unloadingState) === 2;
-  const loading = !released && !loadingComplete;
-  const headline = released ? "ออกจาก HUB แล้ว" : loadingComplete ? "โหลดพัสดุขึ้นรถแล้ว" : "กำลังโหลดพัสดุขึ้นรถ";
-  const subtitle = loadingComplete ? "รอปล่อยรถ" : loading ? "กำลังนำพัสดุออกจากคลัง" : "";
-  const untilRelease = !released && planned ? Math.floor((planned - now) / 60000) : null;
-  const detail = released && releaseDiff !== null
-    ? `<div class="operation-warning ${releaseDiff <= 0 ? "is-ok" : ""}">${releaseDiff > 0 ? `ออกช้า ${nf.format(releaseDiff)} นาที` : `ออกก่อนแผน ${nf.format(Math.abs(releaseDiff))} นาที`}</div>`
-    : untilRelease !== null
-      ? `<div class="operation-warning ${untilRelease >= 0 ? "is-ok" : ""}">${untilRelease >= 0 ? `เหลือ ${nf.format(untilRelease)} นาทีถึงกำหนดปล่อย` : `เลยกำหนดปล่อย ${nf.format(Math.abs(untilRelease))} นาที`}</div>`
-      : "";
-  const timeline = released
-    ? operationTimeline([
-        { icon: "pin", value: arrival ? shortDateTime(arrival) : "-", label: "มาถึง" },
-        { icon: "loading", value: row.unloadingCompletedAt ? shortDateTime(row.unloadingCompletedAt) : "ยืนยันสถานะแล้ว", label: "โหลดขึ้นรถ" },
-        { icon: "release", value: shortDateTime(departure), label: "ออกจริง" },
-      ], 2)
-    : loading
-      ? operationTimeline([
-          { icon: "loading", value: row.scheduleUnloadingStartedAt ? shortDateTime(row.scheduleUnloadingStartedAt) : arrival ? shortDateTime(arrival) : "-", label: "เริ่มโหลด" },
-          { icon: "loading", value: "กำลังดำเนินการ", label: "กำลังโหลดขึ้นรถ" },
-          { icon: "release", value: "รอขั้นถัดไป", label: "รอขั้นถัดไป" },
-        ], 1)
-      : operationTimeline([
-          { icon: "loading", value: row.unloadingCompletedAt ? shortDateTime(row.unloadingCompletedAt) : "ยืนยันสถานะแล้ว", label: "โหลดขึ้นรถแล้ว" },
-          { icon: "clock", value: "รอปล่อย", label: "รอปล่อย" },
-          { icon: "release", value: planned ? shortDateTime(planned) : "-", label: "กำหนดออก" },
-        ], 1);
-  return `<section class="lower-operation origin-operation ${released ? "is-released" : loading ? "is-loading" : "is-wait-release"}">${operationHeader(released ? "release" : "loading", headline, subtitle)}${stay !== null ? `<div class="operation-kpi"><strong>${nf.format(stay)} นาที</strong><span>${released ? "เวลาที่อยู่ในคลัง" : loading ? "ตั้งแต่รถถึง" : "อยู่ในคลังแล้ว"}</span></div>` : ""}${detail}${timeline}</section>`;
-}
-
-function renderDropOperation(row) {
-  const arrival = parseDate(row.actualArrivalAt);
-  const departure = parseDate(row.actualDepartureAt);
-  if (!arrival) return "";
-  const minutes = Math.floor(((departure || new Date()) - arrival) / 60000);
-  if (minutes < 0) return "";
-  const active = !departure && Number(row.unloadingState) === 1;
-  const released = Boolean(departure);
-  const started = parseDate(row.scheduleUnloadingStartedAt);
-  const headline = released ? "ออกต่อจากจุดดรอปแล้ว" : active ? "กำลังจัดการพัสดุที่จุดดรอป" : "ถึงจุดดรอปแล้ว";
-  const subtitle = released ? "" : active ? "กำลังดำเนินการ" : "รอเริ่มดำเนินการ";
-  const timeline = released
-    ? operationTimeline([
-        { icon: "warehouse", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
-        { icon: "package", value: started ? shortDateTime(started) : "ดำเนินการแล้ว", label: "ดำเนินการ" },
-        { icon: "release", value: shortDateTime(departure), label: "ออกต่อ" },
-      ], 2)
-    : active
-      ? operationTimeline([
-          { icon: "warehouse", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
-          { icon: "package", value: started ? shortDateTime(started) : "กำลังดำเนินการ", label: "กำลังดำเนินการ" },
-          { icon: "release", value: "รอออกต่อ", label: "ออกต่อ" },
-        ], 1)
-      : operationTimeline([
-          { icon: "warehouse", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
-          { icon: "package", value: "รอดำเนินการ", label: "รอดำเนินการ" },
-          { icon: "release", value: "รอออกต่อ", label: "ออกต่อ" },
-        ], 0);
-  return `<section class="lower-operation drop-operation ${released ? "is-released" : active ? "is-active" : "is-waiting"}">${operationHeader(released ? "release" : active ? "package" : "warehouse", headline, subtitle)}<div class="operation-kpi"><strong>${nf.format(minutes)} นาที</strong><span>เวลาที่อยู่ ณ จุดดรอป</span></div>${timeline}<div class="operation-work-duration">ใช้เวลาที่จุดดรอป <strong>${nf.format(minutes)} นาที</strong></div></section>`;
+function classicOperationRow(label, value, extra = "") {
+  return `<div class="classic-operation-row"><span>${esc(label)}</span><strong>${value || "-"}</strong>${extra ? `<small>${esc(extra)}</small>` : ""}</div>`;
 }
 
 function renderOperation(row) {
-  if (isDestination(row)) return unloadCompletionCard(row);
-  if (isDrop(row)) return renderDropOperation(row);
-  return renderOriginOperation(row);
+  const q = queueInfo(row);
+  if (q.cancelled) {
+    return `<div class="classic-operation is-cancelled"><div class="classic-operation-head"><span class="classic-status-chip">ยกเลิกรถแล้ว</span></div>${classicOperationRow("ยกเลิกเมื่อ", shortDateTime(row.queueCancelledAt), row.queueCancelledBy || "")}</div>`;
+  }
+
+  if (isDestination(row)) {
+    const timing = unloadTiming(row);
+    const active = Number(row.unloadingState) === 1;
+    const done = Number(row.unloadingState) === 2;
+    const headline = done ? "ลงรถเสร็จ" : active ? "กำลังลงรถ" : timing.arrival ? "รอเริ่มลงรถ" : "รอรถถึง";
+    const statusClass = timing.overStandard ? "is-danger" : active ? "is-working" : done ? "is-done" : "is-waiting";
+    const duration = timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`;
+    const standard = timing.standard === null ? "ยังไม่มีมาตรฐาน" : `มาตรฐาน ${nf.format(timing.standard)} นาที`;
+    const warning = timing.overStandard
+      ? `<div class="classic-operation-warning">เกินมาตรฐาน ${nf.format(timing.slaMinutes - timing.standard)} นาที</div>`
+      : "";
+    return `<div class="classic-operation destination ${statusClass}"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span><strong>${duration}</strong></div>${classicOperationRow("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row)))}${classicOperationRow("เริ่มลงรถ", shortDateTime(row.scheduleUnloadingStartedAt))}${done ? classicOperationRow("ลงเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : ""}<div class="classic-operation-foot"><span>${standard}</span></div>${warning}</div>`;
+  }
+
+  if (isDrop(row)) {
+    const drop = dropOperation(row);
+    const headline = drop.onwardDone ? "ออกจากจุดดรอปแล้ว" : drop.unloadingDone ? "ลงของเสร็จ · รอไปต่อ" : Number(row.unloadingState) === 1 ? "กำลังลงของที่จุดดรอป" : "ถึงจุดดรอป";
+    const duration = drop.unloadingMinutes === null ? "-" : `${nf.format(drop.unloadingMinutes)} นาที`;
+    return `<div class="classic-operation drop"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span><strong>${duration}</strong></div>${classicOperationRow("ถึงจุดดรอป", shortDateTime(confirmedEffectiveArrival(row)))}${classicOperationRow("ลงของ", drop.unloadingLabel)}${classicOperationRow("ไปต่อ", drop.onwardLabel, drop.onwardMinutes === null ? "" : `${nf.format(drop.onwardMinutes)} นาที`)}</div>`;
+  }
+
+  const routeArrival = parseDate(row.actualArrivalAt);
+  const displayArrival = confirmedEffectiveArrival(row);
+  const departure = parseDate(row.actualDepartureAt);
+  const planned = parseDate(row.estimatedDepartureAt);
+  const routeStillLoading = Number(row.unloadingState) === 1 || /กำลัง.*โหลด|loading/i.test(String(row.vehicleStatus || ""));
+  const loadingComplete = !departure && !routeStillLoading && Number(row.unloadingState) === 2;
+  const headline = departure ? "ออกจาก HUB แล้ว" : loadingComplete ? "รอปล่อยรถ" : "กำลังโหลดพัสดุขึ้นรถ";
+  const stayMinutes = routeArrival && (departure || new Date()) >= routeArrival
+    ? Math.floor(((departure || new Date()) - routeArrival) / 60000)
+    : null;
+  const countdown = departureCountdown(row);
+  return `<div class="classic-operation origin"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span>${stayMinutes === null ? "" : `<strong>${nf.format(stayMinutes)} นาที</strong>`}</div>${classicOperationRow("ถึงคลังจริง", shortDateTime(displayArrival))}${classicOperationRow("กำหนดปล่อย", shortDateTime(planned))}${departure ? classicOperationRow("ออกจริง", shortDateTime(departure)) : ""}${countdown ? `<div class="classic-operation-foot ${countdown.key === "late" ? "is-late" : ""}"><span>${esc(countdown.label)}</span></div>` : ""}</div>`;
 }
 
 // LOCAL_ROUTE_BARCODE_V1: destination/drop only. Pure client-side Code 128; no API, MS, or database request.
@@ -1740,7 +1645,7 @@ function code128Svg(value) {
     }
   }
   const total = (x + quiet) * module;
-  return `<svg class="local-barcode-svg" viewBox="0 0 ${total} ${barHeight + labelHeight}" role="img" aria-label="บาร์โค้ด ${esc(text)}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#fff"/>${rects}<text x="${total/2}" y="${barHeight + 16}" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#111">${esc(text)}</text></svg>`;
+  return `<svg class="local-barcode-svg" width="${total}" height="${barHeight + labelHeight}" viewBox="0 0 ${total} ${barHeight + labelHeight}" shape-rendering="crispEdges" role="img" aria-label="บาร์โค้ด ${esc(text)}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#fff"/>${rects}<text x="${total/2}" y="${barHeight + 16}" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#111">${esc(text)}</text></svg>`;
 }
 
 function toggleLocalRouteBarcode(button) {
@@ -1761,15 +1666,7 @@ function toggleLocalRouteBarcode(button) {
   button.textContent = opening ? "ซ่อนบาร์โค้ด" : "▥ ดูบาร์โค้ด";
 }
 
-function installLocalBarcodeStyle() {
-  if (typeof document === "undefined" || typeof document.createElement !== "function" || !document.head) return;
-  if (document.getElementById("local-route-barcode-style")) return;
-  const style = document.createElement("style");
-  style.id = "local-route-barcode-style";
-  style.textContent = `.local-route-barcode{margin-top:9px}.local-barcode-toggle{appearance:none;border:1px solid #c7a000;background:#ffd53d;color:#161616;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:800;cursor:pointer}.local-barcode-toggle:hover{background:#ffcb05}.local-barcode-panel{margin-top:8px;padding:8px;background:#fff;border:1px solid #cfd5d9;border-radius:8px;max-width:390px}.local-barcode-svg{display:block;width:100%;height:auto;max-height:96px}.local-barcode-error{font-size:12px;color:#a51f1f;font-weight:700}.compact-card-head .local-route-barcode{display:flex;flex-direction:column;align-items:center}.compact-card-head .local-barcode-panel{width:min(100%,390px)}@media(max-width:700px){.local-barcode-toggle{min-height:38px;font-size:13px}.local-barcode-panel{max-width:100%}}`;
-  document.head.appendChild(style);
-}
-installLocalBarcodeStyle();
+// Barcode presentation is first-class in style.css; no runtime style injection.
 
 function tableRow(row) {
   const status = routeState(row);
@@ -1808,7 +1705,7 @@ function tableRow(row) {
   return `<tr>
     <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</div></td>
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
-    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
+    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
     <td><div class="schedule-stack single">${scheduleHtml}${arrivalSources(row)}</div></td>
     <td><div class="work-summary">${operationHtml || `<div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div><small class="queue-label">${esc(queueText)}</small>`}</div></td>
     <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
@@ -1874,9 +1771,8 @@ function card(row) {
           : "ยังไม่เข้าคิว";
   const compactSchedule = scheduleSection(row, "arrival");
   return `<article class="truck-card ms-card compact-card">
-    <header class="compact-card-head"><div class="compact-card-tags"><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.proofId || "-")}</h2><p class="compact-route-name">${esc(row.routeName || "-")}</p><small>ทะเบียน ${esc(row.plate || "-")}</small>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</header>
+    <header class="compact-card-head"><div class="compact-card-tags"><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span></div><h2>${esc(row.proofId || "-")}</h2><p class="compact-route-name">${esc(row.routeName || "-")}</p><small>ทะเบียน ${esc(row.plate || "-")}</small>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</header>
     <div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div>
-    <div class="compact-attendance"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><small>${attendanceLabel(row)}</small></div>
     <div class="compact-times compact-schedule schedule-stack single">${compactSchedule}${arrivalSources(row)}</div>
     ${renderOperation(row)}
     <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button compact-cancel-route" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div>

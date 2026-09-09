@@ -377,8 +377,10 @@ export function stageFrontend(source) {
   }
   output = patchMsRouteCancellationFrontend(output);
   output = patchMsNonDestinationCancellationFrontend(output);
-  output = patchMsFastAllCancelledFrontend(output);
-  output = patchMsSummaryPerformanceFrontend(output);
+  if (!output.includes("MS_LOWER_CLASSIC_V12")) {
+    output = patchMsFastAllCancelledFrontend(output);
+    output = patchMsSummaryPerformanceFrontend(output);
+  }
   output = patchMsOperatingDayFrontend(output);
   output = patchMsDailyCompletionObservationFrontend(output);
   output = patchMsCompletedViewStabilityFrontend(output);
@@ -390,11 +392,11 @@ export function stageFrontend(source) {
 }
 
 export function stageStyle(source) {
-  return patchDevUnifiedHeaderStyle(
-    patchMsSummaryPerformanceStyle(
-      patchMsRouteCancellationStyle(patchDevMsMobileStyle(source)),
-    ),
-  );
+  const base = patchMsRouteCancellationStyle(patchDevMsMobileStyle(source));
+  const lower = base.includes("MS_LOWER_CLASSIC_V12")
+    ? base
+    : patchMsSummaryPerformanceStyle(base);
+  return patchDevUnifiedHeaderStyle(lower);
 }
 
 export function stageWorker(source) {

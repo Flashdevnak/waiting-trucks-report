@@ -43,25 +43,32 @@ test("drop unloading time freezes and uses the existing vehicle standard", () =>
   assert.match(ui.dropProgressHtml(drop), /2 · ไปต่อ/);
 });
 
-test("today completion uses Asia Bangkok and includes destination and drop", () => {
-  const now = new Date("2026-09-01T18:00:00.000Z"); // 2 Sep in Bangkok
+test("lower completion uses Bangkok 07:00 operating day and trusted Schedule E", () => {
+  const now = new Date("2026-09-01T20:00:00.000Z"); // 2 Sep 03:00 Bangkok, still 1 Sep operating day
   for (const attendanceType of ["ปลายทาง", "จุดดรอป"])
     assert.equal(ui.isCompletedToday({
       attendanceType,
       unloadingState: 2,
-      unloadingCompletedAt: "2026-09-01T17:30:00.000Z",
+      unloadingCompletedAt: "2026-09-01T23:59:00.000Z", // 2 Sep 06:59 Bangkok
     }, now), true);
   assert.equal(ui.isCompletedToday({
     attendanceType: "ปลายทาง",
     unloadingState: 2,
-    unloadingCompletedAt: "2026-09-01T16:59:00.000Z",
+    unloadingCompletedAt: "2026-09-02T00:00:00.000Z", // 2 Sep 07:00 Bangkok, next operating day
   }, now), false);
   assert.equal(ui.isCompletedToday({
     attendanceType: "ปลายทาง",
     unloadingState: 2,
-    unloadingCompletedAt: "2026-09-01T17:30:00.000Z",
+    unloadingCompletedAt: "2026-09-01T23:30:00.000Z",
     completionObservedLive: false,
   }, now), false);
+  assert.equal(ui.isCompletedToday({
+    attendanceType: "ปลายทาง",
+    unloadingState: 2,
+    unloadingCompletedAt: "2026-09-01T23:30:00.000Z",
+    completionObservedLive: false,
+    completionSource: "SCHEDULE",
+  }, now), true);
 });
 
 test("departure countdown covers pending, overdue, early, late, and on-time", () => {

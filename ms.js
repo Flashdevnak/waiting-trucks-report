@@ -259,10 +259,17 @@ function invalidateSession() {
   empty("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง");
 }
 
-let lowerDailyDay = bangkokDateValue(new Date());
+// MS_LOWER_OPERATING_DAY_0700_V2: Lower daily cards use the operational day 07:00 -> 07:00 Asia/Bangkok.
+function lowerOperatingDayValue(value = new Date()) {
+  const parsed = parseDate(value);
+  if (!parsed) return "";
+  return bangkokDateValue(new Date(parsed.getTime() - 7 * 60 * 60 * 1000));
+}
+
+let lowerDailyDay = lowerOperatingDayValue(new Date());
 
 function resetLowerDailyViewOnBangkokDayChange() {
-  const nextDay = bangkokDateValue(new Date());
+  const nextDay = lowerOperatingDayValue(new Date());
   if (!nextDay || nextDay === lowerDailyDay) return;
   lowerDailyDay = nextDay;
   state.completedToday = 0;
@@ -798,8 +805,9 @@ function isCompletedToday(row, now = new Date()) {
   if ((!isDestination(row) && !isDrop(row)) || Number(row.unloadingState) !== 2)
     return false;
   if (!row.unloadingCompletedAt) return false;
-  if (row.completionObservedLive === false) return false;
-  return bangkokDateValue(row.unloadingCompletedAt) === bangkokDateValue(now);
+  // MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1: safely matched Schedule E is accepted completion truth too.
+  if (row.completionObservedLive === false && row.completionSource !== "SCHEDULE") return false;
+  return lowerOperatingDayValue(row.unloadingCompletedAt) === lowerOperatingDayValue(now);
 }
 
 function isCompletedAccumulated(row) {
@@ -813,7 +821,7 @@ function isCompletedAccumulated(row) {
 function isCancelledToday(row, now = new Date()) {
   return (
     Boolean(row.queueCancelledAt) &&
-    bangkokDateValue(row.queueCancelledAt) === bangkokDateValue(now)
+    lowerOperatingDayValue(row.queueCancelledAt) === lowerOperatingDayValue(now)
   );
 }
 
@@ -1100,7 +1108,7 @@ function renderRowsProgressively(rows) {
 }
 
 function completedTodayDatasetKey() {
-  return `${state.branch}|${bangkokDateValue(new Date())}`;
+  return `${state.branch}|${lowerOperatingDayValue(new Date())}`;
 }
 
 function completedTodayRequestKey(total = state.completedToday) {

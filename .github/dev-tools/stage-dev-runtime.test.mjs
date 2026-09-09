@@ -50,7 +50,10 @@ test("live polling stays live-only while explicit history search uses the daily 
   assert.match(first, /const result = await apiGet\("msDailyArchive", \{/);
   assert.doesNotMatch(first, /const result = await apiGet\("msRange"/);
   assert.match(first, /input\.onchange = \(\) => \{\}/);
-  assert.match(first, /window\.matchMedia\("\(max-width: 1024px\)"\)\.matches/);
+  assert.match(first, /function useMobileCardLayout\(/);
+  assert.match(first, /return viewport <= 1024 && !isPhoneDesktopSiteLayout\(viewport, screenWidth, screenHeight\)/);
+  assert.match(first, /const mobileLayout = useMobileCardLayout\(\)/);
+  assert.match(first, /classList\.toggle\("ms-desktop-site-phone", desktopSitePhone\)/);
   assert.match(first, /tableBody\.innerHTML = ""/);
   assert.match(first, /mobileCards\.innerHTML = ""/);
 });
@@ -68,8 +71,12 @@ test("upper metrics use today or the explicitly searched date range", () => {
 
 test("ลงรถเสร็จ reuses browser cache and progressively renders large result sets", () => {
   const first = stageFrontend(frontendSource);
-  assert.match(first, /const cachedCompletedRows = state\.archiveRows\.filter\(isCompletedToday\)/);
-  assert.match(first, /cachedCompletedRows\.length === expectedCompleted/);
+  assert.match(first, /function completedTodayDatasetRows\(\)/);
+  assert.match(first, /return mergeLatest\(state\.archiveRows, state\.currentRows\)\.filter\(isCompletedToday\)/);
+  assert.match(first, /const cachedCompletedRows = completedTodayDatasetRows\(\)/);
+  assert.match(first, /cachedCompletedRows\.length >= expectedCompleted/);
+  assert.match(first, /completedTodayLoadPromise\?\.key === key/);
+  assert.match(first, /completedTodayRetryAt = Date\.now\(\) \+ 60_000/);
   assert.match(first, /firstBatch = mobileLayout \? 32 : 64/);
   assert.match(first, /requestAnimationFrame\(pump\)/);
   assert.match(first, /insertAdjacentHTML/);

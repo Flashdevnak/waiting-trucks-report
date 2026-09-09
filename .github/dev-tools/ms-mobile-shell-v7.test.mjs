@@ -62,3 +62,12 @@ test('admin entry additions preserve shared auth and do not add MS mutations', (
     assert.doesNotMatch(text, /cancel_car|proof\/print|proof\/ack/i);
   }
 });
+
+test('live smoke discovers an ephemeral CDP endpoint and always cleans failed launches', () => {
+  const smoke = read('.github/dev-tools/ms-mobile-shell-live-smoke.mjs');
+  assert.match(smoke, /'--remote-debugging-port=0'/);
+  assert.ok(smoke.includes('DevTools listening on (ws:\\/\\/\\S+)'));
+  assert.match(smoke, /child\.kill\('SIGTERM'\)/);
+  assert.match(smoke, /await rm\(profile,\{recursive:true,force:true\}\)/);
+  assert.doesNotMatch(smoke, /const port=9343/);
+});

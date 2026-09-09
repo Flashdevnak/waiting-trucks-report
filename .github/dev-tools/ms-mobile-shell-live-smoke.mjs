@@ -49,20 +49,33 @@ class CDP {
 }
 
 async function launch(){
-  const port=9343;
   const profile=await mkdtemp(join(tmpdir(),'mobile-shell-v7-'));
   const child=spawn(chromePath(),[
     '--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--disable-extensions',
-    `--remote-debugging-port=${port}`,`--user-data-dir=${profile}`,'about:blank',
+    '--no-first-run','--no-default-browser-check','--remote-debugging-address=127.0.0.1',
+    '--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank',
   ],{stdio:['ignore','ignore','pipe']});
-  let version;
-  for(let i=0;i<100;i+=1){
-    if(child.exitCode!==null) throw new Error(`Chrome exited before CDP ready (${child.exitCode})`);
-    try{const r=await fetch(`http://127.0.0.1:${port}/json/version`);if(r.ok){version=await r.json();break;}}catch{}
-    await sleep(100);
+  let stderr='';
+  try{
+    const version=await new Promise((resolve,reject)=>{
+      let settled=false;
+      const finish=(fn,value)=>{if(settled)return;settled=true;clearTimeout(timer);fn(value)};
+      const timer=setTimeout(()=>finish(reject,new Error('Chrome DevTools endpoint not ready')),15000);
+      child.stderr.on('data',chunk=>{
+        stderr=(stderr+chunk.toString()).slice(-4000);
+        const match=stderr.match(/DevTools listening on (ws:\/\/\S+)/);
+        if(match) finish(resolve,{webSocketDebuggerUrl:match[1]});
+      });
+      child.once('exit',code=>finish(reject,new Error(`Chrome exited before CDP ready (${code})`)));
+      child.once('error',error=>finish(reject,error));
+    });
+    return {child,profile,version};
+  }catch(error){
+    child.kill('SIGTERM');
+    await sleep(300);
+    await rm(profile,{recursive:true,force:true}).catch(()=>{});
+    throw new Error(`${error.message}${stderr?` · ${stderr.trim().slice(-1200)}`:''}`);
   }
-  if(!version?.webSocketDebuggerUrl) throw new Error('Chrome DevTools endpoint not ready');
-  return {child,profile,version};
 }
 
 async function evaluate(cdp,sessionId,expression){

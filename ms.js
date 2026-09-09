@@ -880,10 +880,18 @@ function dropProgressHtml(drop, compact = false) {
   return `<div class="drop-progress${compact ? " compact-drop-progress" : ""}"><div class="drop-stage ${drop.unloadingDone ? "is-done" : ""} ${drop.unloadingOver ? "is-late" : ""}"><span>1 · ลงของ</span><strong>${esc(drop.unloadingLabel)}</strong>${stageOneDetail}</div><div class="drop-stage ${drop.onwardDone ? "is-done" : ""}"><span>2 · ไปต่อ</span><strong>${esc(drop.onwardLabel)}</strong>${stageTwoDetail ? `<small>${stageTwoDetail}</small>` : ""}</div></div>`;
 }
 function filteredRows(ignoreSummary = false, queueMode = state.queue) {
+  const useCompletedTodayDataset =
+    state.status === "unload-overtime" ||
+    (!ignoreSummary &&
+      (state.summary === "completed" || state.summary === "unload-overtime"));
   const useArchive =
     queueMode === "completed" ||
     (queueMode === "all" && state.archiveView);
-  const source = useArchive ? state.archiveRows : state.currentRows;
+  const source = useCompletedTodayDataset
+    ? completedTodayDatasetRows()
+    : useArchive
+      ? state.archiveRows
+      : state.currentRows;
   return source
     .filter((row) => {
       const status = routeState(row);

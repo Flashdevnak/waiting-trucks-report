@@ -8,6 +8,9 @@ function replaceUnique(output, from, to, label) {
 const SCHEDULE_MARKER = "MS_SCHEDULE_COMPLETION_TRUTH_V4";
 const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
 const DAILY_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
+const LEGACY_SCHEDULE_RECOVERY_MARKER =
+  "MS_DAILY_COMPLETION_LEGACY_SCHEDULE_RECOVERY_V2";
+const DAILY_CACHE_VERSION = 3;
 
 export function patchMsScheduleCompletionV4(source) {
   let output = String(source || "");
@@ -60,6 +63,68 @@ export function patchMsScheduleCompletionV4(source) {
       `    row?.completionObservedLive === true &&\n    thaiDayForValue(row?.unloadingCompletedAt) === day`,
       `    // ${DAILY_SCHEDULE_MARKER}: daily cards accept observed Route completion or safely matched Schedule E.\n    (row?.completionObservedLive === true || row?.completionSource === "SCHEDULE") &&\n    thaiDayForValue(row?.unloadingCompletedAt) === day`,
       "daily completion accepts trusted Schedule E",
+    );
+  }
+
+  if (!output.includes(LEGACY_SCHEDULE_RECOVERY_MARKER)) {
+    output = replaceUnique(
+      output,
+      `      if (typeof row.completionObservedLive !== "boolean")
+        row.completionObservedLive =
+          Boolean(row.unloadingCompletedAt) &&
+          item.action !== "FIRST_SEEN" && item.synced_by !== "MS_RANGE";
+      if (row.id && isCompletedForThaiDay(row, day)) completed.set(row.id, row);`,
+      `      // ${LEGACY_SCHEDULE_RECOVERY_MARKER}: old history/cache rows can predate completionSource.
+      // When Route says completed and the already-matched Schedule payload has a valid E,
+      // recover the trusted completion at read time instead of requiring a later live transition.
+      const trustedScheduleCompletedAt =
+        Number(row.unloadingState) === 2 &&
+        Number.isFinite(
+          Date.parse(String(row.scheduleUnloadingCompletedAt || "")),
+        )
+          ? String(row.scheduleUnloadingCompletedAt)
+          : "";
+      if (trustedScheduleCompletedAt) {
+        row.unloadingCompletedAt = trustedScheduleCompletedAt;
+        row.completionSource = "SCHEDULE";
+      }
+      if (typeof row.completionObservedLive !== "boolean")
+        row.completionObservedLive =
+          Boolean(row.unloadingCompletedAt) &&
+          item.action !== "FIRST_SEEN" && item.synced_by !== "MS_RANGE";
+      if (row.id && isCompletedForThaiDay(row, day)) completed.set(row.id, row);`,
+      "recover pre-marker completed history from trusted Schedule E",
+    );
+
+    output = replaceUnique(
+      output,
+      `      cache?.format === 2 &&
+      cache.completedDay === completedDay &&`,
+      `      cache?.format === ${DAILY_CACHE_VERSION} &&
+      cache.completedDay === completedDay &&`,
+      "invalidate stale daily completion cache during live refresh",
+    );
+    output = replaceUnique(
+      output,
+      `        (cache?.format !== 2 ||
+          cache?.completedDay !== completedDay ||`,
+      `        (cache?.format !== ${DAILY_CACHE_VERSION} ||
+          cache?.completedDay !== completedDay ||`,
+      "republish recovered daily completion cache",
+    );
+    output = replaceUnique(
+      output,
+      `    cache?.format === 2 &&
+    cache.completedDay === day &&`,
+      `    cache?.format === ${DAILY_CACHE_VERSION} &&
+    cache.completedDay === day &&`,
+      "invalidate stale daily completion cache in completed endpoint",
+    );
+    output = replaceUnique(
+      output,
+      `    version: 2,`,
+      `    version: ${DAILY_CACHE_VERSION},`,
+      "bump daily completion cache envelope",
     );
   }
 

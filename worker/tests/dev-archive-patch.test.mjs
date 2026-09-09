@@ -20,8 +20,11 @@ test("DEV live polling keeps archive lazy", () => {
   assert.match(staged, /state\.archiveView/);
 });
 
-test("completed summary stays lightweight and stable", () => {
-  assert.match(staged, /apiGet\("msCompletedToday", \{ branch: state\.branch \}\)/);
+test("completed summary stays lightweight, branch-safe and stable", () => {
+  assert.match(staged, /const branch = state\.branch;[\s\S]*?apiGet\("msCompletedToday", \{ branch \}\)/);
+  assert.equal((staged.match(/apiGet\("msCompletedToday"/g) || []).length, 1);
+  assert.match(staged, /completedTodayLoadPromise\?\.key === key/);
+  assert.match(staged, /completedTodayRetryAt = Date\.now\(\) \+ 60_000/);
   assert.match(staged, /const preserveObservedCompletion =/);
   assert.match(staged, /completedRows/);
   assert.match(staged, /isCompletedToday\(row\)/);

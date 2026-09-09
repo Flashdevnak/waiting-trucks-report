@@ -1121,7 +1121,13 @@ async function loadCompletedTodayRows(force = false) {
   const datasetKey = completedTodayDatasetKey();
   const key = completedTodayRequestKey(expectedCompleted);
   const cachedCompletedRows = completedTodayDatasetRows();
-  if (expectedCompleted === 0 || cachedCompletedRows.length >= expectedCompleted) {
+  // A manual Completed/Overtime request must still consult the read-only detail
+  // endpoint when a freshly deployed lightweight cache temporarily reports 0.
+  // Automatic live polling keeps the zero fast-path and performs no extra read.
+  if (
+    (!force && expectedCompleted === 0) ||
+    (expectedCompleted > 0 && cachedCompletedRows.length >= expectedCompleted)
+  ) {
     completedTodayHydratedKey = datasetKey;
     completedTodayHydratedLiveTotal = expectedCompleted;
     completedTodayNeedsRefresh = false;

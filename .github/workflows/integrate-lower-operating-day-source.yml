@@ -21,10 +21,7 @@ jobs:
       - name: Restore Date 8 lower daily contracts without reverting current UI or SLA truth
         run: |
           set -euo pipefail
-          # Date-8 presentation/day reference: Bangkok calendar day (00:00 -> 00:00).
           git show 4ffc494d9fe3c8f1d5af9364f1c0842077a62f72:.github/dev-tools/patch-ms-operating-day.mjs > .github/dev-tools/patch-ms-operating-day.mjs
-          # Last verified midnight implementation that already keeps earliest-arrival SLA,
-          # cancellation hydration and trusted Schedule E completion truth.
           git show d1703078cc06f10d53d833f07d914a1a6f809913:.github/dev-tools/patch-ms-completed-view-stability.mjs > .github/dev-tools/patch-ms-completed-view-stability.mjs
           git show d1703078cc06f10d53d833f07d914a1a6f809913:.github/dev-tools/patch-ms-schedule-completion-v4.mjs > .github/dev-tools/patch-ms-schedule-completion-v4.mjs
           git show d1703078cc06f10d53d833f07d914a1a6f809913:.github/dev-tools/ms-unload-completion-ui.test.mjs > .github/dev-tools/ms-unload-completion-ui.test.mjs
@@ -33,14 +30,7 @@ jobs:
 
           node <<'NODE'
           const fs = require('node:fs');
-          function one(text, from, to, label) {
-            const first = text.indexOf(from), last = text.lastIndexOf(from);
-            if (first < 0 || first !== last) throw new Error(`Date8 integration failed: ${label}`);
-            return text.replace(from, to);
-          }
 
-          // Raw Pages frontend: remove only the later 07:00 lower-day conversion.
-          // Keep current Classic UI, trusted Schedule E, cancellation and earliest-arrival SLA.
           let js = fs.readFileSync('ms.js', 'utf8');
           const start = js.indexOf('// MS_LOWER_OPERATING_DAY_0700_V2:');
           const endNeedle = 'let lowerDailyDay = lowerOperatingDayValue(new Date());';
@@ -60,17 +50,29 @@ jobs:
             throw new Error('Date8 integration failed: 07:00 lower frontend logic remains');
           if (!js.includes('MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1'))
             throw new Error('Date8 integration failed: trusted Schedule E was lost');
-          if (!js.includes('MS_SLA_EARLIEST_ARRIVAL_V2'))
-            throw new Error('Date8 integration failed: earliest-arrival SLA was lost');
+
+          // Keep the Owner-approved current SLA rule while restoring only Date-8 daily counting:
+          // Route confirms arrival; SLA starts from the earliest matched Route/KIT/TBR time.
+          if (!js.includes('MS_SLA_EARLIEST_ARRIVAL_V2')) {
+            const oldArrival = '  const arrival = parseDate(row.actualArrivalAt);';
+            if (!js.includes(oldArrival)) throw new Error('Date8 integration failed: SLA arrival anchor');
+            js = js.replace(oldArrival,
+              '  // MS_SLA_EARLIEST_ARRIVAL_V2: SLA starts at the earliest confirmed Route/KIT/TBR arrival.\n  const arrival = confirmedEffectiveArrival(row);');
+            js = js.replace(
+              '  // Route actualArrivalAt is the sole operational clock authority. Waiting\n  // and active rows keep counting; completed rows still require trusted E.',
+              '  // Route confirms arrival; the SLA clock starts from the earliest matched\n  // Route/KIT/TBR timestamp. Completed rows still require trusted completion.');
+            js = js.replace(
+              'const slaRange = done ? "Route ถึงจริง → ลงเสร็จจริง" : "Route ถึงจริง → เวลาปัจจุบัน";',
+              'const slaRange = done ? "เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง" : "เวลาถึงที่เร็วที่สุด → เวลาปัจจุบัน";');
+          }
+          if (!js.includes('MS_SLA_EARLIEST_ARRIVAL_V2') || !js.includes('const arrival = confirmedEffectiveArrival(row);'))
+            throw new Error('Date8 integration failed: earliest-arrival SLA not preserved');
           fs.writeFileSync('ms.js', js);
 
-          // Force clients off the broken 07:00 asset.
           let html = fs.readFileSync('ms.html', 'utf8');
           html = html.replace(/ms\.js\?v=[^"']+/, 'ms.js?v=20260910-02-lower-midnight-date8');
           fs.writeFileSync('ms.html', html);
 
-          // The raw frontend regression must describe the Owner contract: midnight,
-          // destination+drop, and trusted Schedule E when safely matched.
           let req = fs.readFileSync('worker/tests/frontend-requirements.test.mjs', 'utf8');
           const a = req.indexOf('test("lower completion uses Bangkok 07:00 operating day and trusted Schedule E"');
           const b = req.indexOf('test("departure countdown covers pending, overdue, early, late, and on-time"', a);
@@ -82,8 +84,6 @@ jobs:
           }
           fs.writeFileSync('worker/tests/frontend-requirements.test.mjs', req);
 
-          // Rebuild the daily cache from midnight history; version 5 invalidates the
-          // broken 07:00 envelope without adding any upstream polling.
           let schedule = fs.readFileSync('.github/dev-tools/patch-ms-schedule-completion-v4.mjs', 'utf8');
           schedule = schedule.replace('const DAILY_CACHE_VERSION = 3;', 'const DAILY_CACHE_VERSION = 5;');
           if (!schedule.includes('MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2')) throw new Error('midnight worker marker missing');
@@ -91,7 +91,7 @@ jobs:
           fs.writeFileSync('.github/dev-tools/patch-ms-schedule-completion-v4.mjs', schedule);
 
           let unloadTest = fs.readFileSync('.github/dev-tools/ms-unload-completion-ui.test.mjs', 'utf8');
-          unloadTest = unloadTest.replace(/cache\?\\\.format === 3/g, 'cache\\?\\.format === 5');
+          unloadTest = unloadTest.replace(/format === 3/g, 'format === 5');
           unloadTest = unloadTest.replace(/version: 3/g, 'version: 5');
           fs.writeFileSync('.github/dev-tools/ms-unload-completion-ui.test.mjs', unloadTest);
 
@@ -108,6 +108,7 @@ jobs:
           node --test .github/dev-tools/stage-dev-runtime.test.mjs .github/dev-tools/ms-unload-completion-ui.test.mjs .github/dev-tools/ms-schedule-completion-v4.test.mjs .github/dev-tools/daily-history.test.mjs
           npm run check
           grep -q 'MS_LOWER_DAILY_MIDNIGHT_DATE8_V1' ms.js
+          grep -q 'MS_SLA_EARLIEST_ARRIVAL_V2' ms.js
           ! grep -q 'MS_LOWER_OPERATING_DAY_0700_V2' ms.js
           grep -q 'pollMs: 4000' ms.js
 

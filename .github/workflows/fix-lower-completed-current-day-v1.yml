@@ -47,3 +47,5 @@ jobs:
           git add ms.js .github/dev-tools/ms-unload-completion-ui.test.mjs
           git commit -m 'fix: align lower completed with accepted daily truth'
           git push origin HEAD:main
+
+# rerun-v2: preserve trusted Schedule staging marker while lower count mirrors frozen upper

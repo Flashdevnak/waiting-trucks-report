@@ -42,6 +42,8 @@ let archiveLoadPromise = null;
 let archiveTotalPromise = null;
 let completedTodayLoadPromise = null;
 let completedTodayHydratedKey = "";
+let completedTodayHydratedLiveTotal = -1;
+let completedTodayNeedsRefresh = false;
 let completedTodayRetryAt = 0;
 const el = (id) => document.getElementById(id);
 const nf = new Intl.NumberFormat("th-TH");
@@ -265,6 +267,8 @@ function resetLowerDailyViewOnBangkokDayChange() {
   state.completedToday = 0;
   completedTodayLoadPromise = null;
   completedTodayHydratedKey = "";
+  completedTodayHydratedLiveTotal = -1;
+  completedTodayNeedsRefresh = false;
   completedTodayRetryAt = 0;
   if (state.summary === "completed" || state.summary === "cancelled") {
     state.summary = "all";
@@ -353,6 +357,8 @@ function resetArchiveState() {
   archiveTotalPromise = null;
   completedTodayLoadPromise = null;
   completedTodayHydratedKey = "";
+  completedTodayHydratedLiveTotal = -1;
+  completedTodayNeedsRefresh = false;
   completedTodayRetryAt = 0;
   state.completedToday = 0;
   state.archiveLoaded = false;
@@ -1069,8 +1075,12 @@ function renderRowsProgressively(rows) {
   if (index < rows.length) requestAnimationFrame(pump);
 }
 
-function completedTodayDatasetKey(total = state.completedToday) {
-  return `${state.branch}|${bangkokDateValue(new Date())}|${Number(total) || 0}`;
+function completedTodayDatasetKey() {
+  return `${state.branch}|${bangkokDateValue(new Date())}`;
+}
+
+function completedTodayRequestKey(total = state.completedToday) {
+  return `${completedTodayDatasetKey()}|${Number(total) || 0}`;
 }
 
 function completedTodayDatasetRows() {
@@ -1080,31 +1090,46 @@ function completedTodayDatasetRows() {
 function completedTodayDatasetReady() {
   const expected = Number(state.completedToday) || 0;
   if (expected === 0) return true;
-  return completedTodayHydratedKey === completedTodayDatasetKey(expected) &&
-    completedTodayDatasetRows().length >= expected;
+  // A successful detail response is a usable snapshot even when the 4-second
+  // lightweight total advances while that response is in flight. Requiring
+  // exact equality here left the overtime card stuck at an indeterminate value.
+  return completedTodayHydratedKey === completedTodayDatasetKey();
 }
 
 function shouldHydrateCompletedTodayRows() {
   const expected = Number(state.completedToday) || 0;
-  const key = completedTodayDatasetKey(expected);
+  const datasetKey = completedTodayDatasetKey();
+  const key = completedTodayRequestKey(expected);
   const cached = completedTodayDatasetRows();
   if (expected === 0 || cached.length >= expected) {
-    completedTodayHydratedKey = key;
+    completedTodayHydratedKey = datasetKey;
+    completedTodayHydratedLiveTotal = expected;
+    completedTodayNeedsRefresh = false;
+    completedTodayRetryAt = 0;
     return false;
   }
-  if (completedTodayHydratedKey === key || completedTodayLoadPromise?.key === key) return false;
+  if (completedTodayLoadPromise?.key === key || completedTodayLoadPromise) return false;
+  const hydratedForLiveTotal =
+    completedTodayHydratedKey === datasetKey &&
+    completedTodayHydratedLiveTotal === expected;
+  if (hydratedForLiveTotal && !completedTodayNeedsRefresh) return false;
   return Date.now() >= completedTodayRetryAt;
 }
 
 async function loadCompletedTodayRows(force = false) {
   const expectedCompleted = Number(state.completedToday) || 0;
-  const key = completedTodayDatasetKey(expectedCompleted);
+  const datasetKey = completedTodayDatasetKey();
+  const key = completedTodayRequestKey(expectedCompleted);
   const cachedCompletedRows = completedTodayDatasetRows();
   if (expectedCompleted === 0 || cachedCompletedRows.length >= expectedCompleted) {
-    completedTodayHydratedKey = key;
+    completedTodayHydratedKey = datasetKey;
+    completedTodayHydratedLiveTotal = expectedCompleted;
+    completedTodayNeedsRefresh = false;
+    completedTodayRetryAt = 0;
     return cachedCompletedRows;
   }
   if (completedTodayLoadPromise?.key === key) return completedTodayLoadPromise.promise;
+  if (completedTodayLoadPromise) return completedTodayLoadPromise.promise;
   if (!force && Date.now() < completedTodayRetryAt) return cachedCompletedRows;
   const branch = state.branch;
   const promise = (async () => {
@@ -1118,8 +1143,12 @@ async function loadCompletedTodayRows(force = false) {
       );
       state.rows = mergeLatest(state.archiveRows, state.currentRows);
       state.completedToday = Number(completed?.total) || completedRows.length;
-      completedTodayHydratedKey = completedTodayDatasetKey(state.completedToday);
-      completedTodayRetryAt = 0;
+      completedTodayHydratedKey = datasetKey;
+      completedTodayHydratedLiveTotal = expectedCompleted;
+      completedTodayNeedsRefresh = completedRows.length < expectedCompleted;
+      completedTodayRetryAt = completedTodayNeedsRefresh
+        ? Date.now() + 60_000
+        : 0;
       return completedRows;
     } catch (error) {
       completedTodayRetryAt = Date.now() + 60_000;
@@ -1137,7 +1166,9 @@ function renderFilterSummary(rows) {
   const counts = {
     waiting: 0,
     unloading: 0,
-    completed: Number(state.completedToday) || 0,
+    completed: completedTodayDatasetReady()
+      ? completedTodayDatasetRows().length
+      : Number(state.completedToday) || 0,
     origin: 0,
     drop: 0,
     cancelled: 0,

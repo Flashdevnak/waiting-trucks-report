@@ -62,7 +62,19 @@ export function patchMsSummaryPerformanceFrontend(source) {
 }
 
 export function patchMsSummaryPerformanceStyle(source) {
-  let output = keepCanonicalLowerStyleSingleGeneration(source);
+  const sourceText = String(source || "");
+  const fullyStagedCanonical =
+    sourceText.includes(CANONICAL_LOWER_MARKER) &&
+    sourceText.includes(DEV_MOBILE_LOWER_MARKER) &&
+    sourceText.includes(CANONICAL_DEV_MOBILE_NOOP) &&
+    sourceText.includes(DEV_MOBILE_SHELL_MARKER) &&
+    sourceText.includes(STYLE_MARKER) &&
+    sourceText.includes(MOBILE_EXPORT_MARKER) &&
+    sourceText.includes(PROOF_MOBILE_TOOLBAR_MARKER) &&
+    sourceText.includes(PROOF_MOBILE_HEADER_MARKER);
+  if (fullyStagedCanonical) return sourceText;
+
+  let output = keepCanonicalLowerStyleSingleGeneration(sourceText);
   const canonicalLower = output.includes(CANONICAL_LOWER_MARKER);
 
   if (!output.includes(STYLE_MARKER)) {

@@ -36,11 +36,19 @@ test("completed view keeps the other five cards on the live current queue", () =
   );
   assert.match(
     staged,
+    /const useCompletedTodayDataset =\s*state\.status === "unload-overtime" \|\|\s*\(!ignoreSummary &&\s*\(state\.summary === "completed" \|\| state\.summary === "unload-overtime"\)\);/,
+  );
+  assert.match(
+    staged,
     /const useArchive =\s*queueMode === "completed" \|\|\s*\(queueMode === "all" && state\.archiveView\);/,
   );
   assert.match(
     staged,
-    /const source = useArchive \? state\.archiveRows : state\.currentRows;/,
+    /const source = useCompletedTodayDataset\s*\? completedTodayDatasetRows\(\)\s*:\s*useArchive\s*\? state\.archiveRows\s*:\s*state\.currentRows;/,
+  );
+  assert.match(
+    staged,
+    /const summaryRows = filteredRows\(\s*true,/,
   );
   assert.match(
     staged,

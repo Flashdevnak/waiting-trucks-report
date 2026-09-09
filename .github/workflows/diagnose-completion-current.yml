@@ -1,0 +1,123 @@
+name: Diagnose Current Completion Truth
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-completion-current.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Compare Sep 8 and Sep 9 operating-day completion truth
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!platform) throw new Error('Turso platform token missing');
+            const headers={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=read-only`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json();
+            if(!tokenRes.ok||!tokenJson.jwt) throw new Error(`Turso read-only token HTTP ${tokenRes.status}`);
+            const dbToken=tokenJson.jwt;
+            console.log(`::add-mask::${dbToken}`);
+            async function query(sql,args=[]){
+              const response=await fetch(`https://${hostname}/v2/pipeline`,{
+                method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql,args:args.map(v=>({type:'text',value:String(v)}))}},{type:'close'}]}),
+              });
+              const payload=await response.json();
+              const item=payload?.results?.[0];
+              if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+              return item?.response?.result;
+            }
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const rows=r=>(r?.rows||[]).map(row=>row.map(decode));
+            const print=(label,data)=>console.log(label+'='+JSON.stringify(data));
+
+            const windows=[
+              ['D8','2026-09-08T00:00:00.000Z','2026-09-09T00:00:00.000Z'],
+              ['D9','2026-09-09T00:00:00.000Z','2026-09-10T00:00:00.000Z'],
+            ];
+
+            for(const [label,start,end] of windows){
+              const hist=rows(await query(`
+                WITH h AS (
+                  SELECT hub,route_id,event_type,synced_by,
+                    CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER) AS state,
+                    COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'') AS completed_at,
+                    COALESCE(json_extract(payload_json,'$.scheduleUnloadingCompletedAt'),'') AS schedule_e,
+                    COALESCE(json_extract(payload_json,'$.completionSource'),'') AS completion_source,
+                    COALESCE(json_extract(payload_json,'$.completionObservedLive'),0) AS observed
+                  FROM ms_route_history
+                  WHERE json_valid(payload_json)=1
+                )
+                SELECT hub,
+                  COUNT(DISTINCT CASE WHEN state=2 AND completed_at>=? AND completed_at<? THEN route_id END) AS completed_any,
+                  COUNT(DISTINCT CASE WHEN state=2 AND completed_at>=? AND completed_at<? AND completion_source='SCHEDULE' THEN route_id END) AS completed_schedule,
+                  COUNT(DISTINCT CASE WHEN state=2 AND completed_at>=? AND completed_at<? AND observed=1 THEN route_id END) AS completed_observed,
+                  COUNT(DISTINCT CASE WHEN state=2 AND schedule_e>=? AND schedule_e<? THEN route_id END) AS schedule_e_state2,
+                  COUNT(DISTINCT CASE WHEN state=2 AND schedule_e>=? AND schedule_e<? AND completed_at='' THEN route_id END) AS schedule_e_missing_completion,
+                  COUNT(DISTINCT CASE WHEN state=2 AND completed_at>=? AND completed_at<? AND event_type='FIRST_SEEN' THEN route_id END) AS completed_first_seen,
+                  COUNT(DISTINCT CASE WHEN state=2 AND completed_at>=? AND completed_at<? AND synced_by='MS_RANGE' THEN route_id END) AS completed_ms_range
+                FROM h
+                GROUP BY hub
+                ORDER BY hub`,[
+                  start,end,start,end,start,end,start,end,start,end,start,end,start,end
+                ]));
+              print(label+'_HISTORY_MATRIX',hist);
+            }
+
+            const current=rows(await query(`
+              SELECT hub,
+                COUNT(*) AS total_rows,
+                SUM(CASE WHEN unloading_state=2 THEN 1 ELSE 0 END) AS state2,
+                SUM(CASE WHEN unloading_state=2 AND COALESCE(unloading_completed_at,'')<>'' THEN 1 ELSE 0 END) AS state2_with_completion,
+                SUM(CASE WHEN unloading_state=2 AND COALESCE(unloading_completed_at,'')='' THEN 1 ELSE 0 END) AS state2_missing_completion,
+                SUM(CASE WHEN actual_arrival_at>='2026-09-09T00:00:00.000Z' AND actual_arrival_at<'2026-09-10T00:00:00.000Z' THEN 1 ELSE 0 END) AS arrived_d9,
+                SUM(CASE WHEN actual_arrival_at>='2026-09-09T00:00:00.000Z' AND actual_arrival_at<'2026-09-10T00:00:00.000Z' AND unloading_state=2 THEN 1 ELSE 0 END) AS arrived_d9_state2,
+                SUM(CASE WHEN actual_arrival_at>='2026-09-09T00:00:00.000Z' AND actual_arrival_at<'2026-09-10T00:00:00.000Z' AND unloading_state=2 AND COALESCE(unloading_completed_at,'')='' THEN 1 ELSE 0 END) AS arrived_d9_state2_missing_completion
+              FROM ms_routes
+              GROUP BY hub
+              ORDER BY hub`));
+            print('CURRENT_MS_ROUTES_MATRIX',current);
+
+            for(const [label,start,end] of windows){
+              const latest=rows(await query(`
+                WITH ranked AS (
+                  SELECT hub,route_id,payload_json,event_type,synced_by,snapshot_at,
+                    ROW_NUMBER() OVER(PARTITION BY hub,route_id ORDER BY snapshot_at DESC,rowid DESC) AS rn
+                  FROM ms_route_history
+                  WHERE json_valid(payload_json)=1
+                )
+                SELECT hub,
+                  COUNT(*) AS latest_rows,
+                  SUM(CASE WHEN CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER)=2 THEN 1 ELSE 0 END) AS latest_state2,
+                  SUM(CASE WHEN CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER)=2 AND COALESCE(json_extract(payload_json,'$.scheduleUnloadingCompletedAt'),'')>=? AND COALESCE(json_extract(payload_json,'$.scheduleUnloadingCompletedAt'),'')<? THEN 1 ELSE 0 END) AS latest_schedule_e_in_window,
+                  SUM(CASE WHEN CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER)=2 AND COALESCE(json_extract(payload_json,'$.scheduleUnloadingCompletedAt'),'')>=? AND COALESCE(json_extract(payload_json,'$.scheduleUnloadingCompletedAt'),'')<? AND COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'')='' THEN 1 ELSE 0 END) AS latest_schedule_e_but_completion_blank,
+                  SUM(CASE WHEN CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER)=2 AND COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'')>=? AND COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'')<? THEN 1 ELSE 0 END) AS latest_completion_in_window
+                FROM ranked
+                WHERE rn=1
+                GROUP BY hub
+                ORDER BY hub`,[start,end,start,end,start,end]));
+              print(label+'_LATEST_ROUTE_MATRIX',latest);
+            }
+
+            console.log('READ_ONLY=TRUE');
+            console.log('MS_UPSTREAM_CALLS=0');
+            console.log('DB_WRITES=0');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

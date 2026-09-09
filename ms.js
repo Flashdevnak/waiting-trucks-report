@@ -624,9 +624,9 @@ function confirmedEffectiveArrival(row) {
   return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;
 }
 function attendanceLabel(row) {
-  if (isDestination(row)) return "รถเข้าคลัง";
-  if (isDrop(row)) return "เข้าจุดดรอป";
-  return "รอออกจากคลัง";
+  if (isDestination(row)) return "รับเข้าคลัง";
+  if (isDrop(row)) return "พักถ่ายงาน";
+  return "เตรียมปล่อยรถ";
 }
 function attendanceWorkLabel(row) {
   if (isDestination(row)) return "เข้า · ปลายทาง";
@@ -1204,6 +1204,7 @@ async function loadCompletedTodayRows(force = false) {
 // MS_LOWER_CLASSIC_V12: Owner-approved six-card lower summary on current data truth.
 function renderFilterSummary(rows) {
   el("filter-summary").classList.remove("hidden");
+  const currentContextRows = state.currentRows.filter(matchesOvertimeContext);
   const counts = {
     waiting: 0,
     unloading: 0,
@@ -1212,31 +1213,36 @@ function renderFilterSummary(rows) {
       : Number(state.completedToday) || 0,
     origin: 0,
     drop: 0,
+    cancelled: 0,
   };
-  for (const row of rows) {
+  for (const row of currentContextRows) {
     const key = routeState(row).key;
     const queue = queueInfo(row);
-    if (isDestination(row) && key === "arrived") counts.waiting++;
-    if (isDestination(row) && key === "unloading") counts.unloading++;
-    if (isOrigin(row) && !queue.done && !queue.cancelled) counts.origin++;
-    if (isDrop(row) && !queue.done && !queue.cancelled) counts.drop++;
+    if (queue.active && isDestination(row) && key === "arrived") counts.waiting++;
+    if (queue.active && isDestination(row) && key === "unloading") counts.unloading++;
+    if (queue.active && isOrigin(row)) counts.origin++;
+    if (queue.active && isDrop(row)) counts.drop++;
+    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;
   }
   const completedDisplay = completedTodayDatasetReady()
     ? nf.format(counts.completed)
     : "…";
+  const overtimeDisplay = completedTodayDatasetReady()
+    ? nf.format(completedTodayOvertimeRows().length)
+    : "…";
   el("filter-summary").innerHTML = `
-    <button type="button" class="summary-all ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all"><span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
-    <button type="button" class="summary-wait ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
-    <button type="button" class="summary-work ${state.summary === "unloading" ? "is-active" : ""}" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
-    <button type="button" class="summary-done ${state.summary === "completed" ? "is-active" : ""}" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${completedDisplay}</strong></button>
-    <button type="button" class="summary-origin ${state.summary === "origin" ? "is-active" : ""}" data-summary-status="origin"><span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
-    <button type="button" class="summary-drop ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>`;
+    <article class="summary-card summary-all"><button type="button" class="summary-primary ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all"><span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button><button type="button" class="summary-subfilter ${state.summary === "cancelled" ? "is-active" : ""}" data-summary-substatus="cancelled"><span>ยกเลิกรถ</span><strong>${nf.format(counts.cancelled)}</strong></button></article>
+    <article class="summary-card summary-wait"><button type="button" class="summary-primary ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button></article>
+    <article class="summary-card summary-work"><button type="button" class="summary-primary ${state.summary === "unloading" ? "is-active" : ""}" data-summary-status="unloading"><span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button></article>
+    <article class="summary-card summary-done"><button type="button" class="summary-primary ${state.summary === "completed" ? "is-active" : ""}" data-summary-status="completed"><span>ลงรถเสร็จ</span><strong>${completedDisplay}</strong></button><button type="button" class="summary-subfilter ${state.summary === "unload-overtime" ? "is-active" : ""}" data-summary-substatus="unload-overtime"><span>ลงรถเกินเวลา</span><strong>${overtimeDisplay}</strong></button></article>
+    <article class="summary-card summary-origin"><button type="button" class="summary-primary ${state.summary === "origin" ? "is-active" : ""}" data-summary-status="origin"><span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button></article>
+    <article class="summary-card summary-drop"><button type="button" class="summary-primary ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop"><span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button></article>`;
   el("filter-summary")
-    .querySelectorAll("button")
+    .querySelectorAll("[data-summary-status], [data-summary-substatus]")
     .forEach((button) => {
       button.onclick = async () => {
-        const value = button.dataset.summaryStatus;
-        if (value === "completed") {
+        const value = button.dataset.summaryStatus || button.dataset.summarySubstatus;
+        if (value === "completed" || value === "unload-overtime") {
           try {
             await loadCompletedTodayRows(true);
             state.query = "";
@@ -1262,6 +1268,12 @@ function renderFilterSummary(rows) {
             toast(`โหลดรายการลงรถเสร็จวันนี้ไม่สำเร็จ: ${error.message}`, true);
             return;
           }
+        } else if (value === "cancelled") {
+          state.archiveView = false;
+          state.queue = "all";
+          state.status = "all";
+          el("queue-filter").value = "all";
+          el("status-filter").value = "all";
         } else {
           state.archiveView = false;
           state.queue = "queue";
@@ -1472,7 +1484,7 @@ function exportPendingParcels() {
 function arrivalSources(row) {
   if (!isDestination(row) && !isOrigin(row) && !isDrop(row)) return "";
   const effective = confirmedEffectiveArrival(row);
-  return `<div class="arrival-system-row${effective ? "" : " is-empty"}"><div><span><em>Route</em>${arrivalSourceDateTime(row.actualArrivalAt)}</span><span><em>KIT</em>${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ใช้เวลา</em>${arrivalSourceDateTime(effective)}</span></div></div>`;
+  return `<div class="arrival-system-row${effective ? "" : " is-empty"}"><div><span><em>KIT</em>${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ถึงจริงที่ใช้</em>${arrivalSourceDateTime(effective)}</span></div></div>`;
 }
 
 function arrivalSourceDateTime(value) {
@@ -1520,6 +1532,17 @@ function unloadTiming(row, now = new Date()) {
   };
 }
 
+function displayedUnloadTiming(row, now = new Date()) {
+  const arrival = confirmedEffectiveArrival(row);
+  const completed = Number(row.unloadingState) === 2;
+  const finish = completed ? parseDate(row.unloadingCompletedAt) : null;
+  const end = finish || (!completed && arrival ? now : null);
+  const minutes = arrival && end && end >= arrival
+    ? Math.floor((end - arrival) / 60000)
+    : null;
+  return { arrival, finish, completed, minutes };
+}
+
 function isCompletedUnloadOverStandard(row) {
   return unloadTiming(row).overStandard;
 }
@@ -1558,16 +1581,26 @@ function renderOperation(row) {
 
   if (isDestination(row)) {
     const timing = unloadTiming(row);
+    const displayed = displayedUnloadTiming(row);
     const active = Number(row.unloadingState) === 1;
     const done = Number(row.unloadingState) === 2;
-    const headline = done ? "ลงรถเสร็จ" : active ? "กำลังลงรถ" : timing.arrival ? "รอเริ่มลงรถ" : "รอรถถึง";
+    const headline = done ? "ลงรถเสร็จ" : active ? "กำลังลงรถ" : displayed.arrival ? "รอเริ่มลงรถ" : "รอรถถึง";
     const statusClass = timing.overStandard ? "is-danger" : active ? "is-working" : done ? "is-done" : "is-waiting";
-    const duration = timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`;
+    const duration = displayed.minutes === null ? "-" : `${nf.format(displayed.minutes)} นาที`;
     const standard = timing.standard === null ? "ยังไม่มีมาตรฐาน" : `มาตรฐาน ${nf.format(timing.standard)} นาที`;
-    const warning = timing.overStandard
-      ? `<div class="classic-operation-warning">เกินมาตรฐาน ${nf.format(timing.slaMinutes - timing.standard)} นาที</div>`
-      : "";
-    return `<div class="classic-operation destination ${statusClass}"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span><strong>${duration}</strong></div>${classicOperationRow("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row)))}${classicOperationRow("เริ่มลงรถ", shortDateTime(row.scheduleUnloadingStartedAt))}${done ? classicOperationRow("ลงเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : ""}<div class="classic-operation-foot"><span>${standard}</span></div>${warning}</div>`;
+    const activeDelta = !done && timing.standard !== null && displayed.minutes !== null
+      ? displayed.minutes - timing.standard
+      : null;
+    const slaFact = timing.overStandard
+      ? `เกินมาตรฐาน ${nf.format(timing.slaMinutes - timing.standard)} นาที · SLA Route ${nf.format(timing.slaMinutes)} นาที`
+      : activeDelta !== null
+        ? activeDelta > 0
+          ? `เกินเวลาที่แสดง ${nf.format(activeDelta)} นาที`
+          : `เหลือ ${nf.format(Math.abs(activeDelta))} นาที`
+        : done && timing.slaMinutes !== null
+          ? `SLA Route ${nf.format(timing.slaMinutes)} นาที · อยู่ในมาตรฐาน`
+          : "";
+    return `<div class="classic-operation destination ${statusClass}"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span><strong>${duration}</strong></div>${classicOperationRow("ถึงคลังจริง", shortDateTime(displayed.arrival))}${classicOperationRow("เริ่มลงรถ", shortDateTime(row.scheduleUnloadingStartedAt))}${done ? classicOperationRow("ลงเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : ""}<div class="classic-operation-foot${timing.overStandard || (activeDelta !== null && activeDelta > 0) ? " is-late" : ""}"><span>${standard}${slaFact ? ` · ${slaFact}` : ""}</span></div></div>`;
   }
 
   if (isDrop(row)) {

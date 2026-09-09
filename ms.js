@@ -687,8 +687,8 @@ function scheduleSection(row, mode) {
   const actual = incoming
     ? confirmedEffectiveArrival(row)
     : row.actualDepartureAt;
-  // The arrival card presents Route truth. KIT/TBR remain advisory in the
-  // three-column footer and never replace the actual-arrival value here.
+  // Route confirms arrival. Once confirmed, the main value is the earliest
+  // matched Route/KIT/TBR timestamp; raw source values remain visible below.
   const plannedDate = parseDate(plan);
   const actualDate = parseDate(actual);
   const timing = incoming
@@ -1117,7 +1117,10 @@ function completedTodayDatasetRows() {
 
 function completedTodayDatasetReady() {
   const expected = Number(state.completedToday) || 0;
-  if (expected === 0) return true;
+  // A lightweight zero is not final truth until the one-shot read-only detail
+  // probe completes. This prevents a transient cache zero flashing as fact.
+  if (expected === 0)
+    return completedTodayHydratedKey === completedTodayDatasetKey();
   // A successful detail response is a usable snapshot even when the 4-second
   // lightweight total advances while that response is in flight. Requiring
   // exact equality here left the overtime card stuck at an indeterminate value.
@@ -1129,7 +1132,10 @@ function shouldHydrateCompletedTodayRows() {
   const datasetKey = completedTodayDatasetKey();
   const key = completedTodayRequestKey(expected);
   const cached = completedTodayDatasetRows();
-  if (expected === 0 || cached.length >= expected) {
+  // Zero is handled by the once-per-branch/day probe in loadData. Do not mark
+  // it hydrated merely because an empty cache trivially satisfies >= 0.
+  if (expected === 0) return false;
+  if (cached.length >= expected) {
     completedTodayHydratedKey = datasetKey;
     completedTodayHydratedLiveTotal = expected;
     completedTodayNeedsRefresh = false;
@@ -1465,9 +1471,8 @@ function exportPendingParcels() {
 
 function arrivalSources(row) {
   if (!isDestination(row) && !isOrigin(row) && !isDrop(row)) return "";
-  const earliest = [row.scheduleKitArrivalAt, row.scheduleTbrArrivalAt]
-    .map(parseDate).filter(Boolean).sort((a, b) => a - b)[0];
-  return `<div class="arrival-system-row${earliest ? "" : " is-empty"}"><div><span><em>KIT</em>${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ใช้เวลา</em>${arrivalSourceDateTime(earliest)}</span></div></div>`;
+  const effective = confirmedEffectiveArrival(row);
+  return `<div class="arrival-system-row${effective ? "" : " is-empty"}"><div><span><em>Route</em>${arrivalSourceDateTime(row.actualArrivalAt)}</span><span><em>KIT</em>${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ใช้เวลา</em>${arrivalSourceDateTime(effective)}</span></div></div>`;
 }
 
 function arrivalSourceDateTime(value) {

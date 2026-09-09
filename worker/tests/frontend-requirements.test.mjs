@@ -17,7 +17,7 @@ const context = vm.createContext({
   window: { location: { hostname: "localhost", origin: "http://localhost" } },
   localStorage: { getItem() { return null; }, removeItem() {}, setItem() {} },
 });
-vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,effectiveArrival,punctuality,schedulePunctuality,scheduleSection,actualCell,routeState,queueInfo,waitInfo,exportRow,exportThaiDate,shortDateTime};`, context);
+vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,effectiveArrival,confirmedEffectiveArrival,punctuality,schedulePunctuality,scheduleSection,arrivalSources,arrivalSourceDateTime,actualCell,routeState,queueInfo,waitInfo,exportRow,exportThaiDate,shortDateTime,completedTodayDatasetReady};`, context);
 const ui = context.uiTest;
 
 test("expected parcel badge distinguishes zero from missing", () => {
@@ -173,19 +173,24 @@ test("queue age uses effective arrival only after Route confirms arrival", () =>
   assert.equal(queue.active, true);
 });
 
-test("queue arrival card keeps Route actual while TBR remains advisory", () => {
+test("Route confirms arrival while main and source-detail displays use accepted truth", () => {
   const row = {
     attendanceType: "ปลายทาง",
     estimatedArrivalAt: "2026-09-01T02:40:00.000Z",
     actualArrivalAt: "2026-09-01T03:00:00.000Z",
     scheduleKitArrivalAt: "2026-09-01T03:00:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-01T02:50:00.000Z",
   };
-  assert.ok(ui.actualCell(row).includes(ui.shortDateTime(row.actualArrivalAt)));
-  row.scheduleTbrArrivalAt = "2026-09-01T02:50:00.000Z";
   const effectiveText = ui.shortDateTime(row.scheduleTbrArrivalAt);
   assert.ok(ui.actualCell(row).includes(effectiveText));
-  assert.ok(ui.scheduleSection(row, "arrival").includes(ui.shortDateTime(row.actualArrivalAt)));
-  assert.ok(!ui.scheduleSection(row, "arrival").includes(effectiveText));
+  assert.ok(ui.scheduleSection(row, "arrival").includes(effectiveText));
+  const sources = ui.arrivalSources(row);
+  for (const label of ["Route", "KIT", "TBR", "ใช้เวลา"])
+    assert.ok(sources.includes(`<em>${label}</em>`));
+  assert.ok(sources.includes(ui.arrivalSourceDateTime(row.actualArrivalAt)));
+  assert.ok(sources.includes(ui.arrivalSourceDateTime(row.scheduleKitArrivalAt)));
+  assert.ok(sources.includes(ui.arrivalSourceDateTime(row.scheduleTbrArrivalAt)));
+  assert.ok(sources.includes(ui.arrivalSourceDateTime(ui.confirmedEffectiveArrival(row))));
   assert.equal(row.actualArrivalAt, "2026-09-01T03:00:00.000Z");
 });
 
@@ -197,7 +202,15 @@ test("KIT and TBR cannot display arrival without Route confirmation", () => {
   };
   assert.match(ui.actualCell(row), /ยังไม่มีเวลาจริง/);
   assert.match(ui.scheduleSection(row, "arrival"), /ถึงจริง<\/b><strong>-<\/strong>/);
+  assert.match(ui.arrivalSources(row), /<em>ใช้เวลา<\/em><strong class="arrival-source-value">-<\/strong>/);
   assert.equal(ui.routeState(row).key, "not-arrived");
+});
+
+test("transient lightweight zero stays indeterminate until detail hydration", () => {
+  vm.runInContext(`state.completedToday=0;completedTodayHydratedKey="";`, context);
+  assert.equal(ui.completedTodayDatasetReady(), false);
+  vm.runInContext(`completedTodayHydratedKey=completedTodayDatasetKey();`, context);
+  assert.equal(ui.completedTodayDatasetReady(), true);
 });
 
 test("departure display ignores KIT and TBR", () => {

@@ -57,5 +57,5 @@ test("daily UI no longer offers lifetime accumulated export", () => {
   assert.match(html, /วันนี้ หรือช่วงวันที่ที่กดค้นหา/);
   assert.match(html, /Export ช่วงวันที่/);
   assert.doesNotMatch(html, />\s*Export ทั้งหมด\s*</);
-  assert.match(html, /ms\.js\?v=20260909-04-overtime-snapshot/);
+  assert.match(html, /ms\.js\?v=20260909-06-classic-arrival-truth/);
 });

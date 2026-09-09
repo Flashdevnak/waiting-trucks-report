@@ -44,7 +44,7 @@ export function patchMsSummaryPerformanceStyle(source) {
   let output = String(source || "");
 
   if (!output.includes(STYLE_MARKER)) {
-    output = `${output.trimEnd()}\n\n${STYLE_MARKER}\n@media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}\n@media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}\n@media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}\n`;
+    output = `${output.trimEnd()}\n\n${STYLE_MARKER}\n@media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}\n@media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}\n@media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}\n`;
   }
 
   if (!output.includes(MOBILE_EXPORT_MARKER)) {

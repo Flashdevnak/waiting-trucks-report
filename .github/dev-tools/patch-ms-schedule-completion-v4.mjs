@@ -6,11 +6,12 @@ function replaceUnique(output, from, to, label) {
 }
 
 const SCHEDULE_MARKER = "MS_SCHEDULE_COMPLETION_TRUTH_V4";
-const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
+const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_0700_V2";
 const DAILY_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
+const DAILY_OPERATING_DAY_MARKER = "MS_DAILY_COMPLETION_OPERATING_DAY_0700_V2";
 const LEGACY_SCHEDULE_RECOVERY_MARKER =
   "MS_DAILY_COMPLETION_LEGACY_SCHEDULE_RECOVERY_V2";
-const DAILY_CACHE_VERSION = 3;
+const DAILY_CACHE_VERSION = 4;
 
 export function patchMsScheduleCompletionV4(source) {
   let output = String(source || "");
@@ -57,12 +58,42 @@ export function patchMsScheduleCompletionV4(source) {
     );
   }
 
+  if (!output.includes(DAILY_OPERATING_DAY_MARKER)) {
+    output = replaceUnique(
+      output,
+      `function isCompletedForThaiDay(row, day) {`,
+      `// ${DAILY_OPERATING_DAY_MARKER}: Lower daily facts reset at 07:00 Asia/Bangkok.\nfunction lowerOperatingDayForValue(value) {\n  const instant = Date.parse(String(value || ""));\n  if (!Number.isFinite(instant)) return "";\n  return thaiDayForValue(new Date(instant - 7 * 60 * 60 * 1000).toISOString());\n}\n\nfunction lowerOperatingDay() {\n  return lowerOperatingDayForValue(new Date().toISOString());\n}\n\nfunction isCompletedForThaiDay(row, day) {`,
+      "add 07:00 operating-day helpers",
+    );
+
+    output = replaceUnique(
+      output,
+      `    const completedDay = thaiDay();`,
+      `    const completedDay = lowerOperatingDay();`,
+      "live completion cache uses 07:00 operating day",
+    );
+
+    output = replaceUnique(
+      output,
+      `  const day = thaiDay();\n  const cache = await readMsLiveCache(env, hub);`,
+      `  const day = lowerOperatingDay();\n  const cache = await readMsLiveCache(env, hub);`,
+      "completed endpoint uses 07:00 operating day",
+    );
+
+    output = replaceUnique(
+      output,
+      `  const start = new Date(\`${"${day}T00:00:00+07:00"}\`).toISOString();`,
+      `  const start = new Date(\`${"${day}T07:00:00+07:00"}\`).toISOString();`,
+      "completion history starts at 07:00",
+    );
+  }
+
   if (!output.includes(DAILY_SCHEDULE_MARKER)) {
     output = replaceUnique(
       output,
       `    row?.completionObservedLive === true &&\n    thaiDayForValue(row?.unloadingCompletedAt) === day`,
-      `    // ${DAILY_SCHEDULE_MARKER}: daily cards accept observed Route completion or safely matched Schedule E.\n    (row?.completionObservedLive === true || row?.completionSource === "SCHEDULE") &&\n    thaiDayForValue(row?.unloadingCompletedAt) === day`,
-      "daily completion accepts trusted Schedule E",
+      `    // ${DAILY_SCHEDULE_MARKER}: daily cards accept observed Route completion or safely matched Schedule E.\n    (row?.completionObservedLive === true || row?.completionSource === "SCHEDULE") &&\n    lowerOperatingDayForValue(row?.unloadingCompletedAt) === day`,
+      "daily completion accepts trusted Schedule E on operating day",
     );
   }
 
@@ -129,8 +160,6 @@ export function patchMsScheduleCompletionV4(source) {
   }
 
   if (output.includes(`// ${DAILY_COUNTS_MARKER}: staged worker`)) return output;
-  if (output.includes("MS_LOWER_DAILY_COUNTS_0700_V1"))
-    throw new Error("MS lower daily worker counts must reset at Bangkok midnight, not 07:00");
 
   output = replaceUnique(
     output,
@@ -157,8 +186,8 @@ export function patchMsScheduleCompletionV4(source) {
 async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {`,
     `async function readMsCancelledToday(env, actor, hub) {
   if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
-  const day = thaiDay();
-  const start = new Date(\`${"${day}T00:00:00+07:00"}\`).toISOString();
+  const day = lowerOperatingDay();
+  const start = new Date(\`${"${day}T07:00:00+07:00"}\`).toISOString();
   const end = new Date(Date.parse(start) + 86400000).toISOString();
   const row = await env.DB.prepare(
     "SELECT COUNT(*) AS total FROM ms_route_cancellations WHERE hub=? AND cancelled_at>=? AND cancelled_at<?",
@@ -168,10 +197,10 @@ async function markConnectionSuccess(env, table, hub, now = new Date().toISOStri
   return { hub, day, total: Number(row?.total) || 0 };
 }
 
-// ${DAILY_COUNTS_MARKER}: staged worker exposes lower daily facts and resets them at Bangkok midnight.
+// ${DAILY_COUNTS_MARKER}: staged worker exposes lower daily facts on the 07:00 -> 07:00 Bangkok operating day.
 // completion cache only trusts observed live unloading transitions
 async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {`,
-    "add authoritative cancelled calendar-day count",
+    "add authoritative cancelled operating-day count",
   );
 
   return output;

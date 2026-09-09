@@ -393,9 +393,9 @@ export function stageFrontend(source) {
 
 export function stageStyle(source) {
   const base = patchMsRouteCancellationStyle(patchDevMsMobileStyle(source));
-  const lower = base.includes("MS_LOWER_CLASSIC_V12")
-    ? base
-    : patchMsSummaryPerformanceStyle(base);
+  // The performance styler now preserves either Classic or Canonical Lower as
+  // the sole Lower authority while still staging shared mobile/export fixes.
+  const lower = patchMsSummaryPerformanceStyle(base);
   return patchDevUnifiedHeaderStyle(lower);
 }
 

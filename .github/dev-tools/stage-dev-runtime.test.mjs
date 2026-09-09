@@ -162,6 +162,11 @@ test("DEV staging preserves classic lower UI and route cancellation controls onc
   assert.match(first, /DEV mobile MS card spacing/);
   assert.match(first, /MS route cancellation controls/);
   assert.match(first, /MS_LOWER_CLASSIC_V12/);
+  assert.match(first, /DEV mobile unified shell v7/);
+  assert.match(first, /MS mobile export single-column v2/);
+  assert.match(first, /Proof V16 mobile toolbar containment v2/);
+  assert.match(first, /Proof mobile header full-width anchor v4/);
+  assert.doesNotMatch(first, /grid-template-columns:repeat\(8,minmax\(0,1fr\)\)/);
   assert.equal(stageStyle(first), first);
 });
 

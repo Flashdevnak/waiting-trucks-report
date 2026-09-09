@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CUTOVER_VERSION: 20260904-01
-      SW_PATCH_VERSION: 20260909-04-overtime-snapshot
+      SW_PATCH_VERSION: 20260909-06-classic-arrival-truth
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

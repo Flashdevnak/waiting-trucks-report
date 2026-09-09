@@ -12,6 +12,7 @@ const MOBILE_EXPORT_MARKER = "/* MS mobile export single-column v2 */";
 const PROOF_MOBILE_TOOLBAR_MARKER = "/* Proof V16 mobile toolbar containment v2 */";
 const PROOF_MOBILE_HEADER_MARKER = "/* Proof mobile header full-width anchor v4 */";
 const CANONICAL_LOWER_MARKER = "MS_LOWER_CANONICAL_V11";
+const CLASSIC_LOWER_MARKER = "MS_LOWER_CLASSIC_V12";
 const DEV_MOBILE_LOWER_MARKER = "/* DEV mobile MS card spacing v7 base */";
 const DEV_MOBILE_SHELL_MARKER = "/* DEV mobile unified shell v7 */";
 const CANONICAL_DEV_MOBILE_NOOP =
@@ -63,23 +64,30 @@ export function patchMsSummaryPerformanceFrontend(source) {
 
 export function patchMsSummaryPerformanceStyle(source) {
   const sourceText = String(source || "");
-  const fullyStagedCanonical =
-    sourceText.includes(CANONICAL_LOWER_MARKER) &&
+  const hasLowerAuthority =
+    sourceText.includes(CANONICAL_LOWER_MARKER) ||
+    sourceText.includes(CLASSIC_LOWER_MARKER);
+  const lowerMobileSafe =
+    !sourceText.includes(CANONICAL_LOWER_MARKER) ||
+    sourceText.includes(CANONICAL_DEV_MOBILE_NOOP);
+  const fullyStagedLower =
+    hasLowerAuthority &&
+    lowerMobileSafe &&
     sourceText.includes(DEV_MOBILE_LOWER_MARKER) &&
-    sourceText.includes(CANONICAL_DEV_MOBILE_NOOP) &&
     sourceText.includes(DEV_MOBILE_SHELL_MARKER) &&
     sourceText.includes(STYLE_MARKER) &&
     sourceText.includes(MOBILE_EXPORT_MARKER) &&
     sourceText.includes(PROOF_MOBILE_TOOLBAR_MARKER) &&
     sourceText.includes(PROOF_MOBILE_HEADER_MARKER);
-  if (fullyStagedCanonical) return sourceText;
+  if (fullyStagedLower) return sourceText;
 
   let output = keepCanonicalLowerStyleSingleGeneration(sourceText);
   const canonicalLower = output.includes(CANONICAL_LOWER_MARKER);
+  const classicLower = output.includes(CLASSIC_LOWER_MARKER);
 
   if (!output.includes(STYLE_MARKER)) {
-    output = canonicalLower
-      ? `${output.trimEnd()}\n\n${STYLE_MARKER}\n/* canonical no-op: the 8-card Lower grid and responsive rules are owned by MS_LOWER_CANONICAL_V11. */\n@media (min-width:1201px){}\n`
+    output = canonicalLower || classicLower
+      ? `${output.trimEnd()}\n\n${STYLE_MARKER}\n/* lower-authority no-op: summary and responsive rules stay with the selected Lower presentation. */\n@media (min-width:1201px){}\n`
       : `${output.trimEnd()}\n\n${STYLE_MARKER}\n@media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}\n@media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}\n@media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}\n`;
   }
 

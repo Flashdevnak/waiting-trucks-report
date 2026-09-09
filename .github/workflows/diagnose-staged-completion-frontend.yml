@@ -14,26 +14,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect staged completion functions
+      - name: Compare staged and live completion functions
         run: |
           node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises';
           import { stageFrontend } from './.github/dev-tools/stage-dev-runtime.mjs';
           const raw = await readFile('ms.js','utf8');
           const staged = stageFrontend(raw);
-          const block=(a,b)=>{
-            const x=staged.indexOf(a), y=staged.indexOf(b,x+a.length);
-            if(x<0||y<0) throw new Error(`missing block ${a}`);
-            return staged.slice(x,y);
+          const response = await fetch('https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/ms.js',{cache:'no-store',headers:{'cache-control':'no-cache'}});
+          if(!response.ok) throw new Error(`live ms.js HTTP ${response.status}`);
+          const live = await response.text();
+          const block=(text,a,b)=>{
+            const x=text.indexOf(a), y=text.indexOf(b,x+a.length);
+            if(x<0||y<0) return `MISSING:${a}`;
+            return text.slice(x,y);
           };
-          console.log('HAS_0700_MARKER='+staged.includes('MS_LOWER_OPERATING_DAY_0700_V2'));
-          console.log('HAS_TRUSTED_SCHEDULE='+staged.includes('MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1'));
-          console.log('---LOWER_DAY---');
-          console.log(block('function lowerOperatingDayValue(', 'async function loadData'));
-          console.log('---COMPLETED_FILTER---');
-          console.log(block('function isCompletedToday(', 'function isCompletedAccumulated'));
-          console.log('---DATASET---');
-          console.log(block('function completedTodayDatasetRows()', 'async function loadCompletedTodayRows'));
-          console.log('---SUMMARY---');
-          console.log(block('function renderFilterSummary(rows)', 'async function applyMetricFilter'));
+          for(const [label,text] of [['STAGED',staged],['LIVE',live]]){
+            console.log(label+'_HAS_0700='+text.includes('MS_LOWER_OPERATING_DAY_0700_V2'));
+            console.log(label+'_HAS_TRUSTED_SCHEDULE='+text.includes('MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1'));
+            console.log(label+'_HAS_DAILY_COUNTS_0700='+text.includes('MS_LOWER_DAILY_COUNTS_0700_V2'));
+            console.log('---'+label+'_LOWER_DAY---');
+            console.log(block(text,'function lowerOperatingDayValue(', 'async function loadData'));
+            console.log('---'+label+'_COMPLETED_FILTER---');
+            console.log(block(text,'function isCompletedToday(', 'function isCompletedAccumulated'));
+            console.log('---'+label+'_LOAD_COMPLETED---');
+            console.log(block(text,'async function loadCompletedTodayRows(', '// MS_LOWER_CLASSIC_V12'));
+          }
           NODE

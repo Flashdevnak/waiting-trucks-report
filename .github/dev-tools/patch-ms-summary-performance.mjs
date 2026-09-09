@@ -14,17 +14,23 @@ const PROOF_MOBILE_HEADER_MARKER = "/* Proof mobile header full-width anchor v4 
 const CANONICAL_LOWER_MARKER = "MS_LOWER_CANONICAL_V11";
 const DEV_MOBILE_LOWER_MARKER = "/* DEV mobile MS card spacing v7 base */";
 const DEV_MOBILE_SHELL_MARKER = "/* DEV mobile unified shell v7 */";
+const CANONICAL_DEV_MOBILE_NOOP =
+  "/* canonical no-op: Lower responsive rules live only in MS_LOWER_CANONICAL_V11. */";
 
 function keepCanonicalLowerStyleSingleGeneration(source) {
-  let output = String(source || "");
+  const output = String(source || "");
   if (!output.includes(CANONICAL_LOWER_MARKER)) return output;
 
   const lowerStart = output.indexOf(DEV_MOBILE_LOWER_MARKER);
   const shellStart = output.indexOf(DEV_MOBILE_SHELL_MARKER, lowerStart);
-  if (lowerStart >= 0 && shellStart > lowerStart) {
-    output = `${output.slice(0, lowerStart).trimEnd()}\n\n${DEV_MOBILE_LOWER_MARKER}\n/* canonical no-op: Lower responsive rules live only in MS_LOWER_CANONICAL_V11. */\n${output.slice(shellStart)}`;
-  }
-  return output;
+  if (lowerStart < 0 || shellStart <= lowerStart) return output;
+
+  const lowerBody = output
+    .slice(lowerStart + DEV_MOBILE_LOWER_MARKER.length, shellStart)
+    .trim();
+  if (lowerBody === CANONICAL_DEV_MOBILE_NOOP) return output;
+
+  return `${output.slice(0, lowerStart).trimEnd()}\n\n${DEV_MOBILE_LOWER_MARKER}\n${CANONICAL_DEV_MOBILE_NOOP}\n${output.slice(shellStart)}`;
 }
 
 export function patchMsSummaryPerformanceFrontend(source) {

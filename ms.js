@@ -259,17 +259,11 @@ function invalidateSession() {
   empty("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง");
 }
 
-// MS_LOWER_OPERATING_DAY_0700_V2: Lower daily cards use the operational day 07:00 -> 07:00 Asia/Bangkok.
-function lowerOperatingDayValue(value = new Date()) {
-  const parsed = parseDate(value);
-  if (!parsed) return "";
-  return bangkokDateValue(new Date(parsed.getTime() - 7 * 60 * 60 * 1000));
-}
-
-let lowerDailyDay = lowerOperatingDayValue(new Date());
+// MS_LOWER_DAILY_MIDNIGHT_DATE8_V1: Lower daily cards reset at Bangkok 00:00.
+let lowerDailyDay = bangkokDateValue(new Date());
 
 function resetLowerDailyViewOnBangkokDayChange() {
-  const nextDay = lowerOperatingDayValue(new Date());
+  const nextDay = bangkokDateValue(new Date());
   if (!nextDay || nextDay === lowerDailyDay) return;
   lowerDailyDay = nextDay;
   state.completedToday = 0;
@@ -807,7 +801,7 @@ function isCompletedToday(row, now = new Date()) {
   if (!row.unloadingCompletedAt) return false;
   // MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1: safely matched Schedule E is accepted completion truth too.
   if (row.completionObservedLive === false && row.completionSource !== "SCHEDULE") return false;
-  return lowerOperatingDayValue(row.unloadingCompletedAt) === lowerOperatingDayValue(now);
+  return bangkokDateValue(row.unloadingCompletedAt) === bangkokDateValue(now);
 }
 
 function isCompletedAccumulated(row) {
@@ -821,7 +815,7 @@ function isCompletedAccumulated(row) {
 function isCancelledToday(row, now = new Date()) {
   return (
     Boolean(row.queueCancelledAt) &&
-    lowerOperatingDayValue(row.queueCancelledAt) === lowerOperatingDayValue(now)
+    bangkokDateValue(row.queueCancelledAt) === bangkokDateValue(now)
   );
 }
 
@@ -1108,7 +1102,7 @@ function renderRowsProgressively(rows) {
 }
 
 function completedTodayDatasetKey() {
-  return `${state.branch}|${lowerOperatingDayValue(new Date())}`;
+  return `${state.branch}|${bangkokDateValue(new Date())}`;
 }
 
 function completedTodayRequestKey(total = state.completedToday) {
@@ -1518,13 +1512,13 @@ function unloadTiming(row, now = new Date()) {
   const start = parseDate(row.scheduleUnloadingStartedAt);
   const completed = Number(row.unloadingState) === 2;
   const finish = completed ? parseDate(row.unloadingCompletedAt) : null;
-  const arrival = parseDate(row.actualArrivalAt);
+  // MS_SLA_EARLIEST_ARRIVAL_V2: Route confirms arrival; SLA uses earliest matched Route/KIT/TBR.
+  const arrival = confirmedEffectiveArrival(row);
   const workEnd = finish || (Number(row.unloadingState) === 1 && start ? now : null);
   const workMinutes = start && workEnd && workEnd >= start
     ? Math.floor((workEnd - start) / 60000)
     : null;
-  // Route actualArrivalAt is the sole operational clock authority. Waiting
-  // and active rows keep counting; completed rows still require trusted E.
+  // Route confirms arrival; SLA starts from the earliest matched Route/KIT/TBR time.
   const slaEnd = finish || (!completed && arrival ? now : null);
   const slaMinutes = arrival && slaEnd && slaEnd >= arrival
     ? Math.floor((slaEnd - arrival) / 60000)
@@ -1609,7 +1603,7 @@ function renderOperation(row) {
       : active
         ? classicOperationRow("ลงรถมาแล้ว", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`, "เริ่มลงรถ → เวลาปัจจุบัน")
         : "";
-    const slaRange = done ? "Route ถึงจริง → ลงเสร็จจริง" : "Route ถึงจริง → เวลาปัจจุบัน";
+    const slaRange = done ? "เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง" : "เวลาถึงที่เร็วที่สุด → เวลาปัจจุบัน";
     return `<div class="classic-operation destination ${statusClass}"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span></div>${classicOperationRow("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row)))}${classicOperationRow("เริ่มลงรถ", shortDateTime(row.scheduleUnloadingStartedAt))}${done ? classicOperationRow("ลงเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : ""}${workFact}${classicOperationRow("มาตรฐาน", timing.standard === null ? "-" : `${nf.format(timing.standard)} นาที`)}${classicOperationRow("SLA Route", timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`, slaRange)}${classicOperationSummary(done ? "สรุป" : "สถานะ", summary.text, summary.severity)}</div>`;
   }
 

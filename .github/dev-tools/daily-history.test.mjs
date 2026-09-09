@@ -56,8 +56,7 @@ test("daily history UI release and lower-reference SW revision are current", () 
   assert.match(html, /รายการรายวัน/);
   assert.match(html, /วันนี้ หรือช่วงวันที่ที่กดค้นหา/);
   assert.match(html, /Export ช่วงวันที่/);
-  assert.match(html, /ms\.js\?v=20260910-01-lower-operating-day/);
-  assert.match(frontend, /MS_LOWER_OPERATING_DAY_0700_V2/);
+  assert.match(html, /ms\.js\?v=20260910-04-date8-midnight-final/);
   assert.equal(version.version, "20260904-01");
   // The data-release manifest remains frozen. The scoped MS asset revision
   // identifies the integrated lower presentation without changing pipelines.

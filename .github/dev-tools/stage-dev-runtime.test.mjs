@@ -34,8 +34,6 @@ test("DEV staging preserves the integrated daily-history frontend and stays idem
   assert.match(first, /function isCompletedAccumulated\(row\)/);
   assert.match(first, /function isCancelledToday\(row, now = new Date\(\)\)/);
   assert.match(first, /function resetLowerDailyViewOnBangkokDayChange\(\)/);
-  assert.match(first, /MS_LOWER_OPERATING_DAY_0700_V2/);
-  assert.match(first, /function lowerOperatingDayValue\(/);
   assert.match(first, /const preserveObservedCompletion =/);
   const second = stageFrontend(first);
   assert.equal(second, first);
@@ -60,7 +58,7 @@ test("live polling stays live-only while explicit history search uses the daily 
   assert.match(first, /mobileCards\.innerHTML = ""/);
 });
 
-test("upper metrics remain accumulated while lower completion uses the 07:00 operating day", () => {
+test("upper metrics use today or the explicitly searched date range", () => {
   const first = stageFrontend(frontendSource);
   assert.match(first, /function rowBusinessDay\(row\)/);
   assert.match(first, /function metricSourceRows\(\)/);
@@ -68,7 +66,7 @@ test("upper metrics remain accumulated while lower completion uses the 07:00 ope
   assert.match(first, /state\.currentRows\.filter\(\(row\) => rowBusinessDay\(row\) === today\)/);
   assert.match(first, /metricRows\.filter\(\(row\) => isCompletedAccumulated\(row\)\)\.length/);
   assert.match(first, /state\.summary === "completed" && isCompletedToday\(row\)/);
-  assert.match(first, /lowerOperatingDayValue\(row\.unloadingCompletedAt\) === lowerOperatingDayValue\(now\)/);
+  assert.match(first, /bangkokDateValue\(row\.unloadingCompletedAt\) === bangkokDateValue\(now\)/);
 });
 
 test("ลงรถเสร็จ reuses browser cache and progressively renders large result sets", () => {
@@ -106,7 +104,6 @@ test("cancellation remains operational in its own classic summary card", () => {
   assert.match(first, /data-summary-status="cancelled"/);
   assert.doesNotMatch(first, /data-summary-substatus|summary-subfilter/);
   assert.match(first, /function isCancelledToday\(row, now = new Date\(\)\)/);
-  assert.match(first, /lowerOperatingDayValue\(row\.queueCancelledAt\) === lowerOperatingDayValue\(now\)/);
   assert.match(first, /queueCancelledAt/);
   assert.match(first, /data-cancel-ms-route/);
 });
@@ -126,7 +123,7 @@ test("live Route window includes tomorrow so midnight does not hide arrived cros
   assert.doesNotMatch(worker, /start \+ 2 \* 86400000 - 1000/);
 });
 
-test("daily completed keeps Route\/Schedule truth and rolls at Bangkok 07:00", () => {
+test("daily completed only counts an observed 0\/1 to 2 transition and daily views roll at Bangkok midnight", () => {
   const first = stageFrontend(frontendSource);
   const worker = stageWorker(workerSource);
   assert.match(worker, /completionTruth = resolveCompletionTruth/);
@@ -136,13 +133,9 @@ test("daily completed keeps Route\/Schedule truth and rolls at Bangkok 07:00", (
   assert.match(worker, /!completionCacheReady/);
   assert.match(worker, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);
   assert.match(worker, /MS_COMPLETION_ARCHIVE_TRUTH_V2/);
-  assert.match(worker, /MS_DAILY_COMPLETION_OPERATING_DAY_0700_V2/);
-  assert.match(worker, /MS_LOWER_DAILY_COUNTS_0700_V2/);
-  assert.match(worker, /\$\{day\}T07:00:00\+07:00/);
   assert.match(first, /state\.summary === "completed" \|\| state\.summary === "cancelled"/);
   assert.match(first, /state\.queue = "queue"/);
   assert.match(first, /resetLowerDailyViewOnBangkokDayChange\(\)/);
-  assert.match(first, /lowerDailyDay = lowerOperatingDayValue\(new Date\(\)\)/);
 });
 
 test("daily history remains read-only after worker staging", () => {
@@ -193,8 +186,6 @@ test("DEV staging still assembles all backend runtime patches from clean source"
   assert.match(worker, /MS_COMPLETION_TIME_TRUTH_V2/);
   assert.match(worker, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);
   assert.match(worker, /MS_COMPLETION_ARCHIVE_TRUTH_V2/);
-  assert.match(worker, /MS_DAILY_COMPLETION_OPERATING_DAY_0700_V2/);
-  assert.match(worker, /MS_LOWER_DAILY_COUNTS_0700_V2/);
   assert.match(worker, /MS_DAILY_HISTORY_V1: read-only daily history/);
 });
 

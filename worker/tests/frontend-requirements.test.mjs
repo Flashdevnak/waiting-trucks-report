@@ -173,7 +173,7 @@ test("queue age uses effective arrival only after Route confirms arrival", () =>
   assert.equal(queue.active, true);
 });
 
-test("arrival display follows confirmed effective arrival and updates with late TBR", () => {
+test("queue arrival card keeps Route actual while TBR remains advisory", () => {
   const row = {
     attendanceType: "ปลายทาง",
     estimatedArrivalAt: "2026-09-01T02:40:00.000Z",
@@ -184,7 +184,8 @@ test("arrival display follows confirmed effective arrival and updates with late 
   row.scheduleTbrArrivalAt = "2026-09-01T02:50:00.000Z";
   const effectiveText = ui.shortDateTime(row.scheduleTbrArrivalAt);
   assert.ok(ui.actualCell(row).includes(effectiveText));
-  assert.ok(ui.scheduleSection(row, "arrival").includes(effectiveText));
+  assert.ok(ui.scheduleSection(row, "arrival").includes(ui.shortDateTime(row.actualArrivalAt)));
+  assert.ok(!ui.scheduleSection(row, "arrival").includes(effectiveText));
   assert.equal(row.actualArrivalAt, "2026-09-01T03:00:00.000Z");
 });
 

@@ -589,9 +589,9 @@ function confirmedEffectiveArrival(row) {
   return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;
 }
 function attendanceLabel(row) {
-  if (isDestination(row)) return "รถเข้าฮับ";
-  if (isDrop(row)) return "รถแวะส่งแล้วไปต่อ";
-  return "รถออกจากฮับ";
+  if (isDestination(row)) return "รถเข้าคลัง";
+  if (isDrop(row)) return "เข้าจุดดรอป";
+  return "รอออกจากคลัง";
 }
 function punctuality(row) {
   const incoming = isDestination(row) || isDrop(row),
@@ -645,9 +645,24 @@ function scheduleSection(row, mode) {
   const incoming = mode === "arrival";
   const plan = incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt;
   const actual = incoming
-    ? confirmedEffectiveArrival(row)
+    ? row.actualArrivalAt
     : row.actualDepartureAt;
-  const timing = schedulePunctuality(row, mode);
+  // The arrival card presents Route truth. KIT/TBR remain advisory in the
+  // three-column footer and never replace the actual-arrival value here.
+  const plannedDate = parseDate(plan);
+  const actualDate = parseDate(actual);
+  const timing = incoming
+    ? !plannedDate || !actualDate
+      ? { key: "pending", diff: null, label: "ยังไม่มีเวลาจริง" }
+      : (() => {
+          const diff = Math.round((actualDate - plannedDate) / 60000);
+          return {
+            key: diff > 0 ? "late" : "ontime",
+            diff,
+            label: diff > 0 ? "รถเข้าช้า" : diff < 0 ? "รถเข้าก่อนเวลา" : "รถเข้าตรงเวลา",
+          };
+        })()
+    : schedulePunctuality(row, mode);
   const detail = timing.diff === null
     ? timing.label
     : `${timing.label} · ${nf.format(Math.abs(timing.diff))} นาที`;
@@ -1317,12 +1332,10 @@ function exportPendingParcels() {
 }
 
 function arrivalSources(row) {
-  if (!isDestination(row) && !isOrigin(row)) return "";
-  if (!row.scheduleKitArrivalAt && !row.scheduleTbrArrivalAt)
-    return '<div class="arrival-system-row is-empty"><b>เวลาถึงจากระบบ</b><span>ยังไม่มีเวลาจากระบบ</span></div>';
+  if (!isDestination(row) && !isOrigin(row) && !isDrop(row)) return "";
   const earliest = [row.scheduleKitArrivalAt, row.scheduleTbrArrivalAt]
     .map(parseDate).filter(Boolean).sort((a, b) => a - b)[0];
-  return `<div class="arrival-system-row"><b>เวลาถึงจากระบบ</b><div><span><em>KIT</em>${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ใช้เวลา</em>${arrivalSourceDateTime(earliest)}</span></div></div>`;
+  return `<div class="arrival-system-row${earliest ? "" : " is-empty"}"><div><span><em>KIT</em>${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ใช้เวลา</em>${arrivalSourceDateTime(earliest)}</span></div></div>`;
 }
 
 function arrivalSourceDateTime(value) {
@@ -1351,7 +1364,9 @@ function unloadTiming(row, now = new Date()) {
   const workMinutes = start && workEnd && workEnd >= start
     ? Math.floor((workEnd - start) / 60000)
     : null;
-  const slaEnd = finish || (Number(row.unloadingState) === 1 && arrival ? now : null);
+  // Route actualArrivalAt is the sole operational clock authority. Waiting
+  // and active rows keep counting; completed rows still require trusted E.
+  const slaEnd = finish || (!completed && arrival ? now : null);
   const slaMinutes = arrival && slaEnd && slaEnd >= arrival
     ? Math.floor((slaEnd - arrival) / 60000)
     : null;
@@ -1394,13 +1409,15 @@ function operationIcon(kind) {
     loading: '<path d="M3 7h9v10H3zM12 11h4l3 3v3h-7z"/><circle cx="6" cy="19" r="2"/><circle cx="16" cy="19" r="2"/><path d="M21 5h-6m3-3 3 3-3 3"/>',
     unload: '<path d="M4 5h10v11H4zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M17 5h5m-2-3 2 3-2 3"/>',
     release: '<path d="M3 8h10v8H3zM13 11h4l3 3v2h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M16 5h5m-2-2 2 2-2 2"/>',
+    worker: '<circle cx="8" cy="5" r="2"/><path d="M6 9h4l2 4 3-1 1 2-5 2-2-4v8M6 10l-2 5M14 7h7v8h-5M17 7V5h3v2"/>',
+    warehouse: '<path d="m3 10 9-6 9 6v10H3z"/><path d="M7 13h10v7H7zM9 16h6"/>',
     alert: '<path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17h.01"/>',
   };
   return `<svg class="operation-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[kind] || paths.clock}</svg>`;
 }
 
 function operationTimeline(stages, activeIndex) {
-  return `<div class="operation-timeline stages-${stages.length}">${stages.map((stage, index) => `<span class="operation-stage ${index < activeIndex ? "is-done" : index === activeIndex ? "is-active" : "is-next"}">${operationIcon(stage.icon)}<b>${stage.value}</b><small>${stage.label}</small></span>`).join('<i aria-hidden="true"></i>')}</div>`;
+  return `<div class="operation-timeline stages-${stages.length}">${stages.map((stage, index) => `<span class="operation-stage ${index < activeIndex ? "is-done" : index === activeIndex ? "is-active" : "is-next"}">${operationIcon(stage.icon)}<b>${stage.label}</b><small>${stage.value}</small></span>`).join('<i aria-hidden="true"></i>')}</div>`;
 }
 
 function operationHeader(icon, title, subtitle = "") {
@@ -1415,9 +1432,9 @@ function unloadCompletionCard(row) {
   const active = Number(row.unloadingState) === 1 || stateKey === "unloading";
   const done = Number(row.unloadingState) === 2 || stateKey === "completed";
   const waiting = !active && !done;
-  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังลงพัสดุ" : "ถึงปลายทางแล้ว";
+  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังโหลดพัสดุลงรถ" : "ถึงปลายทางแล้ว";
   const subtitle = waiting ? "รอเริ่มลงรถ" : "";
-  const icon = done ? "check" : active ? "unload" : "pin";
+  const icon = done ? "check" : active ? "worker" : "pin";
   const slaText = timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`;
   const slaLabel = done ? "ตั้งแต่รถถึงจนลงเสร็จ" : "ตั้งแต่รถถึง";
   const over = timing.overStandard
@@ -1427,16 +1444,21 @@ function unloadCompletionCard(row) {
     : "";
   const timeline = waiting
     ? operationTimeline([
-        { icon: "pin", value: timing.arrival ? shortDateTime(timing.arrival) : "-", label: "มาถึง" },
-        { icon: "unload", value: "รอเริ่มลง", label: "ขั้นตอนถัดไป" },
+        { icon: "pin", value: timing.arrival ? shortDateTime(timing.arrival) : "-", label: "ถึงปลายทาง" },
+        { icon: "worker", value: "รอดำเนินการ", label: "เริ่มลงรถ" },
       ], 0)
     : operationTimeline([
-        { icon: "unload", value: timing.start ? shortDateTime(timing.start) : "-", label: "เริ่มลง" },
-        { icon: done ? "check" : "package", value: done && timing.finish ? shortDateTime(timing.finish) : "กำลังดำเนินการ", label: done ? "เสร็จจริง" : "กำลังลงพัสดุ" },
-      ], 1);
+        { icon: "worker", value: timing.start ? shortDateTime(timing.start) : "-", label: "เริ่มลงรถ" },
+        { icon: done ? "check" : "package", value: done && timing.finish ? shortDateTime(timing.finish) : "รอดำเนินการ", label: "เสร็จสิ้น" },
+      ], done ? 1 : 0);
   const work = done && timing.workMinutes !== null
     ? `<div class="operation-work-duration">ใช้เวลาลงจริง <strong>${nf.format(timing.workMinutes)} นาที</strong></div>` : "";
-  return `<section class="lower-operation destination-operation ${done ? "is-completed" : active ? "is-active" : "is-waiting"} ${timing.overStandard ? "is-over" : ""}">${operationHeader(icon, headline, subtitle)}<div class="operation-kpi"><strong>${slaText}</strong><span>${slaLabel}</span></div><div class="operation-standard">${timing.standard === null ? "ยังไม่มีมาตรฐานประเภทรถ" : `มาตรฐาน ${nf.format(timing.standard)} นาที`}</div>${over}${timeline}${work}</section>`;
+  const standardContext = timing.standard === null
+    ? "ยังไม่มีมาตรฐานประเภทรถ"
+    : active && timing.start
+      ? `เริ่มลงรถ ${shortDateTime(timing.start)} • มาตรฐาน ${nf.format(timing.standard)} นาที`
+      : `มาตรฐาน ${nf.format(timing.standard)} นาที`;
+  return `<section class="lower-operation destination-operation ${done ? "is-completed" : active ? "is-active" : "is-waiting"} ${timing.overStandard ? "is-over" : ""}">${operationHeader(icon, headline, subtitle)}<div class="operation-kpi"><strong>${slaText}</strong><span>${slaLabel}</span></div><div class="operation-standard">${standardContext}</div>${over}${timeline}${work}</section>`;
 }
 
 function renderOriginOperation(row) {
@@ -1448,7 +1470,8 @@ function renderOriginOperation(row) {
   const stay = arrival && (departure || now) >= arrival ? Math.floor(((departure || now) - arrival) / 60000) : null;
   const releaseDiff = departure && planned ? Math.floor((departure - planned) / 60000) : null;
   const released = Boolean(departure);
-  const loadingComplete = !released && Number(row.unloadingState) === 2;
+  const routeStillLoading = Number(row.unloadingState) === 1 || /กำลัง.*โหลด|loading/i.test(String(row.vehicleStatus || ""));
+  const loadingComplete = !released && !routeStillLoading && Number(row.unloadingState) === 2;
   const loading = !released && !loadingComplete;
   const headline = released ? "ออกจาก HUB แล้ว" : loadingComplete ? "โหลดพัสดุขึ้นรถแล้ว" : "กำลังโหลดพัสดุขึ้นรถ";
   const subtitle = loadingComplete ? "รอปล่อยรถ" : loading ? "กำลังนำพัสดุออกจากคลัง" : "";
@@ -1466,7 +1489,8 @@ function renderOriginOperation(row) {
     : loading
       ? operationTimeline([
           { icon: "loading", value: row.scheduleUnloadingStartedAt ? shortDateTime(row.scheduleUnloadingStartedAt) : arrival ? shortDateTime(arrival) : "-", label: "เริ่มโหลด" },
-          { icon: "package", value: "กำลังดำเนินการ", label: "กำลังโหลดขึ้นรถ" },
+          { icon: "loading", value: "กำลังดำเนินการ", label: "กำลังโหลดขึ้นรถ" },
+          { icon: "check", value: "รอดำเนินการ", label: "โหลดเสร็จ" },
         ], 1)
       : operationTimeline([
           { icon: "pin", value: arrival ? shortDateTime(arrival) : "-", label: "มาถึง" },
@@ -1488,11 +1512,11 @@ function renderDropOperation(row) {
   const headline = released ? "ออกต่อจากจุดดรอปแล้ว" : active ? "กำลังดำเนินการที่จุดดรอป" : "ถึงจุดดรอปแล้ว";
   const subtitle = !released && !active ? "รอเริ่มดำเนินการ" : "";
   const timeline = operationTimeline([
-    { icon: "pin", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
+    { icon: "warehouse", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
     { icon: "package", value: started ? shortDateTime(started) : active ? "กำลังดำเนินการ" : "รอเริ่ม", label: "เริ่มดำเนินการ" },
-    { icon: "release", value: released ? shortDateTime(departure) : "ขั้นตอนถัดไป", label: "ออกต่อ" },
-  ], released ? 2 : active ? 1 : 0);
-  return `<section class="lower-operation drop-operation ${released ? "is-released" : active ? "is-active" : "is-waiting"}">${operationHeader(released ? "release" : active ? "package" : "pin", headline, subtitle)}<div class="operation-kpi"><strong>${nf.format(minutes)} นาที</strong><span>เวลาที่อยู่ ณ จุดดรอป</span></div>${timeline}<div class="operation-work-duration">ใช้เวลาที่จุดดรอป <strong>${nf.format(minutes)} นาที</strong></div></section>`;
+    { icon: "release", value: released ? shortDateTime(departure) : "รอออกเดินทาง", label: "ออกเดินทาง" },
+  ], released ? 2 : 1);
+  return `<section class="lower-operation drop-operation ${released ? "is-released" : active ? "is-active" : "is-waiting"}">${operationHeader(released ? "release" : active ? "package" : "warehouse", headline, subtitle)}<div class="operation-kpi"><strong>${nf.format(minutes)} นาที</strong><span>เวลาที่อยู่ ณ จุดดรอป</span></div>${timeline}<div class="operation-work-duration">ใช้เวลาที่จุดดรอป <strong>${nf.format(minutes)} นาที</strong></div></section>`;
 }
 
 function renderOperation(row) {
@@ -1623,15 +1647,14 @@ function tableRow(row) {
         ? '<span class="row-muted">รอเวลาออกจริง</span>'
         : `<div class="duration-line ${p.diff > 0 ? "is-late" : "is-ok"}"><strong>${nf.format(Math.abs(p.diff))} นาที</strong><span>${p.diff > 0 ? "ปล่อยช้ากว่าแผน" : "ปล่อยก่อนแผน"}</span></div>`;
   const attendanceClass = isDestination(row) ? "inbound" : isDrop(row) ? "drop" : "outbound";
-  const scheduleHtml = isDestination(row)
-    ? scheduleSection(row, "arrival")
-    : `${scheduleSection(row, "arrival")}${scheduleSection(row, "departure")}`;
+  const scheduleHtml = scheduleSection(row, "arrival");
+  const operationHtml = renderOperation(row);
   return `<tr>
     <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</div></td>
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
     <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
-    <td><div class="schedule-stack ${isDestination(row) ? "single" : "dual"}">${scheduleHtml}${arrivalSources(row)}</div></td>
-    <td><div class="work-summary"><div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div>${renderOperation(row)}<small class="queue-label">${esc(queueText)}</small></div></td>
+    <td><div class="schedule-stack single">${scheduleHtml}${arrivalSources(row)}</div></td>
+    <td><div class="work-summary">${operationHtml || `<div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div><small class="queue-label">${esc(queueText)}</small>`}</div></td>
     <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
   </tr>`;
 }
@@ -1693,13 +1716,12 @@ function card(row) {
         : q.active
           ? "อยู่ในคิวปัจจุบัน"
           : "ยังไม่เข้าคิว";
-  const compactSchedule = isDestination(row)
-    ? scheduleSection(row, "arrival")
-    : `${scheduleSection(row, "arrival")}${scheduleSection(row, "departure")}`;
+  const compactSchedule = scheduleSection(row, "arrival");
   return `<article class="truck-card ms-card compact-card">
-    <header class="compact-card-head"><div class="compact-card-tags"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.routeName || "-")}</h2><p>${esc(row.proofId || "-")} · ทะเบียน ${esc(row.plate || "-")}</p>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</header>
+    <header class="compact-card-head"><div class="compact-card-tags"><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span></div><h2>${esc(row.proofId || "-")}</h2><p class="compact-route-name">${esc(row.routeName || "-")}</p><small>ทะเบียน ${esc(row.plate || "-")}</small>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</header>
     <div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div>
-    <div class="compact-times compact-schedule">${compactSchedule}${arrivalSources(row)}</div>
+    <div class="compact-attendance"><span class="type-badge ${attendanceClass}">${esc(normalizeAttendance(row.attendanceType) || "-")}</span><small>${attendanceLabel(row)}</small></div>
+    <div class="compact-times compact-schedule schedule-stack single">${compactSchedule}${arrivalSources(row)}</div>
     ${renderOperation(row)}
     <div class="compact-party"><div><span>บริษัทซัพ</span><strong>${esc(row.supplier || "ไม่พบชื่อบริษัทซัพ")}</strong></div><div><span>คนขับรถ</span><strong>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</strong></div>${row.driverPhone ? `<a class="compact-phone" href="tel:${esc(row.driverPhone)}"><span>โทร</span>${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button compact-cancel-route" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div>
   </article>`;

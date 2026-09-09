@@ -7,7 +7,7 @@ function replaceUnique(output, from, to, label) {
 }
 
 const FRONTEND_MARKER = "const preserveObservedCompletion =";
-const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
+const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_0700_V2";
 const SLA_EARLIEST_MARKER = "MS_SLA_EARLIEST_ARRIVAL_V2";
 const TRUSTED_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
 
@@ -54,8 +54,6 @@ export function patchMsCompletedViewStabilityFrontend(source) {
   }
 
   if (output.includes(DAILY_COUNTS_MARKER)) return output;
-  if (output.includes("MS_LOWER_DAILY_COUNTS_0700_V1") || output.includes("lowerOperatingDayValue("))
-    throw new Error("MS lower daily counts must reset at Bangkok midnight, not 07:00");
 
   output = replaceUnique(
     output,
@@ -75,21 +73,21 @@ export function patchMsCompletedViewStabilityFrontend(source) {
     output,
     `  lowerDailyDay = nextDay;\n  state.completedToday = 0;\n  completedTodayLoadPromise = null;`,
     `  lowerDailyDay = nextDay;\n  state.completedToday = 0;\n  state.cancelledToday = 0;\n  cancelledTodayLoadPromise = null;\n  cancelledTodayHydratedKey = \"\";\n  completedTodayLoadPromise = null;`,
-    "reset lower counts at Bangkok midnight rollover",
+    "reset lower counts at Bangkok 07:00 operating-day rollover",
   );
 
   output = replaceUnique(
     output,
     `function completedTodayDatasetRows() {`,
-    `// ${DAILY_COUNTS_MARKER}: completed/overtime/cancelled cards reset at Bangkok midnight.\nasync function loadCancelledTodayCount() {\n  const key = completedTodayDatasetKey();\n  if (cancelledTodayHydratedKey === key) return Number(state.cancelledToday) || 0;\n  if (cancelledTodayLoadPromise) return cancelledTodayLoadPromise;\n  const branch = state.branch;\n  const promise = (async () => {\n    try {\n      const result = await apiGet(\"msCancelledToday\", { branch });\n      if (state.branch !== branch) return 0;\n      state.cancelledToday = Number(result?.total) || 0;\n      cancelledTodayHydratedKey = key;\n      return state.cancelledToday;\n    } finally {\n      if (cancelledTodayLoadPromise === promise) cancelledTodayLoadPromise = null;\n    }\n  })();\n  cancelledTodayLoadPromise = promise;\n  return promise;\n}\n\nfunction completedTodayDatasetRows() {`,
-    "add read-only cancelled daily count loader",
+    `// ${DAILY_COUNTS_MARKER}: completed/overtime/cancelled cards reset at Bangkok 07:00.\nasync function loadCancelledTodayCount() {\n  const key = completedTodayDatasetKey();\n  if (cancelledTodayHydratedKey === key) return Number(state.cancelledToday) || 0;\n  if (cancelledTodayLoadPromise) return cancelledTodayLoadPromise;\n  const branch = state.branch;\n  const promise = (async () => {\n    try {\n      const result = await apiGet(\"msCancelledToday\", { branch });\n      if (state.branch !== branch) return 0;\n      state.cancelledToday = Number(result?.total) || 0;\n      cancelledTodayHydratedKey = key;\n      return state.cancelledToday;\n    } finally {\n      if (cancelledTodayLoadPromise === promise) cancelledTodayLoadPromise = null;\n    }\n  })();\n  cancelledTodayLoadPromise = promise;\n  return promise;\n}\n\nfunction completedTodayDatasetRows() {`,
+    "add read-only cancelled operating-day count loader",
   );
 
   output = replaceUnique(
     output,
     `    const zeroProbeKey = completedTodayDatasetKey();`,
     `    const zeroProbeKey = completedTodayDatasetKey();\n    if (cancelledTodayHydratedKey !== zeroProbeKey && !cancelledTodayLoadPromise) {\n      void loadCancelledTodayCount()\n        .then(() => {\n          if (state.auth && completedTodayDatasetKey() === zeroProbeKey) render();\n        })\n        .catch(() => {});\n    }`,
-    "hydrate cancelled count once per HUB calendar day",
+    "hydrate cancelled count once per HUB operating day",
   );
 
   output = replaceUnique(

@@ -106,3 +106,5 @@ if (!tests.includes("lower completed uses the frozen upper current-day truth and
 
 await writeFile(testUrl, tests);
 console.log("LOWER_COMPLETED_CURRENT_DAY_V1=PATCHED");
+
+// DEV_DEPLOY_TRIGGER_LOWER_COMPLETED_CURRENT_DAY_V1

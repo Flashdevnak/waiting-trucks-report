@@ -25,6 +25,7 @@ jobs:
           node .github/dev-tools/fix-lower-completed-current-day-v1.mjs
           node .github/dev-tools/fix-lower-numeric-zero-staging-v1.mjs
           node .github/dev-tools/fix-stage-lower-current-day-assertion-v1.mjs
+          node .github/dev-tools/fix-worker-lower-current-day-test-v1.mjs
 
       - name: Run lower completion regression
         run: |
@@ -47,8 +48,8 @@ jobs:
           fi
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
-          git add ms.js .github/dev-tools/ms-unload-completion-ui.test.mjs .github/dev-tools/patch-ms-completed-view-stability.mjs .github/dev-tools/stage-dev-runtime.test.mjs
+          git add ms.js .github/dev-tools/ms-unload-completion-ui.test.mjs .github/dev-tools/patch-ms-completed-view-stability.mjs .github/dev-tools/stage-dev-runtime.test.mjs worker/tests/frontend-requirements.test.mjs
           git commit -m 'fix: align lower completed with accepted daily truth'
           git push origin HEAD:main
 
-# rerun-v4: current-day completed truth, numeric-zero cards, and matching stage assertion
+# rerun-v5: current-day completed truth and numeric-zero cards across frontend + worker contracts

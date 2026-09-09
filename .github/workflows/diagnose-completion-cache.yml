@@ -55,6 +55,31 @@ jobs:
               const q=`SELECT hub,source_hash,LENGTH(${jsonCol}) AS bytes, json_extract(${jsonCol},'$.version') AS version, json_extract(${jsonCol},'$.completedDay') AS completed_day, json_array_length(COALESCE(json_extract(${jsonCol},'$.completedRows'),'[]')) AS completed_rows, json_array_length(COALESCE(json_extract(${jsonCol},'$.rows'),'[]')) AS live_rows FROM ms_live_cache ORDER BY hub`;
               console.log('CACHE_MATRIX='+JSON.stringify(rows(await query(q))));
             }
+            const shape=rows(await query(`
+              SELECT
+                COALESCE(json_extract(j.value,'$.attendanceType'),''),
+                COALESCE(json_extract(j.value,'$.unloadingState'),''),
+                COALESCE(json_extract(j.value,'$.completionSource'),''),
+                COALESCE(json_extract(j.value,'$.completionObservedLive'),''),
+                COALESCE(json_extract(j.value,'$.unloadingCompletedAt'),''),
+                COALESCE(json_extract(j.value,'$.scheduleUnloadingCompletedAt'),''),
+                COALESCE(json_extract(j.value,'$.id'),'')
+              FROM ms_live_cache c, json_each(c.rows_json,'$.completedRows') j
+              WHERE c.hub='NE1'
+              LIMIT 12`));
+            console.log('NE1_COMPLETED_SAMPLES='+JSON.stringify(shape));
+            const grouped=rows(await query(`
+              SELECT
+                COALESCE(json_extract(j.value,'$.attendanceType'),'(blank)') AS attendance,
+                COALESCE(json_extract(j.value,'$.unloadingState'),'(blank)') AS state,
+                COALESCE(json_extract(j.value,'$.completionSource'),'(blank)') AS source,
+                COALESCE(json_extract(j.value,'$.completionObservedLive'),'(blank)') AS observed,
+                COUNT(*)
+              FROM ms_live_cache c, json_each(c.rows_json,'$.completedRows') j
+              WHERE c.hub='NE1'
+              GROUP BY attendance,state,source,observed
+              ORDER BY COUNT(*) DESC`));
+            console.log('NE1_COMPLETED_GROUPS='+JSON.stringify(grouped));
             const counts=rows(await query(`SELECT hub,COUNT(*) FROM ms_route_history WHERE json_valid(payload_json)=1 AND CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER)=2 AND COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'')>='2026-09-09T00:00:00.000Z' AND COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'')<'2026-09-10T00:00:00.000Z' GROUP BY hub ORDER BY hub`));
             console.log('D9_COMPLETION_HISTORY_ROWS='+JSON.stringify(counts));
             console.log('READ_ONLY=TRUE');

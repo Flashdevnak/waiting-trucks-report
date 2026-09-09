@@ -1,34 +1,36 @@
 name: Owner Classic Lower Fix
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/owner-classic-lower-fix.yml
+  workflow_run:
+    workflows: ["pages build and deployment"]
+    types: [completed]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Run the reviewed patch stored in the parent workflow revision
+      - name: Run reviewed classic-lower patch
         run: |
           python - <<'PY'
           from pathlib import Path
           import subprocess, textwrap
+          source_commit = '9b3185ad62e5e85c203d9bf65e62685723f9e097'
           old = subprocess.check_output([
-              'git','show','HEAD^:.github/workflows/owner-classic-lower-fix.yml'
+              'git','show',f'{source_commit}:.github/workflows/owner-classic-lower-fix.yml'
           ], text=True)
           anchor = '- name: Apply classic lower presentation on current logic'
           start = old.index('        run: |', old.index(anchor)) + len('        run: |')
           end = old.index('\n      - name: Validate patched frontend and regression gates', start)
-          script = textwrap.dedent(old[start:]).split('\n      - name: Validate patched frontend and regression gates', 1)[0]
-          Path('/tmp/apply-owner-classic-lower.py').write_text(script.lstrip('\n'))
+          script = textwrap.dedent(old[start:end]).lstrip('\n')
+          Path('/tmp/apply-owner-classic-lower.py').write_text(script)
           subprocess.run(['python','/tmp/apply-owner-classic-lower.py'], check=True)
           PY
       - name: Validate patched frontend and regression gates

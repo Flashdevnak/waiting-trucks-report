@@ -74,8 +74,8 @@ export function patchMsCompletedViewStabilityFrontend(source) {
 
   output = replaceUnique(
     output,
-    `  state.archiveTotal = 0;\n  state.completedToday = 0;\n  state.archiveLoaded = false;`,
-    `  state.archiveTotal = 0;\n  state.completedToday = 0;\n  state.cancelledToday = 0;\n  cancelledTodayLoadPromise = null;\n  cancelledTodayHydratedKey = \"\";\n  state.archiveLoaded = false;`,
+    `  state.completedToday = 0;\n  state.archiveLoaded = false;`,
+    `  state.completedToday = 0;\n  state.cancelledToday = 0;\n  cancelledTodayLoadPromise = null;\n  cancelledTodayHydratedKey = \"\";\n  state.archiveLoaded = false;`,
     "reset daily count state with HUB archive state",
   );
 

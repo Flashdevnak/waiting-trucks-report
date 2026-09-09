@@ -14,13 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Compare staged and live completion functions
+      - name: Inspect staged completion frontend and worker endpoint
         run: |
           node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises';
-          import { stageFrontend } from './.github/dev-tools/stage-dev-runtime.mjs';
+          import { stageFrontend, stageWorker } from './.github/dev-tools/stage-dev-runtime.mjs';
           const raw = await readFile('ms.js','utf8');
+          const rawWorker = await readFile('worker/src/index.js','utf8');
           const staged = stageFrontend(raw);
+          const worker = stageWorker(rawWorker);
           const response = await fetch('https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/ms.js',{cache:'no-store',headers:{'cache-control':'no-cache'}});
           if(!response.ok) throw new Error(`live ms.js HTTP ${response.status}`);
           const live = await response.text();
@@ -32,12 +34,15 @@ jobs:
           for(const [label,text] of [['STAGED',staged],['LIVE',live]]){
             console.log(label+'_HAS_0700='+text.includes('MS_LOWER_OPERATING_DAY_0700_V2'));
             console.log(label+'_HAS_TRUSTED_SCHEDULE='+text.includes('MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1'));
-            console.log(label+'_HAS_DAILY_COUNTS_0700='+text.includes('MS_LOWER_DAILY_COUNTS_0700_V2'));
-            console.log('---'+label+'_LOWER_DAY---');
-            console.log(block(text,'function lowerOperatingDayValue(', 'async function loadData'));
             console.log('---'+label+'_COMPLETED_FILTER---');
             console.log(block(text,'function isCompletedToday(', 'function isCompletedAccumulated'));
             console.log('---'+label+'_LOAD_COMPLETED---');
             console.log(block(text,'async function loadCompletedTodayRows(', '// MS_LOWER_CLASSIC_V12'));
           }
+          console.log('---WORKER_LOWER_DAY---');
+          console.log(block(worker,'function lowerOperatingDayForValue(', 'function isCompletedForThaiDay'));
+          console.log('---WORKER_COMPLETED_PREDICATE---');
+          console.log(block(worker,'function isCompletedForThaiDay(', 'async function bootstrapCompletedToday'));
+          console.log('---WORKER_COMPLETED_ENDPOINT---');
+          console.log(block(worker,'async function readMsCompletedToday(', 'async function readMsCancelledToday'));
           NODE

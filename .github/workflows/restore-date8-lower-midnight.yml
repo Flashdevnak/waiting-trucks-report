@@ -1,0 +1,95 @@
+name: Restore Date 8 Lower Midnight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/restore-date8-lower-midnight.yml
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Restore lower midnight truth only
+        run: |
+          set -euo pipefail
+          git show 4ffc494d9fe3c8f1d5af9364f1c0842077a62f72:.github/dev-tools/patch-ms-operating-day.mjs > .github/dev-tools/patch-ms-operating-day.mjs
+          git show d1703078cc06f10d53d833f07d914a1a6f809913:.github/dev-tools/patch-ms-completed-view-stability.mjs > .github/dev-tools/patch-ms-completed-view-stability.mjs
+          git show d1703078cc06f10d53d833f07d914a1a6f809913:.github/dev-tools/patch-ms-schedule-completion-v4.mjs > .github/dev-tools/patch-ms-schedule-completion-v4.mjs
+          git show d1703078cc06f10d53d833f07d914a1a6f809913:.github/dev-tools/ms-unload-completion-ui.test.mjs > .github/dev-tools/ms-unload-completion-ui.test.mjs
+          git show d1703078cc06f10d53d833f07d914a1a6f809913:.github/dev-tools/stage-dev-runtime.test.mjs > .github/dev-tools/stage-dev-runtime.test.mjs
+          git show d1703078cc06f10d53d833f07d914a1a6f809913:.github/dev-tools/daily-history.test.mjs > .github/dev-tools/daily-history.test.mjs
+          node <<'NODE'
+          const fs=require('node:fs');
+          let js=fs.readFileSync('ms.js','utf8');
+          const s=js.indexOf('// MS_LOWER_OPERATING_DAY_0700_V2:');
+          const needle='let lowerDailyDay = lowerOperatingDayValue(new Date());';
+          const e=js.indexOf(needle,s);
+          if(s>=0&&e>=s) js=js.slice(0,s)+'// MS_LOWER_DAILY_MIDNIGHT_DATE8_V1: Lower daily cards reset at Bangkok 00:00.\nlet lowerDailyDay = bangkokDateValue(new Date());'+js.slice(e+needle.length);
+          js=js.replace('const nextDay = lowerOperatingDayValue(new Date());','const nextDay = bangkokDateValue(new Date());');
+          js=js.replace('return `${state.branch}|${lowerOperatingDayValue(new Date())}`;','return `${state.branch}|${bangkokDateValue(new Date())}`;');
+          js=js.replace('return lowerOperatingDayValue(row.unloadingCompletedAt) === lowerOperatingDayValue(now);','return bangkokDateValue(row.unloadingCompletedAt) === bangkokDateValue(now);');
+          js=js.replace('lowerOperatingDayValue(row.queueCancelledAt) === lowerOperatingDayValue(now)','bangkokDateValue(row.queueCancelledAt) === bangkokDateValue(now)');
+          if(js.includes('lowerOperatingDayValue(')||js.includes('MS_LOWER_OPERATING_DAY_0700_V2')) throw new Error('07:00 frontend logic remains');
+          if(!js.includes('MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1')) throw new Error('trusted Schedule E lost');
+          if(!js.includes('MS_SLA_EARLIEST_ARRIVAL_V2')){
+            js=js.replace('  const arrival = parseDate(row.actualArrivalAt);','  // MS_SLA_EARLIEST_ARRIVAL_V2: SLA starts at the earliest confirmed Route/KIT/TBR arrival.\n  const arrival = confirmedEffectiveArrival(row);');
+            js=js.replace('  // Route actualArrivalAt is the sole operational clock authority. Waiting\n  // and active rows keep counting; completed rows still require trusted E.','  // Route confirms arrival; SLA starts from the earliest matched Route/KIT/TBR time.');
+            js=js.replace('const slaRange = done ? "Route ถึงจริง → ลงเสร็จจริง" : "Route ถึงจริง → เวลาปัจจุบัน";','const slaRange = done ? "เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง" : "เวลาถึงที่เร็วที่สุด → เวลาปัจจุบัน";');
+          }
+          if(!js.includes('const arrival = confirmedEffectiveArrival(row);')) throw new Error('earliest SLA missing');
+          fs.writeFileSync('ms.js',js);
+
+          let html=fs.readFileSync('ms.html','utf8');
+          html=html.replace(/ms\.js\?v=[^"']+/,'ms.js?v=20260910-02-lower-midnight-date8');
+          fs.writeFileSync('ms.html',html);
+
+          let req=fs.readFileSync('worker/tests/frontend-requirements.test.mjs','utf8');
+          const a=req.indexOf('test("lower completion uses Bangkok 07:00 operating day and trusted Schedule E"');
+          const b=req.indexOf('test("departure countdown covers pending, overdue, early, late, and on-time"',a);
+          if(a>=0&&b>a){
+            const block=`test("lower completion uses Bangkok midnight and trusted Schedule E", () => {\n  const now = new Date("2026-09-01T18:00:00.000Z");\n  for (const attendanceType of ["ปลายทาง", "จุดดรอป"]) assert.equal(ui.isCompletedToday({ attendanceType, unloadingState: 2, unloadingCompletedAt: "2026-09-01T17:30:00.000Z" }, now), true);\n  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, unloadingCompletedAt: "2026-09-01T16:59:00.000Z" }, now), false);\n  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, unloadingCompletedAt: "2026-09-01T17:30:00.000Z", completionObservedLive: false }, now), false);\n  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, unloadingCompletedAt: "2026-09-01T17:30:00.000Z", completionObservedLive: false, completionSource: "SCHEDULE" }, now), true);\n});\n\n`;
+            req=req.slice(0,a)+block+req.slice(b);
+          }
+          fs.writeFileSync('worker/tests/frontend-requirements.test.mjs',req);
+
+          let schedule=fs.readFileSync('.github/dev-tools/patch-ms-schedule-completion-v4.mjs','utf8');
+          schedule=schedule.replace('const DAILY_CACHE_VERSION = 3;','const DAILY_CACHE_VERSION = 5;');
+          if(!schedule.includes('MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2')) throw new Error('midnight worker missing');
+          if(schedule.includes('T07:00:00+07:00')) throw new Error('07:00 actual worker window remains');
+          fs.writeFileSync('.github/dev-tools/patch-ms-schedule-completion-v4.mjs',schedule);
+
+          let ut=fs.readFileSync('.github/dev-tools/ms-unload-completion-ui.test.mjs','utf8');
+          ut=ut.replace(/format === 3/g,'format === 5').replace(/version: 3/g,'version: 5');
+          fs.writeFileSync('.github/dev-tools/ms-unload-completion-ui.test.mjs',ut);
+
+          let dh=fs.readFileSync('.github/dev-tools/daily-history.test.mjs','utf8');
+          dh=dh.replace(/ms\\\.js\\\?v=[^/\n)]+/,'ms\\.js\\?v=20260910-02-lower-midnight-date8');
+          dh=dh.replace(/\n\s*assert\.match\(frontend, \/MS_LOWER_OPERATING_DAY_0700_V2\/\);?/,'');
+          fs.writeFileSync('.github/dev-tools/daily-history.test.mjs',dh);
+          NODE
+      - name: Verify
+        run: |
+          node --check ms.js
+          node --test worker/tests/frontend-requirements.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs .github/dev-tools/ms-unload-completion-ui.test.mjs .github/dev-tools/ms-schedule-completion-v4.test.mjs .github/dev-tools/daily-history.test.mjs
+          npm run check
+          grep -q 'MS_LOWER_DAILY_MIDNIGHT_DATE8_V1' ms.js
+          grep -q 'MS_SLA_EARLIEST_ARRIVAL_V2' ms.js
+          ! grep -q 'MS_LOWER_OPERATING_DAY_0700_V2' ms.js
+          grep -q 'pollMs: 4000' ms.js
+      - name: Commit restored lower truth
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ms.js ms.html worker/tests/frontend-requirements.test.mjs .github/dev-tools/patch-ms-operating-day.mjs .github/dev-tools/patch-ms-completed-view-stability.mjs .github/dev-tools/patch-ms-schedule-completion-v4.mjs .github/dev-tools/ms-unload-completion-ui.test.mjs .github/dev-tools/stage-dev-runtime.test.mjs .github/dev-tools/daily-history.test.mjs
+          git diff --cached --check
+          git commit -m "fix: restore Date 8 lower midnight completion truth"
+          git push origin HEAD:main

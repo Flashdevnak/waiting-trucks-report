@@ -1,17 +1,16 @@
 name: Owner Classic Lower Fix
 
 on:
-  workflow_run:
-    workflows: ["pages build and deployment"]
-    types: [completed]
-  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/owner-classic-lower-fix.yml
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

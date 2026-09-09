@@ -1,0 +1,39 @@
+name: Diagnose Staged Completion Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-staged-completion-frontend.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect staged completion functions
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          import { stageFrontend } from './.github/dev-tools/stage-dev-runtime.mjs';
+          const raw = await readFile('ms.js','utf8');
+          const staged = stageFrontend(raw);
+          const block=(a,b)=>{
+            const x=staged.indexOf(a), y=staged.indexOf(b,x+a.length);
+            if(x<0||y<0) throw new Error(`missing block ${a}`);
+            return staged.slice(x,y);
+          };
+          console.log('HAS_0700_MARKER='+staged.includes('MS_LOWER_OPERATING_DAY_0700_V2'));
+          console.log('HAS_TRUSTED_SCHEDULE='+staged.includes('MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1'));
+          console.log('---LOWER_DAY---');
+          console.log(block('function lowerOperatingDayValue(', 'async function loadData'));
+          console.log('---COMPLETED_FILTER---');
+          console.log(block('function isCompletedToday(', 'function isCompletedAccumulated'));
+          console.log('---DATASET---');
+          console.log(block('function completedTodayDatasetRows()', 'async function loadCompletedTodayRows'));
+          console.log('---SUMMARY---');
+          console.log(block('function renderFilterSummary(rows)', 'async function applyMetricFilter'));
+          NODE

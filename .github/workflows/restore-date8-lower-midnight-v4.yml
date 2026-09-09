@@ -1,0 +1,59 @@
+name: Restore Date 8 Lower Midnight V4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/restore-date8-lower-midnight-v4.yml
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Reuse the verified V3 transformation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('.github/workflows/restore-date8-lower-midnight-v3.yml').read_text().splitlines()
+          start=None
+          for i,line in enumerate(src):
+              if line.strip() == '- name: Restore Date 8 midnight lower truth on latest main':
+                  start=i
+                  break
+          if start is None: raise SystemExit('V3 restore step missing')
+          run_idx=next(i for i in range(start+1,len(src)) if src[i].strip()=='run: |')
+          body=[]
+          for line in src[run_idx+1:]:
+              if line.startswith('      - name: '): break
+              body.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/date8-restore.sh').write_text('\n'.join(body)+'\n')
+          PY
+          bash /tmp/date8-restore.sh
+
+      - name: Verify all logic from the proper worker directory
+        run: |
+          node --check ms.js
+          node --test worker/tests/frontend-requirements.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs .github/dev-tools/ms-unload-completion-ui.test.mjs .github/dev-tools/ms-schedule-completion-v4.test.mjs .github/dev-tools/daily-history.test.mjs
+          (cd worker && npm run check)
+          grep -q 'MS_LOWER_DAILY_MIDNIGHT_DATE8_V1' ms.js
+          grep -q 'const arrival = confirmedEffectiveArrival(row);' ms.js
+          ! grep -q 'MS_LOWER_OPERATING_DAY_0700_V2' ms.js
+          grep -q 'pollMs: 4000' ms.js
+
+      - name: Commit restored lower truth
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ms.js ms.html worker/tests/frontend-requirements.test.mjs .github/dev-tools/patch-ms-operating-day.mjs .github/dev-tools/patch-ms-completed-view-stability.mjs .github/dev-tools/patch-ms-schedule-completion-v4.mjs .github/dev-tools/ms-unload-completion-ui.test.mjs .github/dev-tools/stage-dev-runtime.test.mjs .github/dev-tools/daily-history.test.mjs
+          git diff --cached --check
+          git commit -m "fix: restore Date 8 lower midnight completion truth"
+          git push origin HEAD:main

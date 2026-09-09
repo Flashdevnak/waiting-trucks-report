@@ -102,6 +102,13 @@ export function patchMsOperatingDayFrontend(source) {
 
     output = replaceUnique(
       output,
+      `  return \`${"${state.branch}|${bangkokDateValue(new Date())}"}\`;`,
+      `  return \`${"${state.branch}|${lowerOperatingDayValue(new Date())}"}\`;`,
+      "completed hydration cache uses 07:00 operating day",
+    );
+
+    output = replaceUnique(
+      output,
       `  return bangkokDateValue(row.unloadingCompletedAt) === bangkokDateValue(now);`,
       `  return lowerOperatingDayValue(row.unloadingCompletedAt) === lowerOperatingDayValue(now);`,
       "completed lower filter uses 07:00 operating day",

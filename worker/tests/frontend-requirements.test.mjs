@@ -17,7 +17,7 @@ const context = vm.createContext({
   window: { location: { hostname: "localhost", origin: "http://localhost" } },
   localStorage: { getItem() { return null; }, removeItem() {}, setItem() {} },
 });
-vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,effectiveArrival,confirmedEffectiveArrival,punctuality,schedulePunctuality,scheduleSection,arrivalSources,arrivalSourceDateTime,actualCell,routeState,queueInfo,waitInfo,unloadTiming,displayedUnloadTiming,exportRow,exportThaiDate,shortDateTime,completedTodayDatasetReady};`, context);
+vm.runInContext(`${source}\n;globalThis.uiTest={expectedParcelsBadge,dropOperation,dropProgressHtml,departureCountdown,isCompletedToday,effectiveArrival,confirmedEffectiveArrival,punctuality,schedulePunctuality,scheduleSection,arrivalSources,arrivalSourceDateTime,actualCell,routeState,queueInfo,waitInfo,unloadTiming,unloadSlaSummary,renderOperation,attendanceLabel,attendanceWorkLabel,exportRow,exportThaiDate,shortDateTime,completedTodayDatasetReady};`, context);
 const ui = context.uiTest;
 
 test("expected parcel badge distinguishes zero from missing", () => {
@@ -173,19 +173,73 @@ test("queue age uses effective arrival only after Route confirms arrival", () =>
   assert.equal(queue.active, true);
 });
 
-test("displayed unload duration follows confirmed effective arrival while SLA keeps Route clock", () => {
+test("completed unload presentation separates S-E work time from Route SLA", () => {
   vm.runInContext(`state.standards={"6W":45}`, context);
   const row = {
     attendanceType: "ปลายทาง",
     vehicleType: "6W",
-    actualArrivalAt: "2026-09-01T03:00:00.000Z",
-    scheduleTbrArrivalAt: "2026-09-01T02:50:00.000Z",
-    unloadingState: 1,
-    scheduleUnloadingStartedAt: "2026-09-01T03:05:00.000Z",
+    actualArrivalAt: "2026-09-09T18:06:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-09T16:30:00.000Z",
+    unloadingState: 2,
+    scheduleUnloadingStartedAt: "2026-09-09T18:06:00.000Z",
+    unloadingCompletedAt: "2026-09-09T18:19:00.000Z",
   };
-  assert.equal(ui.displayedUnloadTiming(row, new Date("2026-09-01T03:50:00.000Z")).minutes, 60);
-  assert.equal(ui.unloadTiming(row, new Date("2026-09-01T03:50:00.000Z")).slaMinutes, 50);
-  assert.equal(ui.unloadTiming(row, new Date("2026-09-01T03:50:00.000Z")).overStandard, false);
+  const operation = ui.renderOperation(row);
+  for (const fact of ["ถึงคลังจริง", "เริ่มลงรถ", "ลงเสร็จจริง", "ใช้เวลาลงรถจริง", "มาตรฐาน", "SLA Route", "สรุป", "อยู่ในมาตรฐาน"])
+    assert.ok(operation.includes(fact));
+  assert.match(operation, /ใช้เวลาลงรถจริง<\/span><strong>13 นาที/);
+  assert.match(operation, /SLA Route<\/span><strong>13 นาที/);
+  assert.ok(operation.indexOf("ใช้เวลาลงรถจริง") < operation.indexOf("SLA Route"));
+  assert.ok(operation.includes(ui.shortDateTime(row.scheduleTbrArrivalAt)));
+});
+
+test("completed overtime presentation emphasizes Route SLA excess while S-E remains informational", () => {
+  vm.runInContext(`state.standards={"6W":45}`, context);
+  const row = {
+    attendanceType: "ปลายทาง",
+    vehicleType: "6W",
+    actualArrivalAt: "2026-09-08T15:56:00.000Z",
+    scheduleUnloadingStartedAt: "2026-09-08T18:01:00.000Z",
+    unloadingCompletedAt: "2026-09-08T18:47:00.000Z",
+    unloadingState: 2,
+  };
+  const operation = ui.renderOperation(row);
+  assert.match(operation, /ใช้เวลาลงรถจริง<\/span><strong>46 นาที/);
+  assert.match(operation, /SLA Route<\/span><strong>171 นาที/);
+  assert.match(operation, /is-danger[^>]*><span>สรุป<\/span><strong>เกินมาตรฐาน 126 นาที/);
+});
+
+test("completed state without trusted E never fabricates Route SLA or work duration", () => {
+  vm.runInContext(`state.standards={"6W":45}`, context);
+  const operation = ui.renderOperation({
+    attendanceType: "ปลายทาง",
+    vehicleType: "6W",
+    actualArrivalAt: "2026-09-09T18:06:00.000Z",
+    scheduleUnloadingStartedAt: "2026-09-09T18:10:00.000Z",
+    unloadingState: 2,
+  });
+  assert.match(operation, /ลงรถเสร็จ รอยืนยันเวลา/);
+  assert.match(operation, /ใช้เวลาลงรถจริง<\/span><strong>-/);
+  assert.match(operation, /SLA Route<\/span><strong>-/);
+  assert.match(operation, /รอเวลาลงเสร็จที่เชื่อถือได้/);
+});
+
+test("work type and operation wording stays type-specific end to end", () => {
+  assert.equal(ui.attendanceWorkLabel({ attendanceType: "ปลายทาง" }), "ปลายทาง");
+  assert.equal(ui.attendanceLabel({ attendanceType: "ปลายทาง" }), "รถเข้าคลัง");
+  assert.equal(ui.attendanceWorkLabel({ attendanceType: "ต้นทาง" }), "ต้นทาง");
+  assert.equal(ui.attendanceLabel({ attendanceType: "ต้นทาง" }), "รถออกคลัง");
+  assert.equal(ui.attendanceWorkLabel({ attendanceType: "จุดดรอป" }), "จุดดรอป");
+  assert.equal(ui.attendanceLabel({ attendanceType: "จุดดรอป" }), "ลงของและเดินทางต่อ");
+  const origin = ui.renderOperation({ attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-09T20:00:00.000Z" });
+  assert.match(origin, /กำหนดปล่อยรถ/);
+  assert.match(origin, /สถานะการปล่อยรถ/);
+  assert.doesNotMatch(origin, /ถึงคลังจริง|เริ่มลงรถ|SLA Route/);
+  const drop = ui.renderOperation({ attendanceType: "จุดดรอป", actualArrivalAt: "2026-09-09T18:00:00.000Z", unloadingState: 1, scheduleUnloadingStartedAt: "2026-09-09T18:05:00.000Z" });
+  assert.match(drop, /ถึงจุดดรอปจริง/);
+  assert.match(drop, /เริ่มลงของ/);
+  assert.match(drop, /สถานะไปต่อ/);
+  assert.doesNotMatch(drop, /กำหนดปล่อยรถ|SLA Route/);
 });
 
 test("Route confirms arrival while main and source-detail displays use accepted truth", () => {

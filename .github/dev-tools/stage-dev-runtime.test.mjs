@@ -28,7 +28,7 @@ test("DEV staging preserves the integrated daily-history frontend and stays idem
   assert.match(first, /function metricSourceRows\(\)/);
   assert.match(first, /data-cancel-ms-route/);
   assert.match(first, /submitCancelMsRoute/);
-  assert.doesNotMatch(first, /data-summary-status="cancelled"/);
+  assert.match(first, /data-summary-status="cancelled"/);
   assert.match(first, /ยกเลิกรถแล้ว/);
   assert.match(first, /function renderRowsProgressively\(rows\)/);
   assert.match(first, /function isCompletedAccumulated\(row\)/);
@@ -98,10 +98,11 @@ test("ลงรถเสร็จ stays visible after the next 4-second live pol
   );
 });
 
-test("cancellation remains operational without occupying a classic summary card", () => {
+test("cancellation remains operational in its own classic summary card", () => {
   const first = stageFrontend(frontendSource);
-  assert.doesNotMatch(first, /summary-cancelled/);
-  assert.doesNotMatch(first, /data-summary-status="cancelled"/);
+  assert.match(first, /summary-cancelled/);
+  assert.match(first, /data-summary-status="cancelled"/);
+  assert.doesNotMatch(first, /data-summary-substatus|summary-subfilter/);
   assert.match(first, /function isCancelledToday\(row, now = new Date\(\)\)/);
   assert.match(first, /queueCancelledAt/);
   assert.match(first, /data-cancel-ms-route/);
@@ -150,10 +151,10 @@ test("daily history remains read-only after worker staging", () => {
   assert.doesNotMatch(daily, /readMsRoutes\(|syncMs\(|refreshMsIfStale\(/);
 });
 
-test("classic six lower summary cards stay on one desktop row", () => {
+test("classic eight lower summary cards stay standalone and responsive", () => {
   const first = stageStyle(styleSource);
   assert.match(first, /MS_LOWER_CLASSIC_V12/);
-  assert.match(first, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
+  assert.match(first, /grid-template-columns:repeat\(8,minmax\(0,1fr\)\)/);
   assert.doesNotMatch(first, /MS_LOWER_CANONICAL_V11/);
 });
 
@@ -166,7 +167,7 @@ test("DEV staging preserves classic lower UI and route cancellation controls onc
   assert.match(first, /MS mobile export single-column v2/);
   assert.match(first, /Proof V16 mobile toolbar containment v2/);
   assert.match(first, /Proof mobile header full-width anchor v4/);
-  assert.doesNotMatch(first, /grid-template-columns:repeat\(8,minmax\(0,1fr\)\)/);
+  assert.match(first, /grid-template-columns:repeat\(8,minmax\(0,1fr\)\)/);
   assert.equal(stageStyle(first), first);
 });
 

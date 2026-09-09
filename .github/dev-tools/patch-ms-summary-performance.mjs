@@ -11,6 +11,21 @@ const STYLE_MARKER = "/* MS summary performance */";
 const MOBILE_EXPORT_MARKER = "/* MS mobile export single-column v2 */";
 const PROOF_MOBILE_TOOLBAR_MARKER = "/* Proof V16 mobile toolbar containment v2 */";
 const PROOF_MOBILE_HEADER_MARKER = "/* Proof mobile header full-width anchor v4 */";
+const CANONICAL_LOWER_MARKER = "MS_LOWER_CANONICAL_V11";
+const DEV_MOBILE_LOWER_MARKER = "/* DEV mobile MS card spacing v7 base */";
+const DEV_MOBILE_SHELL_MARKER = "/* DEV mobile unified shell v7 */";
+
+function keepCanonicalLowerStyleSingleGeneration(source) {
+  let output = String(source || "");
+  if (!output.includes(CANONICAL_LOWER_MARKER)) return output;
+
+  const lowerStart = output.indexOf(DEV_MOBILE_LOWER_MARKER);
+  const shellStart = output.indexOf(DEV_MOBILE_SHELL_MARKER, lowerStart);
+  if (lowerStart >= 0 && shellStart > lowerStart) {
+    output = `${output.slice(0, lowerStart).trimEnd()}\n\n${DEV_MOBILE_LOWER_MARKER}\n/* canonical no-op: Lower responsive rules live only in MS_LOWER_CANONICAL_V11. */\n${output.slice(shellStart)}`;
+  }
+  return output;
+}
 
 export function patchMsSummaryPerformanceFrontend(source) {
   let output = String(source || "");
@@ -41,10 +56,13 @@ export function patchMsSummaryPerformanceFrontend(source) {
 }
 
 export function patchMsSummaryPerformanceStyle(source) {
-  let output = String(source || "");
+  let output = keepCanonicalLowerStyleSingleGeneration(source);
+  const canonicalLower = output.includes(CANONICAL_LOWER_MARKER);
 
   if (!output.includes(STYLE_MARKER)) {
-    output = `${output.trimEnd()}\n\n${STYLE_MARKER}\n@media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}\n@media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}\n@media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}\n`;
+    output = canonicalLower
+      ? `${output.trimEnd()}\n\n${STYLE_MARKER}\n/* canonical no-op: the 8-card Lower grid and responsive rules are owned by MS_LOWER_CANONICAL_V11. */\n@media (min-width:1201px){}\n`
+      : `${output.trimEnd()}\n\n${STYLE_MARKER}\n@media (min-width:1201px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px}.ms-page .filter-summary button{min-width:0}}\n@media (min-width:701px) and (max-width:1200px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}\n@media (max-width:700px){.ms-page .filter-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}\n`;
   }
 
   if (!output.includes(MOBILE_EXPORT_MARKER)) {

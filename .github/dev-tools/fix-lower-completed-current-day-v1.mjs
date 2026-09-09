@@ -54,6 +54,7 @@ function unloadTiming(row, now = new Date()) {
   if (row.queueCancelledAt) return false;
   if ((!isDestination(row) && !isDrop(row)) || Number(row.unloadingState) !== 2)
     return false;
+  // MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1: trusted Schedule E remains completion-time authority for SLA.
   // Match the frozen upper completed metric's accepted daily scope. Completion
   // timestamp provenance is still used for SLA timing, never to hide a real state-2 row.
   return rowBusinessDay(row) === bangkokDateValue(now);

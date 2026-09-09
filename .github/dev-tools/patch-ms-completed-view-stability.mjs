@@ -94,9 +94,9 @@ export function patchMsCompletedViewStabilityFrontend(source) {
 
   output = replaceUnique(
     output,
-    `    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;\n  }\n  const completedDisplay =`,
-    `    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;\n  }\n  counts.cancelled = Math.max(\n    counts.cancelled,\n    Number(state.cancelledToday) || 0,\n  );\n  const cancelledDisplay =\n    cancelledTodayHydratedKey === completedTodayDatasetKey()\n      ? nf.format(counts.cancelled)\n      : \"…\";\n  const completedDisplay =`,
-    "use authoritative cancelled count without transient zero",
+    `    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;\n  }`,
+    `    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;\n  }\n  counts.cancelled = Math.max(\n    counts.cancelled,\n    Number(state.cancelledToday) || 0,\n  );\n  // MS_LOWER_NUMERIC_ZERO_V1: a real zero is always rendered as 0, never ellipsis.\n  const cancelledDisplay = nf.format(counts.cancelled);`,
+    "use authoritative cancelled count with numeric zero",
   );
 
   output = replaceUnique(

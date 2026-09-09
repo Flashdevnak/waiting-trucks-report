@@ -798,10 +798,10 @@ function isCompletedToday(row, now = new Date()) {
   if (row.queueCancelledAt) return false;
   if ((!isDestination(row) && !isDrop(row)) || Number(row.unloadingState) !== 2)
     return false;
-  if (!row.unloadingCompletedAt) return false;
-  // MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1: safely matched Schedule E is accepted completion truth too.
-  if (row.completionObservedLive === false && row.completionSource !== "SCHEDULE") return false;
-  return bangkokDateValue(row.unloadingCompletedAt) === bangkokDateValue(now);
+  // MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1: trusted Schedule E remains completion-time authority for SLA.
+  // Match the frozen upper completed metric's accepted daily scope. Completion
+  // timestamp provenance is still used for SLA timing, never to hide a real state-2 row.
+  return rowBusinessDay(row) === bangkokDateValue(now);
 }
 
 function isCompletedAccumulated(row) {
@@ -1210,9 +1210,7 @@ function renderFilterSummary(rows) {
   const counts = {
     waiting: 0,
     unloading: 0,
-    completed: completedTodayDatasetReady()
-      ? completedTodayDatasetRows().length
-      : Number(state.completedToday) || 0,
+    completed: completedTodayDatasetRows().length,
     origin: 0,
     drop: 0,
     cancelled: 0,
@@ -1226,12 +1224,10 @@ function renderFilterSummary(rows) {
     if (queue.active && isDrop(row)) counts.drop++;
     if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;
   }
-  const completedDisplay = completedTodayDatasetReady()
-    ? nf.format(counts.completed)
-    : "…";
-  const overtimeDisplay = completedTodayDatasetReady()
-    ? nf.format(completedTodayOvertimeRows().length)
-    : "…";
+  // Lower summary cards are always numeric: a real zero is shown as 0,
+  // never as an indeterminate ellipsis.
+  const completedDisplay = nf.format(counts.completed);
+  const overtimeDisplay = nf.format(completedTodayOvertimeRows().length);
   el("filter-summary").innerHTML = `
     <article class="summary-card summary-all"><button type="button" class="summary-primary ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all"><span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button></article>
     <article class="summary-card summary-wait"><button type="button" class="summary-primary ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting"><span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button></article>
@@ -1508,10 +1504,24 @@ function unloadStandard(row) {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+// MS_LOWER_COMPLETED_MATCH_UPPER_DAY_V1: Lower completed follows the same
+// accepted current-day state-2 truth as the frozen upper completed metric. A safely
+// matched Schedule E remains the preferred finish timestamp for SLA presentation.
+function trustedLowerCompletionAt(row) {
+  if (Number(row.unloadingState) !== 2) return null;
+  const schedule = parseDate(row.scheduleUnloadingCompletedAt);
+  if (schedule) return schedule;
+  const recorded = parseDate(row.unloadingCompletedAt);
+  if (!recorded) return null;
+  if (row.completionObservedLive === false && row.completionSource !== "SCHEDULE")
+    return null;
+  return recorded;
+}
+
 function unloadTiming(row, now = new Date()) {
   const start = parseDate(row.scheduleUnloadingStartedAt);
   const completed = Number(row.unloadingState) === 2;
-  const finish = completed ? parseDate(row.unloadingCompletedAt) : null;
+  const finish = completed ? trustedLowerCompletionAt(row) : null;
   // MS_SLA_EARLIEST_ARRIVAL_V2: Route confirms arrival; SLA uses earliest matched Route/KIT/TBR.
   const arrival = confirmedEffectiveArrival(row);
   const workEnd = finish || (Number(row.unloadingState) === 1 && start ? now : null);

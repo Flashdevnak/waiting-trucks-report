@@ -66,7 +66,7 @@ test("upper metrics use today or the explicitly searched date range", () => {
   assert.match(first, /state\.currentRows\.filter\(\(row\) => rowBusinessDay\(row\) === today\)/);
   assert.match(first, /metricRows\.filter\(\(row\) => isCompletedAccumulated\(row\)\)\.length/);
   assert.match(first, /state\.summary === "completed" && isCompletedToday\(row\)/);
-  assert.match(first, /bangkokDateValue\(row\.unloadingCompletedAt\) === bangkokDateValue\(now\)/);
+  assert.match(first, /return rowBusinessDay\(row\) === bangkokDateValue\(now\);/);
 });
 
 test("ลงรถเสร็จ reuses browser cache and progressively renders large result sets", () => {

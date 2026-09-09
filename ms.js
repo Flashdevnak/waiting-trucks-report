@@ -1084,7 +1084,15 @@ function completedTodayRequestKey(total = state.completedToday) {
 }
 
 function completedTodayDatasetRows() {
-  return mergeLatest(state.archiveRows, state.currentRows).filter(isCompletedToday);
+  // Once the completed-today detail has loaded, its rows are the shared card
+  // and table dataset. A current trip may reuse a route key and must not
+  // overwrite an earlier completed trip from the same operating day.
+  const hydratedForToday =
+    completedTodayHydratedKey === completedTodayDatasetKey();
+  const rows = hydratedForToday
+    ? state.archiveRows
+    : mergeLatest(state.archiveRows, state.currentRows);
+  return rows.filter(isCompletedToday);
 }
 
 function completedTodayDatasetReady() {

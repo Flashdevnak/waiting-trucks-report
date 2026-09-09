@@ -72,7 +72,9 @@ test("upper metrics use today or the explicitly searched date range", () => {
 test("ลงรถเสร็จ reuses browser cache and progressively renders large result sets", () => {
   const first = stageFrontend(frontendSource);
   assert.match(first, /function completedTodayDatasetRows\(\)/);
-  assert.match(first, /return mergeLatest\(state\.archiveRows, state\.currentRows\)\.filter\(isCompletedToday\)/);
+  assert.match(first, /completedTodayHydratedKey === completedTodayDatasetKey\(\)/);
+  assert.match(first, /const rows = hydratedForToday\s*\? state\.archiveRows\s*: mergeLatest\(state\.archiveRows, state\.currentRows\)/);
+  assert.match(first, /return rows\.filter\(isCompletedToday\)/);
   assert.match(first, /const cachedCompletedRows = completedTodayDatasetRows\(\)/);
   assert.match(first, /cachedCompletedRows\.length >= expectedCompleted/);
   assert.match(first, /completedTodayLoadPromise\?\.key === key/);

@@ -1,0 +1,87 @@
+name: Integrate Lower Operating Day Source Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/integrate-lower-operating-day-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Integrate 07:00 lower completion truth into raw Pages source
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          function replaceUnique(text,from,to,label){
+            const first=text.indexOf(from), last=text.lastIndexOf(from);
+            if(first<0||first!==last) throw new Error(`source integration failed: ${label}`);
+            return text.replace(from,to);
+          }
+          let js=fs.readFileSync('ms.js','utf8');
+          if(!js.includes('MS_LOWER_OPERATING_DAY_0700_V2')){
+            js=replaceUnique(js,
+              'let lowerDailyDay = bangkokDateValue(new Date());',
+              `// MS_LOWER_OPERATING_DAY_0700_V2: Lower daily cards use the operational day 07:00 -> 07:00 Asia/Bangkok.\nfunction lowerOperatingDayValue(value = new Date()) {\n  const parsed = parseDate(value);\n  if (!parsed) return "";\n  return bangkokDateValue(new Date(parsed.getTime() - 7 * 60 * 60 * 1000));\n}\n\nlet lowerDailyDay = lowerOperatingDayValue(new Date());`,
+              'lower operating-day helper');
+            js=replaceUnique(js,
+              '  const nextDay = bangkokDateValue(new Date());\n  if (!nextDay || nextDay === lowerDailyDay) return;',
+              '  const nextDay = lowerOperatingDayValue(new Date());\n  if (!nextDay || nextDay === lowerDailyDay) return;',
+              '07:00 rollover');
+            js=replaceUnique(js,
+              '  return `${state.branch}|${bangkokDateValue(new Date())}`;',
+              '  return `${state.branch}|${lowerOperatingDayValue(new Date())}`;',
+              'hydration operating-day key');
+            js=replaceUnique(js,
+              '  return bangkokDateValue(row.unloadingCompletedAt) === bangkokDateValue(now);',
+              '  return lowerOperatingDayValue(row.unloadingCompletedAt) === lowerOperatingDayValue(now);',
+              'completed lower filter');
+            js=replaceUnique(js,
+              '    bangkokDateValue(row.queueCancelledAt) === bangkokDateValue(now)',
+              '    lowerOperatingDayValue(row.queueCancelledAt) === lowerOperatingDayValue(now)',
+              'cancelled lower filter');
+          }
+          if(!js.includes('MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1')){
+            js=replaceUnique(js,
+              '  if (row.completionObservedLive === false) return false;',
+              '  // MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1: safely matched Schedule E is accepted completion truth too.\n  if (row.completionObservedLive === false && row.completionSource !== "SCHEDULE") return false;',
+              'trusted Schedule E frontend truth');
+          }
+          fs.writeFileSync('ms.js',js);
+
+          let html=fs.readFileSync('ms.html','utf8');
+          html=html.replace(/ms\.js\?v=[^"']+/,'ms.js?v=20260910-01-lower-operating-day');
+          fs.writeFileSync('ms.html',html);
+
+          let test=fs.readFileSync('worker/tests/frontend-requirements.test.mjs','utf8');
+          const oldBlock=`test("today completion uses Asia Bangkok and includes destination and drop", () => {\n  const now = new Date("2026-09-01T18:00:00.000Z"); // 2 Sep in Bangkok\n  for (const attendanceType of ["ปลายทาง", "จุดดรอป"])\n    assert.equal(ui.isCompletedToday({\n      attendanceType,\n      unloadingState: 2,\n      unloadingCompletedAt: "2026-09-01T17:30:00.000Z",\n    }, now), true);\n  assert.equal(ui.isCompletedToday({\n    attendanceType: "ปลายทาง",\n    unloadingState: 2,\n    unloadingCompletedAt: "2026-09-01T16:59:00.000Z",\n  }, now), false);\n  assert.equal(ui.isCompletedToday({\n    attendanceType: "ปลายทาง",\n    unloadingState: 2,\n    unloadingCompletedAt: "2026-09-01T17:30:00.000Z",\n    completionObservedLive: false,\n  }, now), false);\n});`;
+          const newBlock=`test("lower completion uses Bangkok 07:00 operating day and trusted Schedule E", () => {\n  const now = new Date("2026-09-01T20:00:00.000Z"); // 2 Sep 03:00 Bangkok, still 1 Sep operating day\n  for (const attendanceType of ["ปลายทาง", "จุดดรอป"])\n    assert.equal(ui.isCompletedToday({\n      attendanceType,\n      unloadingState: 2,\n      unloadingCompletedAt: "2026-09-01T23:59:00.000Z", // 2 Sep 06:59 Bangkok\n    }, now), true);\n  assert.equal(ui.isCompletedToday({\n    attendanceType: "ปลายทาง",\n    unloadingState: 2,\n    unloadingCompletedAt: "2026-09-02T00:00:00.000Z", // 2 Sep 07:00 Bangkok, next operating day\n  }, now), false);\n  assert.equal(ui.isCompletedToday({\n    attendanceType: "ปลายทาง",\n    unloadingState: 2,\n    unloadingCompletedAt: "2026-09-01T23:30:00.000Z",\n    completionObservedLive: false,\n  }, now), false);\n  assert.equal(ui.isCompletedToday({\n    attendanceType: "ปลายทาง",\n    unloadingState: 2,\n    unloadingCompletedAt: "2026-09-01T23:30:00.000Z",\n    completionObservedLive: false,\n    completionSource: "SCHEDULE",\n  }, now), true);\n});`;
+          if(!test.includes(newBlock)){
+            if(!test.includes(oldBlock)) throw new Error('source integration failed: frontend operating-day test anchor');
+            test=test.replace(oldBlock,newBlock);
+          }
+          fs.writeFileSync('worker/tests/frontend-requirements.test.mjs',test);
+          NODE
+      - name: Verify raw and staged completion contracts
+        run: |
+          node --test worker/tests/frontend-requirements.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs .github/dev-tools/ms-unload-completion-ui.test.mjs
+      - name: Commit integrated source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ms.js ms.html worker/tests/frontend-requirements.test.mjs
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "SOURCE_ALREADY_INTEGRATED=YES"
+            exit 0
+          fi
+          git commit -m "fix: integrate 07:00 lower completion source"
+          git push origin HEAD:main

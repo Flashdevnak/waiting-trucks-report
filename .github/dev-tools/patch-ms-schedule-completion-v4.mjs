@@ -7,6 +7,7 @@ function replaceUnique(output, from, to, label) {
 
 const SCHEDULE_MARKER = "MS_SCHEDULE_COMPLETION_TRUTH_V4";
 const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
+const DAILY_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
 
 export function patchMsScheduleCompletionV4(source) {
   let output = String(source || "");
@@ -50,6 +51,15 @@ export function patchMsScheduleCompletionV4(source) {
     output = output.replace(
       "// MS_COMPLETION_TIME_TRUTH_V2:",
       `// ${SCHEDULE_MARKER}: Route owns status; Schedule E owns a safely matched completion timestamp.\n// MS_COMPLETION_TIME_TRUTH_V2:`,
+    );
+  }
+
+  if (!output.includes(DAILY_SCHEDULE_MARKER)) {
+    output = replaceUnique(
+      output,
+      `    row?.completionObservedLive === true &&\n    thaiDayForValue(row?.unloadingCompletedAt) === day`,
+      `    // ${DAILY_SCHEDULE_MARKER}: daily cards accept observed Route completion or safely matched Schedule E.\n    (row?.completionObservedLive === true || row?.completionSource === "SCHEDULE") &&\n    thaiDayForValue(row?.unloadingCompletedAt) === day`,
+      "daily completion accepts trusted Schedule E",
     );
   }
 

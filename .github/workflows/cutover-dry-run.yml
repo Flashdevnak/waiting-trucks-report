@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CUTOVER_VERSION: 20260904-01
-      SW_PATCH_VERSION: 20260909-02
+      SW_PATCH_VERSION: 20260909-03-lower-reference
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -74,7 +74,7 @@ jobs:
             [browser.includes(`${expected}/api`), 'Browser Cron targets promoted Turso Worker'],
             [browser.includes('/api/bootstrap-connector'), 'Browser connector bootstrap route remains available behind secret gate'],
             [browser.includes('CONNECTOR_BOOTSTRAP_SECRET'), 'Browser bootstrap remains secret-gated'],
-            [sw.includes(`VERSION="${process.env.SW_PATCH_VERSION}"`) && sw.includes('MS_OWNER_LIVE_FIX_V8'), 'service worker live patch revision remains current'],
+            [sw.includes(process.env.SW_PATCH_VERSION) && !sw.includes('MS_JS_HOTFIX') && !sw.includes('MS_CSS_HOTFIX'), 'service worker serves integrated lower presentation without runtime patches'],
             [version.version === process.env.CUTOVER_VERSION, 'version.json cutover release remains current'],
             [wrangler.includes('"main": "src/turso-index.js"'), 'promoted Worker entrypoint is Turso'],
             [wrangler.includes('"DB_BACKEND": "turso"'), 'promoted Worker backend is Turso'],

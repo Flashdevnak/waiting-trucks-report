@@ -40,6 +40,9 @@ const state = {
 let archiveLoadTimer = null;
 let archiveLoadPromise = null;
 let archiveTotalPromise = null;
+let completedTodayLoadPromise = null;
+let completedTodayHydratedKey = "";
+let completedTodayRetryAt = 0;
 const el = (id) => document.getElementById(id);
 const nf = new Intl.NumberFormat("th-TH");
 const dtf = new Intl.DateTimeFormat("th-TH", {
@@ -118,7 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
     state.summary = "all";
     if (state.status === "unload-overtime") {
       try {
-        await loadCompletedTodayRows();
+        await loadCompletedTodayRows(true);
         state.archiveView = true;
         state.queue = "all";
         el("queue-filter").value = "all";
@@ -260,6 +263,9 @@ function resetLowerDailyViewOnBangkokDayChange() {
   if (!nextDay || nextDay === lowerDailyDay) return;
   lowerDailyDay = nextDay;
   state.completedToday = 0;
+  completedTodayLoadPromise = null;
+  completedTodayHydratedKey = "";
+  completedTodayRetryAt = 0;
   if (state.summary === "completed" || state.summary === "cancelled") {
     state.summary = "all";
     state.queue = "queue";
@@ -312,6 +318,15 @@ async function loadData(silent = false) {
         ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
         : `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
     render();
+    if (shouldHydrateCompletedTodayRows()) {
+      const hydrationBranch = state.branch;
+      void loadCompletedTodayRows(false)
+        .then(() => {
+          if (state.auth && state.branch === hydrationBranch) render();
+        })
+        .catch(() => {});
+    }
+    // DEV: completed-today detail hydrates only when the lightweight daily total changes.
     // DEV: archive stays lazy; live polling must never auto-read msArchive.
   } catch (error) {
     state.transportFailures = Number(state.transportFailures || 0) + 1;
@@ -336,6 +351,9 @@ function resetArchiveState() {
   state.archiveTotal = 0;
   state.archiveTotalLoaded = false;
   archiveTotalPromise = null;
+  completedTodayLoadPromise = null;
+  completedTodayHydratedKey = "";
+  completedTodayRetryAt = 0;
   state.completedToday = 0;
   state.archiveLoaded = false;
   state.archiveRangeKey = "";
@@ -884,7 +902,7 @@ function filteredRows(ignoreSummary = false, queueMode = state.queue) {
           isOrigin(row) &&
           punctuality(row).key === "ontime") ||
         (state.status === "departure-late" && status.departureLate) ||
-        (state.status === "unload-overtime" && isCompletedUnloadOverStandard(row));
+        (state.status === "unload-overtime" && isCompletedTodayOvertime(row));
       const arrivalDate = rowBusinessDay(row);
       const queue = queueInfo(row);
       const summaryMatch =
@@ -894,7 +912,7 @@ function filteredRows(ignoreSummary = false, queueMode = state.queue) {
         (state.summary === "unloading" && isDestination(row) && status.key === "unloading") ||
         (state.summary === "completed" && isCompletedToday(row)) ||
         (state.summary === "completed-all" && isCompletedAccumulated(row)) ||
-        (state.summary === "unload-overtime" && isCompletedUnloadOverStandard(row)) ||
+        (state.summary === "unload-overtime" && isCompletedTodayOvertime(row)) ||
         (state.summary === "origin" && isOrigin(row) && !queue.done && !queue.cancelled) ||
         (state.summary === "drop" && isDrop(row) && !queue.done && !queue.cancelled) ||
         (state.summary === "cancelled" && queue.cancelled && isCancelledToday(row));
@@ -1001,30 +1019,46 @@ function render() {
 
 let rowRenderGeneration = 0;
 
+function isPhoneDesktopSiteLayout(
+  viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0,
+  screenWidth = typeof screen !== "undefined" ? screen.width : 0,
+  screenHeight = typeof screen !== "undefined" ? screen.height : 0,
+) {
+  const viewport = Number(viewportWidth) || 0;
+  const dimensions = [Number(screenWidth) || 0, Number(screenHeight) || 0].filter((value) => value > 0);
+  const physicalMin = dimensions.length ? Math.min(...dimensions) : viewport;
+  if (!viewport || !physicalMin) return false;
+  return physicalMin <= 600 && viewport >= 900 && viewport >= physicalMin * 1.45;
+}
+
+function useMobileCardLayout(
+  viewportWidth = typeof window !== "undefined" ? window.innerWidth : 0,
+  screenWidth = typeof screen !== "undefined" ? screen.width : 0,
+  screenHeight = typeof screen !== "undefined" ? screen.height : 0,
+) {
+  const viewport = Number(viewportWidth) || 0;
+  return viewport <= 1024 && !isPhoneDesktopSiteLayout(viewport, screenWidth, screenHeight);
+}
+
 function renderRowsProgressively(rows) {
   const generation = ++rowRenderGeneration;
-  const mobileLayout = window.matchMedia("(max-width: 1024px)").matches;
+  const desktopSitePhone = isPhoneDesktopSiteLayout();
+  document.documentElement.classList.toggle("ms-desktop-site-phone", desktopSitePhone);
+  const mobileLayout = useMobileCardLayout();
   const tableBody = el("table-body");
   const mobileCards = el("mobile-cards");
   tableBody.innerHTML = "";
   mobileCards.innerHTML = "";
-
   const target = mobileLayout ? mobileCards : tableBody;
   const renderer = mobileLayout ? card : tableRow;
   const firstBatch = mobileLayout ? 32 : 64;
   const nextBatch = mobileLayout ? 24 : 64;
-
   const appendBatch = (start, end) => {
     if (generation !== rowRenderGeneration || start >= rows.length) return;
-    target.insertAdjacentHTML(
-      "beforeend",
-      rows.slice(start, end).map(renderer).join(""),
-    );
+    target.insertAdjacentHTML("beforeend", rows.slice(start, end).map(renderer).join(""));
   };
-
   let index = Math.min(firstBatch, rows.length);
   appendBatch(0, index);
-
   const pump = () => {
     if (generation !== rowRenderGeneration || index >= rows.length) return;
     const end = Math.min(index + nextBatch, rows.length);
@@ -1032,23 +1066,70 @@ function renderRowsProgressively(rows) {
     index = end;
     if (index < rows.length) requestAnimationFrame(pump);
   };
-
   if (index < rows.length) requestAnimationFrame(pump);
 }
 
-async function loadCompletedTodayRows() {
-  const cachedCompletedRows = state.archiveRows.filter(isCompletedToday);
+function completedTodayDatasetKey(total = state.completedToday) {
+  return `${state.branch}|${bangkokDateValue(new Date())}|${Number(total) || 0}`;
+}
+
+function completedTodayDatasetRows() {
+  return mergeLatest(state.archiveRows, state.currentRows).filter(isCompletedToday);
+}
+
+function completedTodayDatasetReady() {
+  const expected = Number(state.completedToday) || 0;
+  if (expected === 0) return true;
+  return completedTodayHydratedKey === completedTodayDatasetKey(expected) &&
+    completedTodayDatasetRows().length >= expected;
+}
+
+function shouldHydrateCompletedTodayRows() {
+  const expected = Number(state.completedToday) || 0;
+  const key = completedTodayDatasetKey(expected);
+  const cached = completedTodayDatasetRows();
+  if (expected === 0 || cached.length >= expected) {
+    completedTodayHydratedKey = key;
+    return false;
+  }
+  if (completedTodayHydratedKey === key || completedTodayLoadPromise?.key === key) return false;
+  return Date.now() >= completedTodayRetryAt;
+}
+
+async function loadCompletedTodayRows(force = false) {
   const expectedCompleted = Number(state.completedToday) || 0;
-  const completed = cachedCompletedRows.length === expectedCompleted
-    ? { rows: cachedCompletedRows, total: expectedCompleted }
-    : await apiGet("msCompletedToday", { branch: state.branch });
-  const completedRows = Array.isArray(completed?.rows) ? completed.rows : [];
-  state.archiveRows = mergeLatest(
-    state.archiveRows.filter((row) => !isCompletedToday(row)),
-    completedRows,
-  );
-  state.rows = mergeLatest(state.archiveRows, state.currentRows);
-  state.completedToday = Number(completed?.total) || completedRows.length;
+  const key = completedTodayDatasetKey(expectedCompleted);
+  const cachedCompletedRows = completedTodayDatasetRows();
+  if (expectedCompleted === 0 || cachedCompletedRows.length >= expectedCompleted) {
+    completedTodayHydratedKey = key;
+    return cachedCompletedRows;
+  }
+  if (completedTodayLoadPromise?.key === key) return completedTodayLoadPromise.promise;
+  if (!force && Date.now() < completedTodayRetryAt) return cachedCompletedRows;
+  const branch = state.branch;
+  const promise = (async () => {
+    try {
+      const completed = await apiGet("msCompletedToday", { branch });
+      if (state.branch !== branch) return [];
+      const completedRows = Array.isArray(completed?.rows) ? completed.rows : [];
+      state.archiveRows = mergeLatest(
+        state.archiveRows.filter((row) => !isCompletedToday(row)),
+        completedRows,
+      );
+      state.rows = mergeLatest(state.archiveRows, state.currentRows);
+      state.completedToday = Number(completed?.total) || completedRows.length;
+      completedTodayHydratedKey = completedTodayDatasetKey(state.completedToday);
+      completedTodayRetryAt = 0;
+      return completedRows;
+    } catch (error) {
+      completedTodayRetryAt = Date.now() + 60_000;
+      throw error;
+    } finally {
+      if (completedTodayLoadPromise?.promise === promise) completedTodayLoadPromise = null;
+    }
+  })();
+  completedTodayLoadPromise = { key, promise };
+  return promise;
 }
 
 function renderFilterSummary(rows) {
@@ -1074,17 +1155,14 @@ function renderFilterSummary(rows) {
   counts.cancelled = state.currentRows.filter(
     (row) => queueInfo(row).cancelled && isCancelledToday(row),
   ).length;
-  const overtimeSource = mergeLatest(state.archiveRows, state.currentRows);
-  counts.unloadOvertime = overtimeSource.filter(
-    (row) => isCompletedToday(row) && isCompletedUnloadOverStandard(row) && matchesOvertimeContext(row),
-  ).length;
+  counts.unloadOvertime = completedTodayOvertimeRows().length;
   el("filter-summary").innerHTML = `
     <button type="button" class="summary-all ${state.summary === "all" ? "is-active" : ""}" data-summary-status="all">${operationIcon("truck")}<span>ทั้งหมดตามตัวกรอง</span><strong>${nf.format(rows.length)}</strong></button>
     <button type="button" class="summary-wait ${state.summary === "waiting" ? "is-active" : ""}" data-summary-status="waiting">${operationIcon("clock")}<span>รอลงรถ</span><strong>${nf.format(counts.waiting)}</strong></button>
     <button type="button" class="summary-work ${state.summary === "unloading" ? "is-active" : ""}" data-summary-status="unloading">${operationIcon("package")}<span>กำลังลงรถ</span><strong>${nf.format(counts.unloading)}</strong></button>
     <button type="button" class="summary-done ${state.summary === "completed" ? "is-active" : ""}" data-summary-status="completed">${operationIcon("check")}<span>ลงรถเสร็จ</span><strong>${nf.format(counts.completed)}</strong></button>
     <button type="button" class="summary-origin ${state.summary === "origin" ? "is-active" : ""}" data-summary-status="origin">${operationIcon("truck")}<span>รอปล่อยรถ</span><strong>${nf.format(counts.origin)}</strong></button>
-    <button type="button" class="summary-overtime ${state.summary === "unload-overtime" ? "is-active" : ""}" data-summary-status="unload-overtime">${operationIcon("alert")}<span>ลงรถเกินเวลา</span><strong>${nf.format(counts.unloadOvertime)}</strong></button>
+    <button type="button" class="summary-overtime ${state.summary === "unload-overtime" ? "is-active" : ""}" data-summary-status="unload-overtime">${operationIcon("alert")}<span>ลงรถเกินเวลา</span><strong>${completedTodayDatasetReady() ? nf.format(counts.unloadOvertime) : "…"}</strong></button>
     <button type="button" class="summary-drop ${state.summary === "drop" ? "is-active" : ""}" data-summary-status="drop">${operationIcon("pin")}<span>จุดดรอป</span><strong>${nf.format(counts.drop)}</strong></button>
     <button type="button" class="summary-cancelled ${state.summary === "cancelled" ? "is-active" : ""}" data-summary-status="cancelled">${operationIcon("alert")}<span>ยกเลิกรถแล้ว</span><strong>${nf.format(counts.cancelled)}</strong></button>`;
   el("filter-summary")
@@ -1094,7 +1172,7 @@ function renderFilterSummary(rows) {
         const value = button.dataset.summaryStatus;
         if (value === "completed" || value === "unload-overtime") {
           try {
-            await loadCompletedTodayRows();
+            await loadCompletedTodayRows(true);
             if (value === "completed") {
             state.query = "";
             state.dateFrom = "";
@@ -1387,6 +1465,16 @@ function isCompletedUnloadOverStandard(row) {
   return unloadTiming(row).overStandard;
 }
 
+function isCompletedTodayOvertime(row, now = new Date()) {
+  return isCompletedToday(row, now) && isCompletedUnloadOverStandard(row);
+}
+
+function completedTodayOvertimeRows() {
+  return completedTodayDatasetRows().filter(
+    (row) => isCompletedTodayOvertime(row) && matchesOvertimeContext(row),
+  );
+}
+
 function matchesOvertimeContext(row) {
   const haystack = [row.proofId, row.routeName, row.vehicleType, row.plate, row.driverName, row.supplier]
     .join(" ").toLowerCase();
@@ -1404,12 +1492,12 @@ function operationIcon(kind) {
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     package: '<path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="M4 7v10l8 4 8-4V7M12 11v10"/>',
     check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
-    truck: '<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+    truck: '<path d="M3 7h10v9H3zM13 10h4l4 4v2h-8z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
     pin: '<path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',
-    loading: '<path d="M3 7h9v10H3zM12 11h4l3 3v3h-7z"/><circle cx="6" cy="19" r="2"/><circle cx="16" cy="19" r="2"/><path d="M21 5h-6m3-3 3 3-3 3"/>',
-    unload: '<path d="M4 5h10v11H4zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M17 5h5m-2-3 2 3-2 3"/>',
-    release: '<path d="M3 8h10v8H3zM13 11h4l3 3v2h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M16 5h5m-2-2 2 2-2 2"/>',
-    worker: '<circle cx="8" cy="5" r="2"/><path d="M6 9h4l2 4 3-1 1 2-5 2-2-4v8M6 10l-2 5M14 7h7v8h-5M17 7V5h3v2"/>',
+    loading: '<path d="M3 8h9v8H3zM12 11h4l3 3v2h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="16" cy="18" r="2"/><path d="M8 5h5v4H8zM20 4v6m-3-3 3 3 3-3"/>',
+    unload: '<path d="M3 7h10v9H3zM13 10h4l4 4v2h-8z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M18 3v6m-3-3 3 3 3-3"/>',
+    release: '<path d="M3 8h10v8H3zM13 11h4l3 3v2h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M15 5h7m-3-3 3 3-3 3"/>',
+    worker: '<circle cx="7" cy="5" r="2"/><path d="M5 9h4l2 3 3-1 1 2-5 2-2-3v8M5 10l-2 5"/><path d="M15 8h6v7h-6zM18 8V6M15 11h6"/>',
     warehouse: '<path d="m3 10 9-6 9 6v10H3z"/><path d="M7 13h10v7H7zM9 16h6"/>',
     alert: '<path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17h.01"/>',
   };
@@ -1432,8 +1520,8 @@ function unloadCompletionCard(row) {
   const active = Number(row.unloadingState) === 1 || stateKey === "unloading";
   const done = Number(row.unloadingState) === 2 || stateKey === "completed";
   const waiting = !active && !done;
-  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังโหลดพัสดุลงรถ" : "ถึงปลายทางแล้ว";
-  const subtitle = waiting ? "รอเริ่มลงรถ" : "";
+  const headline = done ? "โหลดพัสดุลงรถเสร็จสิ้น" : active ? "กำลังลงพัสดุ" : "ถึงปลายทางแล้ว";
+  const subtitle = waiting ? "รอเริ่มลงรถ" : active ? "กำลังดำเนินการ" : "";
   const icon = done ? "check" : active ? "worker" : "pin";
   const slaText = timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`;
   const slaLabel = done ? "ตั้งแต่รถถึงจนลงเสร็จ" : "ตั้งแต่รถถึง";
@@ -1441,22 +1529,28 @@ function unloadCompletionCard(row) {
     ? `<div class="operation-warning">${operationIcon("alert")}เกินมาตรฐาน ${nf.format(timing.slaMinutes - timing.standard)} นาที</div>`
     : active && timing.standard !== null && timing.slaMinutes !== null && timing.slaMinutes > timing.standard
       ? `<div class="operation-warning">${operationIcon("alert")}เกิน SLA ปัจจุบัน ${nf.format(timing.slaMinutes - timing.standard)} นาที</div>`
-    : "";
+      : "";
   const timeline = waiting
     ? operationTimeline([
         { icon: "pin", value: timing.arrival ? shortDateTime(timing.arrival) : "-", label: "ถึงปลายทาง" },
-        { icon: "worker", value: "รอดำเนินการ", label: "เริ่มลงรถ" },
+        { icon: "worker", value: "รอเริ่ม", label: "รอเริ่มลง" },
       ], 0)
-    : operationTimeline([
-        { icon: "worker", value: timing.start ? shortDateTime(timing.start) : "-", label: "เริ่มลงรถ" },
-        { icon: done ? "check" : "package", value: done && timing.finish ? shortDateTime(timing.finish) : "รอดำเนินการ", label: "เสร็จสิ้น" },
-      ], done ? 1 : 0);
+    : active
+      ? operationTimeline([
+          { icon: "pin", value: timing.arrival ? shortDateTime(timing.arrival) : "-", label: "มาถึง" },
+          { icon: "worker", value: timing.start ? shortDateTime(timing.start) : "กำลังดำเนินการ", label: "กำลังลงพัสดุ" },
+        ], 1)
+      : operationTimeline([
+          { icon: "worker", value: timing.start ? shortDateTime(timing.start) : "-", label: "เริ่มลง" },
+          { icon: "check", value: timing.finish ? shortDateTime(timing.finish) : "-", label: "เสร็จจริง" },
+        ], 1);
   const work = done && timing.workMinutes !== null
-    ? `<div class="operation-work-duration">ใช้เวลาลงจริง <strong>${nf.format(timing.workMinutes)} นาที</strong></div>` : "";
+    ? `<div class="operation-work-duration">ใช้เวลาลงจริง <strong>${nf.format(timing.workMinutes)} นาที</strong></div>`
+    : "";
   const standardContext = timing.standard === null
     ? "ยังไม่มีมาตรฐานประเภทรถ"
     : active && timing.start
-      ? `เริ่มลงรถ ${shortDateTime(timing.start)} • มาตรฐาน ${nf.format(timing.standard)} นาที`
+      ? `เริ่มลงรถ ${shortDateTime(timing.start)} / มาตรฐาน ${nf.format(timing.standard)} นาที`
       : `มาตรฐาน ${nf.format(timing.standard)} นาที`;
   return `<section class="lower-operation destination-operation ${done ? "is-completed" : active ? "is-active" : "is-waiting"} ${timing.overStandard ? "is-over" : ""}">${operationHeader(icon, headline, subtitle)}<div class="operation-kpi"><strong>${slaText}</strong><span>${slaLabel}</span></div><div class="operation-standard">${standardContext}</div>${over}${timeline}${work}</section>`;
 }
@@ -1479,25 +1573,26 @@ function renderOriginOperation(row) {
   const detail = released && releaseDiff !== null
     ? `<div class="operation-warning ${releaseDiff <= 0 ? "is-ok" : ""}">${releaseDiff > 0 ? `ออกช้า ${nf.format(releaseDiff)} นาที` : `ออกก่อนแผน ${nf.format(Math.abs(releaseDiff))} นาที`}</div>`
     : untilRelease !== null
-      ? `<div class="operation-warning ${untilRelease >= 0 ? "is-ok" : ""}">${untilRelease >= 0 ? `เหลือ ${nf.format(untilRelease)} นาที ถึงกำหนดปล่อย` : `เลยกำหนดปล่อย ${nf.format(Math.abs(untilRelease))} นาที`}</div>` : "";
+      ? `<div class="operation-warning ${untilRelease >= 0 ? "is-ok" : ""}">${untilRelease >= 0 ? `เหลือ ${nf.format(untilRelease)} นาทีถึงกำหนดปล่อย` : `เลยกำหนดปล่อย ${nf.format(Math.abs(untilRelease))} นาที`}</div>`
+      : "";
   const timeline = released
     ? operationTimeline([
         { icon: "pin", value: arrival ? shortDateTime(arrival) : "-", label: "มาถึง" },
-        { icon: "loading", value: row.unloadingCompletedAt ? shortDateTime(row.unloadingCompletedAt) : "โหลดเสร็จ", label: "โหลดเสร็จ" },
+        { icon: "loading", value: row.unloadingCompletedAt ? shortDateTime(row.unloadingCompletedAt) : "ยืนยันสถานะแล้ว", label: "โหลดขึ้นรถ" },
         { icon: "release", value: shortDateTime(departure), label: "ออกจริง" },
       ], 2)
     : loading
       ? operationTimeline([
           { icon: "loading", value: row.scheduleUnloadingStartedAt ? shortDateTime(row.scheduleUnloadingStartedAt) : arrival ? shortDateTime(arrival) : "-", label: "เริ่มโหลด" },
           { icon: "loading", value: "กำลังดำเนินการ", label: "กำลังโหลดขึ้นรถ" },
-          { icon: "check", value: "รอดำเนินการ", label: "โหลดเสร็จ" },
+          { icon: "release", value: "รอขั้นถัดไป", label: "รอขั้นถัดไป" },
         ], 1)
       : operationTimeline([
-          { icon: "pin", value: arrival ? shortDateTime(arrival) : "-", label: "มาถึง" },
-          { icon: "loading", value: "โหลดเสร็จ", label: "รอปล่อย" },
+          { icon: "loading", value: row.unloadingCompletedAt ? shortDateTime(row.unloadingCompletedAt) : "ยืนยันสถานะแล้ว", label: "โหลดขึ้นรถแล้ว" },
+          { icon: "clock", value: "รอปล่อย", label: "รอปล่อย" },
           { icon: "release", value: planned ? shortDateTime(planned) : "-", label: "กำหนดออก" },
         ], 1);
-  return `<section class="lower-operation origin-operation ${released ? "is-released" : loading ? "is-loading" : "is-wait-release"}">${operationHeader(released ? "release" : "loading", headline, subtitle)}${stay !== null ? `<div class="operation-kpi"><strong>${nf.format(stay)} นาที</strong><span>${released ? "เวลาที่อยู่ในคลัง" : loading ? "ตั้งแต่เริ่มอยู่ในคลัง" : "อยู่ในคลังแล้ว"}</span></div>` : ""}${detail}${timeline}</section>`;
+  return `<section class="lower-operation origin-operation ${released ? "is-released" : loading ? "is-loading" : "is-wait-release"}">${operationHeader(released ? "release" : "loading", headline, subtitle)}${stay !== null ? `<div class="operation-kpi"><strong>${nf.format(stay)} นาที</strong><span>${released ? "เวลาที่อยู่ในคลัง" : loading ? "ตั้งแต่รถถึง" : "อยู่ในคลังแล้ว"}</span></div>` : ""}${detail}${timeline}</section>`;
 }
 
 function renderDropOperation(row) {
@@ -1509,13 +1604,25 @@ function renderDropOperation(row) {
   const active = !departure && Number(row.unloadingState) === 1;
   const released = Boolean(departure);
   const started = parseDate(row.scheduleUnloadingStartedAt);
-  const headline = released ? "ออกต่อจากจุดดรอปแล้ว" : active ? "กำลังดำเนินการที่จุดดรอป" : "ถึงจุดดรอปแล้ว";
-  const subtitle = !released && !active ? "รอเริ่มดำเนินการ" : "";
-  const timeline = operationTimeline([
-    { icon: "warehouse", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
-    { icon: "package", value: started ? shortDateTime(started) : active ? "กำลังดำเนินการ" : "รอเริ่ม", label: "เริ่มดำเนินการ" },
-    { icon: "release", value: released ? shortDateTime(departure) : "รอออกเดินทาง", label: "ออกเดินทาง" },
-  ], released ? 2 : 1);
+  const headline = released ? "ออกต่อจากจุดดรอปแล้ว" : active ? "กำลังจัดการพัสดุที่จุดดรอป" : "ถึงจุดดรอปแล้ว";
+  const subtitle = released ? "" : active ? "กำลังดำเนินการ" : "รอเริ่มดำเนินการ";
+  const timeline = released
+    ? operationTimeline([
+        { icon: "warehouse", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
+        { icon: "package", value: started ? shortDateTime(started) : "ดำเนินการแล้ว", label: "ดำเนินการ" },
+        { icon: "release", value: shortDateTime(departure), label: "ออกต่อ" },
+      ], 2)
+    : active
+      ? operationTimeline([
+          { icon: "warehouse", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
+          { icon: "package", value: started ? shortDateTime(started) : "กำลังดำเนินการ", label: "กำลังดำเนินการ" },
+          { icon: "release", value: "รอออกต่อ", label: "ออกต่อ" },
+        ], 1)
+      : operationTimeline([
+          { icon: "warehouse", value: shortDateTime(arrival), label: "ถึงจุดดรอป" },
+          { icon: "package", value: "รอดำเนินการ", label: "รอดำเนินการ" },
+          { icon: "release", value: "รอออกต่อ", label: "ออกต่อ" },
+        ], 0);
   return `<section class="lower-operation drop-operation ${released ? "is-released" : active ? "is-active" : "is-waiting"}">${operationHeader(released ? "release" : active ? "package" : "warehouse", headline, subtitle)}<div class="operation-kpi"><strong>${nf.format(minutes)} นาที</strong><span>เวลาที่อยู่ ณ จุดดรอป</span></div>${timeline}<div class="operation-work-duration">ใช้เวลาที่จุดดรอป <strong>${nf.format(minutes)} นาที</strong></div></section>`;
 }
 

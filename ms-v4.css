@@ -717,3 +717,36 @@ html body.ms-page .operation-compact .classic-status-chip {
     border-color: #e6bf00 !important;
   }
 }
+
+/* MS_MOBILE_ORIGIN_UNIFIED_CHARCOAL_V13
+   Mobile origin work-type cell is one charcoal block; operation origin status is plain white text on charcoal. */
+@media (max-width: 1024px) {
+  html body.ms-page .compact-card-tags .compact-work-type:has(.type-badge.outbound) {
+    color: #ffffff !important;
+    background: #202124 !important;
+    border-color: #202124 !important;
+  }
+  html body.ms-page .compact-card-tags .compact-work-type:has(.type-badge.outbound) .type-badge.outbound {
+    color: #ffffff !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+  html body.ms-page .compact-card-tags .compact-work-type:has(.type-badge.outbound) > small {
+    color: #ffffff !important;
+    background: transparent !important;
+    font-weight: 800 !important;
+  }
+  html body.ms-page .operation-compact.origin .classic-status-chip {
+    color: #ffffff !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    min-height: auto !important;
+    width: auto !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    font-weight: 900 !important;
+  }
+}

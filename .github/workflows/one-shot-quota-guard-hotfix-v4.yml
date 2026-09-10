@@ -1,0 +1,144 @@
+name: One-shot Turso Quota Guard Hotfix V4
+
+on:
+  push:
+    paths:
+      - '.github/dev-tools/quota-guard-hotfix-trigger-v4.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-shot-quota-guard-hotfix-v4
+  cancel-in-progress: false
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply V3 quota patch plus Schedule-compatible linear history truth
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess, textwrap
+
+          workflow = Path('.github/workflows/one-shot-quota-guard-hotfix-v3.yml').read_text()
+          match = re.search(r"          python3 - <<'PY'\n([\s\S]*?)\n          PY\n", workflow)
+          if not match:
+              raise SystemExit('V3 patch body not found')
+          body = textwrap.dedent(match.group(1))
+          tmp = Path('/tmp/quota_guard_v3.py')
+          tmp.write_text(body)
+          subprocess.run(['python3', str(tmp)], check=True)
+
+          # V3 intentionally makes history verification linear. Schedule V4 used to
+          # patch the old correlated query, so make the linear query carry the same
+          # accepted Schedule-E semantics and marker directly.
+          p = Path('.github/dev-tools/patch-ms-daily-completion-observation.mjs')
+          s = p.read_text()
+          start = s.index('async function verifiedCompletionRouteIds(env, hub) {\\n')
+          end = s.index('\\n\\nasync function ensureMsCompletionRepair', start)
+          worker_fn = '''async function verifiedCompletionRouteIds(env, hub) {
+            // MS_SCHEDULE_COMPLETION_TRUTH_V4: Route owns status; safely matched Schedule E
+            // remains trusted completion timing evidence without restoring correlated scans.
+            const result = await env.DB.prepare(
+              `WITH ordered AS (
+                 SELECT route_id,snapshot_at,rowid,event_type,synced_by,payload_json,
+                        CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER) AS current_state,
+                        LAG(CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER))
+                          OVER (PARTITION BY route_id ORDER BY snapshot_at,rowid) AS previous_state,
+                        COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'') AS completion_at,
+                        COALESCE(json_extract(payload_json,'$.completionSource'),'') AS completion_source,
+                        COALESCE(json_extract(payload_json,'$.actualArrivalAt'),'') AS actual_arrival
+                   FROM ms_route_history
+                  WHERE hub=? AND json_valid(payload_json)=1
+               ),
+               transitions AS (
+                 SELECT route_id,completion_at
+                   FROM ordered
+                  WHERE current_state=2
+                    AND completion_at<>''
+                    AND (
+                      completion_source='SCHEDULE'
+                      OR (
+                        previous_state IN (0,1)
+                        AND COALESCE(event_type,'UPDATED')<>'FIRST_SEEN'
+                        AND COALESCE(synced_by,'')<>'MS_RANGE'
+                      )
+                    )
+               ),
+               legacy_bursts AS (
+                 SELECT completion_at
+                   FROM ordered
+                  WHERE completion_at<>''
+                    AND completion_at<'2026-09-08T12:39:00.000Z'
+                  GROUP BY completion_at
+                 HAVING COUNT(DISTINCT route_id)>=8
+                    AND (julianday(MAX(actual_arrival))-julianday(MIN(actual_arrival))) * 86400000 >= 3600000
+               )
+               SELECT DISTINCT route_id
+                 FROM transitions
+                WHERE completion_at NOT IN (SELECT completion_at FROM legacy_bursts)`,
+            ).bind(hub).all();
+            return new Set((result.results || []).map((row) => String(row.route_id || '')).filter(Boolean));
+          }'''
+          esc = lambda v: v.replace('\\', '\\\\').replace('`', '\\`').replace('\n', '\\n')
+          s = s[:start] + esc(worker_fn) + s[end:]
+          p.write_text(s)
+
+          # Strengthen regression so future staging cannot drop Schedule truth while
+          # reintroducing the N^2 historical lookup.
+          p = Path('.github/dev-tools/ms-completion-burst-truth.test.mjs')
+          s = p.read_text()
+          needle = '    assert.match(staged, /legacy_bursts/);\n'
+          extra = "    assert.match(staged, /MS_SCHEDULE_COMPLETION_TRUTH_V4/);\n    assert.match(staged, /completion_source='SCHEDULE'/);\n"
+          if extra not in s:
+              if needle not in s:
+                  raise SystemExit('completion burst test anchor missing')
+              s = s.replace(needle, needle + extra, 1)
+          p.write_text(s)
+          PY
+
+      - name: Full regression gate
+        run: |
+          node --check .github/dev-tools/patch-ms-daily-completion-observation.mjs
+          node --check .github/dev-tools/patch-ms-completion-burst-v3.mjs
+          node --check worker/src/turso-d1.js
+          cd worker
+          npm ci
+          npm run check
+
+      - name: Stage DEV quota gate
+        run: |
+          node .github/dev-tools/stage-dev-runtime.mjs
+          test -f worker/.dev-stage/src/index.js
+          ! grep -q 'SELECT h1.payload_json' worker/.dev-stage/src/index.js
+          ! grep -q 'legacyCompletionBurst' worker/.dev-stage/src/index.js
+          grep -q 'LAG(CAST(json_extract(payload_json' worker/.dev-stage/src/index.js
+          grep -q "completion_source='SCHEDULE'" worker/.dev-stage/src/index.js
+          grep -q 'MS_SYNC_COORDINATOR' worker/wrangler.dev.jsonc
+          grep -q 'TURSO_HEAVY_READ_GUARD' worker/src/turso-d1.js
+          echo QUOTA_GUARD_STAGE_PASS
+
+      - name: Commit safe source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/dev-tools/patch-ms-daily-completion-observation.mjs \
+                  .github/dev-tools/patch-ms-completion-burst-v3.mjs \
+                  .github/dev-tools/ms-completion-burst-truth.test.mjs \
+                  worker/src/turso-d1.js worker/tests/turso-d1.test.mjs worker/tests/sync-policy.test.mjs
+          git diff --cached --check
+          git commit -m 'fix: hard-stop Turso read amplification'
+          git pull --rebase origin main
+          git push origin HEAD:main

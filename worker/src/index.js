@@ -9,6 +9,8 @@ const activeMsSync = new Map();
 // AUTH_VERIFY_READ_CACHE_V2: remove repeated identical user reads from 4-second polling.
 const AUTH_VERIFY_CACHE_MS = 60 * 1000;
 const authVerifyCache = new Map();
+const authVerifyActive = new Map();
+const authVerifyGeneration = new Map();
 function cachedAuthUser(username, now = Date.now()) {
   const key = String(username || "").toUpperCase();
   const cached = authVerifyCache.get(key);
@@ -26,7 +28,72 @@ function rememberAuthUser(user, now = Date.now()) {
   });
 }
 function invalidateAuthUser(username) {
-  authVerifyCache.delete(String(username || "").toUpperCase());
+  const key = String(username || "").toUpperCase();
+  authVerifyCache.delete(key);
+  authVerifyGeneration.set(key, (authVerifyGeneration.get(key) || 0) + 1);
+}
+// AUTH_PROVIDER_LIMIT_V3: a Turso quota/provider refusal is an availability
+// failure, never proof that a password or a still-valid token is invalid.
+export function classifyAuthReadFailure(error, phase = "verify") {
+  const value = [
+    error?.code,
+    error?.message,
+    error?.cause?.code,
+    error?.cause?.message,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  if (
+    /sql\s+read\s+operations?\s+are\s+forbidden|read\s+operations?\s+(?:are\s+)?forbidden|request\s+exceeds\s+the\s+limit|rate.?limit|too\s+many\s+requests|quota\s+(?:has\s+been\s+)?exceeded|usage\s+limit/i.test(
+      value,
+    )
+  )
+    return { code: "AUTH_PROVIDER_LIMIT", status: 503 };
+  return {
+    code:
+      phase === "login" ? "AUTH_LOGIN_UNAVAILABLE" : "AUTH_VERIFY_UNAVAILABLE",
+    status: 503,
+  };
+}
+function failAuthRead(error, phase, username) {
+  const failure = classifyAuthReadFailure(error, phase);
+  console.error(
+    JSON.stringify({
+      event: `auth_${phase}_read_failed`,
+      code: failure.code,
+      username: String(username || "").slice(0, 30),
+      message: error?.message || String(error),
+    }),
+  );
+  fail(
+    failure.code === "AUTH_PROVIDER_LIMIT"
+      ? "ผู้ให้บริการฐานข้อมูลจำกัดการอ่านชั่วคราว กรุณาลองใหม่"
+      : "ระบบยืนยันสิทธิ์ขัดข้องชั่วคราว กรุณาลองใหม่",
+    failure.code,
+    failure.status,
+  );
+}
+async function verifiedAuthUser(username, env) {
+  const key = String(username || "").toUpperCase();
+  const cached = cachedAuthUser(key);
+  if (cached) return cached;
+  if (authVerifyActive.has(key)) return authVerifyActive.get(key);
+  const generation = authVerifyGeneration.get(key) || 0;
+  const task = env.DB.prepare(
+    "SELECT username,role,branches,active FROM users WHERE username=?",
+  )
+    .bind(key)
+    .first()
+    .then((user) => {
+      // A concurrent save/deactivate invalidates this generation so an old
+      // result cannot repopulate the authorization cache after the write.
+      if (user && (authVerifyGeneration.get(key) || 0) === generation)
+        rememberAuthUser(user);
+      return user;
+    })
+    .finally(() => authVerifyActive.delete(key));
+  authVerifyActive.set(key, task);
+  return task;
 }
 const PAUSES = [
   ["pause-1", "ช่วงไม่มีกะ 1", 0, 1],
@@ -296,9 +363,14 @@ async function post(body, env) {
 
 async function login(body, env) {
   const username = text(body.username, 30).toUpperCase();
-  let user = await env.DB.prepare("SELECT * FROM users WHERE username=?")
-    .bind(username)
-    .first();
+  let user;
+  try {
+    user = await env.DB.prepare("SELECT * FROM users WHERE username=?")
+      .bind(username)
+      .first();
+  } catch (error) {
+    failAuthRead(error, "login", username);
+  }
   if (
     !user &&
     username === "ADMIN" &&
@@ -318,9 +390,13 @@ async function login(body, env) {
         "BOOTSTRAP",
       )
       .run();
-    user = await env.DB.prepare(
-      "SELECT * FROM users WHERE username='ADMIN'",
-    ).first();
+    try {
+      user = await env.DB.prepare(
+        "SELECT * FROM users WHERE username='ADMIN'",
+      ).first();
+    } catch (error) {
+      failAuthRead(error, "login", username);
+    }
   }
   if (
     !user ||
@@ -341,6 +417,9 @@ async function login(body, env) {
     ),
   );
   const token = `${payload}.${await hmac(payload, env.AUTH_SECRET)}`;
+  // Seed the short authorization cache from the login row. The first Live,
+  // KIT and TBR requests must not repeat the same Turso user read.
+  rememberAuthUser(user);
   await audit(
     env,
     "LOGIN",
@@ -393,29 +472,11 @@ async function verify(token, env) {
   if (!actor?.username || Date.now() > Number(actor.expiresAt))
     fail("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", "INVALID_SESSION", 401);
 
-  let user = cachedAuthUser(actor.username);
+  let user;
   try {
-    if (!user) {
-      user = await env.DB.prepare(
-        "SELECT username,role,branches,active FROM users WHERE username=?",
-      )
-        .bind(actor.username)
-        .first();
-      if (user) rememberAuthUser(user);
-    }
+    user = await verifiedAuthUser(actor.username, env);
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "auth_verify_unavailable",
-        username: String(actor.username || "").slice(0, 30),
-        message: error?.message || String(error),
-      }),
-    );
-    fail(
-      "ระบบยืนยันสิทธิ์ขัดข้องชั่วคราว กรุณาลองใหม่",
-      "AUTH_VERIFY_UNAVAILABLE",
-      503,
-    );
+    failAuthRead(error, "verify", actor.username);
   }
 
   if (!user || user.active !== 1 || user.role !== actor.role)
@@ -1709,9 +1770,9 @@ async function readPendingParcelPage(credentials, summary, day, page, type = "no
 }
 
 // BUS_TIME_RATE_LIMIT_V11: provider capacity/rate limits are not session expiry.
-export function classifyBusTimeFailure(message) {
+export function classifyBusTimeFailure(message, httpStatus = 0) {
   const value = String(message || "").trim();
-  if (/request\s+exceeds\s+the\s+limit|rate.?limit|too many requests|exceed(?:ed|s)?\s+(?:the\s+)?limit/i.test(value))
+  if (Number(httpStatus) === 429 || /request\s+exceeds\s+the\s+limit|rate.?limit|too many requests|exceed(?:ed|s)?\s+(?:the\s+)?limit/i.test(value))
     return { code: "BUS_TIME_RATE_LIMIT", status: 429 };
   if (/session|token|auth|login|expired|unauthor/i.test(value))
     return { code: "BUS_TIME_SESSION_EXPIRED", status: 502 };
@@ -1735,7 +1796,17 @@ async function readBusPage(credentials, page, day) {
     Accept: "application/json, text/plain, */*", Referer: "https://fbi.flashexpress.com/fbi-ui/",
     "User-Agent": "Mozilla/5.0", "BI-PLATFORM": "pc",
   }});
-  if (!response.ok) fail(`ข้อมูลตารางเวลาตอบกลับ ${response.status}`, "BUS_TIME_HTTP_ERROR", 502);
+  if (!response.ok) {
+    const message = `ข้อมูลตารางเวลาตอบกลับ ${response.status}`;
+    const failure = classifyBusTimeFailure(message, response.status);
+    fail(
+      message,
+      failure.code === "BUS_TIME_RATE_LIMIT"
+        ? failure.code
+        : "BUS_TIME_HTTP_ERROR",
+      failure.code === "BUS_TIME_RATE_LIMIT" ? failure.status : 502,
+    );
+  }
   const json = await response.json();
   if (Number(json.code) !== 1) {
     const message = json.msg || json.message || "การจัดการตารางเวลาตอบกลับผิดพลาด";

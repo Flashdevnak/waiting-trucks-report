@@ -652,3 +652,58 @@ html body.ms-page .operation-compact.is-cancelled .classic-operation-center {
   background: #202124 !important;
   border-bottom-color: #151515 !important;
 }
+
+/* MS_OPERATION_HEADER_RESPONSIVE_V11
+   Keep the operation header charcoal on desktop/mobile, but keep the status itself as a compact semantic pill.
+   This removes the oversized full-width mobile status block without changing any route/queue/SLA/data logic. */
+html body.ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-operation-center,
+html body.ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-operation-center,
+html body.ms-page .operation-compact.destination.is-working .classic-operation-center,
+html body.ms-page .operation-compact.destination.is-done .classic-operation-center,
+html body.ms-page .operation-compact.drop .classic-operation-center,
+html body.ms-page .operation-compact.origin .classic-operation-center,
+html body.ms-page .operation-compact.is-cancelled .classic-operation-center {
+  min-height: 44px;
+  padding: 7px 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #202124 !important;
+  border-bottom: 1px solid #151515 !important;
+}
+html body.ms-page .operation-compact .classic-status-chip {
+  width: fit-content !important;
+  min-width: 0 !important;
+  max-width: calc(100% - 20px) !important;
+  min-height: 30px;
+  margin: 0 auto !important;
+  padding: 5px 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 999px !important;
+  line-height: 1.25 !important;
+  white-space: nowrap;
+}
+@media (max-width: 1024px) {
+  html body.ms-page .operation-compact .classic-operation-center {
+    min-height: 42px;
+    padding: 6px 8px !important;
+  }
+  html body.ms-page .operation-compact .classic-status-chip {
+    width: fit-content !important;
+    max-width: calc(100% - 16px) !important;
+    min-height: 30px;
+    padding: 5px 14px !important;
+    font-size: 12px;
+  }
+}
+@media (max-width: 430px) {
+  html body.ms-page .operation-compact .classic-status-chip {
+    max-width: calc(100% - 12px) !important;
+    padding: 5px 12px !important;
+    font-size: 11.5px;
+    white-space: normal;
+    text-align: center;
+  }
+}

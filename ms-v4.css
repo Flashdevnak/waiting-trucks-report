@@ -537,9 +537,9 @@ html body.ms-page .operation-compact .classic-status-chip {
 
 html body.ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-status-chip,
 html body.ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-status-chip {
-  color: #ffffff !important;
-  background: #202124 !important;
-  border-color: #151515 !important;
+  color: #202124 !important;
+  background: #fff7cf !important;
+  border-color: #e6bf00 !important;
 }
 html body.ms-page .operation-compact.destination.is-working .classic-status-chip,
 html body.ms-page .operation-compact.drop.is-working .classic-status-chip {

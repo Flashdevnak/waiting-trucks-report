@@ -1,0 +1,38 @@
+name: One-shot Safe DEV DB Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-safe-dev-db-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Perform exactly one bounded login lookup
+        shell: bash
+        run: |
+          node <<'NODE'
+          const url = 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api';
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {'content-type':'application/json'},
+            body: JSON.stringify({action:'login', username:'__QUOTA_READINESS_PROBE__', pin:'019283'}),
+          });
+          const json = await response.json();
+          console.log(`HTTP_STATUS=${response.status}`);
+          console.log(`API_CODE=${json?.code || ''}`);
+          if (response.status === 401 && json?.code === 'INVALID_LOGIN') {
+            console.log('DEV_TURSO_READABLE=PASS');
+            console.log('BOUNDED_DB_READ_REQUESTS=1');
+            process.exit(0);
+          }
+          if (response.status === 503 && ['AUTH_PROVIDER_LIMIT','TURSO_READS_BLOCKED'].includes(json?.code)) {
+            throw new Error(`DEV Turso reads remain provider-blocked: ${json.code}`);
+          }
+          throw new Error(`Unexpected DEV auth probe response: ${response.status} ${json?.code || ''}`);
+          NODE

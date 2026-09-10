@@ -71,10 +71,11 @@ jobs:
             return Boolean(success) && !error && age>=0 && age<=heartbeatReadySeconds;
           };
 
-          const [connectorResult,liveResult,routeTableResult,routeResult,preentryResult,busResult]=await Promise.all([
+          const [connectorResult,liveResult,routeTableResult,routeStateResult,routeResult,preentryResult,busResult]=await Promise.all([
             query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
             query("SELECT hub,source_hash,synced_at,json_array_length(rows_json) AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
             query("SELECT COUNT(*) AS route_count FROM ms_routes WHERE hub='NE1'"),
+            query("SELECT SUM(CASE WHEN unloading_state IN (0,1) THEN 1 ELSE 0 END) AS active_unload, SUM(CASE WHEN unloading_state=2 THEN 1 ELSE 0 END) AS completed_unload, SUM(CASE WHEN julianday(COALESCE(actual_arrival_at,estimated_arrival_at,actual_departure_at,estimated_departure_at))>=julianday('now','-3 day') THEN 1 ELSE 0 END) AS recent_3d, MAX(synced_at) AS max_synced_at FROM ms_routes WHERE hub='NE1'"),
             query("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
             query("SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
             query("SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
@@ -83,6 +84,7 @@ jobs:
           const connector=firstRow(connectorResult);
           const live=firstRow(liveResult);
           const routeTable=firstRow(routeTableResult);
+          const routeState=firstRow(routeStateResult);
           const route=firstRow(routeResult);
           const preentry=firstRow(preentryResult);
           const bus=firstRow(busResult);
@@ -98,6 +100,10 @@ jobs:
           const busHealthy=connectionHealthy(bus);
           const liveRows=Number(live[3]||0);
           const routeRows=Number(routeTable[0]||0);
+          const activeUnload=Number(routeState[0]||0);
+          const completedUnload=Number(routeState[1]||0);
+          const recent3d=Number(routeState[2]||0);
+          const routeMaxSynced=String(routeState[3]||'');
           const suspiciousZero=liveRows===0 && routeRows>0;
 
           function printConnection(prefix,row){
@@ -115,6 +121,10 @@ jobs:
           console.log(`TURSO_LIVE_SNAPSHOT_AGE_SECONDS=${syncAge}`);
           console.log(`TURSO_LIVE_ROWS=${liveRows}`);
           console.log(`TURSO_ROUTE_TABLE_ROWS=${routeRows}`);
+          console.log(`TURSO_ROUTE_ACTIVE_UNLOAD=${activeUnload}`);
+          console.log(`TURSO_ROUTE_COMPLETED_UNLOAD=${completedUnload}`);
+          console.log(`TURSO_ROUTE_RECENT_3D=${recent3d}`);
+          console.log(`TURSO_ROUTE_MAX_SYNCED_AT=${routeMaxSynced||'-'}`);
           console.log(`TURSO_SUSPICIOUS_ZERO=${suspiciousZero}`);
           printConnection('MS_ROUTE_CONNECTION',route);
           printConnection('MS_PREENTRY_CONNECTION',preentry);

@@ -69,6 +69,9 @@ if (!source.includes(RATE_MARKER)) {
   }
 
   source = patchAsyncFunction(source, 'readBusPage', (body) => {
+    // Current source owns the shared JSON/HTTP classification. Preserve it
+    // instead of replacing it with this older DEV-only duplicate.
+    if (body.includes('classifyBusTimeFailure(')) return body;
     const oldHttp = '  if (!response.ok) fail(`ข้อมูลตารางเวลาตอบกลับ ${response.status}`, "BUS_TIME_HTTP_ERROR", 502);';
     const newHttp = `  if (!response.ok) {\n    const limited = response.status === 429;\n    fail(\`ข้อมูลตารางเวลาตอบกลับ \${response.status}\`,\n      limited ? \"BUS_TIME_REQUEST_LIMIT\" : \"BUS_TIME_HTTP_ERROR\",\n      limited ? 429 : 502);\n  }`;
     if (!body.includes(oldHttp)) throw new Error('readBusPage HTTP anchor not found');

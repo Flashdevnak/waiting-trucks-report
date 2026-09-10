@@ -55,6 +55,26 @@ export function patchMsLiveResilienceFrontend(source) {
 
   if (output.includes(TBR_HARDENING_MARKER)) return output;
 
+  // Canonical ms.js already carries LIVE_RESILIENCE_V1, so consume the compact
+  // health field in the DEV staging pass even when the base resilience patch is
+  // already present in source.
+  if (!output.includes("tbrIntelligenceHealth: null")) {
+    output = replaceUnique(
+      output,
+      `  transportFailures: 0,`,
+      `  transportFailures: 0,\n  tbrIntelligenceHealth: null,`,
+      "add TBR health state to already-resilient frontend",
+    );
+  }
+  if (!output.includes("state.tbrIntelligenceHealth = result?.tbrIntelligenceHealth || null;")) {
+    output = replaceUnique(
+      output,
+      `    state.transportFailures = 0;\n    fillFilters();`,
+      `    state.transportFailures = 0;\n    state.tbrIntelligenceHealth = result?.tbrIntelligenceHealth || null;\n    fillFilters();`,
+      "consume piggyback TBR health on existing msRoutes poll",
+    );
+  }
+
   if (!output.includes(TBR_PROVISIONAL_MARKER)) {
     output = replaceUnique(
       output,
@@ -136,8 +156,8 @@ export function patchMsLiveResilienceFrontend(source) {
 
   output = replaceUnique(
     output,
-    `      classicOperationFact("SLA Route", timing.slaMinutes === null ? "-" : \`${'${nf.format(timing.slaMinutes)}'} นาที\`),`,
-    `      classicOperationFact("SLA Route", provisional || timing.slaMinutes === null ? "-" : \`${'${nf.format(timing.slaMinutes)}'} นาที\`),`,
+    `      classicOperationFact("SLA Route", timing.slaMinutes === null ? "-" : \`\${nf.format(timing.slaMinutes)} นาที\`),`,
+    `      classicOperationFact("SLA Route", provisional || timing.slaMinutes === null ? "-" : \`\${nf.format(timing.slaMinutes)} นาที\`),`,
     "keep SLA Route blank until Route confirms",
   );
 

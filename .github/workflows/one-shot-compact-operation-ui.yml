@@ -153,12 +153,12 @@ jobs:
 
           style_path = Path("style.css")
           style = style_path.read_text()
-          css_marker = "Classic operation compact facts: source-level extension of MS_LOWER_CLASSIC_V12."
+          css_marker = "Classic operation compact facts: source-level presentation extension."
           if css_marker in style:
               raise SystemExit("compact operation CSS already present")
           style += r'''
 
-          /* Classic operation compact facts: source-level extension of MS_LOWER_CLASSIC_V12. */
+          /* Classic operation compact facts: source-level presentation extension. */
           .ms-page .operation-compact{width:100%;gap:6px;padding:0;text-align:center}
           .ms-page .classic-operation-center{display:flex;align-items:center;justify-content:center;min-width:0}
           .ms-page .classic-operation-center .classic-status-chip{max-width:100%;justify-content:center;text-align:center;white-space:normal}
@@ -178,7 +178,7 @@ jobs:
           tests = test_path.read_text()
           lines = tests.splitlines()
           replacements = {
-            'test("status cell is compact ordered facts not full-cell operation card"': 'test("status cell uses one shared compact fact grid on desktop and mobile",()=>{const table=between(front,"function tableRow(row)","function card(row)");const card=between(front,"function card(row)","let cancelRouteTarget");const operation=between(front,"function renderOperation(row)","// LOCAL_ROUTE_BARCODE_V1");assert.match(front,/function classicOperationFact\\(label, value, wide = false\\)/);assert.match(front,/function classicOperationFacts\\(items\\)/);assert.equal((front.match(/function renderOperation\\(row\\)/g)||[]).length,1);assert.match(operation,/classic-operation-facts/);assert.match(visual,/classic-operation-facts\\{display:grid;grid-template-columns:repeat\\(2,minmax\\(0,1fr\\)\\)/);assert.match(visual,/classic-operation-center\\{display:flex;align-items:center;justify-content:center/);assert.match(table,/operationHtml/);assert.match(card,/renderOperation\\(row\\)/);assert.doesNotMatch(front,/class="lower-operation/);assert.doesNotMatch(front,/operationTimeline\\(/)});',
+            'test("status cell is compact ordered facts not full-cell operation card"': 'test("status cell uses one shared compact fact grid on desktop and mobile",()=>{const table=between(front,"function tableRow(row)","function card(row)");const card=between(front,"function card(row)","let cancelRouteTarget");assert.match(front,/function classicOperationFact\\(label, value, wide = false\\)/);assert.match(front,/function classicOperationFacts\\(items\\)/);assert.equal((front.match(/function renderOperation\\(row\\)/g)||[]).length,1);assert.match(front,/class="classic-operation-facts"/);assert.match(visual,/classic-operation-facts\\{display:grid;grid-template-columns:repeat\\(2,minmax\\(0,1fr\\)\\)/);assert.match(visual,/classic-operation-center\\{display:flex;align-items:center;justify-content:center/);assert.match(table,/operationHtml/);assert.match(card,/renderOperation\\(row\\)/);assert.doesNotMatch(front,/class="lower-operation/);assert.doesNotMatch(front,/operationTimeline\\(/)});',
             'test("unload presentation separates S-E work time from earliest-arrival SLA truth"': 'test("unload presentation keeps one SLA truth and removes redundant range copy",()=>{const operation=between(front,"function renderOperation(row)","// LOCAL_ROUTE_BARCODE_V1");assert.doesNotMatch(front,/function displayedUnloadTiming\\(row/);assert.match(operation,/classicOperationFact\\("ใช้เวลาลงรถจริง", timing\\.workMinutes/);assert.match(operation,/classicOperationFact\\("SLA Route", timing\\.slaMinutes/);assert.match(operation,/shortDateTime\\(confirmedEffectiveArrival\\(row\\)\\)/);assert.match(front,/const arrival = confirmedEffectiveArrival\\(row\\)/);assert.doesNotMatch(operation,/เริ่มลงรถ → ลงเสร็จจริง|เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง|เวลาถึงที่เร็วที่สุด → เวลาปัจจุบัน/);assert.match(operation,/const release = departureCountdown\\(row\\)/);assert.match(operation,/classicOperationSummary\\("SLA ลงของ", summary\\.text, summary\\.severity\\)/);assert.match(operation,/classicOperationSummary\\("สถานะปล่อยรถ \\/ ไปต่อ"/);assert.match(operation,/classicOperationFact\\("กำหนดปล่อยรถ"/);assert.doesNotMatch(operation,/กลับไปต้นทาง/);assert.match(front,/overStandard: \\(isDestination\\(row\\) \\|\\| isDrop\\(row\\)\\) && completed/)});',
           }
           found = set()

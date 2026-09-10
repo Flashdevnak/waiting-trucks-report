@@ -1,5 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { classifyBusTimeFailure, enrichMsRow, msDate, parseScheduleUnloadingEnd, parseScheduleUnloadingStart, scheduleStoreMatchesHub } from "../src/index.js";
 
@@ -90,4 +95,35 @@ test("Flash BusTime request limit is not mislabeled as session expiry", () => {
   assert.deepEqual(classifyBusTimeFailure("upstream rejected request", 429), { code: "BUS_TIME_RATE_LIMIT", status: 429 });
   assert.deepEqual(classifyBusTimeFailure("Session expired"), { code: "BUS_TIME_SESSION_EXPIRED", status: 502 });
   assert.deepEqual(classifyBusTimeFailure("unexpected upstream response"), { code: "BUS_TIME_SOURCE_ERROR", status: 502 });
+});
+
+test("DEV staging preserves the shared BusTime classifier", () => {
+  const testDir = mkdtempSync(join(tmpdir(), "tbr-stage-classifier-"));
+  const stagedWorker = join(testDir, "index.js");
+  const workerPath = fileURLToPath(new URL("../src/index.js", import.meta.url));
+  const patchPath = fileURLToPath(
+    new URL(
+      "../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs",
+      import.meta.url,
+    ),
+  );
+  const readonlyPatchPath = fileURLToPath(
+    new URL(
+      "../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs",
+      import.meta.url,
+    ),
+  );
+  try {
+    writeFileSync(stagedWorker, readFileSync(workerPath));
+    execFileSync(process.execPath, [readonlyPatchPath, stagedWorker], {
+      stdio: "pipe",
+    });
+    execFileSync(process.execPath, [patchPath, stagedWorker], { stdio: "pipe" });
+    const staged = readFileSync(stagedWorker, "utf8");
+    assert.match(staged, /classifyBusTimeFailure\(message, response\.status\)/);
+    assert.match(staged, /classifyBusTimeFailure\(message\)/);
+    assert.doesNotMatch(staged, /BUS_TIME_REQUEST_LIMIT/);
+  } finally {
+    rmSync(testDir, { recursive: true, force: true });
+  }
 });

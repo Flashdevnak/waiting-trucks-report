@@ -13,35 +13,49 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     env:
-      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
     steps:
-      - name: Inspect real NE1 connection state without Turso
+      - name: Verify real NE1 current state with three bounded point reads
         shell: bash
         run: |
           node <<'NODE'
-          const [shadowRes, errorRes] = await Promise.all([
-            fetch(`${process.env.BROWSER_ORIGIN}/api/shadow-tbr?hub=NE1`, {cache:'no-store'}),
-            fetch(`${process.env.BROWSER_ORIGIN}/api/connection-error?hub=NE1`, {cache:'no-store'}),
-          ]);
-          const shadow = await shadowRes.json();
-          const errorBody = await errorRes.json();
-          if (!shadowRes.ok || !shadow?.ok) throw new Error(`Shadow HTTP ${shadowRes.status}`);
-          if (!errorRes.ok || !errorBody?.ok) throw new Error(`Connection-error HTTP ${errorRes.status}`);
-          const data = errorBody.data || null;
-          console.log(`SHADOW_STATUS=${shadow.observerStatus}`);
-          console.log(`SHADOW_SOURCE_AVAILABLE=${shadow.sourceAvailable}`);
-          console.log(`SHADOW_ROUTE_ROWS=${shadow.rowCount ?? '-'}`);
-          console.log(`SHADOW_TBR_FEED=${shadow.feedCount ?? '-'}`);
-          console.log(`SHADOW_LAST_SKIP=${shadow.lastSkip || '-'}`);
-          console.log(`ERROR_SOURCE=${data?.source || '-'}`);
-          console.log(`ERROR_CODE=${data?.code || '-'}`);
-          console.log(`ERROR_LABEL=${data?.label || '-'}`);
-          console.log(`ERROR_MESSAGE=${data?.message || '-'}`);
-          console.log(`ERROR_OCCURRED_AT=${data?.occurredAt || '-'}`);
-          console.log(`ERROR_RECOVERED_AT=${data?.recoveredAt || '-'}`);
-          console.log(`SHADOW_TURSO_READS=${shadow.tursoReads}`);
-          console.log(`SHADOW_TURSO_WRITES=${shadow.tursoWrites}`);
-          if (Number(shadow.tursoReads || 0) !== 0 || Number(shadow.tursoWrites || 0) !== 0)
-            throw new Error('Unexpected Turso usage in shadow diagnostic');
-          console.log('ZERO_TURSO_CONNECTION_DIAGNOSTIC=PASS');
+          const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
+          if(!platform) throw new Error('Turso platform token missing');
+          const headers={Authorization:`Bearer ${platform}`};
+          const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+          const dbJson=await dbRes.json();
+          if(!dbRes.ok) throw new Error(`DB lookup ${dbRes.status}`);
+          const database=dbJson.database||dbJson;
+          const hostname=database.Hostname||database.hostname;
+          const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+          const tokenJson=await tokenRes.json();
+          const token=tokenJson.jwt;
+          if(!tokenRes.ok||!token) throw new Error(`Token ${tokenRes.status}`);
+          console.log(`::add-mask::${token}`);
+          let total=0;
+          async function q(label,sql){
+            const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});
+            const p=await r.json(); const item=p?.results?.[0];
+            if(!r.ok||item?.type==='error') throw new Error(`${label}: ${JSON.stringify(item?.error||p)}`);
+            const result=item.response.result||{}; const rr=Number(result.rows_read||0); total+=rr;
+            console.log(`${label}_ROWS_READ=${rr}`); if(rr>=100000) throw new Error(`${label} heavy read ${rr}`); return result;
+          }
+          const dec=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+          const row=r=>(r.rows?.[0]||[]).map(dec);
+          const live=row(await q('LIVE',"SELECT synced_at,json_array_length(rows_json),source_hash FROM ms_live_cache WHERE hub='NE1' LIMIT 1"));
+          const route=row(await q('ROUTE',"SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"));
+          const current=row(await q('CURRENT_ROUTE',"SELECT proof_id,attendance_type,synced_at FROM ms_routes WHERE hub='NE1' LIMIT 1"));
+          console.log(`LIVE_SYNCED_AT=${live[0]||'-'}`);
+          console.log(`LIVE_ROWS=${Number(live[1]||0)}`);
+          console.log(`LIVE_SOURCE_HASH=${String(live[2]||'').slice(0,32)}`);
+          console.log(`ROUTE_LAST_SUCCESS=${route[0]||'-'}`);
+          console.log(`ROUTE_LAST_ERROR=${route[1]||'-'}`);
+          console.log(`CURRENT_ROUTE_EXISTS=${Boolean(current[0])}`);
+          console.log(`CURRENT_ROUTE_ATTENDANCE=${current[1]||'-'}`);
+          console.log(`TOTAL_ROWS_READ=${total}`);
+          console.log('D1_QUERIES=0');
+          if(total>=100000) throw new Error('Read budget exceeded');
+          console.log('BOUNDED_REAL_DB_CHECK=PASS');
           NODE

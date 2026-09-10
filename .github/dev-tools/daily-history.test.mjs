@@ -59,8 +59,8 @@ test("daily history UI release and lower-reference SW revision are current", () 
   assert.match(html, /ms\.js\?v=20260910-04-date8-midnight-final/);
   assert.equal(version.version, "20260904-01");
   // The data-release manifest remains frozen. The scoped MS asset revision
-  // identifies the integrated lower presentation without changing pipelines.
-  assert.match(sw, /20260909-06-classic-arrival-truth/);
+  // identifies the current lower presentation/freshness revision without changing pipelines.
+  assert.match(sw, /20260911-01-operation-header-responsive/);
   assert.doesNotMatch(sw, /MS_JS_HOTFIX|MS_CSS_HOTFIX|appendPatch/);
 });
 

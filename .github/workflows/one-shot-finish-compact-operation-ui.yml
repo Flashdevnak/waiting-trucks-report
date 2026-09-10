@@ -38,6 +38,17 @@ jobs:
           Path('/tmp/apply-compact-operation.py').write_text('\n'.join(script)+'\n')
           PY
           python /tmp/apply-compact-operation.py
+          python <<'PY'
+          from pathlib import Path
+          front_path=Path('ms.js')
+          front=front_path.read_text().replace('สถานะปล่อยรถ / ไปต่อ','สถานะไปต่อ / ปล่อยรถ')
+          front_path.write_text(front)
+          test_path=Path('.github/dev-tools/ms-unload-completion-ui.test.mjs')
+          tests=test_path.read_text()
+          tests=tests.replace('สถานะปล่อยรถ \\/ ไปต่อ','สถานะไปต่อ \\/ ปล่อยรถ')
+          tests=tests.replace('สถานะปล่อยรถ / ไปต่อ','สถานะไปต่อ / ปล่อยรถ')
+          test_path.write_text(tests)
+          PY
       - name: Run focused Lower UI regressions
         run: node --test .github/dev-tools/ms-unload-completion-ui.test.mjs worker/tests/ms-owner-live-v8.test.mjs
       - name: Install worker dependencies
@@ -75,6 +86,7 @@ jobs:
           if(front.includes('กลับไปต้นทาง')) throw new Error('invented Origin semantics detected');
           if(!front.includes('const release = departureCountdown(row);')) throw new Error('Drop release timing missing');
           if(!front.includes('classicOperationSummary("SLA ลงของ", summary.text, summary.severity)')) throw new Error('Drop SLA summary missing');
+          if(!front.includes('classicOperationSummary("สถานะไปต่อ / ปล่อยรถ"')) throw new Error('Drop onward/release label missing');
           if(!style.includes('Classic operation compact facts: source-level presentation extension.')) throw new Error('compact source CSS missing');
           if(!front.includes('pollMs: 4000')) throw new Error('polling cadence changed');
           console.log('COMPACT_OPERATION_SOURCE=PASS');

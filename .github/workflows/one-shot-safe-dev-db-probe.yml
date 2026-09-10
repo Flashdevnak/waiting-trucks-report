@@ -13,36 +13,35 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     env:
-      WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
       BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
     steps:
-      - name: Inspect real Route/TBR shadow without Turso
+      - name: Inspect real NE1 connection state without Turso
         shell: bash
         run: |
           node <<'NODE'
-          const [healthRes, shadowRes] = await Promise.all([
-            fetch(`${process.env.WORKER_ORIGIN}/api?action=health`, {cache:'no-store'}),
+          const [shadowRes, errorRes] = await Promise.all([
             fetch(`${process.env.BROWSER_ORIGIN}/api/shadow-tbr?hub=NE1`, {cache:'no-store'}),
+            fetch(`${process.env.BROWSER_ORIGIN}/api/connection-error?hub=NE1`, {cache:'no-store'}),
           ]);
-          const health = await healthRes.json();
           const shadow = await shadowRes.json();
-          if (!healthRes.ok || !health?.ok) throw new Error(`Worker health failed ${healthRes.status}`);
-          if (!shadowRes.ok || !shadow?.ok) throw new Error(`Shadow endpoint failed ${shadowRes.status}`);
-          console.log('WORKER_HEALTH=PASS');
-          console.log(`SHADOW_OBSERVER_STATUS=${shadow.observerStatus}`);
+          const errorBody = await errorRes.json();
+          if (!shadowRes.ok || !shadow?.ok) throw new Error(`Shadow HTTP ${shadowRes.status}`);
+          if (!errorRes.ok || !errorBody?.ok) throw new Error(`Connection-error HTTP ${errorRes.status}`);
+          const data = errorBody.data || null;
+          console.log(`SHADOW_STATUS=${shadow.observerStatus}`);
           console.log(`SHADOW_SOURCE_AVAILABLE=${shadow.sourceAvailable}`);
-          console.log(`SHADOW_LAST_ATTEMPT_AT=${shadow.lastAttemptAt || '-'}`);
-          console.log(`SHADOW_LAST_OBSERVED_AT=${shadow.lastObservedAt || '-'}`);
           console.log(`SHADOW_ROUTE_ROWS=${shadow.rowCount ?? '-'}`);
           console.log(`SHADOW_TBR_FEED=${shadow.feedCount ?? '-'}`);
-          console.log(`SHADOW_ROUTE_FALLBACK=${Boolean(shadow.routeFallback)}`);
-          console.log(`SHADOW_ROUTE_SOURCE_ERROR=${shadow.routeSourceError ? JSON.stringify(shadow.routeSourceError) : '-'}`);
           console.log(`SHADOW_LAST_SKIP=${shadow.lastSkip || '-'}`);
-          console.log(`SHADOW_REPORTED_TURSO_READS=${shadow.tursoReads}`);
-          console.log(`SHADOW_REPORTED_TURSO_WRITES=${shadow.tursoWrites}`);
+          console.log(`ERROR_SOURCE=${data?.source || '-'}`);
+          console.log(`ERROR_CODE=${data?.code || '-'}`);
+          console.log(`ERROR_LABEL=${data?.label || '-'}`);
+          console.log(`ERROR_MESSAGE=${data?.message || '-'}`);
+          console.log(`ERROR_OCCURRED_AT=${data?.occurredAt || '-'}`);
+          console.log(`ERROR_RECOVERED_AT=${data?.recoveredAt || '-'}`);
+          console.log(`SHADOW_TURSO_READS=${shadow.tursoReads}`);
+          console.log(`SHADOW_TURSO_WRITES=${shadow.tursoWrites}`);
           if (Number(shadow.tursoReads || 0) !== 0 || Number(shadow.tursoWrites || 0) !== 0)
-            throw new Error('Shadow report unexpectedly consumes Turso quota');
-          if (shadow.observerStatus === 'STALE' || shadow.observerStatus === 'NEVER_OBSERVED')
-            throw new Error(`Shadow observer not current: ${shadow.observerStatus}`);
-          console.log('ZERO_TURSO_REAL_SOURCE_DIAGNOSTIC=PASS');
+            throw new Error('Unexpected Turso usage in shadow diagnostic');
+          console.log('ZERO_TURSO_CONNECTION_DIAGNOSTIC=PASS');
           NODE

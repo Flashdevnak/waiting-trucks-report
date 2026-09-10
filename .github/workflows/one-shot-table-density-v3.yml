@@ -1,0 +1,60 @@
+name: One-shot table density V3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-table-density-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Verify latest main
+        run: |
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+      - name: Apply density V3 source
+        run: node .github/dev-tools/apply-table-density-v3.mjs
+      - name: Focused lower UI regression
+        run: node --test .github/dev-tools/ms-unload-completion-ui.test.mjs
+      - name: Install worker dependencies
+        working-directory: worker
+        run: npm ci
+      - name: Full worker and frontend suite
+        working-directory: worker
+        run: npm run check
+      - name: Critical runtime regressions
+        run: |
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          node --test .github/dev-tools/ms-realtime-recovery.test.mjs
+          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+      - name: Verify density V3 contract
+        run: |
+          grep -q 'MS_TABLE_DENSITY_V3' style.css
+          ! grep -q 'MS_TABLE_DENSITY_V2' style.css
+          grep -q 'col.col-schedule { width: 21%; }' style.css
+          grep -q 'col.col-status { width: 32%; }' style.css
+          grep -q 'classic-operation-facts' style.css
+          grep -q 'grid-template-columns: repeat(2, minmax(0, 1fr));' style.css
+          grep -q 'style.css?v=20260910-08-table-density-v3' ms.html
+          grep -q 'pollMs: 4000' ms.js
+      - name: Commit permanent source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add style.css ms.html
+          git rm .github/workflows/one-shot-table-density-v3.yml .github/dev-tools/apply-table-density-v3.mjs
+          git commit -m 'feat: rebalance MS desktop and mobile density v3'
+          git push origin HEAD:main

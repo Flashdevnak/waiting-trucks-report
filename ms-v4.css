@@ -1,0 +1,359 @@
+/* MS_UI_V4_VISUAL_CONTRACT
+   Presentation only. Keeps all MS data, completion, overtime, SLA and polling logic unchanged.
+   Goals: relaxed desktop rhythm, cohesive operation panel, softer palette, balanced mobile header/party,
+   full-width barcode rendering, and a more prominent route name on mobile. */
+
+:root {
+  --ms-v4-line: #d9dedb;
+  --ms-v4-line-strong: #c9cfcb;
+  --ms-v4-soft: #f5f7f5;
+  --ms-v4-soft-2: #fafbfa;
+  --ms-v4-yellow: #fff1b8;
+  --ms-v4-yellow-border: #ddc768;
+  --ms-v4-yellow-ink: #5d4b08;
+  --ms-v4-green: #2f7452;
+  --ms-v4-green-bg: #eef7f2;
+  --ms-v4-red: #a94039;
+  --ms-v4-red-bg: #fff2f0;
+  --ms-v4-blue: #376f8d;
+  --ms-v4-blue-bg: #edf5f9;
+}
+
+/* Softer operational palette. Semantic meaning stays clear without harsh blocks. */
+.ms-page .type-badge.inbound,
+.ms-page .route-code span,
+.ms-page .meta-chip,
+.ms-page .route-meta span:nth-child(2) .meta-chip,
+.ms-page .route-meta span:nth-child(3) .meta-chip {
+  border-color: var(--ms-v4-yellow-border) !important;
+  background: #fff5cf !important;
+  color: var(--ms-v4-yellow-ink) !important;
+}
+.ms-page .type-badge.drop {
+  border-color: #b8cfdb !important;
+  background: var(--ms-v4-blue-bg) !important;
+  color: var(--ms-v4-blue) !important;
+}
+.ms-page .type-badge.outbound {
+  border-color: #3b4145 !important;
+  background: #34393d !important;
+  color: #fff !important;
+}
+.ms-page .timing-chip.ontime {
+  background: var(--ms-v4-green-bg) !important;
+  color: var(--ms-v4-green) !important;
+}
+.ms-page .timing-chip.late {
+  background: var(--ms-v4-red-bg) !important;
+  color: var(--ms-v4-red) !important;
+}
+.ms-page .timing-chip.neutral {
+  background: #f0f2f1 !important;
+  color: #59615c !important;
+}
+
+/* One visual frame for the whole operation state. */
+.ms-page .operation-compact {
+  overflow: hidden;
+  gap: 7px !important;
+  padding: 8px !important;
+  border: 1px solid var(--ms-v4-line) !important;
+  border-radius: 10px !important;
+  background: var(--ms-v4-soft-2) !important;
+  box-shadow: 0 1px 2px rgba(31, 38, 34, .04);
+}
+.ms-page .operation-compact .classic-operation-center {
+  margin: -8px -8px 0;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--ms-v4-line);
+  background: #f1f3f2;
+}
+.ms-page .operation-compact .classic-status-chip {
+  width: 100%;
+  min-height: 30px;
+  border-color: #cfd5d1 !important;
+  background: #eef1ef !important;
+  color: #39403c !important;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.ms-page .operation-compact.destination.is-working .classic-operation-center {
+  background: #fff8dd;
+}
+.ms-page .operation-compact.destination.is-working .classic-status-chip {
+  border-color: #dfca73 !important;
+  background: var(--ms-v4-yellow) !important;
+  color: var(--ms-v4-yellow-ink) !important;
+}
+.ms-page .operation-compact.destination.is-done .classic-operation-center {
+  background: #f1f7f3;
+}
+.ms-page .operation-compact.destination.is-done .classic-status-chip {
+  border-color: #bfd7c8 !important;
+  background: var(--ms-v4-green-bg) !important;
+  color: var(--ms-v4-green) !important;
+}
+.ms-page .operation-compact.drop .classic-operation-center {
+  background: #f2f7fa;
+}
+.ms-page .operation-compact.drop .classic-status-chip {
+  border-color: #bdd1dc !important;
+  background: var(--ms-v4-blue-bg) !important;
+  color: var(--ms-v4-blue) !important;
+}
+.ms-page .operation-compact.is-danger .classic-operation-center {
+  background: #fff5f3;
+}
+.ms-page .operation-compact.is-danger .classic-status-chip {
+  border-color: #e2bbb7 !important;
+  background: var(--ms-v4-red-bg) !important;
+  color: var(--ms-v4-red) !important;
+}
+.ms-page .operation-compact .classic-operation-facts {
+  border-color: var(--ms-v4-line) !important;
+  background: var(--ms-v4-line) !important;
+  border-radius: 7px !important;
+}
+.ms-page .operation-compact .classic-operation-fact {
+  background: #fff !important;
+}
+.ms-page .operation-compact .classic-operation-summary {
+  border-color: var(--ms-v4-line) !important;
+  background: #f5f7f6 !important;
+}
+.ms-page .operation-compact .classic-operation-summary.is-safe {
+  border-color: #c4dbcd !important;
+  background: var(--ms-v4-green-bg) !important;
+}
+.ms-page .operation-compact .classic-operation-summary.is-danger {
+  border-color: #e4bfbb !important;
+  background: var(--ms-v4-red-bg) !important;
+}
+.ms-page .operation-compact .classic-operation-summary.is-drop {
+  border-color: #c3d6df !important;
+  background: var(--ms-v4-blue-bg) !important;
+}
+
+/* Barcode: expanded state always gets the whole row and SVG scales to its panel. */
+.ms-page .local-route-barcode {
+  min-width: 0;
+  max-width: 100%;
+}
+.ms-page .local-barcode-panel {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden !important;
+  padding: 9px 10px;
+}
+.ms-page .local-barcode-svg {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 72px;
+  margin: 0 auto;
+}
+.ms-page .local-route-barcode:has(.local-barcode-panel:not(.hidden)) {
+  width: 100% !important;
+  max-width: 100%;
+}
+
+@media (min-width: 1025px) {
+  /* V3 was too compressed. V4 restores breathing room and reduces the status column. */
+  .ms-page .ms-table col.col-route { width: 22%; }
+  .ms-page .ms-table col.col-meta { width: 9%; }
+  .ms-page .ms-table col.col-work { width: 9%; }
+  .ms-page .ms-table col.col-schedule { width: 23%; }
+  .ms-page .ms-table col.col-status { width: 27%; }
+  .ms-page .ms-table col.col-company { width: 10%; }
+
+  .ms-page .ms-table thead th {
+    padding: 10px 8px;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+  .ms-page .ms-table tbody td {
+    padding: 11px 9px;
+    line-height: 1.35;
+  }
+  .ms-page .route-summary,
+  .ms-page .route-meta,
+  .ms-page .attendance-cell,
+  .ms-page .work-summary,
+  .ms-page .people-summary {
+    gap: 7px;
+  }
+  .ms-page .route-title {
+    font-size: 14.5px;
+    line-height: 1.38;
+    font-weight: 850;
+    color: #22282b;
+  }
+  .ms-page .route-code strong { font-size: 14px; }
+  .ms-page .schedule-stack.single .schedule-heading {
+    padding: 7px 8px 5px;
+    font-size: 11px;
+  }
+  .ms-page .schedule-stack.single .schedule-values {
+    gap: 8px;
+    padding: 6px 7px 2px;
+  }
+  .ms-page .schedule-stack.single .schedule-values b {
+    font-size: 10px;
+    line-height: 1.2;
+  }
+  .ms-page .schedule-stack.single .schedule-values strong {
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .ms-page .schedule-stack.single .timing-chip {
+    margin-top: 6px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+  .ms-page .arrival-system-row > div {
+    padding: 4px 3px 6px;
+  }
+  .ms-page .arrival-system-row > div span {
+    padding: 4px 3px;
+    font-size: 10px;
+  }
+  .ms-page .arrival-source-value {
+    font-size: 11px;
+    line-height: 1.25;
+  }
+  .ms-page .classic-operation-fact {
+    min-height: 42px;
+    padding: 6px;
+    gap: 2px;
+  }
+  .ms-page .classic-operation-fact.is-wide { min-height: 39px; }
+  .ms-page .classic-operation-fact > span {
+    font-size: 10px;
+    line-height: 1.15;
+  }
+  .ms-page .classic-operation-fact > strong {
+    font-size: 12px;
+    line-height: 1.25;
+  }
+  .ms-page .classic-operation-summary.compact-summary {
+    min-height: 36px;
+    grid-template-columns: minmax(74px, .75fr) minmax(0, 1.25fr);
+    gap: 8px;
+    padding: 6px 8px;
+  }
+  .ms-page .classic-operation-summary.compact-summary > span {
+    font-size: 10px;
+  }
+  .ms-page .classic-operation-summary.compact-summary > strong {
+    font-size: 11px;
+    line-height: 1.25;
+  }
+  .ms-page .work-summary,
+  .ms-page .people-summary {
+    min-height: 0;
+  }
+  .ms-page .people-summary strong {
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .ms-page .people-summary span { font-size: 12px; }
+}
+
+@media (max-width: 1024px) {
+  /* Keep V3 mobile density, but make both header cells equal in height and weight. */
+  .ms-page .compact-card-tags {
+    align-items: stretch !important;
+  }
+  .ms-page .compact-card-tags .vehicle-chip,
+  .ms-page .compact-card-tags .compact-work-type {
+    min-height: 48px;
+    height: 100%;
+    border: 1px solid #e2d28a;
+    border-radius: 8px;
+    background: #fff8dc;
+  }
+  .ms-page .compact-card-tags .vehicle-chip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 8px;
+    color: #5b4a0b;
+  }
+  .ms-page .compact-card-tags .compact-work-type {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 2px;
+    padding: 4px;
+  }
+  .ms-page .compact-card-tags .compact-work-type .type-badge {
+    min-height: 26px;
+    border: 0 !important;
+    border-radius: 5px;
+    background: transparent !important;
+    color: #5b4a0b !important;
+  }
+  .ms-page .compact-card-tags .compact-work-type > small {
+    color: #766627;
+    text-align: center;
+  }
+
+  /* Route name is primary information and should visually balance the barcode control. */
+  .ms-page .compact-route-name {
+    font-size: 14px !important;
+    line-height: 1.3 !important;
+    font-weight: 850 !important;
+    color: #252b2e !important;
+    letter-spacing: .005em;
+  }
+
+  /* Closed barcode stays beside parcel count; expanded barcode owns a full row. */
+  .ms-page .compact-card-head .local-route-barcode:has(.local-barcode-panel:not(.hidden)) {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    margin-top: 4px;
+  }
+  .ms-page .compact-card-head .local-route-barcode:has(.local-barcode-panel:not(.hidden)) .local-barcode-toggle {
+    width: min(100%, 220px);
+    align-self: center;
+  }
+  .ms-page .compact-card-head .local-barcode-panel {
+    align-self: stretch;
+    width: 100%;
+  }
+
+  /* Supplier / driver are real fields, not loose text on a gray strip. */
+  .ms-page .compact-party {
+    background: #f3f5f3 !important;
+    border: 1px solid var(--ms-v4-line) !important;
+  }
+  .ms-page .compact-party > div {
+    display: flex;
+    min-height: 48px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 6px !important;
+    border: 1px solid #d9dedb;
+    border-radius: 7px;
+    background: #fff;
+  }
+  .ms-page .compact-party > div > span { color: #727a75; }
+  .ms-page .compact-party > div > strong { color: #2f3531; }
+  .ms-page .compact-phone {
+    border-color: #4a5054 !important;
+    background: #34393d !important;
+    color: #fff !important;
+  }
+  .ms-page .compact-phone span { color: #f0d36c !important; }
+}
+
+@media (max-width: 430px) {
+  .ms-page .compact-route-name { font-size: 14.5px !important; }
+  .ms-page .compact-card-tags .vehicle-chip,
+  .ms-page .compact-card-tags .compact-work-type { min-height: 46px; }
+  .ms-page .local-barcode-svg { min-height: 68px; }
+}

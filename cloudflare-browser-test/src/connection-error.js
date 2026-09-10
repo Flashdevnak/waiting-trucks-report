@@ -1,5 +1,10 @@
-const VERSION = 1;
-const TTL_SECONDS = 7 * 24 * 60 * 60;
+const VERSION = 2;
+const CURRENT_TTL_SECONDS = 7 * 24 * 60 * 60;
+const HISTORY_TTL_SECONDS = 30 * 24 * 60 * 60;
+const HISTORY_RETENTION_MS = HISTORY_TTL_SECONDS * 1000;
+const HISTORY_LIMIT = 80;
+const PAGE_REFRESH_SECONDS = 60;
+
 const ALLOWED_ORIGINS = new Set([
   "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev",
   "https://flashdevnak.github.io",
@@ -20,8 +25,13 @@ function normalizeSource(value) {
   return ["routes", "preEntry", "busTime"].includes(source) ? source : "unknown";
 }
 
-function keyFor(hub) {
+function currentKey(hub) {
+  // Keep v1 key for backward compatibility with the existing Browser KV state.
   return `connection:error:v1:${hub}`;
+}
+
+function historyKey(hub) {
+  return `connection:history:v2:${hub}`;
 }
 
 function corsHeaders(request) {
@@ -55,14 +65,226 @@ function classify(codeValue, messageValue) {
   const message = clean(messageValue, 240);
   const text = `${code} ${message}`;
   if (/429|rate.?limit|too many requests|request\s+exceeds\s+the\s+limit|exceed(?:ed|s)?\s+(?:the\s+)?limit/i.test(text))
-    return { code: "RATE_LIMIT", label: "MS จำกัดคำขอชั่วคราว" };
+    return { code: "RATE_LIMIT", label: "MS จำกัดคำขอชั่วคราว", severity: "HIGH", family: "quota" };
   if (/REQUEST_TIMEOUT|timeout|หมดเวลา/i.test(text))
-    return { code: code || "TIMEOUT", label: "การเชื่อมต่อใช้เวลานานเกินไป" };
+    return { code: code || "TIMEOUT", label: "การเชื่อมต่อใช้เวลานานเกินไป", severity: "MEDIUM", family: "transport" };
   if (/MS_SESSION_EXPIRED|session.*หมดอายุ/i.test(text))
-    return { code: code || "SESSION", label: "Session MS หมดอายุ" };
+    return { code: code || "SESSION", label: "Session MS หมดอายุ", severity: "HIGH", family: "session" };
+  if (/INVALID_CONNECTOR|connector/i.test(text))
+    return { code: code || "CONNECTOR", label: "Connector ใช้งานไม่ได้", severity: "HIGH", family: "session" };
   if (/INVALID_HAR|HAR/i.test(text))
-    return { code: code || "HAR", label: "ไฟล์ HAR ไม่ผ่านการตรวจสอบ" };
-  return { code: code || "ERROR", label: "การเชื่อมต่อมีปัญหา" };
+    return { code: code || "HAR", label: "ไฟล์ HAR ไม่ผ่านการตรวจสอบ", severity: "MEDIUM", family: "har" };
+  if (/502|503|504|bad gateway|service unavailable|gateway timeout/i.test(text))
+    return { code: code || "UPSTREAM", label: "MS upstream สะดุดชั่วคราว", severity: "MEDIUM", family: "transport" };
+  return { code: code || "ERROR", label: "การเชื่อมต่อมีปัญหา", severity: "MEDIUM", family: "unknown" };
+}
+
+function repairPolicy(classified, source) {
+  if (classified.family === "quota") {
+    return {
+      mode: "QUOTA_GUARD",
+      auto: true,
+      action: "หยุดยิง source ที่โดนจำกัด ใช้ cache ล่าสุด และรอ cooldown ก่อน probe ใหม่",
+      safeFallback: true,
+    };
+  }
+  if (classified.family === "transport") {
+    return {
+      mode: source === "routes" ? "RETRY_THEN_ROUTE_FALLBACK" : "RETRY_THEN_CACHE",
+      auto: true,
+      action: source === "routes"
+        ? "retry แบบจำกัด 1 ครั้ง แล้วใช้ Route snapshot ล่าสุดชั่วคราว"
+        : "retry แบบจำกัด 1 ครั้ง แล้วคงข้อมูล cache ล่าสุด",
+      safeFallback: true,
+    };
+  }
+  if (classified.family === "session") {
+    return {
+      mode: "CONNECTOR_RECOVERY",
+      auto: true,
+      action: "พยายามกู้ connector/session ตาม recovery path โดยไม่เพิ่มรอบ polling",
+      safeFallback: true,
+    };
+  }
+  if (classified.family === "har") {
+    return {
+      mode: "WAIT_NEW_HAR",
+      auto: false,
+      action: "รอ HAR/session ใหม่ที่ถูกต้อง ไม่ยิงซ้ำด้วย credential ที่ใช้ไม่ได้",
+      safeFallback: true,
+    };
+  }
+  return {
+    mode: "OBSERVE_AND_FALLBACK",
+    auto: true,
+    action: "ใช้ retry/fallback ที่มีอยู่และติดตามการฟื้นตัวจาก cron เดิม",
+    safeFallback: true,
+  };
+}
+
+function makeIncidentId(now, source, code) {
+  const suffix = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+  return `${now.toString(36)}-${source}-${code}-${suffix}`.slice(0, 120);
+}
+
+function normalizedRecord(data) {
+  if (!data || typeof data !== "object") return null;
+  const source = normalizeSource(data.source);
+  const classified = classify(data.code, data.message);
+  const policy = repairPolicy(classified, source);
+  return {
+    ...data,
+    version: Number(data.version || VERSION),
+    hub: normalizeHub(data.hub) || clean(data.hub, 20),
+    source,
+    code: classified.code,
+    label: classified.label,
+    severity: data.severity || classified.severity,
+    family: data.family || classified.family,
+    autoHealMode: data.autoHealMode || policy.mode,
+    autoHealEligible: data.autoHealEligible ?? policy.auto,
+    autoHealAction: data.autoHealAction || policy.action,
+    safeFallback: data.safeFallback ?? policy.safeFallback,
+    incidentId: clean(data.incidentId, 120),
+    occurredAt: String(data.occurredAt || ""),
+    recoveredAt: String(data.recoveredAt || ""),
+  };
+}
+
+function parseJson(raw, fallback) {
+  try { return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
+}
+
+function pruneHistory(items, now = Date.now()) {
+  const cutoff = now - HISTORY_RETENTION_MS;
+  return (Array.isArray(items) ? items : [])
+    .map(normalizedRecord)
+    .filter(Boolean)
+    .filter((item) => {
+      const occurred = Date.parse(String(item.occurredAt || ""));
+      return Number.isFinite(occurred) && occurred >= cutoff;
+    })
+    .sort((a, b) => Date.parse(b.occurredAt || 0) - Date.parse(a.occurredAt || 0))
+    .slice(0, HISTORY_LIMIT);
+}
+
+async function readCurrent(env, hub) {
+  const raw = await env.STATE.get(currentKey(hub));
+  return normalizedRecord(parseJson(raw, null));
+}
+
+async function readHistory(env, hub, now = Date.now()) {
+  const raw = await env.STATE.get(historyKey(hub));
+  return pruneHistory(parseJson(raw, []), now);
+}
+
+async function writeCurrent(env, hub, record) {
+  await env.STATE.put(currentKey(hub), JSON.stringify(record), { expirationTtl: CURRENT_TTL_SECONDS });
+}
+
+async function writeHistory(env, hub, items) {
+  await env.STATE.put(historyKey(hub), JSON.stringify(pruneHistory(items)), { expirationTtl: HISTORY_TTL_SECONDS });
+}
+
+function mergeHistory(items, ...records) {
+  const history = [...(Array.isArray(items) ? items : [])];
+  for (const value of records) {
+    const record = normalizedRecord(value);
+    if (!record) continue;
+    const index = record.incidentId
+      ? history.findIndex((item) => item.incidentId === record.incidentId)
+      : -1;
+    if (index >= 0) history[index] = record;
+    else history.unshift(record);
+  }
+  return pruneHistory(history);
+}
+
+function sameOpenIncident(current, source, classified, message) {
+  return Boolean(
+    current && !current.recoveredAt &&
+    current.source === source &&
+    current.code === classified.code &&
+    current.label === classified.label &&
+    current.message === message,
+  );
+}
+
+function buildIncident(hub, source, codeValue, messageValue, now = Date.now()) {
+  const classified = classify(codeValue, messageValue);
+  const policy = repairPolicy(classified, source);
+  return {
+    version: VERSION,
+    incidentId: makeIncidentId(now, source, classified.code),
+    hub,
+    source,
+    code: classified.code,
+    label: classified.label,
+    severity: classified.severity,
+    family: classified.family,
+    message: clean(messageValue, 240),
+    occurredAt: new Date(now).toISOString(),
+    recoveredAt: "",
+    autoHealMode: policy.mode,
+    autoHealEligible: policy.auto,
+    autoHealAction: policy.action,
+    safeFallback: policy.safeFallback,
+  };
+}
+
+function healthSummary(current, history, now = Date.now()) {
+  const active = Boolean(current && !current.recoveredAt);
+  const recovered = history.filter((item) => item.recoveredAt);
+  const rateLimited = history.filter((item) => item.code === "RATE_LIMIT").length;
+  const autoHealed = recovered.filter((item) => item.autoHealEligible !== false).length;
+  const durations = recovered
+    .map((item) => {
+      const a = Date.parse(item.occurredAt || "");
+      const b = Date.parse(item.recoveredAt || "");
+      return Number.isFinite(a) && Number.isFinite(b) && b >= a ? b - a : null;
+    })
+    .filter((value) => value !== null);
+  const avgRecoverySeconds = durations.length
+    ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length / 1000)
+    : null;
+  const activeAgeSeconds = active
+    ? Math.max(0, Math.round((now - Date.parse(current.occurredAt || now)) / 1000))
+    : 0;
+  const attention = !active ? "NORMAL" : activeAgeSeconds >= 15 * 60 ? "CRITICAL" : activeAgeSeconds >= 5 * 60 ? "ATTENTION" : "WATCHING";
+  return {
+    status: active ? "ACTIVE" : current?.recoveredAt ? "RECOVERED" : "HEALTHY",
+    attention,
+    activeAgeSeconds,
+    incidents30d: history.length,
+    recovered30d: recovered.length,
+    rateLimit30d: rateLimited,
+    autoHealed30d: autoHealed,
+    avgRecoverySeconds,
+  };
+}
+
+export async function readConnectionIncidentReport(env, hubValue, now = Date.now()) {
+  const hub = normalizeHub(hubValue);
+  if (!hub || !env?.STATE) return { ok: false, hub: hub || "", data: null, history: [] };
+  const [current, storedHistory] = await Promise.all([
+    readCurrent(env, hub),
+    readHistory(env, hub, now),
+  ]);
+  const history = [...storedHistory];
+  if (current && !history.some((item) => item.incidentId && item.incidentId === current.incidentId)) {
+    history.unshift(current);
+  }
+  const pruned = pruneHistory(history, now);
+  return {
+    ok: true,
+    hub,
+    data: current,
+    history: pruned,
+    summary: healthSummary(current, pruned, now),
+    quotaPolicy: CONNECTION_INTELLIGENCE_POLICY,
+  };
 }
 
 function escapeHtml(value) {
@@ -108,23 +330,28 @@ function durationLabel(startValue, endValue) {
   return remain ? `${minutes} นาที ${remain} วินาที` : `${minutes} นาที`;
 }
 
+function secondsLabel(value) {
+  if (value == null) return "-";
+  const seconds = Math.max(0, Number(value) || 0);
+  if (seconds < 60) return `${Math.round(seconds)} วินาที`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes} นาที`;
+}
+
 function wantsHtml(request) {
   return String(request.headers.get("accept") || "").toLowerCase().includes("text/html");
 }
 
-function normalizedRecord(data) {
-  if (!data || typeof data !== "object") return null;
-  const classified = classify(data.code, data.message);
-  return { ...data, code: classified.code, label: classified.label };
-}
-
-function connectionErrorPage(hub, data) {
-  const hasError = Boolean(data);
-  const active = hasError && !data?.recoveredAt;
-  const recovered = hasError && Boolean(data?.recoveredAt);
+function connectionErrorPage(report) {
+  const hub = report.hub;
+  const data = report.data;
+  const history = report.history || [];
+  const summary = report.summary || {};
+  const active = Boolean(data && !data.recoveredAt);
+  const recovered = Boolean(data?.recoveredAt);
   const statusClass = active ? "bad" : "good";
   const statusTitle = active
-    ? "ERROR · พบปัญหาการเชื่อมต่อ"
+    ? "ACTIVE · พบปัญหาและกำลังเฝ้าซ่อม"
     : recovered
       ? "RECOVERED · การเชื่อมต่อกลับมาแล้ว"
       : "LIVE · ยังไม่พบ Error ที่บันทึก";
@@ -133,53 +360,53 @@ function connectionErrorPage(hub, data) {
     : recovered
       ? `${sourceLabel(data?.source)} · Error ล่าสุดถูกกู้คืนแล้ว`
       : "Browser KV ยังไม่มี connection error สำหรับ HUB นี้";
-  const body = hasError
-    ? `<tr><td>${escapeHtml(sourceLabel(data?.source))}</td><td><code>${escapeHtml(data?.code || "-")}</code></td><td>${escapeHtml(data?.label || "-")}</td><td class="message">${escapeHtml(data?.message || "-")}</td><td>${escapeHtml(displayTime(data?.occurredAt))}</td><td>${escapeHtml(displayTime(data?.recoveredAt))}</td></tr>`
-    : '<tr><td colspan="6" class="empty">ยังไม่มี Connection Error ที่บันทึกใน Browser KV</td></tr>';
+  const rows = history.slice(0, HISTORY_LIMIT).map((item) => {
+    const state = item.recoveredAt ? "RECOVERED" : "ACTIVE";
+    return `<tr><td>${escapeHtml(state)}</td><td>${escapeHtml(sourceLabel(item.source))}</td><td><code>${escapeHtml(item.code || "-")}</code></td><td>${escapeHtml(item.severity || "-")}</td><td class="message">${escapeHtml(item.message || "-")}</td><td class="message">${escapeHtml(item.autoHealAction || "-")}</td><td>${escapeHtml(displayTime(item.occurredAt))}</td><td>${escapeHtml(displayTime(item.recoveredAt))}</td><td>${escapeHtml(durationLabel(item.occurredAt, item.recoveredAt))}</td></tr>`;
+  }).join("") || '<tr><td colspan="9" class="empty">ยังไม่มี Incident History ที่บันทึกใน Browser KV</td></tr>';
 
   return new Response(
-    `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60"><title>Connection Error ${escapeHtml(hub)}</title><style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f7fb;color:#18212f}.wrap{max-width:1180px;margin:28px auto;padding:0 16px}.head{display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap}.sub{color:#667085}.health{margin:14px 0;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;line-height:1.65}.health b{display:inline-block;margin-right:8px}.good{color:#067647}.bad{color:#b42318;background:#fff7f6;border-color:#fecdca}.cards{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:18px 0}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:14px;min-width:0}.card b{display:block;font-size:20px;margin-top:6px;overflow-wrap:anywhere}.table{overflow:auto;background:white;border:1px solid #e5e7eb;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:900px}th,td{padding:11px 12px;border-bottom:1px solid #eef1f5;text-align:center;font-size:14px}th{background:#f8fafc}.message{text-align:left;max-width:360px;overflow-wrap:anywhere}.empty{padding:28px;color:#667085;text-align:center}.safe{font-size:13px;color:#067647;background:#ecfdf3;border-radius:999px;padding:7px 10px}.foot{margin-top:12px;color:#667085;font-size:13px}@media(max-width:800px){.cards{grid-template-columns:repeat(2,1fr)}.wrap{margin-top:18px}}</style></head><body><div class="wrap"><div class="head"><div><h1>Connection Error Test · ${escapeHtml(hub)}</h1><div class="sub">ดู Error ล่าสุดจาก Browser KV · ไม่กระทบคิวจริง</div></div><div class="safe">Turso Read 0 · Write 0 สำหรับหน้ารายงานนี้</div></div><div class="health ${statusClass}"><b>${escapeHtml(statusTitle)}</b> · ${escapeHtml(statusDetail)}${hasError ? ` · เกิดล่าสุด ${escapeHtml(displayTime(data?.occurredAt))}${data?.recoveredAt ? ` · กู้คืน ${escapeHtml(displayTime(data.recoveredAt))}` : ""}` : ""}</div><div class="cards"><div class="card">สถานะ<b>${active ? "มี Error" : recovered ? "กู้คืนแล้ว" : "ปกติ"}</b></div><div class="card">Source<b>${escapeHtml(sourceLabel(data?.source))}</b></div><div class="card">Code<b>${escapeHtml(data?.code || "-")}</b></div><div class="card">เกิดเมื่อ<b>${escapeHtml(displayTime(data?.occurredAt))}</b></div><div class="card">กู้คืนเมื่อ<b>${escapeHtml(displayTime(data?.recoveredAt))}</b></div><div class="card">ใช้เวลากู้คืน<b>${escapeHtml(durationLabel(data?.occurredAt, data?.recoveredAt))}</b></div></div><div class="table"><table><thead><tr><th>Source</th><th>Code</th><th>ประเภท</th><th>ข้อความ</th><th>เกิดเมื่อ</th><th>กู้คืนเมื่อ</th></tr></thead><tbody>${body}</tbody></table></div><div class="foot">ข้อมูลมาจาก Browser KV เท่านั้น · หน้านี้รีเฟรชทุก 60 วินาที · API JSON เดิมยังใช้งานได้เมื่อร้องขอ application/json</div></div></body></html>`,
-    {
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-      },
-    },
+    `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="${PAGE_REFRESH_SECONDS}"><title>Connection Intelligence ${escapeHtml(hub)}</title><style>
+    *{box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f7fb;color:#18212f}.wrap{max-width:1380px;margin:28px auto;padding:0 16px}.head{display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap}.sub{color:#667085}.health{margin:14px 0;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;line-height:1.65}.health b{display:inline-block;margin-right:8px}.good{color:#067647}.bad{color:#b42318;background:#fff7f6;border-color:#fecdca}.cards{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:18px 0}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:14px;min-width:0}.card b{display:block;font-size:20px;margin-top:6px;overflow-wrap:anywhere}.panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin:14px 0}.panel h3{margin:0 0 8px}.panel p{margin:6px 0;color:#475467;line-height:1.55}.table{overflow:auto;background:white;border:1px solid #e5e7eb;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:1180px}th,td{padding:11px 12px;border-bottom:1px solid #eef1f5;text-align:center;font-size:13px;vertical-align:top}th{background:#f8fafc}.message{text-align:left;max-width:340px;overflow-wrap:anywhere}.empty{padding:28px;color:#667085;text-align:center}.safe{font-size:13px;color:#067647;background:#ecfdf3;border-radius:999px;padding:7px 10px}.foot{margin-top:12px;color:#667085;font-size:13px;line-height:1.6}@media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}.wrap{margin-top:18px}}
+    </style></head><body><div class="wrap"><div class="head"><div><h1>Connection Intelligence · ${escapeHtml(hub)}</h1><div class="sub">Incident History + Smart Diagnosis + Auto-Heal visibility · ไม่กระทบคิวจริง</div></div><div class="safe">Turso 0/0 · Extra MS polling 0 · Duplicate writes 0</div></div><div class="health ${statusClass}"><b>${escapeHtml(statusTitle)}</b> · ${escapeHtml(statusDetail)}${data ? ` · เกิดล่าสุด ${escapeHtml(displayTime(data.occurredAt))}${data.recoveredAt ? ` · กู้คืน ${escapeHtml(displayTime(data.recoveredAt))}` : ""}` : ""}</div><div class="cards"><div class="card">สถานะ<b>${escapeHtml(summary.status || "HEALTHY")}</b></div><div class="card">ระดับเฝ้าระวัง<b>${escapeHtml(summary.attention || "NORMAL")}</b></div><div class="card">Incident 30 วัน<b>${escapeHtml(summary.incidents30d ?? 0)}</b></div><div class="card">กู้คืนแล้ว<b>${escapeHtml(summary.recovered30d ?? 0)}</b></div><div class="card">Rate limit<b>${escapeHtml(summary.rateLimit30d ?? 0)}</b></div><div class="card">เฉลี่ยกู้คืน<b>${escapeHtml(secondsLabel(summary.avgRecoverySeconds))}</b></div></div><div class="panel"><h3>Smart diagnosis / Self-healing</h3><p><b>Mode:</b> ${escapeHtml(data?.autoHealMode || "MONITOR")}</p><p><b>Action:</b> ${escapeHtml(data?.autoHealAction || "ยังไม่มีเหตุการณ์ที่ต้องซ่อม")}</p><p>ระบบไม่สร้าง MS polling เพิ่มเพื่อทำรายงานนี้, Error เดิมที่ยัง active จะถูก dedupe และไม่เขียน KV ซ้ำ, ประวัติเก็บแบบ rolling 30 วัน สูงสุด ${HISTORY_LIMIT} เหตุการณ์/HUB</p></div><div class="table"><table><thead><tr><th>สถานะ</th><th>Source</th><th>Code</th><th>ระดับ</th><th>ข้อความ</th><th>Auto-heal / การจัดการ</th><th>เกิดเมื่อ</th><th>กู้คืนเมื่อ</th><th>ใช้เวลา</th></tr></thead><tbody>${rows}</tbody></table></div><div class="foot">ข้อมูลมาจาก Browser KV เท่านั้น · หน้าอ่านอย่างเดียวและรีเฟรชทุก ${PAGE_REFRESH_SECONDS} วินาที · ประวัติใหม่เขียนเฉพาะตอน Incident เปิด/ปิด ไม่เขียนทุก cron · API JSON ยังเก็บ field data เดิมเพื่อ backward compatibility และเพิ่ม history/summary/quotaPolicy</div></div></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
 }
 
-// TBR_STALE_SPLIT_BROWSER_V2: internal Browser TEST error state helpers. Same-error repeats do not write KV.
+// CONNECTION_INTELLIGENCE_V2: event-driven history. Same active error = zero KV writes.
 export async function recordConnectionErrorKv(env, input = {}) {
   const hub = normalizeHub(input.hub);
   if (!hub || !env?.STATE) return { changed: false, data: null };
   const source = normalizeSource(input.source);
   const classified = classify(input.code, input.message);
   const message = clean(input.message, 240);
-  const key = keyFor(hub);
-  let current = null;
-  try { current = JSON.parse((await env.STATE.get(key)) || "null"); } catch {}
-  if (
-    current && !current.recoveredAt &&
-    current.source === source && current.code === classified.code &&
-    current.label === classified.label && current.message === message
-  ) return { changed: false, data: current };
-  const record = {
-    version: VERSION, hub, source, code: classified.code, label: classified.label,
-    message, occurredAt: new Date().toISOString(), recoveredAt: "",
-  };
-  await env.STATE.put(key, JSON.stringify(record), { expirationTtl: TTL_SECONDS });
-  return { changed: true, data: record };
+  const current = await readCurrent(env, hub);
+  if (sameOpenIncident(current, source, classified, message)) {
+    return { changed: false, data: current, deduped: true };
+  }
+  const record = buildIncident(hub, source, classified.code, message);
+  const history = mergeHistory(await readHistory(env, hub), current, record);
+  await Promise.all([
+    writeCurrent(env, hub, record),
+    writeHistory(env, hub, history),
+  ]);
+  return { changed: true, data: record, deduped: false };
 }
 
 export async function recordConnectionRecoveredKv(env, input = {}) {
   const hub = normalizeHub(input.hub);
   if (!hub || !env?.STATE) return { changed: false, data: null };
-  const key = keyFor(hub);
-  let record = null;
-  try { record = JSON.parse((await env.STATE.get(key)) || "null"); } catch {}
+  const source = normalizeSource(input.source);
+  const record = await readCurrent(env, hub);
   if (!record || record.recoveredAt) return { changed: false, data: record };
+  if (source !== "unknown" && record.source !== source) return { changed: false, data: record };
   record.recoveredAt = new Date().toISOString();
-  await env.STATE.put(key, JSON.stringify(record), { expirationTtl: TTL_SECONDS });
+  record.recoveryState = "RECOVERED";
+  const history = mergeHistory(await readHistory(env, hub), record);
+  await Promise.all([
+    writeCurrent(env, hub, record),
+    writeHistory(env, hub, history),
+  ]);
   return { changed: true, data: record };
 }
 
@@ -189,15 +416,11 @@ export async function handleConnectionErrorRequest(request, env, url) {
 
   const hub = normalizeHub(url.searchParams.get("hub"));
   if (!hub) return json(request, { ok: false, message: "Invalid HUB" }, 400);
-  const key = keyFor(hub);
 
   if (request.method === "GET") {
-    const raw = await env.STATE.get(key);
-    let data = null;
-    try { data = raw ? JSON.parse(raw) : null; } catch {}
-    data = normalizedRecord(data);
-    if (wantsHtml(request)) return connectionErrorPage(hub, data);
-    return json(request, { ok: true, data });
+    const report = await readConnectionIncidentReport(env, hub);
+    if (wantsHtml(request)) return connectionErrorPage(report);
+    return json(request, report);
   }
 
   if (request.method !== "POST")
@@ -208,37 +431,28 @@ export async function handleConnectionErrorRequest(request, env, url) {
   const body = await request.json().catch(() => ({}));
   const event = clean(body?.event, 20);
   const source = normalizeSource(body?.source);
-  const now = new Date().toISOString();
-
   if (event === "error") {
-    const classified = classify(body?.code, body?.message);
-    const record = {
-      version: VERSION,
-      hub,
-      source,
-      code: classified.code,
-      label: classified.label,
-      message: clean(body?.message, 240),
-      occurredAt: now,
-      recoveredAt: "",
-    };
-    await env.STATE.put(key, JSON.stringify(record), { expirationTtl: TTL_SECONDS });
-    return json(request, { ok: true, data: record });
+    const result = await recordConnectionErrorKv(env, { hub, source, code: body?.code, message: body?.message });
+    return json(request, { ok: true, ...result });
   }
-
   if (event === "recovered") {
-    const raw = await env.STATE.get(key);
-    if (!raw) return json(request, { ok: true, data: null });
-    let record = null;
-    try { record = JSON.parse(raw); } catch {}
-    if (!record || String(record.source || "") !== source)
-      return json(request, { ok: true, data: record || null });
-    if (!record.recoveredAt) {
-      record.recoveredAt = now;
-      await env.STATE.put(key, JSON.stringify(record), { expirationTtl: TTL_SECONDS });
-    }
-    return json(request, { ok: true, data: record });
+    const result = await recordConnectionRecoveredKv(env, { hub, source });
+    return json(request, { ok: true, ...result });
   }
-
   return json(request, { ok: false, message: "Unknown event" }, 400);
 }
+
+export const CONNECTION_INTELLIGENCE_POLICY = Object.freeze({
+  version: VERSION,
+  storage: "Browser KV",
+  historyDays: 30,
+  maxHistoryPerHub: HISTORY_LIMIT,
+  reportRefreshSeconds: PAGE_REFRESH_SECONDS,
+  tursoReads: 0,
+  tursoWrites: 0,
+  extraMsPolling: 0,
+  duplicateActiveErrorWrites: 0,
+  maxKvWritesPerIncidentLifecycle: 4,
+  preservesRealtimeRouteCadence: true,
+  queueAuthority: false,
+});

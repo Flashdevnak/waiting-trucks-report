@@ -1,0 +1,39 @@
+name: Verify Intelligence UI Live
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-intelligence-ui-live.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify live Intelligence pages without MS polling
+        run: |
+          node <<'NODE'
+          const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          async function html(path){
+            const r=await fetch(origin+path,{headers:{accept:'text/html'},cache:'no-store'});
+            const text=await r.text();
+            if(!r.ok) throw new Error(`${path} HTTP ${r.status}`);
+            return text;
+          }
+          const [errorPage,tbrPage]=await Promise.all([
+            html('/api/connection-error?hub=NE1'),
+            html('/shadow-tbr?hub=NE1'),
+          ]);
+          for(const [name,text] of [['Error',errorPage],['TBR',tbrPage]]){
+            if(!text.includes('HUB ในระบบ')) throw new Error(`${name} live page missing HUB selector`);
+            if(!text.includes('Error Intelligence')) throw new Error(`${name} live page missing Error Intelligence tab`);
+            if(!text.includes('TBR Intelligence')) throw new Error(`${name} live page missing TBR Intelligence tab`);
+          }
+          console.log('INTELLIGENCE_LIVE_HUB_FILTER=PASS');
+          console.log('INTELLIGENCE_LIVE_TABS=PASS');
+          console.log('EXTRA_MS_POLLING_FOR_VERIFY=0');
+          NODE

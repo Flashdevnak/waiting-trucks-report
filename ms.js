@@ -1112,8 +1112,10 @@ function completedTodayRequestKey(total = state.completedToday) {
 function completedTodayDatasetRows() {
   // Filter before merging: an active current trip may reuse a route key, but it
   // must never overwrite an earlier completed trip from the operating day.
-  const archiveCompleted = state.archiveRows.filter(isCompletedToday);
-  const currentCompleted = state.currentRows.filter(isCompletedToday);
+  // Pass only the row. Array#filter also passes (index, array), which must not
+  // replace isCompletedToday's optional `now` argument with a 1970-era index.
+  const archiveCompleted = state.archiveRows.filter((row) => isCompletedToday(row));
+  const currentCompleted = state.currentRows.filter((row) => isCompletedToday(row));
   return mergeLatest(archiveCompleted, currentCompleted);
 }
 

@@ -1,0 +1,118 @@
+name: One-shot TBR Envelope V13 Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-tbr-envelope-v13.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-shot-tbr-envelope-v13
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Repair TBR live-cache envelope compatibility
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          split_path = Path('cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs')
+          split = split_path.read_text()
+
+          old_const = "const OPTIONAL_GUARD_MARKER = 'OPTIONAL_SOURCE_RATE_GUARD_V12';\n"
+          new_const = old_const + "const CACHE_ENVELOPE_MARKER = 'TBR_LIVE_CACHE_ENVELOPE_V13';\n"
+          if "CACHE_ENVELOPE_MARKER" not in split:
+              if split.count(old_const) != 1:
+                  raise SystemExit('CACHE_ENVELOPE marker constant anchor not unique')
+              split = split.replace(old_const, new_const, 1)
+
+          old_gate = "  source.includes(ACCOUNT_GUARD_MARKER) &&\n  source.includes(OPTIONAL_GUARD_MARKER)\n) {"
+          new_gate = "  source.includes(ACCOUNT_GUARD_MARKER) &&\n  source.includes(OPTIONAL_GUARD_MARKER) &&\n  source.includes(CACHE_ENVELOPE_MARKER)\n) {"
+          if "source.includes(CACHE_ENVELOPE_MARKER)" not in split:
+              if split.count(old_gate) != 1:
+                  raise SystemExit('CACHE_ENVELOPE idempotence gate anchor not unique')
+              split = split.replace(old_gate, new_gate, 1)
+
+          old_parser = r'''  let rows;\n  try { rows = JSON.parse(cached.rows_json || \"[]\"); }\n  catch { fail(\"live cache สำหรับ \" + sourceLabel + \" อ่านไม่ได้\", \"TBR_CACHE_INVALID\", 503); }\n  if (!Array.isArray(rows))\n    fail(\"live cache สำหรับ \" + sourceLabel + \" ไม่ถูกต้อง\", \"TBR_CACHE_INVALID\", 503);\n  return { rows, syncedAt: text(cached.synced_at, 100) };'''
+          new_parser = r'''  let parsed, rows;\n  try {\n    parsed = JSON.parse(cached.rows_json || \"[]\");\n    rows = Array.isArray(parsed)\n      ? parsed\n      : Array.isArray(parsed?.rows)\n        ? parsed.rows\n        : null;\n  } catch {\n    fail(\"live cache สำหรับ \" + sourceLabel + \" อ่านไม่ได้\", \"TBR_CACHE_INVALID\", 503);\n  }\n  if (!rows)\n    fail(\"live cache สำหรับ \" + sourceLabel + \" ไม่ถูกต้อง\", \"TBR_CACHE_INVALID\", 503);\n  return {\n    rows,\n    syncedAt: text(cached.synced_at, 100),\n    cacheFormat: Array.isArray(parsed) ? 1 : Number(parsed?.version) || 0,\n  };'''
+          if 'Array.isArray(parsed?.rows)' not in split:
+              if split.count(old_parser) != 1:
+                  raise SystemExit('TBR live-cache parser anchor not unique')
+              split = split.replace(old_parser, new_parser, 1)
+
+          function_anchor = r'''\nasync function readTbrShadowLiveCache(env, hub, sourceLabel) {'''
+          function_replacement = r'''\n// ${CACHE_ENVELOPE_MARKER}: accept both legacy array cache and current V2 envelope.\nasync function readTbrShadowLiveCache(env, hub, sourceLabel) {'''
+          if '${CACHE_ENVELOPE_MARKER}: accept both legacy array cache' not in split:
+              if split.count(function_anchor) != 1:
+                  raise SystemExit('TBR live-cache function marker anchor not unique')
+              split = split.replace(function_anchor, function_replacement, 1)
+
+          final_log = "console.log('TBR_LIVE_CACHE_ENVELOPE_V13=PASS');\n"
+          if final_log not in split:
+              anchor = "console.log('TBR_ROUTE_REUSE_LIVE_CACHE_V12=PASS');\n"
+              if split.count(anchor) != 1:
+                  raise SystemExit('TBR V13 log anchor not unique')
+              split = split.replace(anchor, anchor + final_log, 1)
+
+          split_path.write_text(split)
+
+          test_path = Path('cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs')
+          test = test_path.read_text()
+          if 'TBR_LIVE_CACHE_ENVELOPE_V13 source contract' not in test:
+              anchor = 'console.log("TBR_BUS_DAILY_SPLIT_V9=PASS");\n'
+              addition = '''if (!split.includes("TBR_LIVE_CACHE_ENVELOPE_V13") || !split.includes("Array.isArray(parsed?.rows)"))\n  throw new Error("TBR_LIVE_CACHE_ENVELOPE_V13 source contract missing");\nconsole.log("TBR_LIVE_CACHE_ENVELOPE_V13=PASS");\n'''
+              if test.count(anchor) != 1:
+                  raise SystemExit('TBR daily split test anchor not unique')
+              test = test.replace(anchor, addition + anchor, 1)
+          test_path.write_text(test)
+
+          probe_path = Path('.github/workflows/turso-live-state-readonly.yml')
+          probe = probe_path.read_text()
+          old_sql = "SELECT hub,source_hash,synced_at,json_array_length(rows_json) AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"
+          new_sql = "SELECT hub,source_hash,synced_at,CASE WHEN json_type(rows_json)='array' THEN json_array_length(rows_json) WHEN json_type(rows_json,'$.rows')='array' THEN json_array_length(rows_json,'$.rows') ELSE -1 END AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"
+          if old_sql in probe:
+              probe = probe.replace(old_sql, new_sql, 1)
+          elif new_sql not in probe:
+              raise SystemExit('readonly live-cache row-count anchor missing')
+          probe_path.write_text(probe)
+          PY
+
+      - name: Focused regression
+        shell: bash
+        run: |
+          node --check cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
+          cd cloudflare-browser-test
+          npm ci --no-audit --no-fund
+          npm run check
+          cd ../worker
+          npm ci --no-audit --no-fund
+          npm run check
+
+      - name: Commit safe forward fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs \
+                  cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs \
+                  .github/workflows/turso-live-state-readonly.yml
+          git rm .github/workflows/one-shot-tbr-envelope-v13.yml
+          git diff --cached --check
+          git commit -m 'fix(dev): read current live-cache envelope in TBR shadow'
+          git pull --rebase origin main
+          git push origin HEAD:main

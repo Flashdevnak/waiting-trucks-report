@@ -92,7 +92,8 @@ test("DEV staging permanently wires completion truth, repair, archive and daily-
   assert.match(patch, /MS_LIVE_CACHE_VERSION/);
   assert.match(patch, /ensureMsCompletionRepair/);
   assert.match(patch, /verifiedCompletionRouteIds/);
-  assert.match(patch, /ORDER BY h1\.snapshot_at DESC,h1\.rowid DESC/);
+  assert.match(patch, /LAG\(CAST\(json_extract\(payload_json,'\$\.unloadingState'\) AS INTEGER\)\)/);
+  assert.doesNotMatch(patch, /SELECT h1\.payload_json/);
   assert.match(patch, /Number\(row\.unloadingState\) === 2 \? null : new Date\(\)/);
   assert.match(quotaPatch, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);
   assert.match(quotaPatch, /daily history never exports fabricated completion timestamp/);

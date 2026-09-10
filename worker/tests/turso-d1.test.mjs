@@ -194,3 +194,22 @@ test("fetch implementation is not rebound to the database instance", async () =>
   await db.prepare("SELECT 1").all();
   assert.equal(observedThis, undefined);
 });
+
+
+test("heavy read guard blocks an identical expensive query after one costly observation", async () => {
+  let calls = 0;
+  const db = new TursoD1Database({
+    url: "https://quota-guard.turso.io",
+    authToken: "secret",
+    fetchImpl: async () => {
+      calls += 1;
+      return response({ results: [okExecute({ rowsRead: 150000 }), okClose] });
+    },
+  });
+  await db.prepare("SELECT * FROM quota_guard_history WHERE hub=?").bind("NE1").all();
+  await assert.rejects(
+    db.prepare("SELECT * FROM quota_guard_history WHERE hub=?").bind("NE1").all(),
+    (error) => error.code === "TURSO_HEAVY_READ_GUARD",
+  );
+  assert.equal(calls, 1);
+});

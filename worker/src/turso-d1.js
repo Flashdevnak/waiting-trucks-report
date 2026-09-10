@@ -4,6 +4,44 @@ function workerFetch(input, init) {
 
 const DEFAULT_BACKEND = "d1";
 
+const TURSO_PROVIDER_READ_BLOCK_MS = 60 * 1000;
+const TURSO_HEAVY_READ_COOLDOWN_MS = 5 * 60 * 1000;
+const TURSO_HEAVY_READ_ROWS = 100000;
+let tursoProviderReadBlockedUntil = 0;
+const tursoHeavyReadUntil = new Map();
+
+function isReadSql(sql) {
+  return /^\s*(?:WITH\b[\s\S]*?\bSELECT\b|SELECT\b|PRAGMA\b|EXPLAIN\b)/i.test(String(sql || ''));
+}
+function sqlFingerprint(sql) {
+  return String(sql || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+function isProviderReadBlockMessage(value) {
+  return /sql\s+read\s+operations?\s+are\s+forbidden|reads?\s+are\s+blocked|rows?\s+read.*quota|read.*quota.*exceed|read.*usage.*limit/i.test(String(value || ''));
+}
+function assertTursoReadAllowed(sql, now = Date.now()) {
+  if (!isReadSql(sql)) return;
+  if (tursoProviderReadBlockedUntil > now)
+    throw tursoError('TURSO_READS_BLOCKED', 'SQL read operations are forbidden (local circuit breaker after provider read limit)');
+  const fingerprint = sqlFingerprint(sql);
+  const until = tursoHeavyReadUntil.get(fingerprint) || 0;
+  if (until > now)
+    throw tursoError('TURSO_HEAVY_READ_GUARD', 'Turso heavy read temporarily blocked to protect quota');
+  if (until) tursoHeavyReadUntil.delete(fingerprint);
+}
+function observeTursoRead(sql, result, now = Date.now()) {
+  if (!isReadSql(sql)) return;
+  const rowsRead = Number(result?.rows_read || 0);
+  if (rowsRead < TURSO_HEAVY_READ_ROWS) return;
+  const fingerprint = sqlFingerprint(sql);
+  tursoHeavyReadUntil.set(fingerprint, now + TURSO_HEAVY_READ_COOLDOWN_MS);
+  console.error(JSON.stringify({ event: 'turso_heavy_read_guard', rowsRead, cooldownMs: TURSO_HEAVY_READ_COOLDOWN_MS, sql: fingerprint }));
+}
+function noteProviderReadBlock(error, now = Date.now()) {
+  if (!isProviderReadBlockMessage(error?.message || error)) return;
+  tursoProviderReadBlockedUntil = Math.max(tursoProviderReadBlockedUntil, now + TURSO_PROVIDER_READ_BLOCK_MS);
+}
+
 export function databaseEnv(env) {
   const backend = String(env?.DB_BACKEND || DEFAULT_BACKEND).trim().toLowerCase();
   if (backend !== "turso") return env;
@@ -66,12 +104,20 @@ export class TursoD1Database {
   }
 
   async _execute(sql, args = []) {
+  assertTursoReadAllowed(sql);
+  try {
     const payload = await this._pipeline([
       executeRequest(sql, args),
       { type: "close" },
     ]);
-    return executeResult(payload.results?.[0]);
+    const result = executeResult(payload.results?.[0]);
+    observeTursoRead(sql, result);
+    return result;
+  } catch (error) {
+    noteProviderReadBlock(error);
+    throw error;
   }
+}
 
   async _finishTransaction(openPipeline, command) {
     const baseUrl = openPipeline.base_url || this.url;

@@ -38,15 +38,18 @@ test("post continuous-cron observations are never treated as legacy bursts", () 
   assert.equal(hasLegacyCompletionBurstRows(rows), false);
 });
 
-test("staged worker rejects polluted cache baseline and excludes burst history from truth", async () => {
+test("staged worker keeps completion truth while quota-safe repair is persistently gated", async () => {
   const root = new URL("../../", import.meta.url);
   const source = await readFile(new URL("worker/src/index.js", root), "utf8");
   const staged = stageWorker(source);
   assert.match(staged, /MS_COMPLETION_BURST_TRUTH_V3/);
-  assert.match(staged, /legacyCompletionBurst/);
-  assert.match(staged, /!hasLegacyCompletionBurstRows\(baselineCache\?\.rows\)/);
-  assert.match(staged, /COUNT\(DISTINCT route_id\)>=8/);
-  assert.match(staged, /legacyBurstKeys\.has/);
-  assert.match(staged, /startsWith\("completion-v2:"\)/);
+  assert.match(staged, /LAG\(CAST\(json_extract\(payload_json,'\$\.unloadingState'\) AS INTEGER\)\)/);
+  assert.match(staged, /legacy_bursts/);
+  assert.match(staged, /MS_SCHEDULE_COMPLETION_TRUTH_V4/);
+  assert.match(staged, /completion_source='SCHEDULE'/);
+  assert.doesNotMatch(staged, /SELECT h1\.payload_json/);
+  assert.doesNotMatch(staged, /legacyCompletionBurst/);
+  assert.match(staged, /startsWith\(MS_LIVE_CACHE_VERSION \+ ":"\)/);
+  assert.doesNotMatch(staged, /if \(!completionRepairChecked\.has\(hub\)\) \{/);
   assert.equal(patchMsCompletionBurstWorker(staged), staged);
 });

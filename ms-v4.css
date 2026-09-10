@@ -638,3 +638,17 @@ html body.ms-page .origin-manifest-badge strong {
     border-color: #202124 !important;
   }
 }
+
+/* MS_OPERATION_HEADER_CHARCOAL_V10
+   Force the full operation-card header strip to match the charcoal schedule header.
+   Status chip colors stay semantic; no route, queue, SLA, source, polling, or data logic changes. */
+html body.ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-operation-center,
+html body.ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-operation-center,
+html body.ms-page .operation-compact.destination.is-working .classic-operation-center,
+html body.ms-page .operation-compact.destination.is-done .classic-operation-center,
+html body.ms-page .operation-compact.drop .classic-operation-center,
+html body.ms-page .operation-compact.origin .classic-operation-center,
+html body.ms-page .operation-compact.is-cancelled .classic-operation-center {
+  background: #202124 !important;
+  border-bottom-color: #151515 !important;
+}

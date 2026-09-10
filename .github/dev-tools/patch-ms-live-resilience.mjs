@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const MARKER = "LIVE_RESILIENCE_V1";
+const TBR_PROVISIONAL_MARKER = "TBR_PROVISIONAL_ARRIVAL_V1";
 const PROMOTED_API = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 
 function replaceUnique(output, from, to, label) {
@@ -14,41 +15,108 @@ function replaceUnique(output, from, to, label) {
 
 export function patchMsLiveResilienceFrontend(source) {
   let output = String(source || "");
-  if (output.includes(MARKER)) return output;
+
+  if (!output.includes(MARKER)) {
+    output = replaceUnique(
+      output,
+      'CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev" : window.location.origin}/api`;',
+      `// ${MARKER}: every frontend host uses the promoted Turso Worker.\nCONFIG.apiUrl = "${PROMOTED_API}";`,
+      "pin promoted API across frontend hosts",
+    );
+
+    output = replaceUnique(
+      output,
+      `  archiveView: false,\n  cancelledRouteIds: new Set(),`,
+      `  archiveView: false,\n  cancelledRouteIds: new Set(),\n  transportLastOkAt: 0,\n  transportFailures: 0,`,
+      "add transport health state",
+    );
+
+    output = replaceUnique(
+      output,
+      `    state.syncError = result?.syncError || "";\n    fillFilters();`,
+      `    state.syncError = result?.syncError || "";\n    state.transportLastOkAt = Date.now();\n    state.transportFailures = 0;\n    fillFilters();`,
+      "record successful transport poll",
+    );
+
+    output = replaceUnique(
+      output,
+      `  } catch (error) {\n    connection(false);\n    if (!silent) empty(\`โหลดข้อมูลไม่สำเร็จ: \${error.message}\`);\n  } finally {`,
+      `  } catch (error) {\n    state.transportFailures = Number(state.transportFailures || 0) + 1;\n    const recentlyHealthy =\n      Number(state.transportLastOkAt || 0) > 0 &&\n      Date.now() - Number(state.transportLastOkAt) <= CONFIG.staleMs;\n    connection(Boolean(recentlyHealthy));\n    if (!silent) {\n      if (recentlyHealthy)\n        toast(\`เครือข่ายสะดุดชั่วคราว · ใช้ข้อมูลล่าสุดและกำลังลองใหม่: \${error.message}\`, true);\n      else empty(\`โหลดข้อมูลไม่สำเร็จ: \${error.message}\`);\n    }\n  } finally {`,
+      "avoid online badge flapping on one transient poll",
+    );
+
+    const oldApiGet = `async function apiGet(action, params = {}) {\n  const url = new URL(CONFIG.apiUrl);\n  url.searchParams.set("action", action);\n  url.searchParams.set("token", state.auth?.token || "");\n  Object.entries(params).forEach(\n    ([key, value]) =>\n      value !== undefined && value !== "" && url.searchParams.set(key, value),\n  );\n  const controller = new AbortController();\n  const timeout = setTimeout(\n    () => controller.abort(),\n    CONFIG.requestTimeoutMs,\n  );\n  let json;\n  try {\n    const response = await fetch(url, {\n      cache: "no-store",\n      signal: controller.signal,\n    });\n    json = await response.json();\n  } catch (error) {\n    if (error?.name === "AbortError") {\n      const timeoutError = new Error(\n        "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",\n      );\n      timeoutError.code = "REQUEST_TIMEOUT";\n      throw timeoutError;\n    }\n    throw error;\n  } finally {\n    clearTimeout(timeout);\n  }\n  if (json.ok === false) {\n    const error = new Error(json.message);\n    error.code = json.code || "SERVER_ERROR";\n    if (error.code === "INVALID_SESSION") invalidateSession();\n    throw error;\n  }\n  return json.data ?? json;\n}`;
+
+    const newApiGet = `async function apiGet(action, params = {}) {\n  const url = new URL(CONFIG.apiUrl);\n  url.searchParams.set("action", action);\n  url.searchParams.set("token", state.auth?.token || "");\n  Object.entries(params).forEach(\n    ([key, value]) =>\n      value !== undefined && value !== "" && url.searchParams.set(key, value),\n  );\n\n  let lastError = null;\n  for (let attempt = 1; attempt <= 3; attempt++) {\n    const controller = new AbortController();\n    const timeout = setTimeout(\n      () => controller.abort(),\n      CONFIG.requestTimeoutMs,\n    );\n    try {\n      const response = await fetch(url, {\n        cache: "no-store",\n        signal: controller.signal,\n        headers: { Accept: "application/json" },\n      });\n      const contentType = String(response.headers.get("content-type") || "").toLowerCase();\n      const text = await response.text();\n      let json;\n      try {\n        json = JSON.parse(text);\n      } catch {\n        const error = new Error(\n          contentType.includes("text/html") || /^\\s*</.test(text)\n            ? "API ตอบกลับเป็นหน้าเว็บแทน JSON · ระบบกำลังลองใหม่"\n            : "API ตอบกลับข้อมูลไม่สมบูรณ์ · ระบบกำลังลองใหม่",\n        );\n        error.code = "NON_JSON_RESPONSE";\n        error.retryable = response.status >= 500 || response.status === 404 || response.status === 200;\n        throw error;\n      }\n      if (json?.ok === false) {\n        const error = new Error(json.message || \`API error HTTP \${response.status}\`);\n        error.code = json.code || "SERVER_ERROR";\n        if (error.code === "INVALID_SESSION") invalidateSession();\n        error.retryable = response.status >= 500 || error.code === "REQUEST_TIMEOUT";\n        throw error;\n      }\n      if (!response.ok) {\n        const error = new Error(\`API HTTP \${response.status}\`);\n        error.code = \`HTTP_\${response.status}\`;\n        error.retryable = response.status >= 500 || response.status === 429;\n        throw error;\n      }\n      return json.data ?? json;\n    } catch (error) {\n      if (error?.name === "AbortError") {\n        const timeoutError = new Error(\n          "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",\n        );\n        timeoutError.code = "REQUEST_TIMEOUT";\n        timeoutError.retryable = true;\n        lastError = timeoutError;\n      } else {\n        lastError = error;\n      }\n      const retryable =\n        lastError?.retryable === true ||\n        lastError?.code === "NON_JSON_RESPONSE" ||\n        lastError?.code === "REQUEST_TIMEOUT" ||\n        lastError instanceof TypeError;\n      if (!retryable || attempt === 3) throw lastError;\n      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));\n    } finally {\n      clearTimeout(timeout);\n    }\n  }\n  throw lastError || new Error("โหลดข้อมูลไม่สำเร็จ");\n}`;
+
+    output = replaceUnique(output, oldApiGet, newApiGet, "harden GET JSON transport");
+  }
+
+  if (output.includes(TBR_PROVISIONAL_MARKER)) return output;
 
   output = replaceUnique(
     output,
-    'CONFIG.apiUrl = `${window.location.hostname.endsWith("github.io") ? "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev" : window.location.origin}/api`;',
-    `// ${MARKER}: every frontend host uses the promoted Turso Worker.\nCONFIG.apiUrl = "${PROMOTED_API}";`,
-    "pin promoted API across frontend hosts",
+    `function confirmedEffectiveArrival(row) {\n  return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;\n}`,
+    `function confirmedEffectiveArrival(row) {\n  return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;\n}\n\n// ${TBR_PROVISIONAL_MARKER}: operational arrival may start from the TBR candidate\n// already present on the same Route row. No extra API request, MS polling, DB read or write.\n// Route remains the final confirmation source; TBR is explicitly provisional until Route arrives.\nfunction tbrProvisionalArrival(row, now = new Date()) {\n  if (!(isDestination(row) || isDrop(row))) return null;\n  if (parseDate(row.actualArrivalAt) || row.queueCancelledAt) return null;\n  if (!String(row.proofId || \"\").trim()) return null;\n  const tbr = parseDate(row.scheduleTbrArrivalAt);\n  if (!tbr) return null;\n  const nowDate = parseDate(now) || new Date();\n  if (tbr.getTime() > nowDate.getTime() + 90 * 1000) return null;\n  const planned = parseDate(row.estimatedArrivalAt);\n  if (planned && Math.abs(tbr.getTime() - planned.getTime()) > 18 * 60 * 60 * 1000) return null;\n  const kit = parseDate(row.scheduleKitArrivalAt);\n  if (kit && Math.abs(kit.getTime() - tbr.getTime()) > 15 * 60 * 1000) return null;\n  return tbr;\n}\nfunction operationalArrival(row, now = new Date()) {\n  return parseDate(row.actualArrivalAt)\n    ? effectiveArrival(row)\n    : tbrProvisionalArrival(row, now);\n}\nfunction operationalArrivalAuthority(row, now = new Date()) {\n  if (parseDate(row.actualArrivalAt)) return \"ROUTE_CONFIRMED\";\n  return tbrProvisionalArrival(row, now) ? \"TBR_PROVISIONAL\" : \"NONE\";\n}`,
+    "add truth-safe TBR provisional arrival policy",
   );
 
   output = replaceUnique(
     output,
-    `  archiveView: false,\n  cancelledRouteIds: new Set(),`,
-    `  archiveView: false,\n  cancelledRouteIds: new Set(),\n  transportLastOkAt: 0,\n  transportFailures: 0,`,
-    "add transport health state",
+    `function routeState(row, now = new Date()) {\n  const eta = parseDate(row.estimatedArrivalAt);\n  const routeArrival = parseDate(row.actualArrivalAt);\n  const arrival = routeArrival ? effectiveArrival(row) : null;`,
+    `function routeState(row, now = new Date()) {\n  const eta = parseDate(row.estimatedArrivalAt);\n  const routeArrival = parseDate(row.actualArrivalAt);\n  const arrival = operationalArrival(row, now);`,
+    "allow TBR provisional state before Route confirmation",
   );
 
   output = replaceUnique(
     output,
-    `    state.syncError = result?.syncError || "";\n    fillFilters();`,
-    `    state.syncError = result?.syncError || "";\n    state.transportLastOkAt = Date.now();\n    state.transportFailures = 0;\n    fillFilters();`,
-    "record successful transport poll",
+    `  if (routeArrival)\n    return {\n      key: "arrived",\n      label: "มาถึงแล้ว",`,
+    `  if (arrival)\n    return {\n      key: "arrived",\n      label: routeArrival ? "มาถึงแล้ว" : "TBR รอ Route",`,
+    "label provisional arrival without claiming Route truth",
   );
 
   output = replaceUnique(
     output,
-    `  } catch (error) {\n    connection(false);\n    if (!silent) empty(\`โหลดข้อมูลไม่สำเร็จ: \${error.message}\`);\n  } finally {`,
-    `  } catch (error) {\n    state.transportFailures = Number(state.transportFailures || 0) + 1;\n    const recentlyHealthy =\n      Number(state.transportLastOkAt || 0) > 0 &&\n      Date.now() - Number(state.transportLastOkAt) <= CONFIG.staleMs;\n    connection(Boolean(recentlyHealthy));\n    if (!silent) {\n      if (recentlyHealthy)\n        toast(\`เครือข่ายสะดุดชั่วคราว · ใช้ข้อมูลล่าสุดและกำลังลองใหม่: \${error.message}\`, true);\n      else empty(\`โหลดข้อมูลไม่สำเร็จ: \${error.message}\`);\n    }\n  } finally {`,
-    "avoid online badge flapping on one transient poll",
+    `function queueInfo(row, now = new Date()) {\n  const routeArrival = parseDate(row.actualArrivalAt),\n    arrival = routeArrival ? effectiveArrival(row) : null,\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
+    `function queueInfo(row, now = new Date()) {\n  const routeArrival = parseDate(row.actualArrivalAt),\n    arrival = operationalArrival(row, now),\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
+    "start queue age from operational arrival",
   );
 
-  const oldApiGet = `async function apiGet(action, params = {}) {\n  const url = new URL(CONFIG.apiUrl);\n  url.searchParams.set("action", action);\n  url.searchParams.set("token", state.auth?.token || "");\n  Object.entries(params).forEach(\n    ([key, value]) =>\n      value !== undefined && value !== "" && url.searchParams.set(key, value),\n  );\n  const controller = new AbortController();\n  const timeout = setTimeout(\n    () => controller.abort(),\n    CONFIG.requestTimeoutMs,\n  );\n  let json;\n  try {\n    const response = await fetch(url, {\n      cache: "no-store",\n      signal: controller.signal,\n    });\n    json = await response.json();\n  } catch (error) {\n    if (error?.name === "AbortError") {\n      const timeoutError = new Error(\n        "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",\n      );\n      timeoutError.code = "REQUEST_TIMEOUT";\n      throw timeoutError;\n    }\n    throw error;\n  } finally {\n    clearTimeout(timeout);\n  }\n  if (json.ok === false) {\n    const error = new Error(json.message);\n    error.code = json.code || "SERVER_ERROR";\n    if (error.code === "INVALID_SESSION") invalidateSession();\n    throw error;\n  }\n  return json.data ?? json;\n}`;
+  output = replaceUnique(
+    output,
+    `    active = Boolean(routeArrival) && !done && !cancelled && ageHours <= 12;`,
+    `    active = Boolean(arrival) && !done && !cancelled && ageHours <= 12;`,
+    "admit trusted TBR provisional rows to queue",
+  );
 
-  const newApiGet = `async function apiGet(action, params = {}) {\n  const url = new URL(CONFIG.apiUrl);\n  url.searchParams.set("action", action);\n  url.searchParams.set("token", state.auth?.token || "");\n  Object.entries(params).forEach(\n    ([key, value]) =>\n      value !== undefined && value !== "" && url.searchParams.set(key, value),\n  );\n\n  let lastError = null;\n  for (let attempt = 1; attempt <= 3; attempt++) {\n    const controller = new AbortController();\n    const timeout = setTimeout(\n      () => controller.abort(),\n      CONFIG.requestTimeoutMs,\n    );\n    try {\n      const response = await fetch(url, {\n        cache: "no-store",\n        signal: controller.signal,\n        headers: { Accept: "application/json" },\n      });\n      const contentType = String(response.headers.get("content-type") || "").toLowerCase();\n      const text = await response.text();\n      let json;\n      try {\n        json = JSON.parse(text);\n      } catch {\n        const error = new Error(\n          contentType.includes("text/html") || /^\\s*</.test(text)\n            ? "API ตอบกลับเป็นหน้าเว็บแทน JSON · ระบบกำลังลองใหม่"\n            : "API ตอบกลับข้อมูลไม่สมบูรณ์ · ระบบกำลังลองใหม่",\n        );\n        error.code = "NON_JSON_RESPONSE";\n        error.retryable = response.status >= 500 || response.status === 404 || response.status === 200;\n        throw error;\n      }\n      if (json?.ok === false) {\n        const error = new Error(json.message || \`API error HTTP \${response.status}\`);\n        error.code = json.code || "SERVER_ERROR";\n        if (error.code === "INVALID_SESSION") invalidateSession();\n        error.retryable = response.status >= 500 || error.code === "REQUEST_TIMEOUT";\n        throw error;\n      }\n      if (!response.ok) {\n        const error = new Error(\`API HTTP \${response.status}\`);\n        error.code = \`HTTP_\${response.status}\`;\n        error.retryable = response.status >= 500 || response.status === 429;\n        throw error;\n      }\n      return json.data ?? json;\n    } catch (error) {\n      if (error?.name === "AbortError") {\n        const timeoutError = new Error(\n          "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",\n        );\n        timeoutError.code = "REQUEST_TIMEOUT";\n        timeoutError.retryable = true;\n        lastError = timeoutError;\n      } else {\n        lastError = error;\n      }\n      const retryable =\n        lastError?.retryable === true ||\n        lastError?.code === "NON_JSON_RESPONSE" ||\n        lastError?.code === "REQUEST_TIMEOUT" ||\n        lastError instanceof TypeError;\n      if (!retryable || attempt === 3) throw lastError;\n      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));\n    } finally {\n      clearTimeout(timeout);\n    }\n  }\n  throw lastError || new Error("โหลดข้อมูลไม่สำเร็จ");\n}`;
+  output = replaceUnique(
+    output,
+    `    expired: Boolean(routeArrival) && !done && !cancelled && ageHours > 12,`,
+    `    expired: Boolean(arrival) && !done && !cancelled && ageHours > 12,`,
+    "expire provisional queue rows by same 12-hour policy",
+  );
 
-  output = replaceUnique(output, oldApiGet, newApiGet, "harden GET JSON transport");
+  output = replaceUnique(
+    output,
+    `function waitInfo(row) {\n  const start = confirmedEffectiveArrival(row),`,
+    `function waitInfo(row) {\n  const start = operationalArrival(row),`,
+    "start waiting timer from provisional TBR arrival",
+  );
+
+  output = replaceUnique(
+    output,
+    `function dropOperation(row) {\n  const unloadingState = Number(row.unloadingState);\n  const arrival = parseDate(row.actualArrivalAt);`,
+    `function dropOperation(row) {\n  const unloadingState = Number(row.unloadingState);\n  const arrival = operationalArrival(row);`,
+    "show drop arrival from the same provisional policy",
+  );
+
+  output = replaceUnique(
+    output,
+    `      const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;\n      const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;`,
+    `      const aTime = (operationalArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;\n      const bTime = (operationalArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;`,
+    "sort live queue by operational arrival",
+  );
+
   return output;
 }
 

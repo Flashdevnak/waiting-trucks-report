@@ -13,49 +13,47 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     env:
-      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
-      TURSO_ORG: flashdevnak
-      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_API: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api
     steps:
-      - name: Verify real NE1 current state with three bounded point reads
+      - name: Call real NE1 Route shadow exactly once
         shell: bash
         run: |
           node <<'NODE'
-          const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
-          if(!platform) throw new Error('Turso platform token missing');
-          const headers={Authorization:`Bearer ${platform}`};
-          const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
-          const dbJson=await dbRes.json();
-          if(!dbRes.ok) throw new Error(`DB lookup ${dbRes.status}`);
-          const database=dbJson.database||dbJson;
-          const hostname=database.Hostname||database.hostname;
-          const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
-          const tokenJson=await tokenRes.json();
-          const token=tokenJson.jwt;
-          if(!tokenRes.ok||!token) throw new Error(`Token ${tokenRes.status}`);
-          console.log(`::add-mask::${token}`);
-          let total=0;
-          async function q(label,sql){
-            const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]})});
-            const p=await r.json(); const item=p?.results?.[0];
-            if(!r.ok||item?.type==='error') throw new Error(`${label}: ${JSON.stringify(item?.error||p)}`);
-            const result=item.response.result||{}; const rr=Number(result.rows_read||0); total+=rr;
-            console.log(`${label}_ROWS_READ=${rr}`); if(rr>=100000) throw new Error(`${label} heavy read ${rr}`); return result;
-          }
-          const dec=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
-          const row=r=>(r.rows?.[0]||[]).map(dec);
-          const live=row(await q('LIVE',"SELECT synced_at,json_array_length(rows_json),source_hash FROM ms_live_cache WHERE hub='NE1' LIMIT 1"));
-          const route=row(await q('ROUTE',"SELECT last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"));
-          const current=row(await q('CURRENT_ROUTE',"SELECT proof_id,attendance_type,synced_at FROM ms_routes WHERE hub='NE1' LIMIT 1"));
-          console.log(`LIVE_SYNCED_AT=${live[0]||'-'}`);
-          console.log(`LIVE_ROWS=${Number(live[1]||0)}`);
-          console.log(`LIVE_SOURCE_HASH=${String(live[2]||'').slice(0,32)}`);
-          console.log(`ROUTE_LAST_SUCCESS=${route[0]||'-'}`);
-          console.log(`ROUTE_LAST_ERROR=${route[1]||'-'}`);
-          console.log(`CURRENT_ROUTE_EXISTS=${Boolean(current[0])}`);
-          console.log(`CURRENT_ROUTE_ATTENDANCE=${current[1]||'-'}`);
-          console.log(`TOTAL_ROWS_READ=${total}`);
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID, token=process.env.CLOUDFLARE_API_TOKEN;
+          if(!account||!token) throw new Error('Cloudflare credentials missing');
+          const headers={Authorization:`Bearer ${token}`,'content-type':'application/json'};
+          const settingsRes=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/waiting-trucks-ms-browser-test/script-settings`,{headers});
+          const settings=await settingsRes.json();
+          if(!settingsRes.ok||settings.success===false) throw new Error(`script-settings ${settingsRes.status}`);
+          const bindings=Array.isArray(settings.result?.bindings)?settings.result.bindings:[];
+          const state=bindings.find(x=>x.name==='STATE'&&(x.type==='kv_namespace'||x.type==='kv_namespace_binding'));
+          const namespace=state?.namespace_id||state?.id;
+          if(!namespace) throw new Error(`STATE namespace not found: ${JSON.stringify(bindings.map(x=>({name:x.name,type:x.type})))}`);
+          const key=encodeURIComponent('connector:NE1');
+          const valueRes=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/storage/kv/namespaces/${namespace}/values/${key}`,{headers:{Authorization:`Bearer ${token}`}});
+          const connectorToken=await valueRes.text();
+          if(!valueRes.ok||connectorToken.trim().length<20) throw new Error(`connector token unavailable ${valueRes.status}`);
+          console.log(`::add-mask::${connectorToken.trim()}`);
+          const started=Date.now();
+          const response=await fetch(process.env.WORKER_API,{
+            method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({action:'connectorSync',hub:'NE1',connectorToken:connectorToken.trim(),shadowOnly:true,shadowPart:'routes'}),
+          });
+          const body=await response.json().catch(()=>({}));
+          console.log(`ROUTE_SHADOW_HTTP=${response.status}`);
+          console.log(`ROUTE_SHADOW_CODE=${body?.code||'-'}`);
+          console.log(`ROUTE_SHADOW_MESSAGE=${body?.message||'-'}`);
+          console.log(`ROUTE_SHADOW_DURATION_MS=${Date.now()-started}`);
+          const data=body?.data||{};
+          console.log(`ROUTE_SHADOW_STATUS=${data.status||'-'}`);
+          console.log(`ROUTE_SHADOW_ROWS=${Array.isArray(data.rows)?data.rows.length:-1}`);
+          console.log(`ROUTE_SHADOW_SYNCED_AT=${data.syncedAt||'-'}`);
+          console.log(`ROUTE_SHADOW_TURSO_POINT_READS=${data.shadowQuota?.tursoPointReadsThisCall??'-'}`);
+          console.log(`ROUTE_SHADOW_TURSO_WRITES=${data.shadowQuota?.tursoWritesPerCron??'-'}`);
           console.log('D1_QUERIES=0');
-          if(total>=100000) throw new Error('Read budget exceeded');
-          console.log('BOUNDED_REAL_DB_CHECK=PASS');
+          if(!response.ok||body?.ok===false) throw new Error(`REAL_ROUTE_SOURCE_FAILED: ${body?.code||response.status} ${body?.message||''}`);
+          if(!Array.isArray(data.rows)) throw new Error('REAL_ROUTE_SOURCE_INVALID');
+          console.log('REAL_ROUTE_SOURCE_CALL=PASS');
           NODE

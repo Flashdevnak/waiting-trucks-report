@@ -55,12 +55,16 @@ jobs:
 
       - name: Stage DEV quota gate
         run: |
-          node .github/dev-tools/stage-dev-runtime.mjs
-          test -f worker/.dev-stage/src/index.js
-          ! grep -q 'SELECT h1.payload_json' worker/.dev-stage/src/index.js
-          ! grep -q 'legacyCompletionBurst' worker/.dev-stage/src/index.js
-          grep -q 'LAG(CAST(json_extract(payload_json' worker/.dev-stage/src/index.js
-          grep -q "completion_source='SCHEDULE'" worker/.dev-stage/src/index.js
+          rm -rf .quota-stage
+          mkdir -p .quota-stage
+          cp ms.js style.css .quota-stage/
+          cp worker/src/index.js .quota-stage/worker-index.js
+          node .github/dev-tools/stage-dev-runtime.mjs .quota-stage/ms.js .quota-stage/worker-index.js
+          node --check .quota-stage/worker-index.js
+          ! grep -q 'SELECT h1.payload_json' .quota-stage/worker-index.js
+          ! grep -q 'legacyCompletionBurst' .quota-stage/worker-index.js
+          grep -q 'LAG(CAST(json_extract(payload_json' .quota-stage/worker-index.js
+          grep -q "completion_source='SCHEDULE'" .quota-stage/worker-index.js
           grep -q 'MS_SYNC_COORDINATOR' worker/wrangler.dev.jsonc
           grep -q 'TURSO_HEAVY_READ_GUARD' worker/src/turso-d1.js
           echo QUOTA_GUARD_STAGE_PASS

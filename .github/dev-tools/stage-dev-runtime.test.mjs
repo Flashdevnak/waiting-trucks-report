@@ -123,12 +123,18 @@ test("live Route window includes tomorrow so midnight does not hide arrived cros
   assert.doesNotMatch(worker, /start \+ 2 \* 86400000 - 1000/);
 });
 
-test("daily completed only counts an observed 0\/1 to 2 transition and daily views roll at Bangkok midnight", () => {
+test("daily completed counts accepted Route state 2 while timestamps remain SLA-only and views roll at Bangkok midnight", () => {
   const first = stageFrontend(frontendSource);
   const worker = stageWorker(workerSource);
   assert.match(worker, /completionTruth = resolveCompletionTruth/);
   assert.match(worker, /completionObservedLive:\s*Boolean\(item\.snapshot\?\.unloadingCompletedAt\)/);
-  assert.match(worker, /row\?\.completionObservedLive === true/);
+  assert.match(worker, /MS_COMPLETED_ROUTE_DAY_TRUTH_V1/);
+  assert.match(worker, /msCompletedRowBusinessDay\(row\) === day/);
+  const completedPredicate = worker.slice(
+    worker.indexOf("function isCompletedForThaiDay"),
+    worker.indexOf("function mergeCompletedToday"),
+  );
+  assert.doesNotMatch(completedPredicate, /completionObservedLive|completionSource|unloadingCompletedAt/);
   assert.match(worker, /item\.action !== "FIRST_SEEN" && item\.synced_by !== "MS_RANGE"/);
   assert.match(worker, /!completionCacheReady/);
   assert.match(worker, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);

@@ -1,0 +1,242 @@
+name: One-shot Turso Quota Guard Hotfix V3
+
+on:
+  push:
+    paths:
+      - '.github/dev-tools/quota-guard-hotfix-trigger-v3.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-shot-quota-guard-hotfix-v3
+  cancel-in-progress: false
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Patch quota burn paths and stale regression
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('.github/dev-tools/patch-ms-daily-completion-observation.mjs')
+          s = p.read_text()
+          start = s.index('async function verifiedCompletionRouteIds(env, hub) {\\n')
+          end = s.index('\\n\\nasync function ensureMsCompletionRepair', start)
+          worker_fn = '''async function verifiedCompletionRouteIds(env, hub) {
+            const result = await env.DB.prepare(
+              `WITH ordered AS (
+                 SELECT route_id,snapshot_at,rowid,event_type,synced_by,payload_json,
+                        CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER) AS current_state,
+                        LAG(CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER))
+                          OVER (PARTITION BY route_id ORDER BY snapshot_at,rowid) AS previous_state,
+                        COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'') AS completion_at,
+                        COALESCE(json_extract(payload_json,'$.actualArrivalAt'),'') AS actual_arrival
+                   FROM ms_route_history
+                  WHERE hub=? AND json_valid(payload_json)=1
+               ),
+               transitions AS (
+                 SELECT route_id,completion_at
+                   FROM ordered
+                  WHERE current_state=2
+                    AND previous_state IN (0,1)
+                    AND COALESCE(event_type,'UPDATED')<>'FIRST_SEEN'
+                    AND COALESCE(synced_by,'')<>'MS_RANGE'
+                    AND completion_at<>''
+               ),
+               legacy_bursts AS (
+                 SELECT completion_at
+                   FROM ordered
+                  WHERE completion_at<>''
+                    AND completion_at<'2026-09-08T12:39:00.000Z'
+                  GROUP BY completion_at
+                 HAVING COUNT(DISTINCT route_id)>=8
+                    AND (julianday(MAX(actual_arrival))-julianday(MIN(actual_arrival))) * 86400000 >= 3600000
+               )
+               SELECT DISTINCT route_id
+                 FROM transitions
+                WHERE completion_at NOT IN (SELECT completion_at FROM legacy_bursts)`,
+            ).bind(hub).all();
+            return new Set((result.results || []).map((row) => String(row.route_id || '')).filter(Boolean));
+          }'''
+          esc = lambda v: v.replace('\\', '\\\\').replace('`', '\\`').replace('\n', '\\n')
+          s = s[:start] + esc(worker_fn) + s[end:]
+          p.write_text(s)
+
+          p = Path('.github/dev-tools/patch-ms-completion-burst-v3.mjs')
+          s = p.read_text()
+          def remove_block(text, label):
+              pos = text.index(f'    "{label}",')
+              begin = text.rfind('  output = replaceUnique(', 0, pos)
+              end = text.index('  );', pos) + len('  );')
+              return text[:begin] + text[end:]
+          for label in (
+              'force source-match cache through repair',
+              'reject polluted V2 cache as diff baseline',
+              'exclude strong legacy burst timestamps from verified transitions',
+              'remove burst route ids from completion truth',
+              're-run repair for V2-era polluted rows',
+          ):
+              s = remove_block(s, label)
+          p.write_text(s)
+
+          p = Path('worker/src/turso-d1.js')
+          s = p.read_text()
+          if 'TURSO_HEAVY_READ_GUARD' not in s:
+              guard = '''
+          const TURSO_PROVIDER_READ_BLOCK_MS = 60 * 1000;
+          const TURSO_HEAVY_READ_COOLDOWN_MS = 5 * 60 * 1000;
+          const TURSO_HEAVY_READ_ROWS = 100000;
+          let tursoProviderReadBlockedUntil = 0;
+          const tursoHeavyReadUntil = new Map();
+
+          function isReadSql(sql) {
+            return /^\\s*(?:WITH\\b[\\s\\S]*?\\bSELECT\\b|SELECT\\b|PRAGMA\\b|EXPLAIN\\b)/i.test(String(sql || ''));
+          }
+          function sqlFingerprint(sql) {
+            return String(sql || '').replace(/\\s+/g, ' ').trim().slice(0, 240);
+          }
+          function isProviderReadBlockMessage(value) {
+            return /sql\\s+read\\s+operations?\\s+are\\s+forbidden|reads?\\s+are\\s+blocked|rows?\\s+read.*quota|read.*quota.*exceed|read.*usage.*limit/i.test(String(value || ''));
+          }
+          function assertTursoReadAllowed(sql, now = Date.now()) {
+            if (!isReadSql(sql)) return;
+            if (tursoProviderReadBlockedUntil > now)
+              throw tursoError('TURSO_READS_BLOCKED', 'SQL read operations are forbidden (local circuit breaker after provider read limit)');
+            const fingerprint = sqlFingerprint(sql);
+            const until = tursoHeavyReadUntil.get(fingerprint) || 0;
+            if (until > now)
+              throw tursoError('TURSO_HEAVY_READ_GUARD', 'Turso heavy read temporarily blocked to protect quota');
+            if (until) tursoHeavyReadUntil.delete(fingerprint);
+          }
+          function observeTursoRead(sql, result, now = Date.now()) {
+            if (!isReadSql(sql)) return;
+            const rowsRead = Number(result?.rows_read || 0);
+            if (rowsRead < TURSO_HEAVY_READ_ROWS) return;
+            const fingerprint = sqlFingerprint(sql);
+            tursoHeavyReadUntil.set(fingerprint, now + TURSO_HEAVY_READ_COOLDOWN_MS);
+            console.error(JSON.stringify({ event: 'turso_heavy_read_guard', rowsRead, cooldownMs: TURSO_HEAVY_READ_COOLDOWN_MS, sql: fingerprint }));
+          }
+          function noteProviderReadBlock(error, now = Date.now()) {
+            if (!isProviderReadBlockMessage(error?.message || error)) return;
+            tursoProviderReadBlockedUntil = Math.max(tursoProviderReadBlockedUntil, now + TURSO_PROVIDER_READ_BLOCK_MS);
+          }
+          '''
+              s = s.replace('const DEFAULT_BACKEND = "d1";\n', 'const DEFAULT_BACKEND = "d1";\n' + guard, 1)
+              begin = s.index('  async _execute(sql, args = []) {')
+              end = s.index('\n  async _finishTransaction', begin)
+              execute = '''  async _execute(sql, args = []) {
+            assertTursoReadAllowed(sql);
+            try {
+              const payload = await this._pipeline([
+                executeRequest(sql, args),
+                { type: "close" },
+              ]);
+              const result = executeResult(payload.results?.[0]);
+              observeTursoRead(sql, result);
+              return result;
+            } catch (error) {
+              noteProviderReadBlock(error);
+              throw error;
+            }
+          }
+          '''
+              s = s[:begin] + execute + s[end:]
+          p.write_text(s)
+
+          p = Path('.github/dev-tools/ms-completion-burst-truth.test.mjs')
+          s = p.read_text()
+          start = s.index('test("staged worker rejects polluted cache baseline and excludes burst history from truth"')
+          s = s[:start] + '''test("staged worker keeps completion truth while quota-safe repair is persistently gated", async () => {
+            const root = new URL("../../", import.meta.url);
+            const source = await readFile(new URL("worker/src/index.js", root), "utf8");
+            const staged = stageWorker(source);
+            assert.match(staged, /MS_COMPLETION_BURST_TRUTH_V3/);
+            assert.match(staged, /LAG\\(CAST\\(json_extract\\(payload_json,'\\$\\.unloadingState'\\) AS INTEGER\\)\\)/);
+            assert.match(staged, /legacy_bursts/);
+            assert.doesNotMatch(staged, /SELECT h1\\.payload_json/);
+            assert.doesNotMatch(staged, /legacyCompletionBurst/);
+            assert.match(staged, /startsWith\\(MS_LIVE_CACHE_VERSION \\+ ":"\\)/);
+            assert.doesNotMatch(staged, /if \\(!completionRepairChecked\\.has\\(hub\\)\\) \\{/);
+            assert.equal(patchMsCompletionBurstWorker(staged), staged);
+          });
+          '''
+          p.write_text(s)
+
+          p = Path('worker/tests/sync-policy.test.mjs')
+          s = p.read_text()
+          old = r'''  assert.match(patch, /ORDER BY h1\.snapshot_at DESC,h1\.rowid DESC/);'''
+          new = r'''  assert.match(patch, /LAG\(CAST\(json_extract\(payload_json,'\$\.unloadingState'\) AS INTEGER\)\)/);
+            assert.doesNotMatch(patch, /SELECT h1\.payload_json/);'''
+          if old not in s:
+              raise SystemExit('stale sync-policy assertion anchor missing')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          p = Path('worker/tests/turso-d1.test.mjs')
+          s = p.read_text()
+          if 'heavy read guard blocks an identical expensive query after one costly observation' not in s:
+              s += '''\n\ntest("heavy read guard blocks an identical expensive query after one costly observation", async () => {
+            let calls = 0;
+            const db = new TursoD1Database({
+              url: "https://quota-guard.turso.io",
+              authToken: "secret",
+              fetchImpl: async () => {
+                calls += 1;
+                return response({ results: [okExecute({ rowsRead: 150000 }), okClose] });
+              },
+            });
+            await db.prepare("SELECT * FROM quota_guard_history WHERE hub=?").bind("NE1").all();
+            await assert.rejects(
+              db.prepare("SELECT * FROM quota_guard_history WHERE hub=?").bind("NE1").all(),
+              (error) => error.code === "TURSO_HEAVY_READ_GUARD",
+            );
+            assert.equal(calls, 1);
+          });
+          '''
+          p.write_text(s)
+          PY
+
+      - name: Full regression gate
+        run: |
+          node --check .github/dev-tools/patch-ms-daily-completion-observation.mjs
+          node --check .github/dev-tools/patch-ms-completion-burst-v3.mjs
+          node --check worker/src/turso-d1.js
+          cd worker
+          npm ci
+          npm run check
+
+      - name: Stage DEV quota gate
+        run: |
+          node .github/dev-tools/stage-dev-runtime.mjs
+          test -f worker/.dev-stage/src/index.js
+          ! grep -q 'SELECT h1.payload_json' worker/.dev-stage/src/index.js
+          ! grep -q 'legacyCompletionBurst' worker/.dev-stage/src/index.js
+          grep -q 'LAG(CAST(json_extract(payload_json' worker/.dev-stage/src/index.js
+          grep -q 'MS_SYNC_COORDINATOR' worker/wrangler.dev.jsonc
+          grep -q 'TURSO_HEAVY_READ_GUARD' worker/src/turso-d1.js
+          echo QUOTA_GUARD_STAGE_PASS
+
+      - name: Commit safe source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/dev-tools/patch-ms-daily-completion-observation.mjs \
+                  .github/dev-tools/patch-ms-completion-burst-v3.mjs \
+                  .github/dev-tools/ms-completion-burst-truth.test.mjs \
+                  worker/src/turso-d1.js worker/tests/turso-d1.test.mjs worker/tests/sync-policy.test.mjs
+          git diff --cached --check
+          git commit -m 'fix: hard-stop Turso read amplification'
+          git pull --rebase origin main
+          git push origin HEAD:main

@@ -1,0 +1,124 @@
+/* MS_ROUTE_STATUS_V6
+   Presentation only. Refines only desktop route-info + operation-status colors and the
+   warehouse-arrival heading. No data, SLA, queue, source, polling, or mobile logic. */
+@media (min-width: 1025px) {
+  /* Warehouse-arrival heading: same neutral language as the table, with enough Thai line height. */
+  .ms-page .schedule-stack.single .schedule-heading {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px 7px;
+    overflow: visible;
+    white-space: nowrap;
+    line-height: 1.45;
+    font-size: 11.5px;
+    font-weight: 850;
+    color: #303534;
+    background: #f4f5f3;
+    border-bottom-color: #d8dcda;
+  }
+
+  /* Route info: restrained, low-saturation tones that sit naturally with black/gold Flash UI. */
+  .ms-page .route-meta .meta-chip {
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 850;
+    box-shadow: none;
+  }
+  .ms-page .route-meta span:nth-child(1) .meta-chip {
+    color: #3f4c52 !important;
+    background: #eef1f2 !important;
+    border-color: #c8d0d3 !important;
+  }
+  .ms-page .route-meta span:nth-child(2) .meta-chip {
+    color: #584f3f !important;
+    background: #f5f2e9 !important;
+    border-color: #d6cdb8 !important;
+  }
+  .ms-page .route-meta span:nth-child(3) .meta-chip {
+    color: #5a4906 !important;
+    background: #fff3c7 !important;
+    border-color: #d9bd55 !important;
+  }
+
+  /* Status container stays neutral; status itself carries only the minimum semantic color. */
+  .ms-page .operation-compact {
+    border-color: #d2d6d4 !important;
+    background: #fafbfa !important;
+    box-shadow: 0 1px 4px rgba(22, 28, 25, .045);
+  }
+  .ms-page .operation-compact .classic-operation-center {
+    background: #f4f5f4;
+    border-bottom-color: #d6dad8;
+  }
+  .ms-page .operation-compact .classic-status-chip {
+    border-color: #cbd1ce !important;
+    background: #f0f2f1 !important;
+    color: #353d39 !important;
+    font-weight: 850;
+    box-shadow: none;
+  }
+
+  /* Waiting / not started: calm Flash-gold, not red even when SLA is already overdue. */
+  .ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-operation-center,
+  .ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-operation-center {
+    background: #fffaf0 !important;
+  }
+  .ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-status-chip,
+  .ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-status-chip {
+    border-color: #dec96f !important;
+    background: #fff4c9 !important;
+    color: #66530a !important;
+  }
+
+  /* In progress: slightly stronger gold, matching the site's primary accent. */
+  .ms-page .operation-compact.destination.is-working .classic-operation-center {
+    background: #fff8e2 !important;
+  }
+  .ms-page .operation-compact.destination.is-working .classic-status-chip {
+    border-color: #d9bc4f !important;
+    background: #ffefb4 !important;
+    color: #624c00 !important;
+  }
+
+  /* Completed: soft operational green. */
+  .ms-page .operation-compact.destination.is-done .classic-operation-center {
+    background: #f3f8f4 !important;
+  }
+  .ms-page .operation-compact.destination.is-done .classic-status-chip {
+    border-color: #b7d2c0 !important;
+    background: #eaf4ed !important;
+    color: #286045 !important;
+  }
+
+  /* Drop: quiet slate-blue, aligned with the rest of the UI. */
+  .ms-page .operation-compact.drop .classic-operation-center {
+    background: #f3f6f7 !important;
+  }
+  .ms-page .operation-compact.drop .classic-status-chip {
+    border-color: #bdcbd2 !important;
+    background: #eaf0f3 !important;
+    color: #405666 !important;
+  }
+
+  /* Overtime is emphasized only in the summary row, not by painting the whole status card red. */
+  .ms-page .operation-compact.is-danger .classic-operation-summary.is-danger,
+  .ms-page .operation-compact .classic-operation-summary.is-danger {
+    border-color: #e1b9b4 !important;
+    background: #fff1ef !important;
+    color: #92352f !important;
+  }
+  .ms-page .operation-compact .classic-operation-summary.is-safe {
+    border-color: #c0d6c7 !important;
+    background: #f0f7f2 !important;
+    color: #2a6145 !important;
+  }
+  .ms-page .operation-compact .classic-operation-summary.is-drop {
+    border-color: #c6d1d6 !important;
+    background: #f0f4f6 !important;
+    color: #405666 !important;
+  }
+}

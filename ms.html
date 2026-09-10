@@ -7,8 +7,165 @@
     <title>ติดตามเส้นทาง MS</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg?v=20260901-01" />
     <link rel="stylesheet" href="style.css?v=20260910-08-table-density-v3" />
-    <link rel="stylesheet" href="ms-v4.css?v=20260911-02-route-status-polish" />
-    <link rel="stylesheet" href="ms-route-status-v6.css?v=20260911-01" />
+    <link rel="stylesheet" href="ms-v4.css?v=20260910-01" />
+    <style id="ms-route-status-v7">
+      /* Presentation-only. Desktop route/status polish; no data, SLA, queue, source, polling, or mobile logic. */
+      @media (min-width: 1025px) {
+        .ms-page .schedule-stack.single .schedule-heading {
+          width: 100%;
+          min-height: 34px;
+          margin: 0 !important;
+          padding: 7px 10px 8px !important;
+          display: grid !important;
+          place-items: center !important;
+          text-align: center !important;
+          overflow: visible;
+          white-space: nowrap;
+          line-height: 1.45 !important;
+          font-size: 11.5px;
+          font-weight: 900;
+          color: #252b2e;
+          background: #f1f3f2;
+          border: 0;
+          border-bottom: 1px solid #d5dad7;
+        }
+        .ms-page .route-meta .meta-chip {
+          min-height: 29px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 900;
+          border-radius: 5px;
+          box-shadow: none;
+        }
+        .ms-page .route-meta span:nth-child(1) .meta-chip {
+          color: #ffffff !important;
+          background: #385666 !important;
+          border-color: #385666 !important;
+        }
+        .ms-page .route-meta span:nth-child(2) .meta-chip {
+          color: #533f1f !important;
+          background: #f1e5ca !important;
+          border-color: #d2b77e !important;
+        }
+        .ms-page .route-meta span:nth-child(3) .meta-chip {
+          color: #3f3100 !important;
+          background: #e7cb65 !important;
+          border-color: #c5a32b !important;
+        }
+        .ms-page .operation-compact {
+          border-color: #cfd5d1 !important;
+          background: #ffffff !important;
+          box-shadow: 0 1px 4px rgba(22, 28, 25, .05);
+        }
+        .ms-page .operation-compact .classic-operation-center {
+          min-height: 43px;
+          margin: -8px -8px 0;
+          padding: 7px 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #f5f6f5 !important;
+          border-bottom: 1px solid #d7dcda;
+        }
+        .ms-page .operation-compact .classic-status-chip {
+          width: fit-content !important;
+          min-width: 0 !important;
+          max-width: 100%;
+          min-height: 28px;
+          margin: 0 auto;
+          padding: 5px 13px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          background: #ffffff !important;
+          border: 1px solid #aeb8b2 !important;
+          color: #37413c !important;
+          font-weight: 900;
+          line-height: 1.25;
+          box-shadow: none;
+          white-space: nowrap;
+        }
+        .ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-operation-center,
+        .ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-operation-center {
+          background: #fbfaf6 !important;
+        }
+        .ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-status-chip,
+        .ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-status-chip {
+          color: #8a6500 !important;
+          background: #ffffff !important;
+          border-color: #c9a42e !important;
+        }
+        .ms-page .operation-compact.destination.is-working .classic-operation-center {
+          background: #fbfaf5 !important;
+        }
+        .ms-page .operation-compact.destination.is-working .classic-status-chip {
+          color: #2f2600 !important;
+          background: #e7c842 !important;
+          border-color: #bd9d18 !important;
+        }
+        .ms-page .operation-compact.destination.is-done .classic-operation-center {
+          background: #f7faf8 !important;
+        }
+        .ms-page .operation-compact.destination.is-done .classic-status-chip {
+          color: #17603f !important;
+          background: #ffffff !important;
+          border-color: #82b69a !important;
+        }
+        .ms-page .operation-compact.drop .classic-operation-center {
+          background: #f7f9fa !important;
+        }
+        .ms-page .operation-compact.drop .classic-status-chip {
+          color: #31566c !important;
+          background: #ffffff !important;
+          border-color: #8eafc0 !important;
+        }
+        .ms-page .operation-compact .classic-operation-summary,
+        .ms-page .operation-compact .classic-operation-summary.compact-summary,
+        .ms-page .operation-compact .classic-operation-summary.is-safe,
+        .ms-page .operation-compact .classic-operation-summary.is-danger,
+        .ms-page .operation-compact .classic-operation-summary.is-drop {
+          min-height: 38px;
+          display: grid !important;
+          grid-template-columns: minmax(72px, .72fr) minmax(0, 1.28fr) !important;
+          gap: 0 !important;
+          padding: 0 !important;
+          overflow: hidden;
+          border: 1px solid #d3d9d6 !important;
+          border-radius: 7px !important;
+          background: #ffffff !important;
+          color: #303834 !important;
+          box-shadow: none;
+        }
+        .ms-page .operation-compact .classic-operation-summary > span,
+        .ms-page .operation-compact .classic-operation-summary > strong {
+          min-width: 0;
+          min-height: 36px;
+          padding: 7px 9px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          background: #ffffff !important;
+          line-height: 1.25;
+        }
+        .ms-page .operation-compact .classic-operation-summary > span {
+          color: #59635e !important;
+          font-size: 10.5px;
+          font-weight: 800;
+        }
+        .ms-page .operation-compact .classic-operation-summary > strong {
+          border-left: 1px solid #d8ddda;
+          color: #303834 !important;
+          font-size: 11.5px;
+          font-weight: 900;
+        }
+        .ms-page .operation-compact .classic-operation-summary.is-danger > strong { color: #b3261e !important; }
+        .ms-page .operation-compact .classic-operation-summary.is-safe > strong { color: #17603f !important; }
+        .ms-page .operation-compact .classic-operation-summary.is-drop > strong { color: #31566c !important; }
+      }
+    </style>
     <script>if(location.search)history.replaceState(null,'',location.pathname+location.hash);if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
     <script src="ms.js?v=20260910-04-date8-midnight-final" defer></script>

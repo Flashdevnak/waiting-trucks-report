@@ -2,6 +2,7 @@ name: Turso Live State Readonly
 
 # Lightweight post-cutover liveness check. Turso SELECTs only; never touches D1.
 # Readiness follows the intentional 15-minute connection heartbeat throttle; unchanged live snapshots may stay older without being stale.
+# Also exposes route-table row count beside live-cache row count so suspicious zero snapshots are visible without touching MS upstream.
 on:
   workflow_dispatch:
   push:
@@ -70,9 +71,10 @@ jobs:
             return Boolean(success) && !error && age>=0 && age<=heartbeatReadySeconds;
           };
 
-          const [connectorResult,liveResult,routeResult,preentryResult,busResult]=await Promise.all([
+          const [connectorResult,liveResult,routeTableResult,routeResult,preentryResult,busResult]=await Promise.all([
             query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
             query("SELECT hub,source_hash,synced_at,json_array_length(rows_json) AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+            query("SELECT COUNT(*) AS route_count FROM ms_routes WHERE hub='NE1'"),
             query("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
             query("SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
             query("SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
@@ -80,6 +82,7 @@ jobs:
 
           const connector=firstRow(connectorResult);
           const live=firstRow(liveResult);
+          const routeTable=firstRow(routeTableResult);
           const route=firstRow(routeResult);
           const preentry=firstRow(preentryResult);
           const bus=firstRow(busResult);
@@ -93,6 +96,9 @@ jobs:
           const routeHealthy=connectionHealthy(route);
           const preentryHealthy=connectionHealthy(preentry);
           const busHealthy=connectionHealthy(bus);
+          const liveRows=Number(live[3]||0);
+          const routeRows=Number(routeTable[0]||0);
+          const suspiciousZero=liveRows===0 && routeRows>0;
 
           function printConnection(prefix,row){
             console.log(`${prefix}_UPDATED_AT=${row[1]||'-'}`);
@@ -104,9 +110,12 @@ jobs:
           console.log(`TURSO_CONNECTOR_HUB=${connector[0]||'-'}`);
           console.log(`TURSO_CONNECTOR_ACTIVE=${Number(connector[1]||0)}`);
           console.log(`TURSO_CONNECTOR_LAST_USED=${connector[2]||'-'}`);
+          console.log(`TURSO_CONNECTOR_LAST_USED_AGE_SECONDS=${ageSeconds(connector[2])}`);
           console.log(`TURSO_LIVE_SYNCED_AT=${syncedAt||'-'}`);
           console.log(`TURSO_LIVE_SNAPSHOT_AGE_SECONDS=${syncAge}`);
-          console.log(`TURSO_LIVE_ROWS=${Number(live[3]||0)}`);
+          console.log(`TURSO_LIVE_ROWS=${liveRows}`);
+          console.log(`TURSO_ROUTE_TABLE_ROWS=${routeRows}`);
+          console.log(`TURSO_SUSPICIOUS_ZERO=${suspiciousZero}`);
           printConnection('MS_ROUTE_CONNECTION',route);
           printConnection('MS_PREENTRY_CONNECTION',preentry);
           printConnection('MS_BUS_CONNECTION',bus);
@@ -116,10 +125,12 @@ jobs:
 
           let readiness='STALE';
           if(/\b401\b|SESSION_EXPIRED/i.test(routeLastError)) readiness='NO_MS_SESSION';
-          else if(routeHealthy && preentryHealthy && busHealthy) readiness='READY';
+          else if(routeHealthy && preentryHealthy && busHealthy && !suspiciousZero) readiness='READY';
+          else if(routeHealthy && suspiciousZero) readiness='SUSPICIOUS_ZERO';
           console.log(`ALL_MS_SESSIONS_READY=${routeHealthy&&preentryHealthy&&busHealthy}`);
           console.log(`REALTIME_READY=${readiness}`);
           console.log('TURSO_INFRASTRUCTURE=PASS');
           console.log('TURSO_LIVE_STATE_READONLY=PASS');
           console.log('D1_QUERIES=0');
+          console.log('MS_UPSTREAM_CALLS=0');
           NODE

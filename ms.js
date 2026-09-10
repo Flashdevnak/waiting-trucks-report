@@ -1578,8 +1578,16 @@ function classicOperationRow(label, value, extra = "") {
   return `<div class="classic-operation-row"><span>${esc(label)}</span><strong>${value || "-"}</strong>${extra ? `<small>${esc(extra)}</small>` : ""}</div>`;
 }
 
+function classicOperationFact(label, value, wide = false) {
+  return `<div class="classic-operation-fact${wide ? " is-wide" : ""}"><span>${esc(label)}</span><strong>${esc(value || "-")}</strong></div>`;
+}
+
+function classicOperationFacts(items) {
+  return `<div class="classic-operation-facts">${items.filter(Boolean).join("")}</div>`;
+}
+
 function classicOperationSummary(label, value, severity = "neutral") {
-  return `<div class="classic-operation-summary is-${severity}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+  return `<div class="classic-operation-summary compact-summary is-${severity}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
 }
 
 function unloadSlaSummary(timing) {
@@ -1599,7 +1607,7 @@ function unloadSlaSummary(timing) {
 function renderOperation(row) {
   const q = queueInfo(row);
   if (q.cancelled) {
-    return `<div class="classic-operation is-cancelled"><div class="classic-operation-head"><span class="classic-status-chip">ยกเลิกรถแล้ว</span></div>${classicOperationRow("ยกเลิกเมื่อ", shortDateTime(row.queueCancelledAt), row.queueCancelledBy || "")}</div>`;
+    return `<div class="classic-operation operation-compact is-cancelled"><div class="classic-operation-center"><span class="classic-status-chip">ยกเลิกรถแล้ว</span></div>${classicOperationRow("ยกเลิกเมื่อ", shortDateTime(row.queueCancelledAt), row.queueCancelledBy || "")}</div>`;
   }
 
   if (isDestination(row)) {
@@ -1610,29 +1618,47 @@ function renderOperation(row) {
     const currentSlaOver = timing.standard !== null && timing.slaMinutes !== null && timing.slaMinutes > timing.standard;
     const headline = done ? timing.finish ? "ลงรถเสร็จ" : "ลงรถเสร็จ รอยืนยันเวลา" : active ? "กำลังลงรถ" : timing.arrival ? "รอเริ่มลงรถ" : "รอรถถึงคลัง";
     const statusClass = currentSlaOver ? "is-danger" : active ? "is-working" : done ? "is-done" : "is-waiting";
-    const workFact = done
-      ? classicOperationRow("ใช้เวลาลงรถจริง", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`, "เริ่มลงรถ → ลงเสร็จจริง")
-      : active
-        ? classicOperationRow("ลงรถมาแล้ว", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`, "เริ่มลงรถ → เวลาปัจจุบัน")
-        : "";
-    const slaRange = done ? "เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง" : "เวลาถึงที่เร็วที่สุด → เวลาปัจจุบัน";
-    return `<div class="classic-operation destination ${statusClass}"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span></div>${classicOperationRow("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row)))}${classicOperationRow("เริ่มลงรถ", shortDateTime(row.scheduleUnloadingStartedAt))}${done ? classicOperationRow("ลงเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : ""}${workFact}${classicOperationRow("มาตรฐาน", timing.standard === null ? "-" : `${nf.format(timing.standard)} นาที`)}${classicOperationRow("SLA Route", timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`, slaRange)}${classicOperationSummary(done ? "สรุป" : "สถานะ", summary.text, summary.severity)}</div>`;
+    const facts = [
+      classicOperationFact("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row))),
+      classicOperationFact("เริ่มลงรถ", shortDateTime(row.scheduleUnloadingStartedAt)),
+      done ? classicOperationFact("ลงเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : "",
+      done
+        ? classicOperationFact("ใช้เวลาลงรถจริง", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`)
+        : active
+          ? classicOperationFact("ลงรถมาแล้ว", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`, true)
+          : "",
+      classicOperationFact("มาตรฐาน", timing.standard === null ? "-" : `${nf.format(timing.standard)} นาที`),
+      classicOperationFact("SLA Route", timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`),
+    ];
+    return `<div class="classic-operation operation-compact destination ${statusClass}"><div class="classic-operation-center"><span class="classic-status-chip">${headline}</span></div>${classicOperationFacts(facts)}${classicOperationSummary(done ? "สรุป" : "สถานะ", summary.text, summary.severity)}</div>`;
   }
 
   if (isDrop(row)) {
     const drop = dropOperation(row);
     const timing = unloadTiming(row);
     const active = Number(row.unloadingState) === 1;
+    const summary = unloadSlaSummary(timing);
+    const release = departureCountdown(row);
     const headline = drop.onwardDone ? "ออกจากจุดดรอปแล้ว" : drop.unloadingDone ? "ลงของเสร็จ รอไปต่อ" : active ? "กำลังลงของที่จุดดรอป" : timing.arrival ? "รอลงของที่จุดดรอป" : "รอรถถึงจุดดรอป";
-    const workFact = drop.unloadingDone
-      ? classicOperationRow("ใช้เวลาลงของจริง", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`)
-      : active
-        ? classicOperationRow("ลงของมาแล้ว", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`)
-        : "";
+    const facts = [
+      classicOperationFact("ถึงจุดดรอปจริง", shortDateTime(confirmedEffectiveArrival(row))),
+      classicOperationFact("เริ่มลงของ", shortDateTime(row.scheduleUnloadingStartedAt)),
+      drop.unloadingDone ? classicOperationFact("ลงของเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : "",
+      drop.unloadingDone
+        ? classicOperationFact("ใช้เวลาลงของจริง", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`)
+        : active
+          ? classicOperationFact("ลงของมาแล้ว", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`, true)
+          : "",
+      classicOperationFact("มาตรฐาน", timing.standard === null ? "-" : `${nf.format(timing.standard)} นาที`),
+      classicOperationFact("เวลารวม", timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`),
+      drop.onwardDone ? classicOperationFact("ออกจากจุดดรอปจริง", shortDateTime(row.actualDepartureAt), true) : "",
+    ];
     const onwardDetail = drop.onwardMinutes === null
       ? drop.onwardLabel
       : `${drop.onwardLabel} · ${drop.onwardDone ? "ออกหลังลงของ" : "รอมาแล้ว"} ${nf.format(drop.onwardMinutes)} นาที`;
-    return `<div class="classic-operation drop"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span></div>${classicOperationRow("ถึงจุดดรอปจริง", shortDateTime(confirmedEffectiveArrival(row)))}${active || drop.unloadingDone ? classicOperationRow("เริ่มลงของ", shortDateTime(row.scheduleUnloadingStartedAt)) : ""}${drop.unloadingDone ? classicOperationRow("ลงของเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : ""}${workFact}${drop.onwardDone ? classicOperationRow("ออกจากจุดดรอปจริง", shortDateTime(row.actualDepartureAt)) : ""}${classicOperationSummary("สถานะไปต่อ", onwardDetail, "drop")}</div>`;
+    const releaseDetail = release ? release.label : "ยังไม่มีกำหนดปล่อย";
+    const releaseSeverity = release?.key === "late" ? "danger" : release?.key === "ontime" && drop.onwardDone ? "safe" : "drop";
+    return `<div class="classic-operation operation-compact drop"><div class="classic-operation-center"><span class="classic-status-chip">${headline}</span></div>${classicOperationFacts(facts)}${classicOperationSummary("SLA ลงของ", summary.text, summary.severity)}${classicOperationSummary("สถานะไปต่อ / ปล่อยรถ", `${releaseDetail} · ${onwardDetail}`, releaseSeverity)}</div>`;
   }
 
   const departure = parseDate(row.actualDepartureAt);
@@ -1641,7 +1667,11 @@ function renderOperation(row) {
   const headline = departure ? "รถออกคลังแล้ว" : routeStillLoading ? "กำลังเตรียมรถออกคลัง" : "รอรถออกคลัง";
   const countdown = departureCountdown(row);
   const releaseSeverity = countdown?.key === "late" ? "danger" : countdown ? "safe" : "neutral";
-  return `<div class="classic-operation origin"><div class="classic-operation-head"><span class="classic-status-chip">${headline}</span></div>${classicOperationRow("กำหนดปล่อยรถ", shortDateTime(planned))}${departure ? classicOperationRow("รถออกจริง", shortDateTime(departure)) : ""}${countdown ? classicOperationSummary("สถานะการปล่อยรถ", countdown.label, releaseSeverity) : classicOperationSummary("สถานะการปล่อยรถ", "ยังไม่มีกำหนดปล่อย", "neutral")}</div>`;
+  const facts = [
+    classicOperationFact("กำหนดปล่อยรถ", shortDateTime(planned), !departure),
+    departure ? classicOperationFact("รถออกจริง", shortDateTime(departure)) : "",
+  ];
+  return `<div class="classic-operation operation-compact origin"><div class="classic-operation-center"><span class="classic-status-chip">${headline}</span></div>${classicOperationFacts(facts)}${countdown ? classicOperationSummary("สถานะการปล่อยรถ", countdown.label, releaseSeverity) : classicOperationSummary("สถานะการปล่อยรถ", "ยังไม่มีกำหนดปล่อย", "neutral")}</div>`;
 }
 
 // LOCAL_ROUTE_BARCODE_V1: destination/drop only. Pure client-side Code 128; no API, MS, or database request.

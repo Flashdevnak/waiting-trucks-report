@@ -10,7 +10,8 @@ const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
 const DAILY_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
 const LEGACY_SCHEDULE_RECOVERY_MARKER =
   "MS_DAILY_COMPLETION_LEGACY_SCHEDULE_RECOVERY_V2";
-const DAILY_CACHE_VERSION = 5;
+const ROUTE_DAY_TRUTH_MARKER = "MS_COMPLETED_ROUTE_DAY_TRUTH_V1";
+const DAILY_CACHE_VERSION = 6;
 
 export function patchMsScheduleCompletionV4(source) {
   let output = String(source || "");
@@ -125,6 +126,44 @@ export function patchMsScheduleCompletionV4(source) {
       `    version: 2,`,
       `    version: ${DAILY_CACHE_VERSION},`,
       "bump daily completion cache envelope",
+    );
+  }
+
+  if (!output.includes(ROUTE_DAY_TRUTH_MARKER)) {
+    output = replaceUnique(
+      output,
+      `function isCompletedForThaiDay(row, day) {
+  const attendance = normalizeMsAttendance(row?.attendanceType);
+  return (
+    !row?.queueCancelledAt &&
+    (attendance === "ปลายทาง" || attendance === "จุดดรอป") &&
+    Number(row?.unloadingState) === 2 &&
+    // ${DAILY_SCHEDULE_MARKER}: daily cards accept observed Route completion or safely matched Schedule E.
+    (row?.completionObservedLive === true || row?.completionSource === "SCHEDULE") &&
+    thaiDayForValue(row?.unloadingCompletedAt) === day
+  );
+}`,
+      `// ${ROUTE_DAY_TRUTH_MARKER}: completed membership comes only from accepted
+// Destination/Drop Route state 2 truth. Completion timestamps remain timing
+// evidence for SLA and never decide whether a completed route is counted.
+function msCompletedRowBusinessDay(row) {
+  const attendance = normalizeMsAttendance(row?.attendanceType);
+  const value = attendance === "ต้นทาง"
+    ? row?.estimatedDepartureAt || row?.actualDepartureAt || row?.estimatedArrivalAt
+    : row?.estimatedArrivalAt || row?.actualArrivalAt || row?.estimatedDepartureAt;
+  return thaiDayForValue(value);
+}
+
+function isCompletedForThaiDay(row, day) {
+  const attendance = normalizeMsAttendance(row?.attendanceType);
+  return (
+    !row?.queueCancelledAt &&
+    (attendance === "ปลายทาง" || attendance === "จุดดรอป") &&
+    Number(row?.unloadingState) === 2 &&
+    msCompletedRowBusinessDay(row) === day
+  );
+}`,
+      "count accepted Route state 2 by the same business day as the upper metric",
     );
   }
 

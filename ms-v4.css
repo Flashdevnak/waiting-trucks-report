@@ -465,3 +465,176 @@
     background: #eaf1f5 !important;
   }
 }
+
+/* MS_COLOR_ONLY_REFERENCE_V9
+   Color-only overrides matched to the approved UI reference. No layout, sizing, data, SLA, queue, source or polling changes. */
+html body.ms-page .route-meta span:nth-child(1) .meta-chip {
+  color: #ffffff !important;
+  background: #202124 !important;
+  border-color: #202124 !important;
+}
+html body.ms-page .route-meta span:nth-child(2) .meta-chip {
+  color: #ffffff !important;
+  background: #3a3a3a !important;
+  border-color: #3a3a3a !important;
+}
+html body.ms-page .route-meta span:nth-child(3) .meta-chip {
+  color: #151515 !important;
+  background: #ffd400 !important;
+  border-color: #e6bf00 !important;
+}
+
+html body.ms-page .attendance-cell .type-badge.inbound {
+  color: #151515 !important;
+  background: #ffd400 !important;
+  border-color: #e6bf00 !important;
+}
+html body.ms-page .attendance-cell .type-badge.outbound {
+  color: #ffffff !important;
+  background: #202124 !important;
+  border-color: #202124 !important;
+}
+html body.ms-page .attendance-cell .type-badge.drop {
+  color: #202124 !important;
+  background: #ffffff !important;
+  border-color: #202124 !important;
+}
+
+html body.ms-page .schedule-stack.single .schedule-heading {
+  color: #202124 !important;
+  background: #f5f5f2 !important;
+  border-bottom-color: #d7d9d6 !important;
+}
+html body.ms-page .timing-chip.ontime {
+  color: #126b32 !important;
+  background: #eef8f0 !important;
+  border-color: #8cc59b !important;
+}
+html body.ms-page .timing-chip.late {
+  color: #c51f2c !important;
+  background: #fdecef !important;
+  border-color: #e8aeb5 !important;
+}
+html body.ms-page .timing-chip.neutral {
+  color: #5b6064 !important;
+  background: #f2f3f1 !important;
+  border-color: #d2d4d1 !important;
+}
+
+html body.ms-page .operation-compact {
+  background: #ffffff !important;
+  border-color: #d2d4d1 !important;
+}
+html body.ms-page .operation-compact .classic-operation-center {
+  background: #fbfbfa !important;
+  border-bottom-color: #e2e3e0 !important;
+}
+html body.ms-page .operation-compact .classic-status-chip {
+  color: #202124 !important;
+  background: #ffffff !important;
+  border-color: #202124 !important;
+}
+
+html body.ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-status-chip,
+html body.ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-status-chip {
+  color: #202124 !important;
+  background: #fff7cf !important;
+  border-color: #e6bf00 !important;
+}
+html body.ms-page .operation-compact.destination.is-working .classic-status-chip,
+html body.ms-page .operation-compact.drop.is-working .classic-status-chip {
+  color: #151515 !important;
+  background: #ffd400 !important;
+  border-color: #e6bf00 !important;
+}
+html body.ms-page .operation-compact.destination.is-done .classic-status-chip,
+html body.ms-page .operation-compact.drop.is-done .classic-status-chip {
+  color: #126b32 !important;
+  background: #eef8f0 !important;
+  border-color: #6aad7a !important;
+}
+html body.ms-page .operation-compact.drop:not(.is-working):not(.is-done) .classic-status-chip {
+  color: #202124 !important;
+  background: #ffffff !important;
+  border-color: #202124 !important;
+}
+html body.ms-page .operation-compact.origin .classic-status-chip {
+  color: #202124 !important;
+  background: #f7f7f5 !important;
+  border-color: #aeb2af !important;
+}
+
+html body.ms-page .operation-compact .classic-operation-facts {
+  background: #dedfdd !important;
+  border-color: #dedfdd !important;
+}
+html body.ms-page .operation-compact .classic-operation-fact {
+  background: #ffffff !important;
+}
+html body.ms-page .operation-compact .classic-operation-summary,
+html body.ms-page .operation-compact .classic-operation-summary.compact-summary,
+html body.ms-page .operation-compact .classic-operation-summary.is-safe,
+html body.ms-page .operation-compact .classic-operation-summary.is-danger,
+html body.ms-page .operation-compact .classic-operation-summary.is-drop {
+  color: #202124 !important;
+  background: #ffffff !important;
+  border-color: #d1d3d0 !important;
+}
+html body.ms-page .operation-compact .classic-operation-summary > span {
+  color: #5b6064 !important;
+  background: #ffffff !important;
+}
+html body.ms-page .operation-compact .classic-operation-summary > strong {
+  color: #202124 !important;
+  background: #ffffff !important;
+  border-left-color: #dedfdd !important;
+}
+html body.ms-page .operation-compact .classic-operation-summary.is-danger > strong {
+  color: #c51f2c !important;
+  background: #fdecef !important;
+}
+html body.ms-page .operation-compact .classic-operation-summary.is-safe > strong {
+  color: #126b32 !important;
+  background: #eef8f0 !important;
+}
+html body.ms-page .operation-compact .classic-operation-summary.is-drop > strong {
+  color: #202124 !important;
+  background: #f5f5f2 !important;
+}
+
+html body.ms-page .origin-manifest-badge {
+  color: #5b6064 !important;
+  background: transparent !important;
+}
+html body.ms-page .origin-manifest-badge > span {
+  color: #5b6064 !important;
+  background: #ffffff !important;
+  border-color: #d1d3d0 !important;
+}
+html body.ms-page .origin-manifest-badge > span:first-child {
+  border-top-color: #ffd400 !important;
+}
+html body.ms-page .origin-manifest-badge > span:last-child {
+  border-top-color: #202124 !important;
+}
+html body.ms-page .origin-manifest-badge strong {
+  color: #151515 !important;
+}
+
+@media (max-width: 1024px) {
+  html body.ms-page .compact-card-tags .compact-work-type .type-badge.inbound {
+    color: #151515 !important;
+    background: #ffd400 !important;
+    border-color: #e6bf00 !important;
+  }
+  html body.ms-page .compact-card-tags .compact-work-type .type-badge.outbound {
+    color: #ffffff !important;
+    background: #202124 !important;
+    border-color: #202124 !important;
+  }
+  html body.ms-page .compact-card-tags .compact-work-type .type-badge.drop {
+    color: #202124 !important;
+    background: #ffffff !important;
+    border-color: #202124 !important;
+  }
+}

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { enrichMsRow, msDate, parseScheduleUnloadingEnd, parseScheduleUnloadingStart, scheduleStoreMatchesHub } from "../src/index.js";
+import { classifyBusTimeFailure, enrichMsRow, msDate, parseScheduleUnloadingEnd, parseScheduleUnloadingStart, scheduleStoreMatchesHub } from "../src/index.js";
 
 test("MS/FBI naive datetime is interpreted as Asia/Bangkok", () => {
   assert.equal(msDate("2026-09-02 03:00:29"), "2026-09-01T20:00:29.000Z");
@@ -82,4 +82,11 @@ test("completion enrichment requires the same barcode and attendance role", () =
   const busData = new Map([["P:P1|A:ปลายทาง", { scheduleUnloadingCompletedAt: "2026-09-08T15:16:26.000Z" }]]);
   assert.equal(enrichMsRow({ proofId: "P1", attendanceType: "ปลายทาง" }, new Map(), busData).scheduleUnloadingCompletedAt, "2026-09-08T15:16:26.000Z");
   assert.equal(enrichMsRow({ proofId: "P1", attendanceType: "ต้นทาง" }, new Map(), busData).scheduleUnloadingCompletedAt, undefined);
+});
+
+
+test("Flash BusTime request limit is not mislabeled as session expiry", () => {
+  assert.deepEqual(classifyBusTimeFailure("Request exceeds the limit"), { code: "BUS_TIME_RATE_LIMIT", status: 429 });
+  assert.deepEqual(classifyBusTimeFailure("Session expired"), { code: "BUS_TIME_SESSION_EXPIRED", status: 502 });
+  assert.deepEqual(classifyBusTimeFailure("unexpected upstream response"), { code: "BUS_TIME_SOURCE_ERROR", status: 502 });
 });

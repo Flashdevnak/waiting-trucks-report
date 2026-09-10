@@ -6,6 +6,28 @@ const CONNECTION_HEARTBEAT_MS = 15 * 60 * 1000;
 const CONNECTOR_HEARTBEAT_MS = 60 * 60 * 1000;
 const recentMsSync = new Map();
 const activeMsSync = new Map();
+// AUTH_VERIFY_READ_CACHE_V2: remove repeated identical user reads from 4-second polling.
+const AUTH_VERIFY_CACHE_MS = 60 * 1000;
+const authVerifyCache = new Map();
+function cachedAuthUser(username, now = Date.now()) {
+  const key = String(username || "").toUpperCase();
+  const cached = authVerifyCache.get(key);
+  if (!cached || cached.until <= now) {
+    if (cached) authVerifyCache.delete(key);
+    return null;
+  }
+  return cached.user;
+}
+function rememberAuthUser(user, now = Date.now()) {
+  if (!user?.username) return;
+  authVerifyCache.set(String(user.username).toUpperCase(), {
+    until: now + AUTH_VERIFY_CACHE_MS,
+    user: { ...user },
+  });
+}
+function invalidateAuthUser(username) {
+  authVerifyCache.delete(String(username || "").toUpperCase());
+}
 const PAUSES = [
   ["pause-1", "ช่วงไม่มีกะ 1", 0, 1],
   ["pause-2", "ช่วงไม่มีกะ 2", 7, 8],
@@ -371,13 +393,16 @@ async function verify(token, env) {
   if (!actor?.username || Date.now() > Number(actor.expiresAt))
     fail("สิทธิ์หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง", "INVALID_SESSION", 401);
 
-  let user;
+  let user = cachedAuthUser(actor.username);
   try {
-    user = await env.DB.prepare(
-      "SELECT username,role,branches,active FROM users WHERE username=?",
-    )
-      .bind(actor.username)
-      .first();
+    if (!user) {
+      user = await env.DB.prepare(
+        "SELECT username,role,branches,active FROM users WHERE username=?",
+      )
+        .bind(actor.username)
+        .first();
+      if (user) rememberAuthUser(user);
+    }
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -770,6 +795,7 @@ async function saveUser(input, actor, env) {
     hash = password
       ? await passHash(username, password, env)
       : old.password_hash;
+  invalidateAuthUser(username);
   await env.DB.prepare(
     "INSERT INTO users VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash,role=excluded.role,branches=excluded.branches,active=excluded.active,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
   )
@@ -795,6 +821,7 @@ async function saveUser(input, actor, env) {
 }
 
 async function setActive(body, actor, env) {
+  invalidateAuthUser(text(body.username, 30).toUpperCase());
   await env.DB.prepare(
     "UPDATE users SET active=?,updated_at=?,updated_by=? WHERE username=?",
   )
@@ -1681,6 +1708,16 @@ async function readPendingParcelPage(credentials, summary, day, page, type = "no
   };
 }
 
+// BUS_TIME_RATE_LIMIT_V11: provider capacity/rate limits are not session expiry.
+export function classifyBusTimeFailure(message) {
+  const value = String(message || "").trim();
+  if (/request\s+exceeds\s+the\s+limit|rate.?limit|too many requests|exceed(?:ed|s)?\s+(?:the\s+)?limit/i.test(value))
+    return { code: "BUS_TIME_RATE_LIMIT", status: 429 };
+  if (/session|token|auth|login|expired|unauthor/i.test(value))
+    return { code: "BUS_TIME_SESSION_EXPIRED", status: 502 };
+  return { code: "BUS_TIME_SOURCE_ERROR", status: 502 };
+}
+
 async function readBusPage(credentials, page, day) {
   const url = new URL("https://fbi-common.flashexpress.com/api/fleet_time/getList");
   for (const key of ["auth", "lang", "fbid", "time", "_from"])
@@ -1700,8 +1737,11 @@ async function readBusPage(credentials, page, day) {
   }});
   if (!response.ok) fail(`ข้อมูลตารางเวลาตอบกลับ ${response.status}`, "BUS_TIME_HTTP_ERROR", 502);
   const json = await response.json();
-  if (Number(json.code) !== 1)
-    fail(json.msg || "เซสชันการจัดการตารางเวลาหมดอายุ", "BUS_TIME_SESSION_EXPIRED", 502);
+  if (Number(json.code) !== 1) {
+    const message = json.msg || json.message || "การจัดการตารางเวลาตอบกลับผิดพลาด";
+    const failure = classifyBusTimeFailure(message);
+    fail(message, failure.code, failure.status);
+  }
   return {
     items: Array.isArray(json.data?.dataList) ? json.data.dataList : [],
     total: Number(json.data?.total) || 0,
@@ -1736,6 +1776,10 @@ async function persistMsConnection(hub, sessionId, deviceId, updatedBy, env) {
       "",
     )
     .run();
+  msCredentialCache.set(hub, {
+    until: Date.now() + MS_CREDENTIAL_CACHE_MS,
+    value: { sessionId, deviceId },
+  });
   await audit(
     env,
     "SAVE_MS_CONNECTION",
@@ -1803,23 +1847,36 @@ async function sha256(value) {
   return [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+// MS_CREDENTIAL_READ_CACHE_V1: avoid rereading unchanged encrypted Route credentials.
+const MS_CREDENTIAL_CACHE_MS = 10 * 60 * 1000;
+const msCredentialCache = new Map();
 async function msCredentials(env, hub) {
+  const key = text(hub, 80).toUpperCase();
+  const cached = msCredentialCache.get(key);
+  if (cached?.until > Date.now()) return cached.value;
   const row = await env.DB.prepare(
     "SELECT session_cipher,device_cipher FROM ms_connections WHERE hub=?",
   )
-    .bind(hub)
+    .bind(key)
     .first();
-  if (row)
-    return {
+  if (row) {
+    const value = {
       sessionId: await decryptMs(row.session_cipher, env),
       deviceId: await decryptMs(row.device_cipher, env),
     };
+    msCredentialCache.set(key, { until: Date.now() + MS_CREDENTIAL_CACHE_MS, value });
+    return value;
+  }
   if (
-    hub === text(env.MS_BRANCH || "NE1", 80).toUpperCase() &&
+    key === text(env.MS_BRANCH || "NE1", 80).toUpperCase() &&
     env.MS_SESSION_ID &&
     env.MS_DEVICE_ID
-  )
-    return { sessionId: env.MS_SESSION_ID, deviceId: env.MS_DEVICE_ID };
+  ) {
+    const value = { sessionId: env.MS_SESSION_ID, deviceId: env.MS_DEVICE_ID };
+    msCredentialCache.set(key, { until: Date.now() + MS_CREDENTIAL_CACHE_MS, value });
+    return value;
+  }
+  msCredentialCache.delete(key);
   return null;
 }
 

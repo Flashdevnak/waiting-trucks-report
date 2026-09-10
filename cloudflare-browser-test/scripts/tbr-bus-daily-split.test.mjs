@@ -11,7 +11,7 @@ const make = (body, status = 200) => new Response(JSON.stringify(body), {
 });
 
 const early = Date.parse("2026-09-05T18:30:00Z");
-const expectedDays = ["2026-09-05", "2026-09-06"];
+const expectedDays = ["2026-09-06"];
 if (JSON.stringify(tbrBusSourceDays(early)) !== JSON.stringify(expectedDays))
   throw new Error(`early Bus source days wrong: ${JSON.stringify(tbrBusSourceDays(early))}`);
 
@@ -38,17 +38,17 @@ const payload = await response.json();
 if (!response.ok) throw new Error("daily Bus split failed");
 if (JSON.stringify(busDays) !== JSON.stringify(expectedDays)) throw new Error(`Bus day calls wrong: ${JSON.stringify(busDays)}`);
 if (maxBusActive !== 1) throw new Error(`Bus day calls must be sequential; max active=${maxBusActive}`);
-if (payload?.data?.tbrShadowFeed?.length !== 2) throw new Error("daily Bus feeds were not merged");
+if (payload?.data?.tbrShadowFeed?.length !== 1) throw new Error("Bus live-cache feed call count changed");
 if (payload?.data?.shadowQuota?.normalTursoPointReadsPerCron !== 4) throw new Error("single-day baseline changed");
-if (payload?.data?.shadowQuota?.currentSteadyStateTursoPointReadsPerCron !== 6) throw new Error("early two-day steady-state accounting must be 6 point reads");
-if (payload?.data?.shadowQuota?.tursoPointReadsPerCron !== 6) throw new Error("actual early read accounting must be 6 without retries");
+if (payload?.data?.shadowQuota?.currentSteadyStateTursoPointReadsPerCron !== 4) throw new Error("Bus cache steady-state must stay at 4 point reads");
+if (payload?.data?.shadowQuota?.tursoPointReadsPerCron !== 4) throw new Error("actual read accounting must be 4 without retries");
 if (payload?.data?.shadowQuota?.tursoWritesPerCron !== 0) throw new Error("daily split must keep Turso writes at zero");
 const split = fs.readFileSync(new URL("./patch-dev-tbr-shadow-split-v2.mjs", import.meta.url), "utf8");
 for (const marker of ["TBR_BUS_DAILY_SPLIT_V9", "shadowDay", "readTbrShadowSnapshot(env, hub, shadowPart, shadowDay)"])
   if (!split.includes(marker)) throw new Error(`DEV split patch missing ${marker}`);
 console.log("TBR_BUS_DAILY_SPLIT_V9=PASS");
-console.log("TBR_BUS_SOURCE_DAYS=2");
+console.log("TBR_BUS_SOURCE_DAYS=1");
 console.log("TBR_BUS_MAX_DAY_CONCURRENCY=1");
 console.log("TBR_SINGLE_DAY_POINT_READS=4");
-console.log("TBR_EARLY_WINDOW_POINT_READS=6");
+console.log("TBR_EARLY_WINDOW_POINT_READS=4");
 console.log("TBR_TURSO_WRITES=0");

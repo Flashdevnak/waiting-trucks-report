@@ -18,11 +18,12 @@ function passHash(username, pin) {
 }
 
 class FakeDB {
-  constructor() {
+  constructor(username = USERNAME, pin = PIN) {
     this.failVerify = false;
+    this.verifyReads = 0;
     this.user = {
-      username: USERNAME,
-      password_hash: passHash(USERNAME, PIN),
+      username,
+      password_hash: passHash(username, pin),
       role: "operator",
       branches: "NE1",
       active: 1,
@@ -38,6 +39,7 @@ class FakeDB {
       async first() {
         if (/SELECT \* FROM users WHERE username=\?/i.test(sql)) return { ...db.user };
         if (/SELECT username,role,branches,active FROM users WHERE username=\?/i.test(sql)) {
+          db.verifyReads += 1;
           if (db.failVerify) throw new Error("simulated Turso auth lookup outage");
           return {
             username: db.user.username,
@@ -74,12 +76,12 @@ function makeEnv(db) {
   };
 }
 
-async function login(env) {
+async function login(env, username = USERNAME, pin = PIN) {
   const response = await worker.fetch(
     new Request("https://test.invalid/api", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "login", username: USERNAME, pin: PIN }),
+      body: JSON.stringify({ action: "login", username, pin }),
     }),
     env,
   );
@@ -117,12 +119,15 @@ test("100 simultaneous device sessions remain independently valid", async () => 
   assert.equal(last.response.status, 200, JSON.stringify(last.json));
   assert.equal(first.json.ok, true);
   assert.equal(last.json.ok, true);
+  assert.equal(db.verifyReads, 1, "same username should reuse one-minute auth verification cache");
 });
 
 test("transient Turso auth lookup failure does not become INVALID_SESSION", async () => {
-  const db = new FakeDB();
+  const outageUsername = "OUTAGE100";
+  const outagePin = "135790";
+  const db = new FakeDB(outageUsername, outagePin);
   const env = makeEnv(db);
-  const session = await login(env);
+  const session = await login(env, outageUsername, outagePin);
 
   db.failVerify = true;
   const outage = await listWithToken(env, session.token);

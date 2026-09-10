@@ -331,11 +331,10 @@ function bangkokSourceDay(nowMs, offsetDays = 0) {
   return new Date(shifted).toISOString().slice(0, 10);
 }
 
+// TBR_BUS_SINGLE_CACHE_CALL_V11: Bus shadow reuses the accepted main live cache.
+// One Bus service call per cron is sufficient; shadowDay no longer creates a source read.
 export function tbrBusSourceDays(nowMs = Date.now()) {
-  const bangkokHour = new Date(Number(nowMs) + 7 * 60 * 60 * 1000).getUTCHours();
-  return bangkokHour < 12
-    ? [bangkokSourceDay(nowMs, -1), bangkokSourceDay(nowMs, 0)]
-    : [bangkokSourceDay(nowMs, 0)];
+  return [bangkokSourceDay(nowMs, 0)];
 }
 
 function mergeTbrBusFeeds(results) {
@@ -394,7 +393,7 @@ export async function sendConnectorSync(env, hub, connectorToken, nowMs = Date.n
         mode: "SHADOW_READONLY_SPLIT_V2_BUS_DAILY_V9",
         normalTursoPointReadsPerCron: 4,
         currentSteadyStateTursoPointReadsPerCron: currentSteadyStateReads,
-        earlyWindowTursoPointReadsPerCron: 6,
+        earlyWindowTursoPointReadsPerCron: 4,
         busSourceDays: busDays.length,
         tursoPointReadsPerCron: pointReads, tursoWritesPerCron: 0,
         browserKvRouteCacheReadsPerCron: 1, browserKvRouteCacheWritesMaxPerDay: 288,

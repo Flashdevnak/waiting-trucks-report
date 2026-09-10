@@ -88,6 +88,9 @@ if (recordedLimit?.data?.code !== "RATE_LIMIT")
 const split = fs.readFileSync(new URL("./patch-dev-tbr-shadow-split-v2.mjs", import.meta.url), "utf8");
 for (const marker of ["TBR_BUS_DAILY_SPLIT_V9", "shadowDay", "readTbrShadowSnapshot(env, hub, shadowPart, shadowDay)"])
   if (!split.includes(marker)) throw new Error(`DEV split patch missing ${marker}`);
+if (!split.includes("TBR_LIVE_CACHE_ENVELOPE_V13") || !split.includes("Array.isArray(parsed?.rows)"))
+  throw new Error("TBR_LIVE_CACHE_ENVELOPE_V13 source contract missing");
+console.log("TBR_LIVE_CACHE_ENVELOPE_V13=PASS");
 console.log("TBR_BUS_DAILY_SPLIT_V9=PASS");
 console.log("TBR_BUS_SOURCE_DAYS=1");
 console.log("TBR_BUS_MAX_DAY_CONCURRENCY=1");

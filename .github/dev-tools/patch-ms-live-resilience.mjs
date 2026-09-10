@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const MARKER = "LIVE_RESILIENCE_V1";
 const TBR_PROVISIONAL_MARKER = "TBR_PROVISIONAL_ARRIVAL_V1";
+const TBR_HARDENING_MARKER = "TBR_INTELLIGENCE_FRONTEND_GATE_V2";
 const PROMOTED_API = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 
 function replaceUnique(output, from, to, label) {
@@ -27,15 +28,15 @@ export function patchMsLiveResilienceFrontend(source) {
     output = replaceUnique(
       output,
       `  archiveView: false,\n  cancelledRouteIds: new Set(),`,
-      `  archiveView: false,\n  cancelledRouteIds: new Set(),\n  transportLastOkAt: 0,\n  transportFailures: 0,`,
-      "add transport health state",
+      `  archiveView: false,\n  cancelledRouteIds: new Set(),\n  transportLastOkAt: 0,\n  transportFailures: 0,\n  tbrIntelligenceHealth: null,`,
+      "add transport and TBR health state",
     );
 
     output = replaceUnique(
       output,
       `    state.syncError = result?.syncError || "";\n    fillFilters();`,
-      `    state.syncError = result?.syncError || "";\n    state.transportLastOkAt = Date.now();\n    state.transportFailures = 0;\n    fillFilters();`,
-      "record successful transport poll",
+      `    state.syncError = result?.syncError || "";\n    state.transportLastOkAt = Date.now();\n    state.transportFailures = 0;\n    state.tbrIntelligenceHealth = result?.tbrIntelligenceHealth || null;\n    fillFilters();`,
+      "record successful transport poll and piggyback TBR health",
     );
 
     output = replaceUnique(
@@ -52,69 +53,99 @@ export function patchMsLiveResilienceFrontend(source) {
     output = replaceUnique(output, oldApiGet, newApiGet, "harden GET JSON transport");
   }
 
-  if (output.includes(TBR_PROVISIONAL_MARKER)) return output;
+  if (output.includes(TBR_HARDENING_MARKER)) return output;
+
+  if (!output.includes(TBR_PROVISIONAL_MARKER)) {
+    output = replaceUnique(
+      output,
+      `function confirmedEffectiveArrival(row) {\n  return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;\n}`,
+      `function confirmedEffectiveArrival(row) {\n  return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;\n}\n\n// ${TBR_PROVISIONAL_MARKER}: operational arrival may start from the TBR candidate\n// already present on the same Route row. Route remains final confirmation.\n// ${TBR_HARDENING_MARKER}: provisional admission is fail-closed and requires the\n// same HUB's fresh, LIVE, source-available Intelligence gate piggybacked on msRoutes.\n// No extra API request, MS polling, Turso read/write or client timer is created.\nconst TBR_INTELLIGENCE_HEALTH_MAX_AGE_MS = 3 * 60 * 1000;\nconst TBR_INTELLIGENCE_HEALTH_FUTURE_MS = 90 * 1000;\nfunction tbrIntelligenceAllowsProvisional(row, now = new Date()) {\n  const health = state.tbrIntelligenceHealth;\n  if (!health || health.allowed !== true) return false;\n  const branch = String(state.branch || \"\").trim().toUpperCase();\n  const rowHub = String(row?.hub || branch).trim().toUpperCase();\n  const healthHub = String(health.hub || \"\").trim().toUpperCase();\n  if (!branch || rowHub !== branch || healthHub !== branch) return false;\n  if (![\"ADVISORY_READY\", \"PRODUCTION_CANDIDATE\"].includes(String(health.readinessStatus || \"\"))) return false;\n  if (health.advisoryAllowedNow !== true) return false;\n  if (String(health.observerStatus || \"\") !== \"LIVE\") return false;\n  if (health.sourceAvailable !== true || health.routeFallback === true) return false;\n  const observed = parseDate(health.observedAt);\n  const nowDate = parseDate(now) || new Date();\n  if (!observed) return false;\n  const ageMs = nowDate.getTime() - observed.getTime();\n  return ageMs >= -TBR_INTELLIGENCE_HEALTH_FUTURE_MS && ageMs <= TBR_INTELLIGENCE_HEALTH_MAX_AGE_MS;\n}\nfunction tbrProvisionalArrival(row, now = new Date()) {\n  if (!(isDestination(row) || isDrop(row))) return null;\n  if (!tbrIntelligenceAllowsProvisional(row, now)) return null;\n  if (parseDate(row.actualArrivalAt) || row.queueCancelledAt) return null;\n  if (!String(row.proofId || \"\").trim()) return null;\n  const tbr = parseDate(row.scheduleTbrArrivalAt);\n  if (!tbr) return null;\n  const nowDate = parseDate(now) || new Date();\n  if (tbr.getTime() > nowDate.getTime() + 90 * 1000) return null;\n  const planned = parseDate(row.estimatedArrivalAt);\n  if (planned && Math.abs(tbr.getTime() - planned.getTime()) > 18 * 60 * 60 * 1000) return null;\n  const kit = parseDate(row.scheduleKitArrivalAt);\n  if (kit && Math.abs(kit.getTime() - tbr.getTime()) > 15 * 60 * 1000) return null;\n  return tbr;\n}\nfunction operationalArrival(row, now = new Date()) {\n  return parseDate(row.actualArrivalAt)\n    ? effectiveArrival(row)\n    : tbrProvisionalArrival(row, now);\n}\nfunction operationalArrivalAuthority(row, now = new Date()) {\n  if (parseDate(row.actualArrivalAt)) return \"ROUTE_CONFIRMED\";\n  return tbrProvisionalArrival(row, now) ? \"TBR_PROVISIONAL\" : \"NONE\";\n}`,
+      "add health-gated truth-safe TBR provisional arrival policy",
+    );
+
+    output = replaceUnique(
+      output,
+      `function routeState(row, now = new Date()) {\n  const eta = parseDate(row.estimatedArrivalAt);\n  const routeArrival = parseDate(row.actualArrivalAt);\n  const arrival = routeArrival ? effectiveArrival(row) : null;`,
+      `function routeState(row, now = new Date()) {\n  const eta = parseDate(row.estimatedArrivalAt);\n  const routeArrival = parseDate(row.actualArrivalAt);\n  const arrival = operationalArrival(row, now);`,
+      "allow TBR provisional state before Route confirmation",
+    );
+
+    output = replaceUnique(
+      output,
+      `  if (routeArrival)\n    return {\n      key: "arrived",\n      label: "มาถึงแล้ว",`,
+      `  if (arrival)\n    return {\n      key: "arrived",\n      label: routeArrival ? "มาถึงแล้ว" : "TBR รอ Route",`,
+      "label provisional arrival without claiming Route truth",
+    );
+
+    output = replaceUnique(
+      output,
+      `function queueInfo(row, now = new Date()) {\n  const routeArrival = parseDate(row.actualArrivalAt),\n    arrival = routeArrival ? effectiveArrival(row) : null,\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
+      `function queueInfo(row, now = new Date()) {\n  const routeArrival = parseDate(row.actualArrivalAt),\n    arrival = operationalArrival(row, now),\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
+      "start queue age from operational arrival",
+    );
+
+    output = replaceUnique(
+      output,
+      `    active = Boolean(routeArrival) && !done && !cancelled && ageHours <= 12;`,
+      `    active = Boolean(arrival) && !done && !cancelled && ageHours <= 12;`,
+      "admit trusted TBR provisional rows to queue",
+    );
+
+    output = replaceUnique(
+      output,
+      `    expired: Boolean(routeArrival) && !done && !cancelled && ageHours > 12,`,
+      `    expired: Boolean(arrival) && !done && !cancelled && ageHours > 12,`,
+      "expire provisional queue rows by same 12-hour policy",
+    );
+
+    output = replaceUnique(
+      output,
+      `function waitInfo(row) {\n  const start = confirmedEffectiveArrival(row),`,
+      `function waitInfo(row) {\n  const start = operationalArrival(row),`,
+      "start waiting timer from provisional TBR arrival",
+    );
+
+    output = replaceUnique(
+      output,
+      `function dropOperation(row) {\n  const unloadingState = Number(row.unloadingState);\n  const arrival = parseDate(row.actualArrivalAt);`,
+      `function dropOperation(row) {\n  const unloadingState = Number(row.unloadingState);\n  const arrival = operationalArrival(row);`,
+      "show drop arrival from the same provisional policy",
+    );
+
+    output = replaceUnique(
+      output,
+      `      const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;\n      const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;`,
+      `      const aTime = (operationalArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;\n      const bTime = (operationalArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;`,
+      "sort live queue by operational arrival",
+    );
+  }
 
   output = replaceUnique(
     output,
-    `function confirmedEffectiveArrival(row) {\n  return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;\n}`,
-    `function confirmedEffectiveArrival(row) {\n  return parseDate(row.actualArrivalAt) ? effectiveArrival(row) : null;\n}\n\n// ${TBR_PROVISIONAL_MARKER}: operational arrival may start from the TBR candidate\n// already present on the same Route row. No extra API request, MS polling, DB read or write.\n// Route remains the final confirmation source; TBR is explicitly provisional until Route arrives.\nfunction tbrProvisionalArrival(row, now = new Date()) {\n  if (!(isDestination(row) || isDrop(row))) return null;\n  if (parseDate(row.actualArrivalAt) || row.queueCancelledAt) return null;\n  if (!String(row.proofId || \"\").trim()) return null;\n  const tbr = parseDate(row.scheduleTbrArrivalAt);\n  if (!tbr) return null;\n  const nowDate = parseDate(now) || new Date();\n  if (tbr.getTime() > nowDate.getTime() + 90 * 1000) return null;\n  const planned = parseDate(row.estimatedArrivalAt);\n  if (planned && Math.abs(tbr.getTime() - planned.getTime()) > 18 * 60 * 60 * 1000) return null;\n  const kit = parseDate(row.scheduleKitArrivalAt);\n  if (kit && Math.abs(kit.getTime() - tbr.getTime()) > 15 * 60 * 1000) return null;\n  return tbr;\n}\nfunction operationalArrival(row, now = new Date()) {\n  return parseDate(row.actualArrivalAt)\n    ? effectiveArrival(row)\n    : tbrProvisionalArrival(row, now);\n}\nfunction operationalArrivalAuthority(row, now = new Date()) {\n  if (parseDate(row.actualArrivalAt)) return \"ROUTE_CONFIRMED\";\n  return tbrProvisionalArrival(row, now) ? \"TBR_PROVISIONAL\" : \"NONE\";\n}`,
-    "add truth-safe TBR provisional arrival policy",
+    `  // MS_SLA_EARLIEST_ARRIVAL_V2: Route confirms arrival; SLA uses earliest matched Route/KIT/TBR.\n  const arrival = confirmedEffectiveArrival(row);`,
+    `  // MS_SLA_EARLIEST_ARRIVAL_V2: completed/confirmed truth stays Route-backed.\n  // While TBR is provisionally admitted, this local timing value is used only for\n  // the visible wait timer; \"SLA Route\" remains blank until Route confirms.\n  const arrival = completed\n    ? confirmedEffectiveArrival(row)\n    : operationalArrival(row, now);`,
+    "let provisional card timer use operational arrival without altering completed truth",
   );
 
   output = replaceUnique(
     output,
-    `function routeState(row, now = new Date()) {\n  const eta = parseDate(row.estimatedArrivalAt);\n  const routeArrival = parseDate(row.actualArrivalAt);\n  const arrival = routeArrival ? effectiveArrival(row) : null;`,
-    `function routeState(row, now = new Date()) {\n  const eta = parseDate(row.estimatedArrivalAt);\n  const routeArrival = parseDate(row.actualArrivalAt);\n  const arrival = operationalArrival(row, now);`,
-    "allow TBR provisional state before Route confirmation",
+    `    const summary = unloadSlaSummary(timing);\n    const currentSlaOver = timing.standard !== null && timing.slaMinutes !== null && timing.slaMinutes > timing.standard;\n    const headline = done ? timing.finish ? "ลงรถเสร็จ" : "ลงรถเสร็จ รอยืนยันเวลา" : active ? "กำลังลงรถ" : timing.arrival ? "รอเริ่มลงรถ" : "รอรถถึงคลัง";\n    const statusClass = currentSlaOver ? "is-danger" : active ? "is-working" : done ? "is-done" : "is-waiting";`,
+    `    const summary = unloadSlaSummary(timing);\n    const provisional = !active && !done && operationalArrivalAuthority(row) === "TBR_PROVISIONAL";\n    const provisionalElapsed = provisional && timing.slaMinutes !== null\n      ? Math.max(0, timing.slaMinutes)\n      : null;\n    const provisionalDelta = provisional && timing.standard !== null && provisionalElapsed !== null\n      ? provisionalElapsed - timing.standard\n      : null;\n    const visibleSummary = provisional\n      ? provisionalElapsed === null\n        ? { text: "กำลังนับเวลารอจาก TBR", severity: "neutral" }\n        : provisionalDelta !== null && provisionalDelta > 0\n          ? { text: \`เกินมาตรฐาน \${nf.format(provisionalDelta)} นาที\`, severity: "danger" }\n          : { text: \`รอมาแล้ว \${nf.format(provisionalElapsed)} นาที\`, severity: "neutral" }\n      : summary;\n    const currentSlaOver = timing.standard !== null && timing.slaMinutes !== null && timing.slaMinutes > timing.standard;\n    const headline = provisional\n      ? "รอ Route ยืนยันถึงคลัง"\n      : done\n        ? timing.finish ? "ลงรถเสร็จ" : "ลงรถเสร็จ รอยืนยันเวลา"\n        : active\n          ? "กำลังลงรถ"\n          : timing.arrival ? "รอเริ่มลงรถ" : "รอรถถึงคลัง";\n    const statusClass = provisional ? "is-waiting" : currentSlaOver ? "is-danger" : active ? "is-working" : done ? "is-done" : "is-waiting";`,
+    "show explicit provisional headline and local wait summary",
   );
 
   output = replaceUnique(
     output,
-    `  if (routeArrival)\n    return {\n      key: "arrived",\n      label: "มาถึงแล้ว",`,
-    `  if (arrival)\n    return {\n      key: "arrived",\n      label: routeArrival ? "มาถึงแล้ว" : "TBR รอ Route",`,
-    "label provisional arrival without claiming Route truth",
+    `      classicOperationFact("SLA Route", timing.slaMinutes === null ? "-" : \`${'${nf.format(timing.slaMinutes)}'} นาที\`),`,
+    `      classicOperationFact("SLA Route", provisional || timing.slaMinutes === null ? "-" : \`${'${nf.format(timing.slaMinutes)}'} นาที\`),`,
+    "keep SLA Route blank until Route confirms",
   );
 
   output = replaceUnique(
     output,
-    `function queueInfo(row, now = new Date()) {\n  const routeArrival = parseDate(row.actualArrivalAt),\n    arrival = routeArrival ? effectiveArrival(row) : null,\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
-    `function queueInfo(row, now = new Date()) {\n  const routeArrival = parseDate(row.actualArrivalAt),\n    arrival = operationalArrival(row, now),\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
-    "start queue age from operational arrival",
-  );
-
-  output = replaceUnique(
-    output,
-    `    active = Boolean(routeArrival) && !done && !cancelled && ageHours <= 12;`,
-    `    active = Boolean(arrival) && !done && !cancelled && ageHours <= 12;`,
-    "admit trusted TBR provisional rows to queue",
-  );
-
-  output = replaceUnique(
-    output,
-    `    expired: Boolean(routeArrival) && !done && !cancelled && ageHours > 12,`,
-    `    expired: Boolean(arrival) && !done && !cancelled && ageHours > 12,`,
-    "expire provisional queue rows by same 12-hour policy",
-  );
-
-  output = replaceUnique(
-    output,
-    `function waitInfo(row) {\n  const start = confirmedEffectiveArrival(row),`,
-    `function waitInfo(row) {\n  const start = operationalArrival(row),`,
-    "start waiting timer from provisional TBR arrival",
-  );
-
-  output = replaceUnique(
-    output,
-    `function dropOperation(row) {\n  const unloadingState = Number(row.unloadingState);\n  const arrival = parseDate(row.actualArrivalAt);`,
-    `function dropOperation(row) {\n  const unloadingState = Number(row.unloadingState);\n  const arrival = operationalArrival(row);`,
-    "show drop arrival from the same provisional policy",
-  );
-
-  output = replaceUnique(
-    output,
-    `      const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;\n      const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;`,
-    `      const aTime = (operationalArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;\n      const bTime = (operationalArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;`,
-    "sort live queue by operational arrival",
+    `    return \`<div class="classic-operation operation-compact destination \${statusClass}"><div class="classic-operation-center"><span class="classic-status-chip">\${headline}</span></div>\${classicOperationFacts(facts)}\${classicOperationSummary(done ? "สรุป" : "สถานะ", summary.text, summary.severity)}</div>\`;`,
+    `    return \`<div class="classic-operation operation-compact destination \${statusClass}"><div class="classic-operation-center"><span class="classic-status-chip">\${headline}</span></div>\${classicOperationFacts(facts)}\${classicOperationSummary(done ? "สรุป" : "สถานะ", visibleSummary.text, visibleSummary.severity)}</div>\`;`,
+    "render provisional elapsed/over-standard text in bottom status row",
   );
 
   return output;

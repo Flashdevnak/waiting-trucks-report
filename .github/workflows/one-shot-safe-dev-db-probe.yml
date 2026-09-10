@@ -13,117 +13,36 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     env:
-      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
-      TURSO_ORG: flashdevnak
-      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
       WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
       BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
     steps:
-      - name: Verify DEV public runtime without DB reads
+      - name: Inspect real Route/TBR shadow without Turso
         shell: bash
         run: |
           node <<'NODE'
-          const [healthRes, browserRes] = await Promise.all([
+          const [healthRes, shadowRes] = await Promise.all([
             fetch(`${process.env.WORKER_ORIGIN}/api?action=health`, {cache:'no-store'}),
-            fetch(`${process.env.BROWSER_ORIGIN}/api/config`, {cache:'no-store'}),
+            fetch(`${process.env.BROWSER_ORIGIN}/api/shadow-tbr?hub=NE1`, {cache:'no-store'}),
           ]);
           const health = await healthRes.json();
-          const browserBody = await browserRes.json();
+          const shadow = await shadowRes.json();
           if (!healthRes.ok || !health?.ok) throw new Error(`Worker health failed ${healthRes.status}`);
-          if (!browserRes.ok || !browserBody?.ok) throw new Error(`Browser health failed ${browserRes.status}`);
+          if (!shadowRes.ok || !shadow?.ok) throw new Error(`Shadow endpoint failed ${shadowRes.status}`);
           console.log('WORKER_HEALTH=PASS');
-          console.log('BROWSER_HEALTH=PASS');
-          console.log('PUBLIC_HEALTH_DB_READS=0');
-          NODE
-
-      - name: Diagnose real NE1 readiness using only five point reads
-        shell: bash
-        run: |
-          node <<'NODE'
-          const org = process.env.TURSO_ORG;
-          const db = process.env.TURSO_DATABASE;
-          const platform = process.env.TURSO_PLATFORM_API_TOKEN;
-          if (!platform) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
-          const platformHeaders = {Authorization:`Bearer ${platform}`};
-          const dbRes = await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`, {headers:platformHeaders});
-          const dbJson = await dbRes.json();
-          if (!dbRes.ok) throw new Error(`Turso database lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
-          const database = dbJson.database || dbJson;
-          const hostname = database.Hostname || database.hostname;
-          if (!hostname) throw new Error('Turso hostname missing');
-          const tokenRes = await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`, {method:'POST', headers:platformHeaders});
-          const tokenJson = await tokenRes.json();
-          const dbToken = tokenJson.jwt;
-          if (!tokenRes.ok || !dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
-          console.log(`::add-mask::${dbToken}`);
-
-          let totalRowsRead = 0;
-          async function query(label, sql) {
-            const response = await fetch(`https://${hostname}/v2/pipeline`, {
-              method:'POST',
-              headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
-              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
-            });
-            const payload = await response.json();
-            const item = payload?.results?.[0];
-            if (!response.ok || item?.type === 'error') throw new Error(`${label} failed: ${JSON.stringify(item?.error || payload)}`);
-            const result = item?.response?.result || {};
-            const rowsRead = Number(result.rows_read || 0);
-            totalRowsRead += rowsRead;
-            console.log(`${label}_ROWS_READ=${rowsRead}`);
-            if (rowsRead >= 100000) throw new Error(`${label} exceeded heavy-read threshold: ${rowsRead}`);
-            return result;
-          }
-          const decode = value => value == null ? null : (typeof value === 'object' && 'value' in value ? value.value : value);
-          const first = result => (result?.rows?.[0] || []).map(decode);
-          const age = value => {
-            const parsed = Date.parse(String(value || ''));
-            return Number.isFinite(parsed) ? Math.max(0, Math.round((Date.now() - parsed) / 1000)) : -1;
-          };
-
-          const connector = first(await query('CONNECTOR', "SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"));
-          const live = first(await query('LIVE_CACHE', "SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub='NE1' LIMIT 1"));
-          const route = first(await query('ROUTE', "SELECT hub,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"));
-          const preentry = first(await query('PREENTRY', "SELECT hub,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"));
-          const bus = first(await query('BUS', "SELECT hub,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"));
-
-          const liveRows = Number(live?.[2] || 0);
-          const connectorReady = String(connector?.[0] || '') === 'NE1' && Number(connector?.[1] || 0) === 1;
-          const routeAge = age(route?.[1]);
-          const preentryAge = age(preentry?.[1]);
-          const busAge = age(bus?.[1]);
-          const routeError = String(route?.[2] || '');
-          const preentryError = String(preentry?.[2] || '');
-          const busError = String(bus?.[2] || '');
-
-          console.log(`CONNECTOR_ACTIVE=${connectorReady}`);
-          console.log(`CONNECTOR_LAST_USED=${connector?.[2] || '-'}`);
-          console.log(`LIVE_SNAPSHOT_AT=${live?.[1] || '-'}`);
-          console.log(`LIVE_ROWS=${liveRows}`);
-          console.log(`ROUTE_LAST_SUCCESS=${route?.[1] || '-'} AGE_SECONDS=${routeAge} ERROR=${routeError || '-'}`);
-          console.log(`PREENTRY_LAST_SUCCESS=${preentry?.[1] || '-'} AGE_SECONDS=${preentryAge} ERROR=${preentryError || '-'}`);
-          console.log(`BUS_LAST_SUCCESS=${bus?.[1] || '-'} AGE_SECONDS=${busAge} ERROR=${busError || '-'}`);
-          console.log(`TOTAL_BOUNDED_ROWS_READ=${totalRowsRead}`);
-
-          const routeReady = Boolean(route?.[1]) && !routeError && routeAge >= 0 && routeAge <= 20*60;
-          const preentryReady = Boolean(preentry?.[1]) && !preentryError && preentryAge >= 0 && preentryAge <= 20*60;
-          const busReady = Boolean(bus?.[1]) && !busError && busAge >= 0 && busAge <= 20*60;
-          console.log(`ROUTE_READY=${routeReady}`);
-          console.log(`PREENTRY_READY=${preentryReady}`);
-          console.log(`BUS_READY=${busReady}`);
-          console.log(`HEAVY_READ_TRIGGERED=${totalRowsRead >= 100000 ? 1 : 0}`);
-          console.log('D1_QUERIES=0');
-
-          const failures = [];
-          if (!connectorReady) failures.push('connector');
-          if (!Number.isFinite(liveRows) || liveRows <= 0) failures.push('live_cache_empty');
-          if (!routeReady) failures.push('route');
-          if (!preentryReady) failures.push('preentry');
-          if (!busReady) failures.push('bus');
-          if (totalRowsRead >= 100000) failures.push('read_budget');
-          if (failures.length) throw new Error(`REAL_DEV_NOT_READY: ${failures.join(',')}`);
-
-          console.log('REAL_NE1_DATA=PASS');
-          console.log('ALL_MS_SESSIONS_READY=true');
-          console.log('QUOTA_SAFE_POINT_READS=PASS');
+          console.log(`SHADOW_OBSERVER_STATUS=${shadow.observerStatus}`);
+          console.log(`SHADOW_SOURCE_AVAILABLE=${shadow.sourceAvailable}`);
+          console.log(`SHADOW_LAST_ATTEMPT_AT=${shadow.lastAttemptAt || '-'}`);
+          console.log(`SHADOW_LAST_OBSERVED_AT=${shadow.lastObservedAt || '-'}`);
+          console.log(`SHADOW_ROUTE_ROWS=${shadow.rowCount ?? '-'}`);
+          console.log(`SHADOW_TBR_FEED=${shadow.feedCount ?? '-'}`);
+          console.log(`SHADOW_ROUTE_FALLBACK=${Boolean(shadow.routeFallback)}`);
+          console.log(`SHADOW_ROUTE_SOURCE_ERROR=${shadow.routeSourceError ? JSON.stringify(shadow.routeSourceError) : '-'}`);
+          console.log(`SHADOW_LAST_SKIP=${shadow.lastSkip || '-'}`);
+          console.log(`SHADOW_REPORTED_TURSO_READS=${shadow.tursoReads}`);
+          console.log(`SHADOW_REPORTED_TURSO_WRITES=${shadow.tursoWrites}`);
+          if (Number(shadow.tursoReads || 0) !== 0 || Number(shadow.tursoWrites || 0) !== 0)
+            throw new Error('Shadow report unexpectedly consumes Turso quota');
+          if (shadow.observerStatus === 'STALE' || shadow.observerStatus === 'NEVER_OBSERVED')
+            throw new Error(`Shadow observer not current: ${shadow.observerStatus}`);
+          console.log('ZERO_TURSO_REAL_SOURCE_DIAGNOSTIC=PASS');
           NODE

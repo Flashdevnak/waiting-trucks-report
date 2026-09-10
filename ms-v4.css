@@ -707,3 +707,13 @@ html body.ms-page .operation-compact .classic-status-chip {
     text-align: center;
   }
 }
+
+/* MS_MOBILE_VEHICLE_FLASH_YELLOW_V12
+   Mobile/tablet card vehicle type (e.g. 6W7.2) uses the same Flash yellow as the rest of the mobile visual system. */
+@media (max-width: 1024px) {
+  html body.ms-page .compact-card-tags .vehicle-chip {
+    color: #151515 !important;
+    background: #ffd400 !important;
+    border-color: #e6bf00 !important;
+  }
+}

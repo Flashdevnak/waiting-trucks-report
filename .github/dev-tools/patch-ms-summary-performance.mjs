@@ -41,7 +41,7 @@ export function patchMsSummaryPerformanceFrontend(source) {
   output = replaceUnique(
     output,
     `            const completed = await apiGet("msCompletedToday", { branch: state.branch });\n            const completedRows = Array.isArray(completed?.rows) ? completed.rows : [];`,
-    `            const cachedCompletedRows = state.archiveRows.filter(isCompletedToday);\n            const expectedCompleted = Number(state.completedToday) || 0;\n            const completed =\n              cachedCompletedRows.length === expectedCompleted\n                ? { rows: cachedCompletedRows, total: expectedCompleted }\n                : await apiGet("msCompletedToday", { branch: state.branch });\n            const completedRows = Array.isArray(completed?.rows) ? completed.rows : [];`,
+    `            const cachedCompletedRows = state.archiveRows.filter((row) => isCompletedToday(row));\n            const expectedCompleted = Number(state.completedToday) || 0;\n            const completed =\n              cachedCompletedRows.length === expectedCompleted\n                ? { rows: cachedCompletedRows, total: expectedCompleted }\n                : await apiGet("msCompletedToday", { branch: state.branch });\n            const completedRows = Array.isArray(completed?.rows) ? completed.rows : [];`,
     "reuse completed rows already loaded in browser",
   );
 

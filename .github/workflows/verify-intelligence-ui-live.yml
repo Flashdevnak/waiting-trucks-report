@@ -18,22 +18,32 @@ jobs:
         run: |
           node <<'NODE'
           const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
-          async function html(path){
-            const r=await fetch(origin+path,{headers:{accept:'text/html'},cache:'no-store'});
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function html(path,stamp){
+            const join=path.includes('?')?'&':'?';
+            const r=await fetch(origin+path+join+'ui_verify='+stamp,{headers:{accept:'text/html','cache-control':'no-cache'},cache:'no-store'});
             const text=await r.text();
             if(!r.ok) throw new Error(`${path} HTTP ${r.status}`);
             return text;
           }
-          const [errorPage,tbrPage]=await Promise.all([
-            html('/api/connection-error?hub=NE1'),
-            html('/shadow-tbr?hub=NE1'),
-          ]);
-          for(const [name,text] of [['Error',errorPage],['TBR',tbrPage]]){
-            if(!text.includes('HUB ในระบบ')) throw new Error(`${name} live page missing HUB selector`);
-            if(!text.includes('Error Intelligence')) throw new Error(`${name} live page missing Error Intelligence tab`);
-            if(!text.includes('TBR Intelligence')) throw new Error(`${name} live page missing TBR Intelligence tab`);
+          let last='';
+          for(let attempt=1;attempt<=12;attempt++){
+            const stamp=Date.now();
+            const [errorPage,tbrPage]=await Promise.all([
+              html('/api/connection-error?hub=NE1',stamp),
+              html('/shadow-tbr?hub=NE1',stamp),
+            ]);
+            const errorOk=errorPage.includes('HUB ในระบบ')&&errorPage.includes('Error Intelligence')&&errorPage.includes('TBR Intelligence');
+            const tbrOk=tbrPage.includes('HUB ในระบบ')&&tbrPage.includes('Error Intelligence')&&tbrPage.includes('TBR Intelligence');
+            console.log(`ATTEMPT=${attempt} ERROR_UI=${errorOk} TBR_UI=${tbrOk}`);
+            if(errorOk&&tbrOk){
+              console.log('INTELLIGENCE_LIVE_HUB_FILTER=PASS');
+              console.log('INTELLIGENCE_LIVE_TABS=PASS');
+              console.log('EXTRA_MS_POLLING_FOR_VERIFY=0');
+              process.exit(0);
+            }
+            last=`error=${errorOk} tbr=${tbrOk}`;
+            await sleep(5000);
           }
-          console.log('INTELLIGENCE_LIVE_HUB_FILTER=PASS');
-          console.log('INTELLIGENCE_LIVE_TABS=PASS');
-          console.log('EXTRA_MS_POLLING_FOR_VERIFY=0');
+          throw new Error(`Live Intelligence UI still missing after retry: ${last}`);
           NODE

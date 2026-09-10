@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import fs from "node:fs";
-import worker from "../src/index.js";
+import worker, { classifyAuthReadFailure } from "../src/index.js";
 
 const DAY_MS = 86400000;
 const SESSION_MS = 180 * DAY_MS;
@@ -20,6 +20,11 @@ function passHash(username, pin) {
 class FakeDB {
   constructor(username = USERNAME, pin = PIN) {
     this.failVerify = false;
+    this.failLogin = false;
+    this.loginError = null;
+    this.verifyError = null;
+    this.verifyDelayMs = 0;
+    this.loginReads = 0;
     this.verifyReads = 0;
     this.user = {
       username,
@@ -37,10 +42,17 @@ class FakeDB {
     const db = this;
     const bound = (args = []) => ({
       async first() {
-        if (/SELECT \* FROM users WHERE username=\?/i.test(sql)) return { ...db.user };
+        if (/SELECT \* FROM users WHERE username=\?/i.test(sql)) {
+          db.loginReads += 1;
+          if (db.failLogin) throw db.loginError || new Error("simulated Turso login outage");
+          return { ...db.user };
+        }
         if (/SELECT username,role,branches,active FROM users WHERE username=\?/i.test(sql)) {
           db.verifyReads += 1;
-          if (db.failVerify) throw new Error("simulated Turso auth lookup outage");
+          if (db.verifyDelayMs)
+            await new Promise((resolve) => setTimeout(resolve, db.verifyDelayMs));
+          if (db.failVerify)
+            throw db.verifyError || new Error("simulated Turso auth lookup outage");
           return {
             username: db.user.username,
             role: db.user.role,
@@ -99,6 +111,22 @@ async function listWithToken(env, token) {
   return { response, json: await response.json() };
 }
 
+function makeSessionToken(username, role = "operator", branches = ["NE1"]) {
+  const payload = Buffer.from(
+    JSON.stringify({
+      username,
+      role,
+      branches,
+      expiresAt: Date.now() + SESSION_MS,
+      nonce: randomUUID(),
+    }),
+  ).toString("base64url");
+  const signature = createHmac("sha256", AUTH_SECRET)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${signature}`;
+}
+
 test("100 simultaneous device sessions remain independently valid", async () => {
   const db = new FakeDB();
   const env = makeEnv(db);
@@ -113,13 +141,20 @@ test("100 simultaneous device sessions remain independently valid", async () => 
     assert.ok(ttl <= SESSION_MS + 10000, `TTL too long: ${ttl}`);
   }
 
-  const first = await listWithToken(env, sessions[0].token);
-  const last = await listWithToken(env, sessions[99].token);
+  const [first, last] = await Promise.all([
+    listWithToken(env, sessions[0].token),
+    listWithToken(env, sessions[99].token),
+  ]);
   assert.equal(first.response.status, 200, JSON.stringify(first.json));
   assert.equal(last.response.status, 200, JSON.stringify(last.json));
   assert.equal(first.json.ok, true);
   assert.equal(last.json.ok, true);
-  assert.equal(db.verifyReads, 1, "same username should reuse one-minute auth verification cache");
+  assert.equal(db.loginReads, 100, "each password submission is validated once");
+  assert.equal(
+    db.verifyReads,
+    0,
+    "successful login should seed verification and avoid an immediate duplicate Turso read",
+  );
 });
 
 test("transient Turso auth lookup failure does not become INVALID_SESSION", async () => {
@@ -127,19 +162,95 @@ test("transient Turso auth lookup failure does not become INVALID_SESSION", asyn
   const outagePin = "135790";
   const db = new FakeDB(outageUsername, outagePin);
   const env = makeEnv(db);
-  const session = await login(env, outageUsername, outagePin);
+  const token = makeSessionToken(outageUsername);
 
   db.failVerify = true;
-  const outage = await listWithToken(env, session.token);
+  const outage = await listWithToken(env, token);
   assert.equal(outage.response.status, 503, JSON.stringify(outage.json));
   assert.equal(outage.json.ok, false);
   assert.equal(outage.json.code, "AUTH_VERIFY_UNAVAILABLE");
   assert.notEqual(outage.json.code, "INVALID_SESSION");
 
   db.failVerify = false;
-  const recovered = await listWithToken(env, session.token);
+  const recovered = await listWithToken(env, token);
   assert.equal(recovered.response.status, 200, JSON.stringify(recovered.json));
   assert.equal(recovered.json.ok, true);
+});
+
+test("concurrent initial API requests coalesce to one Turso authorization read", async () => {
+  const username = "COALESCE100";
+  const db = new FakeDB(username, "112233");
+  db.verifyDelayMs = 20;
+  const env = makeEnv(db);
+  const token = makeSessionToken(username);
+
+  const results = await Promise.all(
+    Array.from({ length: 25 }, () => listWithToken(env, token)),
+  );
+  for (const result of results) {
+    assert.equal(result.response.status, 200, JSON.stringify(result.json));
+    assert.equal(result.json.ok, true);
+  }
+  assert.equal(db.verifyReads, 1);
+});
+
+test("Turso provider read limit during login is not INVALID_LOGIN", async () => {
+  const username = "LOGINLIMIT100";
+  const db = new FakeDB(username, "445566");
+  db.failLogin = true;
+  db.loginError = Object.assign(new Error("SQL read operations are forbidden"), {
+    code: "TURSO_HTTP_ERROR",
+  });
+  const env = makeEnv(db);
+  const response = await worker.fetch(
+    new Request("https://test.invalid/api", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "login", username, pin: "445566" }),
+    }),
+    env,
+  );
+  const json = await response.json();
+  assert.equal(response.status, 503, JSON.stringify(json));
+  assert.equal(json.code, "AUTH_PROVIDER_LIMIT");
+  assert.notEqual(json.code, "INVALID_LOGIN");
+  assert.notEqual(json.code, "INVALID_SESSION");
+});
+
+test("Turso provider read limit during token verification preserves the session", async () => {
+  const username = "VERIFYLIMIT100";
+  const db = new FakeDB(username, "778899");
+  const env = makeEnv(db);
+  const token = makeSessionToken(username);
+  db.failVerify = true;
+  db.verifyError = Object.assign(new Error("Request exceeds the usage limit"), {
+    code: "TURSO_HTTP_ERROR",
+  });
+
+  const limited = await listWithToken(env, token);
+  assert.equal(limited.response.status, 503, JSON.stringify(limited.json));
+  assert.equal(limited.json.code, "AUTH_PROVIDER_LIMIT");
+  assert.notEqual(limited.json.code, "INVALID_SESSION");
+
+  db.failVerify = false;
+  const recovered = await listWithToken(env, token);
+  assert.equal(recovered.response.status, 200, JSON.stringify(recovered.json));
+  assert.equal(recovered.json.ok, true);
+});
+
+test("auth read classifier distinguishes provider limits from generic outages", () => {
+  assert.deepEqual(
+    classifyAuthReadFailure(new Error("SQL read operations are forbidden"), "login"),
+    { code: "AUTH_PROVIDER_LIMIT", status: 503 },
+  );
+  assert.deepEqual(classifyAuthReadFailure(new Error("network unavailable"), "login"), {
+    code: "AUTH_LOGIN_UNAVAILABLE",
+    status: 503,
+  });
+  assert.deepEqual(classifyAuthReadFailure(new Error("network unavailable"), "verify"), {
+    code: "AUTH_VERIFY_UNAVAILABLE",
+    status: 503,
+  });
 });
 
 test("source contract remains 180 days and clients only purge on INVALID_SESSION", () => {
@@ -148,6 +259,8 @@ test("source contract remains 180 days and clients only purge on INVALID_SESSION
   const msSource = fsRead("../../ms.js");
   assert.match(workerSource, /const SESSION_MS = 180 \* 86400000;/);
   assert.match(workerSource, /AUTH_SESSION_RESILIENCE_V1/);
+  assert.match(workerSource, /AUTH_PROVIDER_LIMIT_V3/);
+  assert.match(workerSource, /AUTH_PROVIDER_LIMIT/);
   assert.match(workerSource, /AUTH_VERIFY_UNAVAILABLE/);
   assert.match(mainSource, /if \(j\.code === \"INVALID_SESSION\"\) invalidateSession\(\)/);
   assert.match(msSource, /if \(error\.code === \"INVALID_SESSION\"\) invalidateSession\(\)/);

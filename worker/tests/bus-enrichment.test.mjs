@@ -87,6 +87,7 @@ test("completion enrichment requires the same barcode and attendance role", () =
 
 test("Flash BusTime request limit is not mislabeled as session expiry", () => {
   assert.deepEqual(classifyBusTimeFailure("Request exceeds the limit"), { code: "BUS_TIME_RATE_LIMIT", status: 429 });
+  assert.deepEqual(classifyBusTimeFailure("upstream rejected request", 429), { code: "BUS_TIME_RATE_LIMIT", status: 429 });
   assert.deepEqual(classifyBusTimeFailure("Session expired"), { code: "BUS_TIME_SESSION_EXPIRED", status: 502 });
   assert.deepEqual(classifyBusTimeFailure("unexpected upstream response"), { code: "BUS_TIME_SOURCE_ERROR", status: 502 });
 });

@@ -342,7 +342,29 @@ function wantsHtml(request) {
   return String(request.headers.get("accept") || "").toLowerCase().includes("text/html");
 }
 
-function connectionErrorPage(report) {
+// INTELLIGENCE_HUB_FILTER_V3: HUB selector is a Browser-KV read-only catalog. It never enrolls a HUB, writes KV, calls Turso, or calls MS.
+async function connectedHubCatalog(env, currentHub = "") {
+  const hubs = [];
+  const add = (value) => {
+    const hub = normalizeHub(value);
+    if (hub && !hubs.includes(hub)) hubs.push(hub);
+  };
+  add(currentHub);
+  try {
+    const stored = parseJson((await env.STATE.get("hubs")) || "[]", []);
+    for (const value of Array.isArray(stored) ? stored : []) add(value);
+  } catch {}
+  return hubs.sort((a, b) => a.localeCompare(b));
+}
+
+function connectionHubToolbar(hub, hubs = []) {
+  const current = normalizeHub(hub) || "NE1";
+  const values = [...new Set([current, ...(Array.isArray(hubs) ? hubs : []).map(normalizeHub).filter(Boolean)])].sort((a, b) => a.localeCompare(b));
+  const options = values.map((value) => '<option value="/api/connection-error?hub=' + encodeURIComponent(value) + '"' + (value === current ? ' selected' : '') + '>' + escapeHtml(value) + '</option>').join('');
+  return '<section class="hub-toolbar"><div class="hub-filter"><span class="hub-filter-label">HUB ในระบบ</span><select aria-label="เลือก HUB" onchange="location.href=this.value">' + options + '</select><span class="hub-filter-note">ดูข้อมูลเท่านั้น · ไม่สร้าง polling เพิ่ม</span></div><nav class="intel-tabs" aria-label="Intelligence pages"><a class="active" href="/api/connection-error?hub=' + encodeURIComponent(current) + '">Error Intelligence</a><a href="/shadow-tbr?hub=' + encodeURIComponent(current) + '">TBR Intelligence</a></nav></section>';
+}
+
+function connectionErrorPage(report, hubs = []) {
   const hub = report.hub;
   const data = report.data;
   const history = report.history || [];
@@ -368,7 +390,9 @@ function connectionErrorPage(report) {
   return new Response(
     `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="${PAGE_REFRESH_SECONDS}"><title>Connection Intelligence ${escapeHtml(hub)}</title><style>
     *{box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f7fb;color:#18212f}.wrap{max-width:1380px;margin:28px auto;padding:0 16px}.head{display:flex;justify-content:space-between;gap:16px;align-items:end;flex-wrap:wrap}.sub{color:#667085}.health{margin:14px 0;padding:12px 14px;border-radius:12px;background:#fff;border:1px solid #e5e7eb;line-height:1.65}.health b{display:inline-block;margin-right:8px}.good{color:#067647}.bad{color:#b42318;background:#fff7f6;border-color:#fecdca}.cards{display:grid;grid-template-columns:repeat(6,minmax(120px,1fr));gap:10px;margin:18px 0}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:14px;min-width:0}.card b{display:block;font-size:20px;margin-top:6px;overflow-wrap:anywhere}.panel{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin:14px 0}.panel h3{margin:0 0 8px}.panel p{margin:6px 0;color:#475467;line-height:1.55}.table{overflow:auto;background:white;border:1px solid #e5e7eb;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:1180px}th,td{padding:11px 12px;border-bottom:1px solid #eef1f5;text-align:center;font-size:13px;vertical-align:top}th{background:#f8fafc}.message{text-align:left;max-width:340px;overflow-wrap:anywhere}.empty{padding:28px;color:#667085;text-align:center}.safe{font-size:13px;color:#067647;background:#ecfdf3;border-radius:999px;padding:7px 10px}.foot{margin-top:12px;color:#667085;font-size:13px;line-height:1.6}@media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}.wrap{margin-top:18px}}
-    </style></head><body><div class="wrap"><div class="head"><div><h1>Connection Intelligence · ${escapeHtml(hub)}</h1><div class="sub">Incident History + Smart Diagnosis + Auto-Heal visibility · ไม่กระทบคิวจริง</div></div><div class="safe">Turso 0/0 · Extra MS polling 0 · Duplicate writes 0</div></div><div class="health ${statusClass}"><b>${escapeHtml(statusTitle)}</b> · ${escapeHtml(statusDetail)}${data ? ` · เกิดล่าสุด ${escapeHtml(displayTime(data.occurredAt))}${data.recoveredAt ? ` · กู้คืน ${escapeHtml(displayTime(data.recoveredAt))}` : ""}` : ""}</div><div class="cards"><div class="card">สถานะ<b>${escapeHtml(summary.status || "HEALTHY")}</b></div><div class="card">ระดับเฝ้าระวัง<b>${escapeHtml(summary.attention || "NORMAL")}</b></div><div class="card">Incident 30 วัน<b>${escapeHtml(summary.incidents30d ?? 0)}</b></div><div class="card">กู้คืนแล้ว<b>${escapeHtml(summary.recovered30d ?? 0)}</b></div><div class="card">Rate limit<b>${escapeHtml(summary.rateLimit30d ?? 0)}</b></div><div class="card">เฉลี่ยกู้คืน<b>${escapeHtml(secondsLabel(summary.avgRecoverySeconds))}</b></div></div><div class="panel"><h3>Smart diagnosis / Self-healing</h3><p><b>Mode:</b> ${escapeHtml(data?.autoHealMode || "MONITOR")}</p><p><b>Action:</b> ${escapeHtml(data?.autoHealAction || "ยังไม่มีเหตุการณ์ที่ต้องซ่อม")}</p><p>ระบบไม่สร้าง MS polling เพิ่มเพื่อทำรายงานนี้, Error เดิมที่ยัง active จะถูก dedupe และไม่เขียน KV ซ้ำ, ประวัติเก็บแบบ rolling 30 วัน สูงสุด ${HISTORY_LIMIT} เหตุการณ์/HUB</p></div><div class="table"><table><thead><tr><th>สถานะ</th><th>Source</th><th>Code</th><th>ระดับ</th><th>ข้อความ</th><th>Auto-heal / การจัดการ</th><th>เกิดเมื่อ</th><th>กู้คืนเมื่อ</th><th>ใช้เวลา</th></tr></thead><tbody>${rows}</tbody></table></div><div class="foot">ข้อมูลมาจาก Browser KV เท่านั้น · หน้าอ่านอย่างเดียวและรีเฟรชทุก ${PAGE_REFRESH_SECONDS} วินาที · ประวัติใหม่เขียนเฉพาะตอน Incident เปิด/ปิด ไม่เขียนทุก cron · API JSON ยังเก็บ field data เดิมเพื่อ backward compatibility และเพิ่ม history/summary/quotaPolicy</div></div></body></html>`,
+    </style><style>
+    body{background:radial-gradient(circle at top left,#eef6ff 0,#f7f9fc 34%,#f4f6fa 72%)}.wrap{max-width:1400px}.hub-toolbar{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px;padding:12px 14px;border:1px solid #dbe5f0;border-radius:14px;background:rgba(255,255,255,.88);box-shadow:0 8px 28px rgba(31,41,55,.06);backdrop-filter:blur(10px)}.hub-filter{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hub-filter-label{font-weight:800;color:#344054}.hub-filter select{min-width:120px;height:40px;padding:0 34px 0 12px;border:1px solid #cfd8e3;border-radius:10px;background:#fff;color:#101828;font-weight:800;outline:none}.hub-filter select:focus{border-color:#84adff;box-shadow:0 0 0 3px rgba(46,111,235,.12)}.hub-filter-note{font-size:12px;color:#667085}.intel-tabs{display:flex;gap:6px;padding:4px;border-radius:11px;background:#eef2f7}.intel-tabs a{padding:8px 11px;border-radius:8px;text-decoration:none;color:#475467;font-size:13px;font-weight:800}.intel-tabs a.active{background:#fff;color:#155eef;box-shadow:0 1px 4px rgba(31,41,55,.08)}.head h1{letter-spacing:-.02em}.health{box-shadow:0 8px 24px rgba(31,41,55,.05)}.cards{gap:12px}.card{position:relative;overflow:hidden;box-shadow:0 8px 22px rgba(31,41,55,.045)}.card:before{content:"";position:absolute;left:0;top:0;right:0;height:3px;background:linear-gradient(90deg,#2e6feb,#57c4ff)}.panel,.table{box-shadow:0 10px 28px rgba(31,41,55,.05)}th{position:sticky;top:0;z-index:1}.safe{font-weight:800}@media(max-width:760px){.hub-toolbar{align-items:stretch;flex-direction:column}.hub-filter{display:grid;grid-template-columns:1fr 1fr}.hub-filter-note{grid-column:1/-1}.intel-tabs{width:100%}.intel-tabs a{flex:1;text-align:center}.cards{grid-template-columns:repeat(2,1fr)}.card b{font-size:18px}}@media(max-width:440px){.hub-filter{grid-template-columns:1fr}.hub-filter-note{grid-column:auto}.cards{grid-template-columns:1fr 1fr}.wrap{padding:0 10px}}
+    </style></head><body><div class="wrap">${connectionHubToolbar(hub, hubs)}<div class="head"><div><h1>Connection Intelligence · ${escapeHtml(hub)}</h1><div class="sub">Incident History + Smart Diagnosis + Auto-Heal visibility · ไม่กระทบคิวจริง</div></div><div class="safe">Turso 0/0 · Extra MS polling 0 · Duplicate writes 0</div></div><div class="health ${statusClass}"><b>${escapeHtml(statusTitle)}</b> · ${escapeHtml(statusDetail)}${data ? ` · เกิดล่าสุด ${escapeHtml(displayTime(data.occurredAt))}${data.recoveredAt ? ` · กู้คืน ${escapeHtml(displayTime(data.recoveredAt))}` : ""}` : ""}</div><div class="cards"><div class="card">สถานะ<b>${escapeHtml(summary.status || "HEALTHY")}</b></div><div class="card">ระดับเฝ้าระวัง<b>${escapeHtml(summary.attention || "NORMAL")}</b></div><div class="card">Incident 30 วัน<b>${escapeHtml(summary.incidents30d ?? 0)}</b></div><div class="card">กู้คืนแล้ว<b>${escapeHtml(summary.recovered30d ?? 0)}</b></div><div class="card">Rate limit<b>${escapeHtml(summary.rateLimit30d ?? 0)}</b></div><div class="card">เฉลี่ยกู้คืน<b>${escapeHtml(secondsLabel(summary.avgRecoverySeconds))}</b></div></div><div class="panel"><h3>Smart diagnosis / Self-healing</h3><p><b>Mode:</b> ${escapeHtml(data?.autoHealMode || "MONITOR")}</p><p><b>Action:</b> ${escapeHtml(data?.autoHealAction || "ยังไม่มีเหตุการณ์ที่ต้องซ่อม")}</p><p>ระบบไม่สร้าง MS polling เพิ่มเพื่อทำรายงานนี้, Error เดิมที่ยัง active จะถูก dedupe และไม่เขียน KV ซ้ำ, ประวัติเก็บแบบ rolling 30 วัน สูงสุด ${HISTORY_LIMIT} เหตุการณ์/HUB</p></div><div class="table"><table><thead><tr><th>สถานะ</th><th>Source</th><th>Code</th><th>ระดับ</th><th>ข้อความ</th><th>Auto-heal / การจัดการ</th><th>เกิดเมื่อ</th><th>กู้คืนเมื่อ</th><th>ใช้เวลา</th></tr></thead><tbody>${rows}</tbody></table></div><div class="foot">ข้อมูลมาจาก Browser KV เท่านั้น · หน้าอ่านอย่างเดียวและรีเฟรชทุก ${PAGE_REFRESH_SECONDS} วินาที · ประวัติใหม่เขียนเฉพาะตอน Incident เปิด/ปิด ไม่เขียนทุก cron · API JSON ยังเก็บ field data เดิมเพื่อ backward compatibility และเพิ่ม history/summary/quotaPolicy</div></div></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
 }
@@ -419,7 +443,10 @@ export async function handleConnectionErrorRequest(request, env, url) {
 
   if (request.method === "GET") {
     const report = await readConnectionIncidentReport(env, hub);
-    if (wantsHtml(request)) return connectionErrorPage(report);
+    if (wantsHtml(request)) {
+      const hubs = await connectedHubCatalog(env, hub);
+      return connectionErrorPage(report, hubs);
+    }
     return json(request, report);
   }
 

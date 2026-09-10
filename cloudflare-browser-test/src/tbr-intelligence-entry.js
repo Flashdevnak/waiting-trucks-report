@@ -54,8 +54,25 @@ function displayBangkok(value) {
   }).format(new Date(ms)).replace(",", "");
 }
 
-function improvePageHtml(htmlValue, shadow, intelligence) {
+// INTELLIGENCE_HUB_FILTER_V3: the selector lists only already-configured Browser KV HUBs. It does not add HUBs to cron or request any upstream source.
+function tbrHubToolbar(hubValue, hubs = []) {
+  const current = cleanHub(hubValue || "NE1");
+  const values = [...new Set([current, ...(Array.isArray(hubs) ? hubs : []).map(cleanHub)])].sort((a, b) => a.localeCompare(b));
+  const options = values.map((value) => '<option value="/shadow-tbr?hub=' + encodeURIComponent(value) + '"' + (value === current ? ' selected' : '') + '>' + value + '</option>').join('');
+  return '<section class="hub-toolbar"><div class="hub-filter"><span class="hub-filter-label">HUB ในระบบ</span><select aria-label="เลือก HUB" onchange="location.href=this.value">' + options + '</select><span class="hub-filter-note">อ่าน Intelligence ของ HUB ที่เชื่อมต่อแล้ว · ไม่เพิ่ม MS polling</span></div><nav class="intel-tabs" aria-label="Intelligence pages"><a href="/api/connection-error?hub=' + encodeURIComponent(current) + '">Error Intelligence</a><a class="active" href="/shadow-tbr?hub=' + encodeURIComponent(current) + '">TBR Intelligence</a></nav></section>';
+}
+
+function improvePageHtml(htmlValue, shadow, intelligence, hubs = []) {
   let html = String(htmlValue || "");
+  const currentHub = cleanHub(shadow?.hub || intelligence?.hub || "NE1");
+  html = html.replace(
+    '<main class="wrap"><div class="top">',
+    '<main class="wrap">' + tbrHubToolbar(currentHub, hubs) + '<div class="top">',
+  );
+  html = html.replace(
+    '</style></head>',
+    '.hub-toolbar{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px;padding:12px 14px;border:1px solid #dbe5f0;border-radius:14px;background:rgba(255,255,255,.9);box-shadow:0 8px 28px rgba(31,41,55,.06);backdrop-filter:blur(10px)}.hub-filter{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.hub-filter-label{font-weight:800;color:#344054}.hub-filter select{min-width:120px;height:40px;padding:0 34px 0 12px;border:1px solid #cfd8e3;border-radius:10px;background:#fff;color:#101828;font-weight:800;outline:none}.hub-filter select:focus{border-color:#84adff;box-shadow:0 0 0 3px rgba(46,111,235,.12)}.hub-filter-note{font-size:12px;color:#667085}.intel-tabs{display:flex;gap:6px;padding:4px;border-radius:11px;background:#eef2f7}.intel-tabs a{padding:8px 11px;border-radius:8px;text-decoration:none;color:#475467;font-size:13px;font-weight:800}.intel-tabs a.active{background:#fff;color:#155eef;box-shadow:0 1px 4px rgba(31,41,55,.08)}body{background:radial-gradient(circle at top left,#eef6ff 0,#f7f9fc 34%,#f4f6fa 72%)}.wrap{max-width:1320px}.top h1{letter-spacing:-.02em}.banner,.section,.card{box-shadow:0 9px 26px rgba(31,41,55,.05)}.card{position:relative;overflow:hidden}.card:before{content:"";position:absolute;left:0;top:0;right:0;height:3px;background:linear-gradient(90deg,#2e6feb,#57c4ff)}.banner{border-left:4px solid #12b76a}.section h3{margin-top:0}th{position:sticky;top:0;z-index:1}@media(max-width:760px){.hub-toolbar{align-items:stretch;flex-direction:column}.hub-filter{display:grid;grid-template-columns:1fr 1fr}.hub-filter-note{grid-column:1/-1}.intel-tabs{width:100%}.intel-tabs a{flex:1;text-align:center}}@media(max-width:440px){.hub-filter{grid-template-columns:1fr}.hub-filter-note{grid-column:auto}.wrap{padding:0 10px}}' + '</style></head>',
+  );
   for (const [from, to] of Object.entries({
     SHADOW_COLLECTING: "กำลังเก็บข้อมูล",
     SHADOW_LEARNING: "กำลังเรียนรู้",
@@ -118,8 +135,9 @@ async function intelligenceForShadow(env, hub, shadow, now = Date.now()) {
 async function intelligencePage(env, hub) {
   const shadow = await readTbrShadowReport(env, hub);
   const intelligence = await intelligenceForShadow(env, hub, shadow);
+  const hubs = await configuredHubs(env);
   const base = tbrIntelligencePage(shadow, intelligence);
-  const html = improvePageHtml(await base.text(), shadow, intelligence);
+  const html = improvePageHtml(await base.text(), shadow, intelligence, hubs);
   return new Response(html, {
     status: base.status,
     headers: {

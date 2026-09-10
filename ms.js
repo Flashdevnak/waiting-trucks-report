@@ -1210,7 +1210,7 @@ function renderFilterSummary(rows) {
   const counts = {
     waiting: 0,
     unloading: 0,
-    completed: completedTodayDatasetRows().length,
+    completed: completedTodayDatasetRows().filter(matchesOvertimeContext).length,
     origin: 0,
     drop: 0,
     cancelled: 0,
@@ -1542,7 +1542,7 @@ function unloadTiming(row, now = new Date()) {
     workMinutes,
     slaMinutes,
     standard,
-    overStandard: isDestination(row) && completed && standard !== null && slaMinutes !== null && slaMinutes > standard,
+    overStandard: (isDestination(row) || isDrop(row)) && completed && standard !== null && slaMinutes !== null && slaMinutes > standard,
   };
 }
 

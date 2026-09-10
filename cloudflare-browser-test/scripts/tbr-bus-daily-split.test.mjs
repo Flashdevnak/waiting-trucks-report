@@ -1,5 +1,9 @@
 import fs from "node:fs";
 import { sendConnectorSync, tbrBusSourceDays } from "../src/index.js";
+import {
+  handleConnectionErrorRequest,
+  recordConnectionErrorKv,
+} from "../src/connection-error.js";
 
 class KV {
   constructor() { this.m = new Map(); }
@@ -43,6 +47,44 @@ if (payload?.data?.shadowQuota?.normalTursoPointReadsPerCron !== 4) throw new Er
 if (payload?.data?.shadowQuota?.currentSteadyStateTursoPointReadsPerCron !== 4) throw new Error("Bus cache steady-state must stay at 4 point reads");
 if (payload?.data?.shadowQuota?.tursoPointReadsPerCron !== 4) throw new Error("actual read accounting must be 4 without retries");
 if (payload?.data?.shadowQuota?.tursoWritesPerCron !== 0) throw new Error("daily split must keep Turso writes at zero");
+
+const oldIncident = {
+  version: 1,
+  hub: "NE1",
+  source: "busTime",
+  code: "TBR_BUS_BUS_TIME_SESSION_EXPIRED",
+  label: "การเชื่อมต่อมีปัญหา",
+  message: "Request exceeds the limit",
+  occurredAt: "2026-09-10T04:43:20.000Z",
+  recoveredAt: "",
+};
+const oldState = new KV();
+await oldState.put("connection:error:v1:NE1", JSON.stringify(oldIncident));
+const connectionRequest = new Request(
+  "https://waiting-trucks-ms-browser-test.invalid/api/connection-error?hub=NE1",
+  { headers: { accept: "application/json" } },
+);
+const connectionResponse = await handleConnectionErrorRequest(
+  connectionRequest,
+  { STATE: oldState },
+  new URL(connectionRequest.url),
+);
+const connectionPayload = await connectionResponse.json();
+if (connectionPayload?.data?.code !== "RATE_LIMIT")
+  throw new Error(`stored request limit misclassified: ${connectionPayload?.data?.code}`);
+if (/SESSION_EXPIRED/.test(connectionPayload.data.code))
+  throw new Error("stored request limit remained session expiry");
+const recordedLimit = await recordConnectionErrorKv(
+  { STATE: new KV() },
+  {
+    hub: "NE1",
+    source: "busTime",
+    code: "BUS_TIME_SESSION_EXPIRED",
+    message: "Request exceeds the limit",
+  },
+);
+if (recordedLimit?.data?.code !== "RATE_LIMIT")
+  throw new Error("new request limit was not RATE_LIMIT");
 const split = fs.readFileSync(new URL("./patch-dev-tbr-shadow-split-v2.mjs", import.meta.url), "utf8");
 for (const marker of ["TBR_BUS_DAILY_SPLIT_V9", "shadowDay", "readTbrShadowSnapshot(env, hub, shadowPart, shadowDay)"])
   if (!split.includes(marker)) throw new Error(`DEV split patch missing ${marker}`);
@@ -52,3 +94,4 @@ console.log("TBR_BUS_MAX_DAY_CONCURRENCY=1");
 console.log("TBR_SINGLE_DAY_POINT_READS=4");
 console.log("TBR_EARLY_WINDOW_POINT_READS=4");
 console.log("TBR_TURSO_WRITES=0");
+console.log("CONNECTION_ERROR_RATE_LIMIT_CLASSIFICATION=PASS");

@@ -1,0 +1,92 @@
+name: One-shot finish compact operation UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-finish-compact-operation-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Verify latest main
+        run: |
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+      - name: Extract and apply reviewed source transform
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/one-shot-compact-operation-ui.yml').read_text().splitlines()
+          start = next(i for i,line in enumerate(source) if line.strip() == 'from pathlib import Path')
+          end = next(i for i,line in enumerate(source[start+1:], start+1) if line.startswith('      - name: Run focused lower UI regression tests'))
+          script=[]
+          for line in source[start:end]:
+              script.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/apply-compact-operation.py').write_text('\n'.join(script)+'\n')
+          PY
+          python /tmp/apply-compact-operation.py
+      - name: Run focused Lower UI regressions
+        run: node --test .github/dev-tools/ms-unload-completion-ui.test.mjs worker/tests/ms-owner-live-v8.test.mjs
+      - name: Install worker dependencies
+        working-directory: worker
+        run: npm ci
+      - name: Run worker and frontend suite
+        working-directory: worker
+        run: npm run check
+      - name: Run deploy-equivalent critical regressions
+        working-directory: worker
+        run: |
+          node --test tests/auth-session-resilience.test.mjs
+          node --test tests/dev-archive-patch.test.mjs
+          node --test ../.github/dev-tools/ms-realtime-recovery.test.mjs
+          node --test ../.github/dev-tools/ms-summary-filter.test.mjs
+          node --test ../.github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test ../.github/dev-tools/safe-parity.test.mjs
+          node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
+          node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
+          node --test ../.github/dev-tools/ms-archive-completeness.test.mjs
+          node --test ../.github/dev-tools/daily-history.test.mjs
+          node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
+          node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
+          node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs
+      - name: Verify source invariants
+        run: |
+          node --check ms.js
+          node <<'NODE'
+          const fs=require('node:fs');
+          const front=fs.readFileSync('ms.js','utf8');
+          const style=fs.readFileSync('style.css','utf8');
+          if((front.match(/function renderOperation\(row\)/g)||[]).length!==1) throw new Error('renderOperation duplicated');
+          if(front.includes('เริ่มลงรถ → ลงเสร็จจริง')||front.includes('เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง')) throw new Error('redundant operation copy remains');
+          if(front.includes('กลับไปต้นทาง')) throw new Error('invented Origin semantics detected');
+          if(!front.includes('const release = departureCountdown(row);')) throw new Error('Drop release timing missing');
+          if(!front.includes('classicOperationSummary("SLA ลงของ", summary.text, summary.severity)')) throw new Error('Drop SLA summary missing');
+          if(!style.includes('Classic operation compact facts: source-level presentation extension.')) throw new Error('compact source CSS missing');
+          if(!front.includes('pollMs: 4000')) throw new Error('polling cadence changed');
+          console.log('COMPACT_OPERATION_SOURCE=PASS');
+          console.log('DROP_SLA_RELEASE_STATUS=PASS');
+          console.log('POLL_MS=4000');
+          NODE
+      - name: Commit permanent source only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/one-shot-compact-operation-ui.yml .github/workflows/one-shot-finish-compact-operation-ui.yml
+          git add ms.js style.css .github/dev-tools/ms-unload-completion-ui.test.mjs
+          git diff --cached --check
+          git commit -m "feat: compact operation status presentation"
+          git push origin HEAD:main

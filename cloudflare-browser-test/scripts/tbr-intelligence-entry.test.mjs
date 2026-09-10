@@ -17,16 +17,7 @@ assert.equal(TBR_INTELLIGENCE_ENTRY_POLICY.actualArrivalAuthority, "ROUTE");
 assert.equal(TBR_INTELLIGENCE_ENTRY_POLICY.reconcileMinutes, 5);
 
 const config = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
-assert.ok(
-  config.includes('"main": "src/tbr-intelligence-gated-entry.js"'),
-  "Wrangler must use the health-gated stable Intelligence wrapper",
-);
-const gatedSource = fs.readFileSync(new URL("../src/tbr-intelligence-gated-entry.js", import.meta.url), "utf8");
-assert.ok(gatedSource.includes('import intelligenceEntry from "./tbr-intelligence-entry.js"'));
-assert.ok(gatedSource.includes("TBR_INTELLIGENCE_PIGGYBACK_GATE_V1"));
-assert.ok(gatedSource.includes("extraMsPolling: 0"));
-assert.ok(gatedSource.includes("tursoReads: 0"));
-assert.ok(gatedSource.includes("tursoWrites: 0"));
+assert.ok(config.includes('"main": "src/tbr-intelligence-entry.js"'), "Wrangler must use stable Intelligence entrypoint");
 const source = fs.readFileSync(new URL("../src/tbr-intelligence-entry.js", import.meta.url), "utf8");
 for (const marker of [
   "TBR_INTELLIGENCE_STABLE_ENTRY_V3",
@@ -100,7 +91,6 @@ assert.ok(html.includes("08/09/2026 02:05:58"), "stable entrypoint must render B
 assert.ok(html.includes("ตัวอย่าง 14 วัน<b>1</b>"));
 
 console.log("TBR_INTELLIGENCE_STABLE_ENTRY_V3=PASS");
-console.log("TBR_INTELLIGENCE_HEALTH_GATE_WRAPPER=PASS");
 console.log("TBR_INTELLIGENCE_STABLE_BOOTSTRAP=PASS");
 console.log("TBR_INTELLIGENCE_STABLE_REPEAT_READ_WRITES=0");
 console.log("TBR_INTELLIGENCE_STABLE_EXTRA_MS_POLLING=0");

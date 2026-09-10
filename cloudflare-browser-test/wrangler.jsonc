@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "waiting-trucks-ms-browser-test",
-  "main": "src/tbr-intelligence-gated-entry.js",
+  "main": "src/tbr-intelligence-entry.js",
   "compatibility_date": "2026-08-28",
   "workers_dev": true,
   "keep_vars": true,
@@ -21,4 +21,3 @@
   },
 }
 // INTELLIGENCE_UI_SOURCE_PERSISTED_V4
-// TBR_INTELLIGENCE_PIGGYBACK_GATE_V1

@@ -1,0 +1,138 @@
+name: One-shot Fix Turso TBR Limits V2
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/dev-tools/turso-tbr-limit-trigger-v2.txt'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch root causes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('worker/src/index.js')
+          s=p.read_text()
+
+          # Flash/FBI limit truth: never label provider capacity/rate errors as an expired session.
+          if 'BUS_TIME_RATE_LIMIT_V11' not in s:
+              anchor='async function readBusPage(credentials, page, day) {'
+              helper='''// BUS_TIME_RATE_LIMIT_V11: provider capacity/rate limits are not session expiry.\nexport function classifyBusTimeFailure(message) {\n  const value = String(message || "").trim();\n  if (/request\\s+exceeds\\s+the\\s+limit|rate.?limit|too many requests|exceed(?:ed|s)?\\s+(?:the\\s+)?limit/i.test(value))\n    return { code: "BUS_TIME_RATE_LIMIT", status: 429 };\n  if (/session|token|auth|login|expired|unauthor/i.test(value))\n    return { code: "BUS_TIME_SESSION_EXPIRED", status: 502 };\n  return { code: "BUS_TIME_SOURCE_ERROR", status: 502 };\n}\n\n'''
+              if s.count(anchor)!=1: raise SystemExit('readBusPage anchor not unique')
+              s=s.replace(anchor,helper+anchor,1)
+              old='''  const json = await response.json();\n  if (Number(json.code) !== 1)\n    fail(json.msg || "เซสชันการจัดการตารางเวลาหมดอายุ", "BUS_TIME_SESSION_EXPIRED", 502);'''
+              new='''  const json = await response.json();\n  if (Number(json.code) !== 1) {\n    const message = json.msg || json.message || "การจัดการตารางเวลาตอบกลับผิดพลาด";\n    const failure = classifyBusTimeFailure(message);\n    fail(message, failure.code, failure.status);\n  }'''
+              if s.count(old)!=1: raise SystemExit('readBusPage failure anchor not unique')
+              s=s.replace(old,new,1)
+
+          # Short, bounded auth cache: signed 180-day session remains authoritative, while active-user
+          # status is DB-backed at least once per minute instead of once per 4-second poll.
+          if 'AUTH_VERIFY_READ_CACHE_V2' not in s:
+              old='''const recentMsSync = new Map();\nconst activeMsSync = new Map();'''
+              new='''const recentMsSync = new Map();\nconst activeMsSync = new Map();\n// AUTH_VERIFY_READ_CACHE_V2: remove repeated identical user reads from 4-second polling.\nconst AUTH_VERIFY_CACHE_MS = 60 * 1000;\nconst authVerifyCache = new Map();\nfunction cachedAuthUser(username, now = Date.now()) {\n  const key = String(username || "").toUpperCase();\n  const cached = authVerifyCache.get(key);\n  if (!cached || cached.until <= now) {\n    if (cached) authVerifyCache.delete(key);\n    return null;\n  }\n  return cached.user;\n}\nfunction rememberAuthUser(user, now = Date.now()) {\n  if (!user?.username) return;\n  authVerifyCache.set(String(user.username).toUpperCase(), {\n    until: now + AUTH_VERIFY_CACHE_MS,\n    user: { ...user },\n  });\n}\nfunction invalidateAuthUser(username) {\n  authVerifyCache.delete(String(username || "").toUpperCase());\n}'''
+              if s.count(old)!=1: raise SystemExit('auth cache constants anchor not unique')
+              s=s.replace(old,new,1)
+              old='''  let user;\n  try {\n    user = await env.DB.prepare(\n      "SELECT username,role,branches,active FROM users WHERE username=?",\n    )\n      .bind(actor.username)\n      .first();\n  } catch (error) {'''
+              new='''  let user = cachedAuthUser(actor.username);\n  try {\n    if (!user) {\n      user = await env.DB.prepare(\n        "SELECT username,role,branches,active FROM users WHERE username=?",\n      )\n        .bind(actor.username)\n        .first();\n      if (user) rememberAuthUser(user);\n    }\n  } catch (error) {'''
+              if s.count(old)!=1: raise SystemExit('verify DB anchor not unique')
+              s=s.replace(old,new,1)
+              old='''  await env.DB.prepare(\n    "INSERT INTO users VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash,role=excluded.role,branches=excluded.branches,active=excluded.active,updated_at=excluded.updated_at,updated_by=excluded.updated_by",'''
+              new='''  invalidateAuthUser(username);\n  await env.DB.prepare(\n    "INSERT INTO users VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash,role=excluded.role,branches=excluded.branches,active=excluded.active,updated_at=excluded.updated_at,updated_by=excluded.updated_by",'''
+              if s.count(old)!=1: raise SystemExit('saveUser invalidation anchor not unique')
+              s=s.replace(old,new,1)
+              old='''async function setActive(body, actor, env) {\n  await env.DB.prepare('''
+              new='''async function setActive(body, actor, env) {\n  invalidateAuthUser(text(body.username, 30).toUpperCase());\n  await env.DB.prepare('''
+              if s.count(old)!=1: raise SystemExit('setActive invalidation anchor not unique')
+              s=s.replace(old,new,1)
+
+          # Route credentials are static between HAR/QR updates; keep a bounded isolate-local copy.
+          if 'MS_CREDENTIAL_READ_CACHE_V1' not in s:
+              old='''async function msCredentials(env, hub) {\n  const row = await env.DB.prepare(\n    "SELECT session_cipher,device_cipher FROM ms_connections WHERE hub=?",\n  )\n    .bind(hub)\n    .first();\n  if (row)\n    return {\n      sessionId: await decryptMs(row.session_cipher, env),\n      deviceId: await decryptMs(row.device_cipher, env),\n    };\n  if (\n    hub === text(env.MS_BRANCH || "NE1", 80).toUpperCase() &&\n    env.MS_SESSION_ID &&\n    env.MS_DEVICE_ID\n  )\n    return { sessionId: env.MS_SESSION_ID, deviceId: env.MS_DEVICE_ID };\n  return null;\n}'''
+              new='''// MS_CREDENTIAL_READ_CACHE_V1: avoid rereading unchanged encrypted Route credentials.\nconst MS_CREDENTIAL_CACHE_MS = 10 * 60 * 1000;\nconst msCredentialCache = new Map();\nasync function msCredentials(env, hub) {\n  const key = text(hub, 80).toUpperCase();\n  const cached = msCredentialCache.get(key);\n  if (cached?.until > Date.now()) return cached.value;\n  const row = await env.DB.prepare(\n    "SELECT session_cipher,device_cipher FROM ms_connections WHERE hub=?",\n  )\n    .bind(key)\n    .first();\n  if (row) {\n    const value = {\n      sessionId: await decryptMs(row.session_cipher, env),\n      deviceId: await decryptMs(row.device_cipher, env),\n    };\n    msCredentialCache.set(key, { until: Date.now() + MS_CREDENTIAL_CACHE_MS, value });\n    return value;\n  }\n  if (\n    key === text(env.MS_BRANCH || "NE1", 80).toUpperCase() &&\n    env.MS_SESSION_ID &&\n    env.MS_DEVICE_ID\n  ) {\n    const value = { sessionId: env.MS_SESSION_ID, deviceId: env.MS_DEVICE_ID };\n    msCredentialCache.set(key, { until: Date.now() + MS_CREDENTIAL_CACHE_MS, value });\n    return value;\n  }\n  msCredentialCache.delete(key);\n  return null;\n}'''
+              if s.count(old)!=1: raise SystemExit('msCredentials anchor not unique')
+              s=s.replace(old,new,1)
+              old='''    .run();\n  await audit(\n    env,\n    "SAVE_MS_CONNECTION",'''
+              new='''    .run();\n  msCredentialCache.set(hub, {\n    until: Date.now() + MS_CREDENTIAL_CACHE_MS,\n    value: { sessionId, deviceId },\n  });\n  await audit(\n    env,\n    "SAVE_MS_CONNECTION",'''
+              if s.count(old)!=1: raise SystemExit('persist connection cache anchor not unique')
+              s=s.replace(old,new,1)
+
+          p.write_text(s)
+
+          # Browser shadow: Bus part already reads the accepted shared live cache in DEV.
+          # shadowDay is metadata only, therefore yesterday+today calls duplicated DB reads.
+          p=Path('cloudflare-browser-test/src/index.js'); s=p.read_text()
+          if 'TBR_BUS_SINGLE_CACHE_CALL_V11' not in s:
+              old='''export function tbrBusSourceDays(nowMs = Date.now()) {\n  const bangkokHour = new Date(Number(nowMs) + 7 * 60 * 60 * 1000).getUTCHours();\n  return bangkokHour < 12\n    ? [bangkokSourceDay(nowMs, -1), bangkokSourceDay(nowMs, 0)]\n    : [bangkokSourceDay(nowMs, 0)];\n}'''
+              new='''// TBR_BUS_SINGLE_CACHE_CALL_V11: Bus shadow reuses the accepted main live cache.\n// One Bus service call per cron is sufficient; shadowDay no longer creates a source read.\nexport function tbrBusSourceDays(nowMs = Date.now()) {\n  return [bangkokSourceDay(nowMs, 0)];\n}'''
+              if s.count(old)!=1: raise SystemExit('browser Bus days anchor not unique')
+              s=s.replace(old,new,1)
+              if 'earlyWindowTursoPointReadsPerCron: 6' not in s: raise SystemExit('early point-read anchor missing')
+              s=s.replace('earlyWindowTursoPointReadsPerCron: 6','earlyWindowTursoPointReadsPerCron: 4',1)
+          p.write_text(s)
+
+          # Browser regression: enforce one cache call and 4 point reads in the former early window.
+          p=Path('cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs'); s=p.read_text()
+          s=s.replace('const expectedDays = ["2026-09-05", "2026-09-06"];','const expectedDays = ["2026-09-06"];')
+          s=s.replace('if (payload?.data?.tbrShadowFeed?.length !== 2) throw new Error("daily Bus feeds were not merged");','if (payload?.data?.tbrShadowFeed?.length !== 1) throw new Error("Bus live-cache feed call count changed");')
+          s=s.replace('if (payload?.data?.shadowQuota?.currentSteadyStateTursoPointReadsPerCron !== 6) throw new Error("early two-day steady-state accounting must be 6 point reads");\nif (payload?.data?.shadowQuota?.tursoPointReadsPerCron !== 6) throw new Error("actual early read accounting must be 6 without retries");','if (payload?.data?.shadowQuota?.currentSteadyStateTursoPointReadsPerCron !== 4) throw new Error("Bus cache steady-state must stay at 4 point reads");\nif (payload?.data?.shadowQuota?.tursoPointReadsPerCron !== 4) throw new Error("actual read accounting must be 4 without retries");')
+          s=s.replace('console.log("TBR_BUS_SOURCE_DAYS=2");','console.log("TBR_BUS_SOURCE_DAYS=1");')
+          s=s.replace('console.log("TBR_EARLY_WINDOW_POINT_READS=6");','console.log("TBR_EARLY_WINDOW_POINT_READS=4");')
+          p.write_text(s)
+
+          # Classification regression.
+          p=Path('worker/tests/bus-enrichment.test.mjs'); s=p.read_text()
+          s=s.replace('import { enrichMsRow, msDate, parseScheduleUnloadingEnd, parseScheduleUnloadingStart, scheduleStoreMatchesHub } from "../src/index.js";','import { classifyBusTimeFailure, enrichMsRow, msDate, parseScheduleUnloadingEnd, parseScheduleUnloadingStart, scheduleStoreMatchesHub } from "../src/index.js";')
+          if 'Flash BusTime request limit is not mislabeled as session expiry' not in s:
+              s += '''\n\ntest("Flash BusTime request limit is not mislabeled as session expiry", () => {\n  assert.deepEqual(classifyBusTimeFailure("Request exceeds the limit"), { code: "BUS_TIME_RATE_LIMIT", status: 429 });\n  assert.deepEqual(classifyBusTimeFailure("Session expired"), { code: "BUS_TIME_SESSION_EXPIRED", status: 502 });\n  assert.deepEqual(classifyBusTimeFailure("unexpected upstream response"), { code: "BUS_TIME_SOURCE_ERROR", status: 502 });\n});\n'''
+          p.write_text(s)
+
+          # Auth cache regression with a genuinely cold username for the simulated outage.
+          p=Path('worker/tests/auth-session-resilience.test.mjs'); s=p.read_text()
+          if 'this.verifyReads = 0' not in s:
+              s=s.replace('''  constructor() {\n    this.failVerify = false;\n    this.user = {\n      username: USERNAME,\n      password_hash: passHash(USERNAME, PIN),''','''  constructor(username = USERNAME, pin = PIN) {\n    this.failVerify = false;\n    this.verifyReads = 0;\n    this.user = {\n      username,\n      password_hash: passHash(username, pin),''',1)
+              s=s.replace('''        if (/SELECT username,role,branches,active FROM users WHERE username=\\?/i.test(sql)) {\n          if (db.failVerify) throw new Error("simulated Turso auth lookup outage");''','''        if (/SELECT username,role,branches,active FROM users WHERE username=\\?/i.test(sql)) {\n          db.verifyReads += 1;\n          if (db.failVerify) throw new Error("simulated Turso auth lookup outage");''',1)
+              s=s.replace('''async function login(env) {''','''async function login(env, username = USERNAME, pin = PIN) {''',1)
+              s=s.replace('''body: JSON.stringify({ action: "login", username: USERNAME, pin: PIN }),''','''body: JSON.stringify({ action: "login", username, pin }),''',1)
+              first='''  assert.equal(last.json.ok, true);\n});'''
+              repl='''  assert.equal(last.json.ok, true);\n  assert.equal(db.verifyReads, 1, "same username should reuse one-minute auth verification cache");\n});'''
+              if s.count(first)<1: raise SystemExit('first auth test assertion anchor missing')
+              s=s.replace(first,repl,1)
+              old='''test("transient Turso auth lookup failure does not become INVALID_SESSION", async () => {\n  const db = new FakeDB();\n  const env = makeEnv(db);\n  const session = await login(env);'''
+              new='''test("transient Turso auth lookup failure does not become INVALID_SESSION", async () => {\n  const outageUsername = "OUTAGE100";\n  const outagePin = "135790";\n  const db = new FakeDB(outageUsername, outagePin);\n  const env = makeEnv(db);\n  const session = await login(env, outageUsername, outagePin);'''
+              if s.count(old)!=1: raise SystemExit('outage test cold-user anchor not unique')
+              s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+
+      - name: Verify targeted regressions
+        run: |
+          grep -q 'BUS_TIME_RATE_LIMIT_V11' worker/src/index.js
+          grep -q 'AUTH_VERIFY_READ_CACHE_V2' worker/src/index.js
+          grep -q 'MS_CREDENTIAL_READ_CACHE_V1' worker/src/index.js
+          grep -q 'TBR_BUS_SINGLE_CACHE_CALL_V11' cloudflare-browser-test/src/index.js
+          node --check worker/src/index.js
+          node --check cloudflare-browser-test/src/index.js
+          cd worker
+          npm ci --no-audit --no-fund
+          node --test tests/auth-session-resilience.test.mjs tests/bus-enrichment.test.mjs
+          cd ../cloudflare-browser-test
+          npm install --no-audit --no-fund
+          node scripts/tbr-bus-daily-split.test.mjs
+
+      - name: Commit source fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add worker/src/index.js worker/tests/auth-session-resilience.test.mjs worker/tests/bus-enrichment.test.mjs cloudflare-browser-test/src/index.js cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs
+          git diff --cached --check
+          git commit -m 'fix: reduce Turso reads and classify TBR limits'
+          git push origin HEAD:main

@@ -23,11 +23,9 @@ jobs:
         shell: bash
         run: |
           node <<'NODE'
-          const worker = process.env.WORKER_ORIGIN;
-          const browser = process.env.BROWSER_ORIGIN;
           const [healthRes, browserRes] = await Promise.all([
-            fetch(`${worker}/api?action=health`, {cache:'no-store'}),
-            fetch(`${browser}/api/config`, {cache:'no-store'}),
+            fetch(`${process.env.WORKER_ORIGIN}/api?action=health`, {cache:'no-store'}),
+            fetch(`${process.env.BROWSER_ORIGIN}/api/config`, {cache:'no-store'}),
           ]);
           const health = await healthRes.json();
           const browserBody = await browserRes.json();
@@ -38,7 +36,7 @@ jobs:
           console.log('PUBLIC_HEALTH_DB_READS=0');
           NODE
 
-      - name: Verify real NE1 snapshot and sessions with bounded Turso reads
+      - name: Diagnose real NE1 readiness using only five point reads
         shell: bash
         run: |
           node <<'NODE'
@@ -47,17 +45,13 @@ jobs:
           const platform = process.env.TURSO_PLATFORM_API_TOKEN;
           if (!platform) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
           const platformHeaders = {Authorization:`Bearer ${platform}`};
-
           const dbRes = await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`, {headers:platformHeaders});
           const dbJson = await dbRes.json();
           if (!dbRes.ok) throw new Error(`Turso database lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
           const database = dbJson.database || dbJson;
           const hostname = database.Hostname || database.hostname;
           if (!hostname) throw new Error('Turso hostname missing');
-
-          const tokenRes = await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`, {
-            method:'POST', headers:platformHeaders,
-          });
+          const tokenRes = await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`, {method:'POST', headers:platformHeaders});
           const tokenJson = await tokenRes.json();
           const dbToken = tokenJson.jwt;
           if (!tokenRes.ok || !dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
@@ -77,13 +71,12 @@ jobs:
             const rowsRead = Number(result.rows_read || 0);
             totalRowsRead += rowsRead;
             console.log(`${label}_ROWS_READ=${rowsRead}`);
-            if (rowsRead >= 100000) throw new Error(`${label} exceeded heavy-read safety threshold: ${rowsRead}`);
+            if (rowsRead >= 100000) throw new Error(`${label} exceeded heavy-read threshold: ${rowsRead}`);
             return result;
           }
-
           const decode = value => value == null ? null : (typeof value === 'object' && 'value' in value ? value.value : value);
           const first = result => (result?.rows?.[0] || []).map(decode);
-          const ageSeconds = value => {
+          const age = value => {
             const parsed = Date.parse(String(value || ''));
             return Number.isFinite(parsed) ? Math.max(0, Math.round((Date.now() - parsed) / 1000)) : -1;
           };
@@ -94,27 +87,43 @@ jobs:
           const preentry = first(await query('PREENTRY', "SELECT hub,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"));
           const bus = first(await query('BUS', "SELECT hub,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"));
 
-          if (String(connector[0] || '') !== 'NE1' || Number(connector[1] || 0) !== 1) throw new Error('NE1 connector is not active');
-          if (String(live[0] || '') !== 'NE1') throw new Error('NE1 live cache missing');
-          const liveRows = Number(live[2] || 0);
-          if (!Number.isFinite(liveRows) || liveRows <= 0) throw new Error(`NE1 live cache has no real rows: ${liveRows}`);
+          const liveRows = Number(live?.[2] || 0);
+          const connectorReady = String(connector?.[0] || '') === 'NE1' && Number(connector?.[1] || 0) === 1;
+          const routeAge = age(route?.[1]);
+          const preentryAge = age(preentry?.[1]);
+          const busAge = age(bus?.[1]);
+          const routeError = String(route?.[2] || '');
+          const preentryError = String(preentry?.[2] || '');
+          const busError = String(bus?.[2] || '');
 
-          function verifySession(label, row) {
-            const age = ageSeconds(row?.[1]);
-            const error = String(row?.[2] || '');
-            console.log(`${label}_LAST_SUCCESS=${row?.[1] || '-'} AGE_SECONDS=${age} ERROR=${error || '-'}`);
-            if (!row?.[1] || error || age < 0 || age > 20 * 60) throw new Error(`${label} session not healthy`);
-          }
-          verifySession('ROUTE', route);
-          verifySession('PREENTRY', preentry);
-          verifySession('BUS', bus);
-
-          console.log(`LIVE_SNAPSHOT_AT=${live[1] || '-'}`);
+          console.log(`CONNECTOR_ACTIVE=${connectorReady}`);
+          console.log(`CONNECTOR_LAST_USED=${connector?.[2] || '-'}`);
+          console.log(`LIVE_SNAPSHOT_AT=${live?.[1] || '-'}`);
           console.log(`LIVE_ROWS=${liveRows}`);
+          console.log(`ROUTE_LAST_SUCCESS=${route?.[1] || '-'} AGE_SECONDS=${routeAge} ERROR=${routeError || '-'}`);
+          console.log(`PREENTRY_LAST_SUCCESS=${preentry?.[1] || '-'} AGE_SECONDS=${preentryAge} ERROR=${preentryError || '-'}`);
+          console.log(`BUS_LAST_SUCCESS=${bus?.[1] || '-'} AGE_SECONDS=${busAge} ERROR=${busError || '-'}`);
           console.log(`TOTAL_BOUNDED_ROWS_READ=${totalRowsRead}`);
-          if (totalRowsRead >= 100000) throw new Error(`Total bounded probe read too many rows: ${totalRowsRead}`);
+
+          const routeReady = Boolean(route?.[1]) && !routeError && routeAge >= 0 && routeAge <= 20*60;
+          const preentryReady = Boolean(preentry?.[1]) && !preentryError && preentryAge >= 0 && preentryAge <= 20*60;
+          const busReady = Boolean(bus?.[1]) && !busError && busAge >= 0 && busAge <= 20*60;
+          console.log(`ROUTE_READY=${routeReady}`);
+          console.log(`PREENTRY_READY=${preentryReady}`);
+          console.log(`BUS_READY=${busReady}`);
+          console.log(`HEAVY_READ_TRIGGERED=${totalRowsRead >= 100000 ? 1 : 0}`);
+          console.log('D1_QUERIES=0');
+
+          const failures = [];
+          if (!connectorReady) failures.push('connector');
+          if (!Number.isFinite(liveRows) || liveRows <= 0) failures.push('live_cache_empty');
+          if (!routeReady) failures.push('route');
+          if (!preentryReady) failures.push('preentry');
+          if (!busReady) failures.push('bus');
+          if (totalRowsRead >= 100000) failures.push('read_budget');
+          if (failures.length) throw new Error(`REAL_DEV_NOT_READY: ${failures.join(',')}`);
+
           console.log('REAL_NE1_DATA=PASS');
           console.log('ALL_MS_SESSIONS_READY=true');
-          console.log('HEAVY_READ_TRIGGERED=0');
-          console.log('D1_QUERIES=0');
+          console.log('QUOTA_SAFE_POINT_READS=PASS');
           NODE

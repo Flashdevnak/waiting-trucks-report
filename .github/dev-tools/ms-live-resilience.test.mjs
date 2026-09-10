@@ -38,13 +38,25 @@ test("live resilience keeps existing realtime invariants", () => {
   assert.ok(source.includes("const preserveObservedCompletion ="));
 });
 
-test("DEV staging admits TBR provisionally without extra polling or overwriting Route truth", () => {
+test("DEV staging admits TBR only through fresh per-HUB Intelligence health", () => {
   const staged = stageFrontend(source);
-  assert.ok(staged.includes("TBR_PROVISIONAL_ARRIVAL_V1"));
-  assert.ok(staged.includes("function tbrProvisionalArrival(row, now = new Date())"));
-  assert.ok(staged.includes("function operationalArrival(row, now = new Date())"));
-  assert.ok(staged.includes('return "ROUTE_CONFIRMED"'));
-  assert.ok(staged.includes('"TBR_PROVISIONAL"'));
+  for (const marker of [
+    "TBR_PROVISIONAL_ARRIVAL_V1",
+    "TBR_INTELLIGENCE_FRONTEND_GATE_V2",
+    "tbrIntelligenceHealth: null",
+    "state.tbrIntelligenceHealth = result?.tbrIntelligenceHealth || null",
+    "function tbrIntelligenceAllowsProvisional(row, now = new Date())",
+    "function tbrProvisionalArrival(row, now = new Date())",
+    "function operationalArrival(row, now = new Date())",
+    'return "ROUTE_CONFIRMED"',
+    '"TBR_PROVISIONAL"',
+    'health.allowed !== true',
+    'healthHub !== branch',
+    'health.observerStatus || "") !== "LIVE"',
+    "health.sourceAvailable !== true || health.routeFallback === true",
+    "TBR_INTELLIGENCE_HEALTH_MAX_AGE_MS = 3 * 60 * 1000",
+  ]) assert.ok(staged.includes(marker), `staged frontend missing ${marker}`);
+
   assert.ok(staged.includes('label: routeArrival ? "มาถึงแล้ว" : "TBR รอ Route"'));
   assert.ok(staged.includes("active = Boolean(arrival) && !done && !cancelled && ageHours <= 12"));
   assert.ok(staged.includes("const start = operationalArrival(row)"));
@@ -55,7 +67,20 @@ test("DEV staging admits TBR provisionally without extra polling or overwriting 
   assert.match(staged, /pollMs:\s*4000/);
   assert.ok(staged.includes("function confirmedEffectiveArrival(row)"));
   assert.ok(staged.includes("actualArrivalAt: exportThaiDate(confirmedEffectiveArrival(row))"));
-  assert.ok(!staged.includes("fetch('/api/tbr-intelligence"));
+  assert.ok(!staged.includes('apiGet("tbrIntelligence"'));
+  assert.ok(!staged.includes("/api/tbr-intelligence"));
+});
+
+test("provisional destination card shows header timer without claiming Route actual", () => {
+  const staged = stageFrontend(source);
+  assert.ok(staged.includes('const provisional = !active && !done && operationalArrivalAuthority(row) === "TBR_PROVISIONAL"'));
+  assert.ok(staged.includes('provisional\n      ? "รอ Route ยืนยันถึงคลัง"'));
+  assert.ok(staged.includes('text: `รอมาแล้ว ${nf.format(provisionalElapsed)} นาที`'));
+  assert.ok(staged.includes('text: `เกินมาตรฐาน ${nf.format(provisionalDelta)} นาที`'));
+  assert.ok(staged.includes('classicOperationFact("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row)))'));
+  assert.ok(staged.includes('classicOperationFact("SLA Route", provisional || timing.slaMinutes === null ? "-"'));
+  assert.ok(staged.includes("const arrival = completed\n    ? confirmedEffectiveArrival(row)\n    : operationalArrival(row, now);"));
+  assert.ok(staged.includes("visibleSummary.text, visibleSummary.severity"));
 });
 
 test("DEV-only frontend staging is complete, idempotent, and stays out of canonical public source", () => {
@@ -68,9 +93,11 @@ test("DEV-only frontend staging is complete, idempotent, and stays out of canoni
   assert.ok(!source.includes("MS_CONNECTION_ERROR_KV_V1"));
   assert.ok(!source.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V9"));
   assert.ok(!source.includes("TBR_PROVISIONAL_ARRIVAL_V1"));
+  assert.ok(!source.includes("TBR_INTELLIGENCE_FRONTEND_GATE_V2"));
   assert.ok(first.includes("MS_CONNECTION_ERROR_KV_V1"));
   assert.ok(first.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V9"));
   assert.ok(first.includes("TBR_PROVISIONAL_ARRIVAL_V1"));
+  assert.ok(first.includes("TBR_INTELLIGENCE_FRONTEND_GATE_V2"));
 
   assert.ok(first.includes("LIVE_RESILIENCE_V1"));
   assert.ok(first.includes(`CONFIG.apiUrl = "${promotedApi}"`));

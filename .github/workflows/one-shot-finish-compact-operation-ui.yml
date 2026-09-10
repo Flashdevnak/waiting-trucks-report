@@ -42,6 +42,10 @@ jobs:
           from pathlib import Path
           front_path=Path('ms.js')
           front=front_path.read_text().replace('สถานะปล่อยรถ / ไปต่อ','สถานะไปต่อ / ปล่อยรถ')
+          drop_start=front.index('if (isDrop(row)) {', front.index('function renderOperation(row)'))
+          drop_end=front.index('const departure = parseDate(row.actualDepartureAt);', drop_start)
+          drop_block=front[drop_start:drop_end].replace('classicOperationFact("SLA Route", timing.slaMinutes','classicOperationFact("เวลารวม", timing.slaMinutes')
+          front=front[:drop_start]+drop_block+front[drop_end:]
           front_path.write_text(front)
           test_path=Path('.github/dev-tools/ms-unload-completion-ui.test.mjs')
           tests=test_path.read_text()
@@ -87,10 +91,15 @@ jobs:
           if(!front.includes('const release = departureCountdown(row);')) throw new Error('Drop release timing missing');
           if(!front.includes('classicOperationSummary("SLA ลงของ", summary.text, summary.severity)')) throw new Error('Drop SLA summary missing');
           if(!front.includes('classicOperationSummary("สถานะไปต่อ / ปล่อยรถ"')) throw new Error('Drop onward/release label missing');
+          const op=front.slice(front.indexOf('function renderOperation(row)'),front.indexOf('// LOCAL_ROUTE_BARCODE_V1'));
+          const drop=op.slice(op.indexOf('if (isDrop(row)) {'),op.indexOf('const departure = parseDate(row.actualDepartureAt);'));
+          if(!drop.includes('classicOperationFact("เวลารวม", timing.slaMinutes')) throw new Error('Drop compact total duration missing');
+          if(drop.includes('classicOperationFact("SLA Route"')) throw new Error('Drop must keep type-specific wording');
           if(!style.includes('Classic operation compact facts: source-level presentation extension.')) throw new Error('compact source CSS missing');
           if(!front.includes('pollMs: 4000')) throw new Error('polling cadence changed');
           console.log('COMPACT_OPERATION_SOURCE=PASS');
           console.log('DROP_SLA_RELEASE_STATUS=PASS');
+          console.log('DROP_TYPE_SPECIFIC_WORDING=PASS');
           console.log('POLL_MS=4000');
           NODE
       - name: Commit permanent source only

@@ -3,9 +3,9 @@ import { readTbrShadowReport } from "./tbr-shadow.js";
 import { readTbrIntelligenceReport } from "./tbr-intelligence.js";
 
 // TBR_INTELLIGENCE_PIGGYBACK_GATE_V1
-// Read Browser KV only, then attach one compact health flag to the connectorSync
-// requests that already happen every Browser cron. This adds zero MS polling,
-// zero Turso reads/writes and zero extra Worker-to-Worker requests.
+// Read Browser KV only, then attach one compact health flag to the existing
+// Route-shadow connectorSync request. The Bus split is left untouched so each
+// HUB sends the gate once per cron, with zero extra MS polling or Turso access.
 const GATE_MAX_AGE_MS = 3 * 60 * 1000;
 const GATE_FUTURE_TOLERANCE_MS = 90 * 1000;
 const READY_STATES = new Set(["ADVISORY_READY", "PRODUCTION_CANDIDATE"]);
@@ -73,7 +73,11 @@ function withPiggybackHealth(env, nowValue = Date.now()) {
       try {
         body = await request.clone().json();
       } catch {}
-      if (body?.action === "connectorSync" && body?.shadowOnly === true) {
+      if (
+        body?.action === "connectorSync" &&
+        body?.shadowOnly === true &&
+        body?.shadowPart === "routes"
+      ) {
         const hub = cleanHub(body.hub);
         if (!gateCache.has(hub)) {
           gateCache.set(
@@ -118,6 +122,7 @@ export default {
 
 export const TBR_INTELLIGENCE_PIGGYBACK_POLICY = Object.freeze({
   maxAgeMs: GATE_MAX_AGE_MS,
+  healthPushesPerHubCron: 1,
   extraMsPolling: 0,
   extraServiceRequests: 0,
   tursoReads: 0,

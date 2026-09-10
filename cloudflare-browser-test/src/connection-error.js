@@ -54,8 +54,8 @@ function classify(codeValue, messageValue) {
   const code = clean(codeValue, 40);
   const message = clean(messageValue, 240);
   const text = `${code} ${message}`;
-  if (/429|rate.?limit|too many requests/i.test(text))
-    return { code: "429", label: "MS จำกัดคำขอชั่วคราว" };
+  if (/429|rate.?limit|too many requests|request\s+exceeds\s+the\s+limit|exceed(?:ed|s)?\s+(?:the\s+)?limit/i.test(text))
+    return { code: "RATE_LIMIT", label: "MS จำกัดคำขอชั่วคราว" };
   if (/REQUEST_TIMEOUT|timeout|หมดเวลา/i.test(text))
     return { code: code || "TIMEOUT", label: "การเชื่อมต่อใช้เวลานานเกินไป" };
   if (/MS_SESSION_EXPIRED|session.*หมดอายุ/i.test(text))
@@ -110,6 +110,12 @@ function durationLabel(startValue, endValue) {
 
 function wantsHtml(request) {
   return String(request.headers.get("accept") || "").toLowerCase().includes("text/html");
+}
+
+function normalizedRecord(data) {
+  if (!data || typeof data !== "object") return null;
+  const classified = classify(data.code, data.message);
+  return { ...data, code: classified.code, label: classified.label };
 }
 
 function connectionErrorPage(hub, data) {
@@ -189,6 +195,7 @@ export async function handleConnectionErrorRequest(request, env, url) {
     const raw = await env.STATE.get(key);
     let data = null;
     try { data = raw ? JSON.parse(raw) : null; } catch {}
+    data = normalizedRecord(data);
     if (wantsHtml(request)) return connectionErrorPage(hub, data);
     return json(request, { ok: true, data });
   }

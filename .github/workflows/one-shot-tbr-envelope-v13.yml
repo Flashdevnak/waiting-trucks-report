@@ -114,5 +114,7 @@ jobs:
           git rm .github/workflows/one-shot-tbr-envelope-v13.yml
           git diff --cached --check
           git commit -m 'fix(dev): read current live-cache envelope in TBR shadow'
+          git restore .
+          git clean -fd
           git pull --rebase origin main
           git push origin HEAD:main

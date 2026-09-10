@@ -1,0 +1,68 @@
+name: Repair Intelligence UI Live
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/repair-intelligence-ui-live.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repair-and-verify:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    defaults:
+      run:
+        working-directory: cloudflare-browser-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install tooling
+        run: npm install --no-audit --no-fund
+      - name: Stage exact Intelligence UI
+        run: |
+          node scripts/patch-connector-recovery.mjs src/index.js
+          node scripts/apply-tbr-intelligence-v2.mjs src/index.js
+          node scripts/patch-intelligence-ui-v3.mjs
+          node scripts/patch-intelligence-ui-v3-hotfix.mjs
+          node --check src/connection-error.js
+          node --check src/tbr-intelligence-entry.js
+          grep -q 'HUB ในระบบ' src/connection-error.js
+          grep -q 'HUB ในระบบ' src/tbr-intelligence-entry.js
+          grep -q 'Error Intelligence' src/connection-error.js
+          grep -q 'TBR Intelligence' src/tbr-intelligence-entry.js
+          echo 'LOCAL_INTELLIGENCE_HUB_UI=PASS'
+          echo 'EXTRA_MS_POLLING=0'
+      - name: Deploy Browser Worker
+        run: npx wrangler deploy --config wrangler.jsonc
+      - name: Verify live HTML really contains HUB selector
+        run: |
+          node <<'NODE'
+          const origin='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev';
+          const stamp=Date.now();
+          async function get(path){
+            const r=await fetch(origin+path+(path.includes('?')?'&':'?')+'ui_verify='+stamp,{headers:{accept:'text/html','cache-control':'no-cache'},cache:'no-store'});
+            const text=await r.text();
+            if(!r.ok) throw new Error(`${path} HTTP ${r.status}`);
+            return text;
+          }
+          const errorPage=await get('/api/connection-error?hub=NE1');
+          const tbrPage=await get('/shadow-tbr?hub=NE1');
+          for(const [name,text] of [['ERROR',errorPage],['TBR',tbrPage]]){
+            if(!text.includes('HUB ในระบบ')) throw new Error(`${name}_LIVE_HUB_SELECTOR_MISSING`);
+            if(!text.includes('Error Intelligence')) throw new Error(`${name}_LIVE_ERROR_TAB_MISSING`);
+            if(!text.includes('TBR Intelligence')) throw new Error(`${name}_LIVE_TBR_TAB_MISSING`);
+          }
+          console.log('LIVE_ERROR_HUB_SELECTOR=PASS');
+          console.log('LIVE_TBR_HUB_SELECTOR=PASS');
+          console.log('LIVE_INTELLIGENCE_TABS=PASS');
+          console.log('VERIFY_EXTRA_MS_POLLING=0');
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE

@@ -1,7 +1,7 @@
 name: Deploy Worker DEV
 
 # DEV-only pipeline. Runtime is Turso-only. Production is never deployed here.
-# UI checkpoint: DEV_HEADER_POLISH_V3
+# UI checkpoint: DEV_HEADER_POLISH_V3 + MS_UI_V4_VISUAL_CONTRACT
 # TBR checkpoint: TBR_ROUTE_CHUNK_RETRY_V4
 
 on:
@@ -24,6 +24,7 @@ on:
       - proof.js
       - 'proof-v2-*.js'
       - style.css
+      - ms-v4.css
       - sw.js
       - favicon.svg
       - worker/src/**
@@ -89,7 +90,7 @@ jobs:
         run: |
           rm -rf .dev-assets
           mkdir -p .dev-assets
-          cp ../waiting.html ../main.js ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../main.js ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
@@ -119,6 +120,8 @@ jobs:
           const proofV2Front=fs.readFileSync('.dev-assets/proof-v2-core.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-ui.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-actions.js','utf8');
           const worker=fs.readFileSync('src/index.js','utf8');
           const style=fs.readFileSync('.dev-assets/style.css','utf8');
+          const msV4=fs.readFileSync('.dev-assets/ms-v4.css','utf8');
+          if(!msV4.includes('MS_UI_V4_VISUAL_CONTRACT')) throw new Error('staged MS UI V4 CSS missing');
 
           for(const marker of ['MS_DAILY_HISTORY_V1','MS_UNLOAD_COMPLETION_UI_V1','pollMs: 4000','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
             if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
@@ -152,6 +155,7 @@ jobs:
             if(!html.includes('เปลี่ยนรหัสผ่าน')) throw new Error(`${page} account password entry missing`);
           }
           const msHtml=fs.readFileSync('.dev-assets/ms.html','utf8');
+          if(!msHtml.includes('ms-v4.css?v=20260910-01')) throw new Error('staged MS UI V4 link missing');
           const proofHtmlLive=fs.readFileSync('.dev-assets/proof.html','utf8');
           if(!msHtml.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS central QR/HAR entry missing');
           if(!proofHtmlLive.includes('ms.html#connection')||!proofHtmlLive.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('Proof shared QR/HAR entry missing');
@@ -161,6 +165,7 @@ jobs:
           console.log('STAGED_COMPLETION_TRUTH=PASS');
           console.log('STAGED_TBR_ROUTE_CHUNK_RETRY_V4=PASS');
           console.log('STAGED_DEV_HEADER_POLISH_V3=PASS');
+          console.log('STAGED_MS_UI_V4=PASS');
           console.log('STAGED_HAR_SHARED_ENTRY=PASS');
           console.log('STAGED_AUTH_SESSION_RESILIENCE=PASS');
           console.log('STAGED_HAR_COMPACT_ACTIONS_V3=PASS');
@@ -210,7 +215,7 @@ jobs:
           console.log('WORKER_D1_BINDING_ZERO=PASS');
           NODE
 
-      - name: Smoke DEV public pages and UI v3
+      - name: Smoke DEV public pages and MS UI v4
         working-directory: .
         run: |
           sleep 3
@@ -218,6 +223,7 @@ jobs:
           const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
           const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
           const style='style.css?v=20260905-dev-shell-v3';
+          const msV4Style='ms-v4.css?v=20260910-01';
           async function get(path){
             const response=await fetch(path?`${base}/${path}`:`${base}/`,{headers:{'cache-control':'no-cache'},cache:'no-store'});
             const body=await response.text();
@@ -241,6 +247,7 @@ jobs:
             if(!menu.includes(`href="${page}" class="is-current"`)) throw new Error(`${page} current menu wrong`);
           }
           const ms=await get('ms.html');
+          if(!ms.includes(`href="${msV4Style}"`)) throw new Error('live MS UI V4 link missing');
           const proof=await get('proof.html');
           const msJs=await get('ms.js');
           if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');
@@ -250,6 +257,9 @@ jobs:
           const cssResponse=await fetch(`${base}/${style}`,{cache:'no-store'});
           const css=await cssResponse.text();
           if(!cssResponse.ok||!css.includes('DEV_HEADER_POLISH_V3')) throw new Error('live UI v3 CSS missing');
+          const msV4Response=await fetch(`${base}/${msV4Style}`,{cache:'no-store'});
+          const msV4Css=await msV4Response.text();
+          if(!msV4Response.ok||!msV4Css.includes('MS_UI_V4_VISUAL_CONTRACT')) throw new Error('live MS UI V4 CSS missing');
           for(const legacy of ['index.html','scan.html','warehouse.html']) if(!(await get(legacy)).includes('ms.html')) throw new Error(`${legacy} redirect missing`);
           if(!(await get('')).includes('ms.html')) throw new Error('DEV root entry missing');
           console.log('DEV_HEALTH=PASS');
@@ -262,6 +272,7 @@ jobs:
           console.log('DEV_HAR_COMPACT_ACTIONS_V3=PASS');
           console.log('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2=PASS');
           console.log('DEV_UI_LIVE_AUDIT=PASS');
+          console.log('DEV_MS_UI_V4_ASSET=PASS');
           console.log('DEV_DATABASE_BACKEND=TURSO');
           console.log('DEV_D1_RUNTIME_BINDING=0');
           console.log('PRODUCTION_TOUCHED=NO');

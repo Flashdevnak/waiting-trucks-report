@@ -1,4 +1,4 @@
-name: One-shot Safe DEV DB Probe
+name: One-shot Safe DEV Real Acceptance
 
 on:
   push:
@@ -12,27 +12,109 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
     steps:
-      - name: Perform exactly one bounded login lookup
+      - name: Verify DEV public runtime without DB reads
         shell: bash
         run: |
           node <<'NODE'
-          const url = 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api';
-          const response = await fetch(url, {
-            method: 'POST',
-            headers: {'content-type':'application/json'},
-            body: JSON.stringify({action:'login', username:'__QUOTA_READINESS_PROBE__', pin:'019283'}),
+          const worker = process.env.WORKER_ORIGIN;
+          const browser = process.env.BROWSER_ORIGIN;
+          const [healthRes, browserRes] = await Promise.all([
+            fetch(`${worker}/api?action=health`, {cache:'no-store'}),
+            fetch(`${browser}/api/config`, {cache:'no-store'}),
+          ]);
+          const health = await healthRes.json();
+          const browserBody = await browserRes.json();
+          if (!healthRes.ok || !health?.ok) throw new Error(`Worker health failed ${healthRes.status}`);
+          if (!browserRes.ok || !browserBody?.ok) throw new Error(`Browser health failed ${browserRes.status}`);
+          console.log('WORKER_HEALTH=PASS');
+          console.log('BROWSER_HEALTH=PASS');
+          console.log('PUBLIC_HEALTH_DB_READS=0');
+          NODE
+
+      - name: Verify real NE1 snapshot and sessions with bounded Turso reads
+        shell: bash
+        run: |
+          node <<'NODE'
+          const org = process.env.TURSO_ORG;
+          const db = process.env.TURSO_DATABASE;
+          const platform = process.env.TURSO_PLATFORM_API_TOKEN;
+          if (!platform) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
+          const platformHeaders = {Authorization:`Bearer ${platform}`};
+
+          const dbRes = await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`, {headers:platformHeaders});
+          const dbJson = await dbRes.json();
+          if (!dbRes.ok) throw new Error(`Turso database lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
+          const database = dbJson.database || dbJson;
+          const hostname = database.Hostname || database.hostname;
+          if (!hostname) throw new Error('Turso hostname missing');
+
+          const tokenRes = await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`, {
+            method:'POST', headers:platformHeaders,
           });
-          const json = await response.json();
-          console.log(`HTTP_STATUS=${response.status}`);
-          console.log(`API_CODE=${json?.code || ''}`);
-          if (response.status === 401 && json?.code === 'INVALID_LOGIN') {
-            console.log('DEV_TURSO_READABLE=PASS');
-            console.log('BOUNDED_DB_READ_REQUESTS=1');
-            process.exit(0);
+          const tokenJson = await tokenRes.json();
+          const dbToken = tokenJson.jwt;
+          if (!tokenRes.ok || !dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
+          console.log(`::add-mask::${dbToken}`);
+
+          let totalRowsRead = 0;
+          async function query(label, sql) {
+            const response = await fetch(`https://${hostname}/v2/pipeline`, {
+              method:'POST',
+              headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+            });
+            const payload = await response.json();
+            const item = payload?.results?.[0];
+            if (!response.ok || item?.type === 'error') throw new Error(`${label} failed: ${JSON.stringify(item?.error || payload)}`);
+            const result = item?.response?.result || {};
+            const rowsRead = Number(result.rows_read || 0);
+            totalRowsRead += rowsRead;
+            console.log(`${label}_ROWS_READ=${rowsRead}`);
+            if (rowsRead >= 100000) throw new Error(`${label} exceeded heavy-read safety threshold: ${rowsRead}`);
+            return result;
           }
-          if (response.status === 503 && ['AUTH_PROVIDER_LIMIT','TURSO_READS_BLOCKED'].includes(json?.code)) {
-            throw new Error(`DEV Turso reads remain provider-blocked: ${json.code}`);
+
+          const decode = value => value == null ? null : (typeof value === 'object' && 'value' in value ? value.value : value);
+          const first = result => (result?.rows?.[0] || []).map(decode);
+          const ageSeconds = value => {
+            const parsed = Date.parse(String(value || ''));
+            return Number.isFinite(parsed) ? Math.max(0, Math.round((Date.now() - parsed) / 1000)) : -1;
+          };
+
+          const connector = first(await query('CONNECTOR', "SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"));
+          const live = first(await query('LIVE_CACHE', "SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub='NE1' LIMIT 1"));
+          const route = first(await query('ROUTE', "SELECT hub,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"));
+          const preentry = first(await query('PREENTRY', "SELECT hub,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"));
+          const bus = first(await query('BUS', "SELECT hub,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"));
+
+          if (String(connector[0] || '') !== 'NE1' || Number(connector[1] || 0) !== 1) throw new Error('NE1 connector is not active');
+          if (String(live[0] || '') !== 'NE1') throw new Error('NE1 live cache missing');
+          const liveRows = Number(live[2] || 0);
+          if (!Number.isFinite(liveRows) || liveRows <= 0) throw new Error(`NE1 live cache has no real rows: ${liveRows}`);
+
+          function verifySession(label, row) {
+            const age = ageSeconds(row?.[1]);
+            const error = String(row?.[2] || '');
+            console.log(`${label}_LAST_SUCCESS=${row?.[1] || '-'} AGE_SECONDS=${age} ERROR=${error || '-'}`);
+            if (!row?.[1] || error || age < 0 || age > 20 * 60) throw new Error(`${label} session not healthy`);
           }
-          throw new Error(`Unexpected DEV auth probe response: ${response.status} ${json?.code || ''}`);
+          verifySession('ROUTE', route);
+          verifySession('PREENTRY', preentry);
+          verifySession('BUS', bus);
+
+          console.log(`LIVE_SNAPSHOT_AT=${live[1] || '-'}`);
+          console.log(`LIVE_ROWS=${liveRows}`);
+          console.log(`TOTAL_BOUNDED_ROWS_READ=${totalRowsRead}`);
+          if (totalRowsRead >= 100000) throw new Error(`Total bounded probe read too many rows: ${totalRowsRead}`);
+          console.log('REAL_NE1_DATA=PASS');
+          console.log('ALL_MS_SESSIONS_READY=true');
+          console.log('HEAVY_READ_TRIGGERED=0');
+          console.log('D1_QUERIES=0');
           NODE

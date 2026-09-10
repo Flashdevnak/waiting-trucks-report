@@ -1,0 +1,5 @@
+TBR V13 final deploy checkpoint
+Purpose: trigger DEV Worker deploy after live-cache envelope fix.
+Runtime behavior: none.
+D1 binding: forbidden.
+Production touched: no.

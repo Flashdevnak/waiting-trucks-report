@@ -72,8 +72,9 @@ test("upper metrics use today or the explicitly searched date range", () => {
 test("ลงรถเสร็จ reuses browser cache and progressively renders large result sets", () => {
   const first = stageFrontend(frontendSource);
   assert.match(first, /function completedTodayDatasetRows\(\)/);
-  assert.match(first, /const archiveCompleted = state\.archiveRows\.filter\(isCompletedToday\)/);
-  assert.match(first, /const currentCompleted = state\.currentRows\.filter\(isCompletedToday\)/);
+  assert.match(first, /const archiveCompleted = state\.archiveRows\.filter\(\(row\) => isCompletedToday\(row\)\)/);
+  assert.match(first, /const currentCompleted = state\.currentRows\.filter\(\(row\) => isCompletedToday\(row\)\)/);
+  assert.doesNotMatch(first, /\.filter\(isCompletedToday\)/);
   assert.match(first, /return mergeLatest\(archiveCompleted, currentCompleted\)/);
   assert.match(first, /const cachedCompletedRows = completedTodayDatasetRows\(\)/);
   assert.match(first, /cachedCompletedRows\.length >= expectedCompleted/);

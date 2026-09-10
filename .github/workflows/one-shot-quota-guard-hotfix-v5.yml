@@ -1,0 +1,79 @@
+name: One-shot Turso Quota Guard Hotfix V5
+
+on:
+  push:
+    paths:
+      - '.github/dev-tools/quota-guard-hotfix-trigger-v5.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-shot-quota-guard-hotfix-v5
+  cancel-in-progress: false
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply quota guard with Schedule-compatible linear history truth
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess, textwrap
+
+          workflow = Path('.github/workflows/one-shot-quota-guard-hotfix-v4.yml').read_text()
+          match = re.search(r"          python3 - <<'PY'\n([\s\S]*?)\n          PY\n", workflow)
+          if not match:
+              raise SystemExit('V4 patch body not found')
+          body = textwrap.dedent(match.group(1))
+          body = body.replace("needle = '    assert.match(staged, /legacy_bursts/);\\n'", "needle = '  assert.match(staged, /legacy_bursts/);\\n'")
+          body = body.replace('extra = "    assert.match(staged, /MS_SCHEDULE_COMPLETION_TRUTH_V4/);\\n    assert.match(staged, /completion_source=\'SCHEDULE\'/);\\n"', 'extra = "  assert.match(staged, /MS_SCHEDULE_COMPLETION_TRUTH_V4/);\\n  assert.match(staged, /completion_source=\'SCHEDULE\'/);\\n"')
+          tmp = Path('/tmp/quota_guard_v5.py')
+          tmp.write_text(body)
+          subprocess.run(['python3', str(tmp)], check=True)
+          PY
+
+      - name: Full regression gate
+        run: |
+          node --check .github/dev-tools/patch-ms-daily-completion-observation.mjs
+          node --check .github/dev-tools/patch-ms-completion-burst-v3.mjs
+          node --check worker/src/turso-d1.js
+          cd worker
+          npm ci
+          npm run check
+
+      - name: Stage DEV quota gate
+        run: |
+          node .github/dev-tools/stage-dev-runtime.mjs
+          test -f worker/.dev-stage/src/index.js
+          ! grep -q 'SELECT h1.payload_json' worker/.dev-stage/src/index.js
+          ! grep -q 'legacyCompletionBurst' worker/.dev-stage/src/index.js
+          grep -q 'LAG(CAST(json_extract(payload_json' worker/.dev-stage/src/index.js
+          grep -q "completion_source='SCHEDULE'" worker/.dev-stage/src/index.js
+          grep -q 'MS_SYNC_COORDINATOR' worker/wrangler.dev.jsonc
+          grep -q 'TURSO_HEAVY_READ_GUARD' worker/src/turso-d1.js
+          echo QUOTA_GUARD_STAGE_PASS
+
+      - name: Commit safe source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/dev-tools/patch-ms-daily-completion-observation.mjs \
+                  .github/dev-tools/patch-ms-completion-burst-v3.mjs \
+                  .github/dev-tools/ms-completion-burst-truth.test.mjs \
+                  worker/src/turso-d1.js worker/tests/turso-d1.test.mjs worker/tests/sync-policy.test.mjs
+          git diff --cached --check
+          git commit -m 'fix: hard-stop Turso read amplification'
+          git pull --rebase origin main
+          git push origin HEAD:main

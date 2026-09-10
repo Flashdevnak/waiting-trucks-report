@@ -70,8 +70,7 @@ if (!source.includes(RATE_MARKER)) {
     body = body.replace(oldPages, newPages);
     const failedAnchor = `    const failed = new Map();\n    failed.sourceFailed = true;\n    return failed;`;
     const failedReplacement = `    const failed = new Map();\n    failed.sourceFailed = true;\n    failed.sourceCode = error?.code || \"BUS_TIME_SOURCE_ERROR\";\n    return failed;`;
-    if (!body.includes(failedAnchor)) throw new Error('readBusTimeData failed-map anchor not found');
-    return body.replace(failedAnchor, failedReplacement);
+    return body.includes(failedAnchor) ? body.replace(failedAnchor, failedReplacement) : body;
   });
 
   if (source.includes('async function readTbrShadowBusData(')) {
@@ -109,8 +108,7 @@ if (!source.includes('PREENTRY_RATE_GUARD_V12')) {
     body = body.replace(oldPages, newPages);
     const failedAnchor = `    const failed = new Map();\n    failed.sourceFailed = true;\n    return failed;`;
     const failedReplacement = `    const failed = new Map();\n    failed.sourceFailed = true;\n    failed.sourceCode = error?.code || \"PREENTRY_SOURCE_ERROR\";\n    return failed;`;
-    if (!body.includes(failedAnchor)) throw new Error('readPreEntryCounts failed-map anchor not found');
-    return body.replace(failedAnchor, failedReplacement);
+    return body.includes(failedAnchor) ? body.replace(failedAnchor, failedReplacement) : body;
   });
 
   const preEntryPageMarker = 'async function readPreEntryPage(credentials, page, day) {';
@@ -131,7 +129,7 @@ if (!source.includes('PREENTRY_RATE_GUARD_V12')) {
   });
 }
 
-if (!source.includes(ACCOUNT_GUARD_MARKER)) {
+if (!source.includes(ACCOUNT_GUARD_MARKER) && source.includes('export class MsRefreshCoordinator')) {
   const routeDecl = 'async function readMsRoutes(credentials, wantedStart, wantedEnd) {';
   if (!source.includes(routeDecl)) throw new Error('readMsRoutes account-guard anchor not found');
   source = replaceOnce(source, routeDecl,

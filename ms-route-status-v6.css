@@ -1,124 +1,181 @@
-/* MS_ROUTE_STATUS_V6
+/* MS_ROUTE_STATUS_V7
    Presentation only. Refines only desktop route-info + operation-status colors and the
    warehouse-arrival heading. No data, SLA, queue, source, polling, or mobile logic. */
 @media (min-width: 1025px) {
-  /* Warehouse-arrival heading: same neutral language as the table, with enough Thai line height. */
+  /* Warehouse-arrival heading: force true visual centering and preserve Thai marks. */
   .ms-page .schedule-stack.single .schedule-heading {
-    min-height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 6px 10px 7px;
+    width: 100%;
+    min-height: 34px;
+    margin: 0 !important;
+    padding: 7px 10px 8px !important;
+    display: grid !important;
+    place-items: center !important;
+    text-align: center !important;
     overflow: visible;
     white-space: nowrap;
-    line-height: 1.45;
+    line-height: 1.45 !important;
     font-size: 11.5px;
-    font-weight: 850;
-    color: #303534;
-    background: #f4f5f3;
-    border-bottom-color: #d8dcda;
+    font-weight: 900;
+    color: #252b2e;
+    background: #f1f3f2;
+    border: 0;
+    border-bottom: 1px solid #d5dad7;
   }
 
-  /* Route info: restrained, low-saturation tones that sit naturally with black/gold Flash UI. */
+  /* Route information: deliberate contrast using the site's slate / warm-neutral / Flash-gold family. */
   .ms-page .route-meta .meta-chip {
-    min-height: 28px;
+    min-height: 29px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-weight: 850;
+    font-weight: 900;
+    border-radius: 5px;
     box-shadow: none;
   }
   .ms-page .route-meta span:nth-child(1) .meta-chip {
-    color: #3f4c52 !important;
-    background: #eef1f2 !important;
-    border-color: #c8d0d3 !important;
+    color: #ffffff !important;
+    background: #385666 !important;
+    border-color: #385666 !important;
   }
   .ms-page .route-meta span:nth-child(2) .meta-chip {
-    color: #584f3f !important;
-    background: #f5f2e9 !important;
-    border-color: #d6cdb8 !important;
+    color: #533f1f !important;
+    background: #f1e5ca !important;
+    border-color: #d2b77e !important;
   }
   .ms-page .route-meta span:nth-child(3) .meta-chip {
-    color: #5a4906 !important;
-    background: #fff3c7 !important;
-    border-color: #d9bd55 !important;
+    color: #3f3100 !important;
+    background: #e7cb65 !important;
+    border-color: #c5a32b !important;
   }
 
-  /* Status container stays neutral; status itself carries only the minimum semantic color. */
+  /* Status shell stays neutral so semantic colors are carried by small elements, not large painted blocks. */
   .ms-page .operation-compact {
-    border-color: #d2d6d4 !important;
-    background: #fafbfa !important;
-    box-shadow: 0 1px 4px rgba(22, 28, 25, .045);
+    border-color: #cfd5d1 !important;
+    background: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(22, 28, 25, .05);
   }
   .ms-page .operation-compact .classic-operation-center {
-    background: #f4f5f4;
-    border-bottom-color: #d6dad8;
-  }
-  .ms-page .operation-compact .classic-status-chip {
-    border-color: #cbd1ce !important;
-    background: #f0f2f1 !important;
-    color: #353d39 !important;
-    font-weight: 850;
-    box-shadow: none;
+    min-height: 43px;
+    margin: -8px -8px 0;
+    padding: 7px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f5f6f5 !important;
+    border-bottom: 1px solid #d7dcda;
   }
 
-  /* Waiting / not started: calm Flash-gold, not red even when SLA is already overdue. */
+  /* Status badge hugs the text instead of filling the whole row. */
+  .ms-page .operation-compact .classic-status-chip {
+    width: fit-content !important;
+    min-width: 0 !important;
+    max-width: 100%;
+    min-height: 28px;
+    margin: 0 auto;
+    padding: 5px 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #ffffff !important;
+    border: 1px solid #aeb8b2 !important;
+    color: #37413c !important;
+    font-weight: 900;
+    line-height: 1.25;
+    box-shadow: none;
+    white-space: nowrap;
+  }
+
+  /* Waiting: warm outline only, no full-width red/pink fill even if SLA is overdue. */
   .ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-operation-center,
   .ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-operation-center {
-    background: #fffaf0 !important;
+    background: #fbfaf6 !important;
   }
   .ms-page .operation-compact.destination:not(.is-working):not(.is-done) .classic-status-chip,
   .ms-page .operation-compact.destination.is-danger:not(.is-working):not(.is-done) .classic-status-chip {
-    border-color: #dec96f !important;
-    background: #fff4c9 !important;
-    color: #66530a !important;
+    color: #8a6500 !important;
+    background: #ffffff !important;
+    border-color: #c9a42e !important;
   }
 
-  /* In progress: slightly stronger gold, matching the site's primary accent. */
+  /* In progress: the one state that earns a compact Flash-gold fill. */
   .ms-page .operation-compact.destination.is-working .classic-operation-center {
-    background: #fff8e2 !important;
+    background: #fbfaf5 !important;
   }
   .ms-page .operation-compact.destination.is-working .classic-status-chip {
-    border-color: #d9bc4f !important;
-    background: #ffefb4 !important;
-    color: #624c00 !important;
+    color: #2f2600 !important;
+    background: #e7c842 !important;
+    border-color: #bd9d18 !important;
   }
 
-  /* Completed: soft operational green. */
+  /* Completed: strong green text with restrained outline. */
   .ms-page .operation-compact.destination.is-done .classic-operation-center {
-    background: #f3f8f4 !important;
+    background: #f7faf8 !important;
   }
   .ms-page .operation-compact.destination.is-done .classic-status-chip {
-    border-color: #b7d2c0 !important;
-    background: #eaf4ed !important;
-    color: #286045 !important;
+    color: #17603f !important;
+    background: #ffffff !important;
+    border-color: #82b69a !important;
   }
 
-  /* Drop: quiet slate-blue, aligned with the rest of the UI. */
+  /* Drop: slate-blue text and outline. */
   .ms-page .operation-compact.drop .classic-operation-center {
-    background: #f3f6f7 !important;
+    background: #f7f9fa !important;
   }
   .ms-page .operation-compact.drop .classic-status-chip {
-    border-color: #bdcbd2 !important;
-    background: #eaf0f3 !important;
-    color: #405666 !important;
+    color: #31566c !important;
+    background: #ffffff !important;
+    border-color: #8eafc0 !important;
   }
 
-  /* Overtime is emphasized only in the summary row, not by painting the whole status card red. */
-  .ms-page .operation-compact.is-danger .classic-operation-summary.is-danger,
-  .ms-page .operation-compact .classic-operation-summary.is-danger {
-    border-color: #e1b9b4 !important;
-    background: #fff1ef !important;
-    color: #92352f !important;
-  }
-  .ms-page .operation-compact .classic-operation-summary.is-safe {
-    border-color: #c0d6c7 !important;
-    background: #f0f7f2 !important;
-    color: #2a6145 !important;
-  }
+  /* Summary becomes two real cells. Large background color is removed; only the value carries severity. */
+  .ms-page .operation-compact .classic-operation-summary,
+  .ms-page .operation-compact .classic-operation-summary.compact-summary,
+  .ms-page .operation-compact .classic-operation-summary.is-safe,
+  .ms-page .operation-compact .classic-operation-summary.is-danger,
   .ms-page .operation-compact .classic-operation-summary.is-drop {
-    border-color: #c6d1d6 !important;
-    background: #f0f4f6 !important;
-    color: #405666 !important;
+    min-height: 38px;
+    display: grid !important;
+    grid-template-columns: minmax(72px, .72fr) minmax(0, 1.28fr) !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+    border: 1px solid #d3d9d6 !important;
+    border-radius: 7px !important;
+    background: #ffffff !important;
+    color: #303834 !important;
+    box-shadow: none;
+  }
+  .ms-page .operation-compact .classic-operation-summary > span,
+  .ms-page .operation-compact .classic-operation-summary > strong {
+    min-width: 0;
+    min-height: 36px;
+    padding: 7px 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: #ffffff !important;
+    line-height: 1.25;
+  }
+  .ms-page .operation-compact .classic-operation-summary > span {
+    color: #59635e !important;
+    font-size: 10.5px;
+    font-weight: 800;
+  }
+  .ms-page .operation-compact .classic-operation-summary > strong {
+    border-left: 1px solid #d8ddda;
+    color: #303834 !important;
+    font-size: 11.5px;
+    font-weight: 900;
+  }
+  .ms-page .operation-compact .classic-operation-summary.is-danger > strong {
+    color: #b3261e !important;
+  }
+  .ms-page .operation-compact .classic-operation-summary.is-safe > strong {
+    color: #17603f !important;
+  }
+  .ms-page .operation-compact .classic-operation-summary.is-drop > strong {
+    color: #31566c !important;
   }
 }

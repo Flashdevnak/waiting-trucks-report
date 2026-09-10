@@ -73,7 +73,7 @@ jobs:
 
           const [connectorResult,liveResult,routeTableResult,routeStateResult,routeResult,preentryResult,busResult]=await Promise.all([
             query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
-            query("SELECT hub,source_hash,synced_at,json_array_length(rows_json) AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
+            query("SELECT hub,source_hash,synced_at,CASE WHEN json_type(rows_json)='array' THEN json_array_length(rows_json) WHEN json_type(rows_json,'$.rows')='array' THEN json_array_length(rows_json,'$.rows') ELSE -1 END AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
             query("SELECT COUNT(*) AS route_count FROM ms_routes WHERE hub='NE1'"),
             query("SELECT SUM(CASE WHEN unloading_state IN (0,1) THEN 1 ELSE 0 END) AS active_unload, SUM(CASE WHEN unloading_state=2 THEN 1 ELSE 0 END) AS completed_unload, SUM(CASE WHEN julianday(COALESCE(actual_arrival_at,estimated_arrival_at,actual_departure_at,estimated_departure_at))>=julianday('now','-3 day') THEN 1 ELSE 0 END) AS recent_3d, MAX(synced_at) AS max_synced_at FROM ms_routes WHERE hub='NE1'"),
             query("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),

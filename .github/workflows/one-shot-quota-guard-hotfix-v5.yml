@@ -57,7 +57,8 @@ jobs:
         run: |
           rm -rf .quota-stage
           mkdir -p .quota-stage
-          cp ms.js style.css .quota-stage/
+          cp waiting.html main.js ms-report.html ms-report.js ms.html ms.js proof.html proof.js style.css ms-v4.css sw.js favicon.svg .quota-stage/
+          cp proof-v2-core.js proof-v2-ui.js proof-v2-actions.js .quota-stage/
           cp worker/src/index.js .quota-stage/worker-index.js
           node .github/dev-tools/stage-dev-runtime.mjs .quota-stage/ms.js .quota-stage/worker-index.js
           node --check .quota-stage/worker-index.js

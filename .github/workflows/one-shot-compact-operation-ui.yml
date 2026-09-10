@@ -1,0 +1,206 @@
+name: One-shot compact operation UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-compact-operation-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify event head is still current main
+        run: |
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+      - name: Apply compact operation presentation in source
+        shell: python
+        run: |
+          from pathlib import Path
+
+          front_path = Path("ms.js")
+          front = front_path.read_text()
+          start = front.index("function classicOperationRow")
+          end = front.index("// LOCAL_ROUTE_BARCODE_V1", start)
+          old = front[start:end]
+          required = [
+              'function renderOperation(row)',
+              'เริ่มลงรถ → ลงเสร็จจริง',
+              'เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง',
+              'classicOperationSummary("สถานะไปต่อ", onwardDetail, "drop")',
+          ]
+          for marker in required:
+              if marker not in old:
+                  raise SystemExit(f"expected source marker missing: {marker}")
+
+          new = r'''function classicOperationRow(label, value, extra = "") {
+            return `<div class="classic-operation-row"><span>${esc(label)}</span><strong>${value || "-"}</strong>${extra ? `<small>${esc(extra)}</small>` : ""}</div>`;
+          }
+
+          function classicOperationFact(label, value, wide = false) {
+            return `<div class="classic-operation-fact${wide ? " is-wide" : ""}"><span>${esc(label)}</span><strong>${esc(value || "-")}</strong></div>`;
+          }
+
+          function classicOperationFacts(items) {
+            return `<div class="classic-operation-facts">${items.filter(Boolean).join("")}</div>`;
+          }
+
+          function classicOperationSummary(label, value, severity = "neutral") {
+            return `<div class="classic-operation-summary compact-summary is-${severity}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+          }
+
+          function unloadSlaSummary(timing) {
+            if (timing.slaMinutes === null) {
+              if (!timing.arrival) return { text: "รอ Route ยืนยันรถถึงคลัง", severity: "neutral" };
+              if (timing.completed && !timing.finish) return { text: "รอเวลาลงเสร็จที่เชื่อถือได้", severity: "neutral" };
+              if (timing.standard === null) return { text: "ยังไม่มีมาตรฐานรถประเภทนี้", severity: "neutral" };
+              return { text: "ยังคำนวณ SLA Route ไม่ได้", severity: "neutral" };
+            }
+            if (timing.standard === null) return { text: "ยังไม่มีมาตรฐานรถประเภทนี้", severity: "neutral" };
+            const delta = timing.slaMinutes - timing.standard;
+            if (delta > 0) return { text: `เกินมาตรฐาน ${nf.format(delta)} นาที`, severity: "danger" };
+            if (timing.completed) return { text: "อยู่ในมาตรฐาน", severity: "safe" };
+            return { text: `เหลือเวลา ${nf.format(Math.abs(delta))} นาที`, severity: "safe" };
+          }
+
+          function renderOperation(row) {
+            const q = queueInfo(row);
+            if (q.cancelled) {
+              return `<div class="classic-operation operation-compact is-cancelled"><div class="classic-operation-center"><span class="classic-status-chip">ยกเลิกรถแล้ว</span></div>${classicOperationRow("ยกเลิกเมื่อ", shortDateTime(row.queueCancelledAt), row.queueCancelledBy || "")}</div>`;
+            }
+
+            if (isDestination(row)) {
+              const timing = unloadTiming(row);
+              const active = Number(row.unloadingState) === 1;
+              const done = Number(row.unloadingState) === 2;
+              const summary = unloadSlaSummary(timing);
+              const currentSlaOver = timing.standard !== null && timing.slaMinutes !== null && timing.slaMinutes > timing.standard;
+              const headline = done ? timing.finish ? "ลงรถเสร็จ" : "ลงรถเสร็จ รอยืนยันเวลา" : active ? "กำลังลงรถ" : timing.arrival ? "รอเริ่มลงรถ" : "รอรถถึงคลัง";
+              const statusClass = currentSlaOver ? "is-danger" : active ? "is-working" : done ? "is-done" : "is-waiting";
+              const facts = [
+                classicOperationFact("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row))),
+                classicOperationFact("เริ่มลงรถ", shortDateTime(row.scheduleUnloadingStartedAt)),
+                done ? classicOperationFact("ลงเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : "",
+                done
+                  ? classicOperationFact("ใช้เวลาลงรถจริง", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`)
+                  : active
+                    ? classicOperationFact("ลงรถมาแล้ว", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`, true)
+                    : "",
+                classicOperationFact("มาตรฐาน", timing.standard === null ? "-" : `${nf.format(timing.standard)} นาที`),
+                classicOperationFact("SLA Route", timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`),
+              ];
+              return `<div class="classic-operation operation-compact destination ${statusClass}"><div class="classic-operation-center"><span class="classic-status-chip">${headline}</span></div>${classicOperationFacts(facts)}${classicOperationSummary(done ? "สรุป" : "สถานะ", summary.text, summary.severity)}</div>`;
+            }
+
+            if (isDrop(row)) {
+              const drop = dropOperation(row);
+              const timing = unloadTiming(row);
+              const active = Number(row.unloadingState) === 1;
+              const summary = unloadSlaSummary(timing);
+              const release = departureCountdown(row);
+              const headline = drop.onwardDone ? "ออกจากจุดดรอปแล้ว" : drop.unloadingDone ? "ลงของเสร็จ รอไปต่อ" : active ? "กำลังลงของที่จุดดรอป" : timing.arrival ? "รอลงของที่จุดดรอป" : "รอรถถึงจุดดรอป";
+              const facts = [
+                classicOperationFact("ถึงจุดดรอปจริง", shortDateTime(confirmedEffectiveArrival(row))),
+                classicOperationFact("เริ่มลงของ", shortDateTime(row.scheduleUnloadingStartedAt)),
+                drop.unloadingDone ? classicOperationFact("ลงของเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : "",
+                drop.unloadingDone
+                  ? classicOperationFact("ใช้เวลาลงของจริง", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`)
+                  : active
+                    ? classicOperationFact("ลงของมาแล้ว", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`, true)
+                    : "",
+                classicOperationFact("มาตรฐาน", timing.standard === null ? "-" : `${nf.format(timing.standard)} นาที`),
+                classicOperationFact("SLA Route", timing.slaMinutes === null ? "-" : `${nf.format(timing.slaMinutes)} นาที`),
+                drop.onwardDone ? classicOperationFact("ออกจากจุดดรอปจริง", shortDateTime(row.actualDepartureAt), true) : "",
+              ];
+              const onwardDetail = drop.onwardMinutes === null
+                ? drop.onwardLabel
+                : `${drop.onwardLabel} · ${drop.onwardDone ? "ออกหลังลงของ" : "รอมาแล้ว"} ${nf.format(drop.onwardMinutes)} นาที`;
+              const releaseDetail = release ? release.label : "ยังไม่มีกำหนดปล่อย";
+              const releaseSeverity = release?.key === "late" ? "danger" : release?.key === "ontime" && drop.onwardDone ? "safe" : "drop";
+              return `<div class="classic-operation operation-compact drop"><div class="classic-operation-center"><span class="classic-status-chip">${headline}</span></div>${classicOperationFacts(facts)}${classicOperationSummary("SLA ลงของ", summary.text, summary.severity)}${classicOperationSummary("สถานะปล่อยรถ / ไปต่อ", `${releaseDetail} · ${onwardDetail}`, releaseSeverity)}</div>`;
+            }
+
+            const departure = parseDate(row.actualDepartureAt);
+            const planned = parseDate(row.estimatedDepartureAt);
+            const routeStillLoading = Number(row.unloadingState) === 1 || /กำลัง.*โหลด|loading/i.test(String(row.vehicleStatus || ""));
+            const headline = departure ? "รถออกคลังแล้ว" : routeStillLoading ? "กำลังเตรียมรถออกคลัง" : "รอรถออกคลัง";
+            const countdown = departureCountdown(row);
+            const releaseSeverity = countdown?.key === "late" ? "danger" : countdown ? "safe" : "neutral";
+            const facts = [
+              classicOperationFact("กำหนดปล่อยรถ", shortDateTime(planned), !departure),
+              departure ? classicOperationFact("รถออกจริง", shortDateTime(departure)) : "",
+            ];
+            return `<div class="classic-operation operation-compact origin"><div class="classic-operation-center"><span class="classic-status-chip">${headline}</span></div>${classicOperationFacts(facts)}${countdown ? classicOperationSummary("สถานะการปล่อยรถ", countdown.label, releaseSeverity) : classicOperationSummary("สถานะการปล่อยรถ", "ยังไม่มีกำหนดปล่อย", "neutral")}</div>`;
+          }
+
+          '''
+          front = front[:start] + new + front[end:]
+          if "เริ่มลงรถ → ลงเสร็จจริง" in front or "เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง" in front:
+              raise SystemExit("redundant operation copy still present")
+          if front.count("function renderOperation(row)") != 1:
+              raise SystemExit("renderOperation must remain single-source")
+          front_path.write_text(front)
+
+          style_path = Path("style.css")
+          style = style_path.read_text()
+          css_marker = "Classic operation compact facts: source-level extension of MS_LOWER_CLASSIC_V12."
+          if css_marker in style:
+              raise SystemExit("compact operation CSS already present")
+          style += r'''
+
+          /* Classic operation compact facts: source-level extension of MS_LOWER_CLASSIC_V12. */
+          .ms-page .operation-compact{width:100%;gap:6px;padding:0;text-align:center}
+          .ms-page .classic-operation-center{display:flex;align-items:center;justify-content:center;min-width:0}
+          .ms-page .classic-operation-center .classic-status-chip{max-width:100%;justify-content:center;text-align:center;white-space:normal}
+          .ms-page .classic-operation-facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;overflow:hidden;border:1px solid #e0e4e6;border-radius:8px;background:#e0e4e6}
+          .ms-page .classic-operation-fact{display:flex;min-width:0;min-height:48px;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 7px;background:#fff;text-align:center}
+          .ms-page .classic-operation-fact.is-wide{grid-column:1/-1;min-height:43px}
+          .ms-page .classic-operation-fact>span{color:#6a7277;font-size:10px;font-weight:750;line-height:1.2}
+          .ms-page .classic-operation-fact>strong{max-width:100%;color:#202124;font-size:12px;font-weight:900;line-height:1.3;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+          .ms-page .classic-operation-summary.compact-summary{grid-template-columns:minmax(70px,.8fr) minmax(0,1.2fr);align-items:center;gap:6px;padding:6px 8px;text-align:center}
+          .ms-page .classic-operation-summary.compact-summary>span,.ms-page .classic-operation-summary.compact-summary>strong{text-align:center}
+          @media(max-width:1024px){.ms-page .compact-card .operation-compact{margin:0 10px 10px;padding:0}.ms-page .classic-operation-fact{min-height:46px;padding:5px 6px}.ms-page .classic-operation-fact>strong{font-size:12px}}
+          @media(max-width:430px){.ms-page .compact-card .operation-compact{margin-left:9px;margin-right:9px}.ms-page .classic-operation-facts{grid-template-columns:repeat(2,minmax(0,1fr))}.ms-page .classic-operation-fact{min-height:43px;padding:5px 4px}.ms-page .classic-operation-fact>span{font-size:9px}.ms-page .classic-operation-fact>strong{font-size:11px}.ms-page .classic-operation-summary.compact-summary{grid-template-columns:64px minmax(0,1fr);gap:5px;padding:6px}}
+          '''
+          style_path.write_text(style)
+
+          test_path = Path(".github/dev-tools/ms-unload-completion-ui.test.mjs")
+          tests = test_path.read_text()
+          lines = tests.splitlines()
+          replacements = {
+            'test("status cell is compact ordered facts not full-cell operation card"': 'test("status cell uses one shared compact fact grid on desktop and mobile",()=>{const table=between(front,"function tableRow(row)","function card(row)");const card=between(front,"function card(row)","let cancelRouteTarget");const operation=between(front,"function renderOperation(row)","// LOCAL_ROUTE_BARCODE_V1");assert.match(front,/function classicOperationFact\\(label, value, wide = false\\)/);assert.match(front,/function classicOperationFacts\\(items\\)/);assert.equal((front.match(/function renderOperation\\(row\\)/g)||[]).length,1);assert.match(operation,/classic-operation-facts/);assert.match(visual,/classic-operation-facts\\{display:grid;grid-template-columns:repeat\\(2,minmax\\(0,1fr\\)\\)/);assert.match(visual,/classic-operation-center\\{display:flex;align-items:center;justify-content:center/);assert.match(table,/operationHtml/);assert.match(card,/renderOperation\\(row\\)/);assert.doesNotMatch(front,/class="lower-operation/);assert.doesNotMatch(front,/operationTimeline\\(/)});',
+            'test("unload presentation separates S-E work time from earliest-arrival SLA truth"': 'test("unload presentation keeps one SLA truth and removes redundant range copy",()=>{const operation=between(front,"function renderOperation(row)","// LOCAL_ROUTE_BARCODE_V1");assert.doesNotMatch(front,/function displayedUnloadTiming\\(row/);assert.match(operation,/classicOperationFact\\("ใช้เวลาลงรถจริง", timing\\.workMinutes/);assert.match(operation,/classicOperationFact\\("SLA Route", timing\\.slaMinutes/);assert.match(operation,/shortDateTime\\(confirmedEffectiveArrival\\(row\\)\\)/);assert.match(front,/const arrival = confirmedEffectiveArrival\\(row\\)/);assert.doesNotMatch(operation,/เริ่มลงรถ → ลงเสร็จจริง|เวลาถึงที่เร็วที่สุด → ลงเสร็จจริง|เวลาถึงที่เร็วที่สุด → เวลาปัจจุบัน/);assert.match(operation,/const release = departureCountdown\\(row\\)/);assert.match(operation,/classicOperationSummary\\("SLA ลงของ", summary\\.text, summary\\.severity\\)/);assert.match(operation,/classicOperationSummary\\("สถานะปล่อยรถ \\/ ไปต่อ"/);assert.match(operation,/classicOperationFact\\("กำหนดปล่อยรถ"/);assert.doesNotMatch(operation,/กลับไปต้นทาง/);assert.match(front,/overStandard: \\(isDestination\\(row\\) \\|\\| isDrop\\(row\\)\\) && completed/)});',
+          }
+          found = set()
+          for index, line in enumerate(lines):
+              for prefix, replacement in replacements.items():
+                  if line.startswith(prefix):
+                      lines[index] = replacement
+                      found.add(prefix)
+          if found != set(replacements):
+              missing = set(replacements) - found
+              raise SystemExit(f"test anchors missing: {missing}")
+          test_path.write_text("\n".join(lines) + "\n")
+      - name: Run focused lower UI regression tests
+        run: node --test .github/dev-tools/ms-unload-completion-ui.test.mjs worker/tests/ms-owner-live-v8.test.mjs
+      - name: Run full repository checks
+        run: npm run check
+      - name: Commit permanent source changes and remove one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/one-shot-compact-operation-ui.yml
+          git add ms.js style.css .github/dev-tools/ms-unload-completion-ui.test.mjs
+          git diff --cached --check
+          git commit -m "feat: compact operation status presentation"
+          git push origin HEAD:main

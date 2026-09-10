@@ -80,16 +80,6 @@ jobs:
                   raise SystemExit('TBR daily split test anchor not unique')
               test = test.replace(anchor, addition + anchor, 1)
           test_path.write_text(test)
-
-          probe_path = Path('.github/workflows/turso-live-state-readonly.yml')
-          probe = probe_path.read_text()
-          old_sql = "SELECT hub,source_hash,synced_at,json_array_length(rows_json) AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"
-          new_sql = "SELECT hub,source_hash,synced_at,CASE WHEN json_type(rows_json)='array' THEN json_array_length(rows_json) WHEN json_type(rows_json,'$.rows')='array' THEN json_array_length(rows_json,'$.rows') ELSE -1 END AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"
-          if old_sql in probe:
-              probe = probe.replace(old_sql, new_sql, 1)
-          elif new_sql not in probe:
-              raise SystemExit('readonly live-cache row-count anchor missing')
-          probe_path.write_text(probe)
           PY
 
       - name: Focused regression
@@ -109,9 +99,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs \
-                  cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs \
-                  .github/workflows/turso-live-state-readonly.yml
-          git rm .github/workflows/one-shot-tbr-envelope-v13.yml
+                  cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs
           git diff --cached --check
           git commit -m 'fix(dev): read current live-cache envelope in TBR shadow'
           git restore .

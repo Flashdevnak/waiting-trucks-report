@@ -1,0 +1,249 @@
+name: One-shot EA2 Session Resilience V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-ea2-session-resilience-v2.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Patch source at authoritative blocks
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          ui = Path('ms.js')
+          s = ui.read_text()
+          start = s.index('function renderFreshness() {')
+          end = s.index('\nfunction connection(', start)
+          new_block = '''function renderFreshness() {
+            const synced = parseDate(state.lastSync);
+            const ageMs = synced ? Math.max(0, Date.now() - synced.getTime()) : Infinity;
+            const stale = !synced || ageMs > CONFIG.staleMs;
+            const hardOffline = state.msStatus === "error" || state.msStatus === "not_configured";
+            const degraded = state.msStatus === "degraded";
+            el("live-dot").classList.toggle("stale", stale || hardOffline || degraded);
+            if (state.syncError) {
+              el("source-sync").textContent = synced
+                ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ${state.syncError}`
+                : `MS: ${state.syncError}`;
+              return;
+            }
+            if (!synced) {
+              el("source-sync").textContent = "ยังไม่มีข้อมูลจาก MS";
+              return;
+            }
+            if (degraded || hardOffline) {
+              el("source-sync").textContent =
+                `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ใช้ข้อมูลล่าสุดและกำลังเชื่อมต่อใหม่`;
+              return;
+            }
+            el("source-sync").textContent = stale
+              ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · กำลังตรวจข้อมูลใหม่`
+              : `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น.`;
+          }
+          '''
+          s = s[:start] + new_block + s[end:]
+          ui.write_text(s)
+
+          worker = Path('worker/src/index.js')
+          s = worker.read_text()
+          marker = 'async function runMsRefresh(env, branch) {'
+          pos = s.index(marker)
+          helper = '''async function lastAcceptedMsFallback(env, branch, message, emptyStatus = "error") {
+            let rows = [];
+            let syncedAt = "";
+            try {
+              const cached = await env.DB.prepare(
+                "SELECT rows_json,synced_at FROM ms_live_cache WHERE hub=?",
+              ).bind(branch).first();
+              if (cached?.rows_json) {
+                const parsed = JSON.parse(cached.rows_json || "[]");
+                rows = Array.isArray(parsed)
+                  ? parsed
+                  : Array.isArray(parsed?.rows)
+                    ? parsed.rows
+                    : [];
+                syncedAt = cached.synced_at || "";
+              }
+            } catch (error) {
+              console.error(JSON.stringify({ event: "ms_fallback_cache_error", branch, message: error.message }));
+            }
+            if (!rows.length) {
+              try {
+                rows = (
+                  await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
+                    .bind(branch)
+                    .all()
+                ).results.map(output);
+              } catch (error) {
+                console.error(JSON.stringify({ event: "ms_fallback_routes_error", branch, message: error.message }));
+              }
+            }
+            if (!syncedAt) {
+              try {
+                const latest = await env.DB.prepare(
+                  "SELECT MAX(timestamp) AS synced_at FROM audit_log WHERE action='SYNC_MS_ROUTES' AND record_id=?",
+                ).bind(branch).first();
+                syncedAt = latest?.synced_at || "";
+              } catch (error) {
+                console.error(JSON.stringify({ event: "ms_fallback_sync_time_error", branch, message: error.message }));
+              }
+            }
+            if (rows.length || syncedAt)
+              return {
+                status: "degraded",
+                error: message || "MS ยังไม่พร้อมใช้งานชั่วคราว",
+                syncedAt,
+                rows,
+                fallback: true,
+              };
+            return {
+              status: emptyStatus,
+              error: message || "เชื่อมต่อ MS ไม่สำเร็จ",
+            };
+          }
+
+          '''
+          if 'async function lastAcceptedMsFallback(' not in s:
+              s = s[:pos] + helper + s[pos:]
+
+          old_cred = '''  const credentials = await msCredentials(env, branch);
+            if (!credentials)
+              return {
+                status: "not_configured",
+                error: `HUB ${branch} ยังไม่ได้อัปเดตเซสชัน MS`,
+              };'''
+          new_cred = '''  const credentials = await msCredentials(env, branch);
+            if (!credentials)
+              return lastAcceptedMsFallback(
+                env,
+                branch,
+                `HUB ${branch} ยังไม่ได้อัปเดตเซสชัน MS`,
+                "not_configured",
+              );'''
+          if old_cred not in s:
+              raise SystemExit('credential branch not found')
+          s = s.replace(old_cred, new_cred, 1)
+
+          pattern = re.compile(r'''    const result = \{\s*status: "error",\s*error: error\.message \|\| "เชื่อมต่อ MS ไม่สำเร็จ",\s*\};\s*recentMsSync\.set\(branch, \{ until: Date\.now\(\) \+ MS_SYNC_TTL, result \}\);\s*return result;''')
+          replacement = '''    const result = await lastAcceptedMsFallback(
+              env,
+              branch,
+              error.message || "เชื่อมต่อ MS ไม่สำเร็จ",
+              "error",
+            );
+            recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+            return result;'''
+          s, n = pattern.subn(replacement, s, count=1)
+          if n != 1:
+              raise SystemExit(f'catch result replace count={n}')
+          worker.write_text(s)
+          PY
+
+      - name: Add focused regression
+        run: |
+          cat > worker/tests/ms-session-resilience.test.mjs <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const ui = fs.readFileSync(new URL('../../ms.js', import.meta.url), 'utf8');
+          const worker = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+          test('age alone never claims session stale', () => {
+            const block = ui.slice(ui.indexOf('function renderFreshness()'), ui.indexOf('function connection('));
+            assert.equal(block.includes('เซสชันยังไม่อัปเดต'), false);
+            assert.ok(block.includes('กำลังตรวจข้อมูลใหม่'));
+            assert.ok(block.includes('ใช้ข้อมูลล่าสุดและกำลังเชื่อมต่อใหม่'));
+          });
+          test('per-HUB route session failure preserves accepted data', () => {
+            assert.ok(worker.includes('async function lastAcceptedMsFallback'));
+            assert.ok(worker.includes('SELECT rows_json,synced_at FROM ms_live_cache WHERE hub=?'));
+            assert.ok(worker.includes('fallback: true'));
+            assert.ok(worker.includes('status: "degraded"'));
+          });
+          test('realtime remains 4 seconds', () => {
+            assert.ok(ui.includes('pollMs: 4000'));
+            assert.ok(ui.includes('setInterval(realtimeTick, CONFIG.pollMs)'));
+          });
+          EOF
+
+      - name: Install dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Regression gates
+        run: |
+          node --check ms.js
+          node --check worker/src/index.js
+          node --test worker/tests/ms-session-resilience.test.mjs
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+          node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test worker/tests/hbi-truck-photos.test.mjs
+          (cd worker && npm run check)
+          git diff --check
+
+      - name: Commit clean source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/one-shot-ea2-session-resilience.yml
+          git rm .github/workflows/one-shot-ea2-session-resilience-v2.yml
+          git add ms.js worker/src/index.js worker/tests/ms-session-resilience.test.mjs
+          git diff --cached --check
+          git commit -m 'fix(dev): preserve realtime data across HUB session gaps'
+          git push origin HEAD:main
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Deploy DEV and wait
+        run: |
+          gh workflow run deploy-worker-dev.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 60); do
+            RUN_ID=$(gh run list --workflow deploy-worker-dev.yml --branch main --limit 20 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "DEV_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Current-system acceptance
+        run: |
+          gh workflow run current-system-acceptance.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 60); do
+            RUN_ID=$(gh run list --workflow current-system-acceptance.yml --branch main --limit 20 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "ACCEPT_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Final checkpoint
+        run: |
+          echo "SOURCE_HEAD=$SOURCE_HEAD"
+          echo "DEV_RUN_ID=$DEV_RUN_ID"
+          echo "ACCEPT_RUN_ID=$ACCEPT_RUN_ID"
+          echo "REALTIME_CADENCE=4000ms"
+          echo "PRODUCTION_TOUCHED=NO"

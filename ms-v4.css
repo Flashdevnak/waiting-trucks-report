@@ -750,3 +750,82 @@ html body.ms-page .operation-compact .classic-status-chip {
     font-weight: 900 !important;
   }
 }
+
+/* MS_MOBILE_SCHEDULE_STATUS_CELL_FIX_V14
+   Keep Thai schedule headings fully visible and let semantic status color fill the whole value cell. */
+@media (max-width: 1024px) {
+  html body.ms-page .compact-schedule.schedule-stack.single .schedule-heading,
+  html body.ms-page .truck-card .schedule-stack.single .schedule-heading {
+    min-height: 42px !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 8px 12px 9px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    white-space: nowrap !important;
+    line-height: 1.35 !important;
+    color: #ffffff !important;
+    background: #202124 !important;
+    border-bottom: 1px solid #151515 !important;
+    border-radius: 10px 10px 0 0 !important;
+  }
+
+  html body.ms-page .operation-compact .classic-operation-summary,
+  html body.ms-page .operation-compact .classic-operation-summary.compact-summary,
+  html body.ms-page .operation-compact .classic-operation-summary.is-safe,
+  html body.ms-page .operation-compact .classic-operation-summary.is-danger,
+  html body.ms-page .operation-compact .classic-operation-summary.is-drop {
+    min-height: 52px !important;
+    display: grid !important;
+    grid-template-columns: minmax(92px, .78fr) minmax(0, 1.72fr) !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    border: 1px solid #d1d3d0 !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    box-sizing: border-box !important;
+  }
+  html body.ms-page .operation-compact .classic-operation-summary > span,
+  html body.ms-page .operation-compact .classic-operation-summary > strong {
+    min-width: 0 !important;
+    min-height: 50px !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 8px 10px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    align-self: stretch !important;
+    box-sizing: border-box !important;
+    text-align: center !important;
+    line-height: 1.25 !important;
+  }
+  html body.ms-page .operation-compact .classic-operation-summary > span {
+    color: #5b6064 !important;
+    background: #ffffff !important;
+    font-weight: 800 !important;
+  }
+  html body.ms-page .operation-compact .classic-operation-summary > strong {
+    color: #202124 !important;
+    background: #ffffff !important;
+    border-left: 1px solid #dedfdd !important;
+    font-weight: 900 !important;
+  }
+  html body.ms-page .operation-compact .classic-operation-summary.is-danger > strong {
+    color: #b3261e !important;
+    background: #fdecef !important;
+  }
+  html body.ms-page .operation-compact .classic-operation-summary.is-safe > strong {
+    color: #126b32 !important;
+    background: #eef8f0 !important;
+  }
+  html body.ms-page .operation-compact .classic-operation-summary.is-drop > strong {
+    color: #202124 !important;
+    background: #f5f5f2 !important;
+  }
+}

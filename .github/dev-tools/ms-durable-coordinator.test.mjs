@@ -91,13 +91,15 @@ test("existing one-minute cron keeps main MS routes alive after every browser cl
   assert.doesNotMatch(cronBlock, /setInterval\s*\(/);
 });
 
-test("five-source HAR setup stacks every source on its own row across devices without extra polling", () => {
+test("six-source HAR setup stacks every source on its own row across devices without extra polling", () => {
   for (const marker of [
     "MS_CONNECTION_RESPONSIVE_V2",
-    "อัปโหลด HAR ทั้ง 5 แหล่ง",
-    "5. LH Manifest (พัสดุออกจริง / น้ำหนัก Kg)",
-    "5. HAR LH Manifest · พัสดุออกจริง + น้ำหนัก Kg",
-    "5. เปิด LH Manifest (หลังเข้า HBI SSO)",
+    "อัปโหลด HAR ทั้ง 6 แหล่ง",
+    "5. ปริ้นบาร์โค้ดรถ",
+    "5. HAR ปริ้นบาร์โค้ดรถ",
+    "6. LH Manifest (พัสดุออกจริง / น้ำหนัก Kg)",
+    "6. HAR LH Manifest · พัสดุออกจริง + น้ำหนัก Kg",
+    "6. เปิด LH Manifest (หลังเข้า HBI SSO)",
     "NEED_LOGIN",
     "HBI SSO แยกจากการล็อกอินหน้า MS",
     "ms-har-cards-v2",

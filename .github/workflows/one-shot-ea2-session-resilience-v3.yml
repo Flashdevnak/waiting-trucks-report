@@ -1,0 +1,223 @@
+name: One-shot EA2 Session Resilience V3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-ea2-session-resilience-v3.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Patch authoritative UI and DEV recovery source
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          # UI truth: data age is not evidence that the MS session is stale.
+          p = Path('ms.js')
+          s = p.read_text()
+          start = s.index('function renderFreshness() {')
+          end = s.index('\nfunction connection(', start)
+          block = '''function renderFreshness() {
+            const synced = parseDate(state.lastSync);
+            const ageMs = synced ? Math.max(0, Date.now() - synced.getTime()) : Infinity;
+            const stale = !synced || ageMs > CONFIG.staleMs;
+            const hardOffline = state.msStatus === "error" || state.msStatus === "not_configured";
+            const degraded = state.msStatus === "degraded";
+            el("live-dot").classList.toggle("stale", stale || hardOffline || degraded);
+            if (state.syncError) {
+              el("source-sync").textContent = synced
+                ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ${state.syncError}`
+                : `MS: ${state.syncError}`;
+              return;
+            }
+            if (!synced) {
+              el("source-sync").textContent = "ยังไม่มีข้อมูลจาก MS";
+              return;
+            }
+            if (degraded || hardOffline) {
+              el("source-sync").textContent =
+                `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ใช้ข้อมูลล่าสุดและกำลังเชื่อมต่อใหม่`;
+              return;
+            }
+            el("source-sync").textContent = stale
+              ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · กำลังตรวจข้อมูลใหม่`
+              : `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น.`;
+          }
+          '''
+          s = s[:start] + block + s[end:]
+          p.write_text(s)
+
+          # DEV runtime recovery source: session/auth failure is a recoverable source gap
+          # when a last accepted snapshot exists. Keep retry cadence unchanged.
+          p = Path('.github/dev-tools/patch-ms-realtime-recovery.mjs')
+          s = p.read_text()
+          old = '''    const transient =
+              error?.code === "UPSTREAM_TIMEOUT" ||
+              error?.code === "MS_HTTP_ERROR" ||
+              error instanceof TypeError;
+            if (transient) {'''
+          new = '''    const sessionGap = error?.code === "MS_SESSION_EXPIRED";
+            const recoverable =
+              sessionGap ||
+              error?.code === "UPSTREAM_TIMEOUT" ||
+              error?.code === "MS_HTTP_ERROR" ||
+              error instanceof TypeError;
+            if (recoverable) {'''
+          if old not in s:
+              raise SystemExit('recovery classifier block not found')
+          s = s.replace(old, new, 1)
+
+          old = '''        const result = {
+                  status: "degraded",
+                  changes: 0,
+                  rows: fallback.rows,
+                  completedToday:
+                    fallback.completedDay === thaiDay()
+                      ? fallback.completedRows.length
+                      : 0,
+                  error:
+                    "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
+                };'''
+          new = '''        const result = {
+                  status: "degraded",
+                  syncedAt: fallback.syncedAt || "",
+                  changes: 0,
+                  rows: fallback.rows,
+                  completedToday:
+                    fallback.completedDay === thaiDay()
+                      ? fallback.completedRows.length
+                      : 0,
+                  error: sessionGap
+                    ? "เซสชัน MS ต้องอัปเดต · ระบบยังแสดงข้อมูลล่าสุดและจะลองเชื่อมต่อใหม่อัตโนมัติ"
+                    : "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
+                };'''
+          if old not in s:
+              raise SystemExit('degraded result block not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+      - name: Add focused regression
+        run: |
+          cat > worker/tests/ms-session-resilience.test.mjs <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const ui = fs.readFileSync(new URL('../../ms.js', import.meta.url), 'utf8');
+          const recovery = fs.readFileSync(new URL('../../.github/dev-tools/patch-ms-realtime-recovery.mjs', import.meta.url), 'utf8');
+          test('timestamp age never falsely labels MS session stale', () => {
+            const block = ui.slice(ui.indexOf('function renderFreshness()'), ui.indexOf('function connection('));
+            assert.equal(block.includes('เซสชันยังไม่อัปเดต'), false);
+            assert.ok(block.includes('กำลังตรวจข้อมูลใหม่'));
+            assert.ok(block.includes('state.syncError'));
+          });
+          test('session expiry preserves accepted cache with truthful status', () => {
+            assert.ok(recovery.includes('const sessionGap = error?.code === "MS_SESSION_EXPIRED"'));
+            assert.ok(recovery.includes('syncedAt: fallback.syncedAt || ""'));
+            assert.ok(recovery.includes('เซสชัน MS ต้องอัปเดต · ระบบยังแสดงข้อมูลล่าสุด'));
+            assert.ok(recovery.includes('if (recoverable)'));
+          });
+          test('realtime cadence remains 4 seconds', () => {
+            assert.ok(ui.includes('pollMs: 4000'));
+            assert.ok(ui.includes('setInterval(realtimeTick, CONFIG.pollMs)'));
+          });
+          EOF
+
+      - name: Install dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Regression gates
+        run: |
+          node --check ms.js
+          node --check .github/dev-tools/patch-ms-realtime-recovery.mjs
+          node --check worker/src/index.js
+          node --test worker/tests/ms-session-resilience.test.mjs
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+          node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test worker/tests/hbi-truck-photos.test.mjs
+          (cd worker && npm run check)
+          git diff --check
+
+      - name: Verify staged runtime before source commit
+        run: |
+          rm -rf worker/.ea2-check
+          mkdir -p worker/.ea2-check
+          cp ms.js worker/.ea2-check/ms.js
+          cp worker/src/index.js worker/.ea2-check/index.js
+          node .github/dev-tools/stage-dev-runtime.mjs worker/.ea2-check/ms.js worker/.ea2-check/index.js
+          node --check worker/.ea2-check/ms.js
+          node --check worker/.ea2-check/index.js
+          grep -q 'MS_SESSION_EXPIRED' worker/.ea2-check/index.js
+          grep -q 'เซสชัน MS ต้องอัปเดต' worker/.ea2-check/index.js
+          if grep -q 'เซสชันยังไม่อัปเดต' worker/.ea2-check/ms.js; then
+            echo 'false session-age label still present' >&2
+            exit 1
+          fi
+          rm -rf worker/.ea2-check
+
+      - name: Commit clean source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f .github/workflows/one-shot-ea2-session-resilience.yml || true
+          git rm -f .github/workflows/one-shot-ea2-session-resilience-v2.yml || true
+          git rm -f .github/workflows/one-shot-ea2-session-resilience-v3.yml || true
+          git add ms.js .github/dev-tools/patch-ms-realtime-recovery.mjs worker/tests/ms-session-resilience.test.mjs
+          git diff --cached --check
+          git commit -m 'fix(dev): make HUB session status truth-safe'
+          git push origin HEAD:main
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Deploy DEV and wait
+        run: |
+          gh workflow run deploy-worker-dev.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 60); do
+            RUN_ID=$(gh run list --workflow deploy-worker-dev.yml --branch main --limit 20 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "DEV_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Current-system acceptance
+        run: |
+          gh workflow run current-system-acceptance.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 60); do
+            RUN_ID=$(gh run list --workflow current-system-acceptance.yml --branch main --limit 20 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "ACCEPT_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Final checkpoint
+        run: |
+          echo "SOURCE_HEAD=$SOURCE_HEAD"
+          echo "DEV_RUN_ID=$DEV_RUN_ID"
+          echo "ACCEPT_RUN_ID=$ACCEPT_RUN_ID"
+          echo "REALTIME_CADENCE=4000ms"
+          echo "PRODUCTION_TOUCHED=NO"

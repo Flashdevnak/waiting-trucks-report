@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=7cd1ab37d1d83bce09dea9d0ae14b35c309c7a0c
+          EXPECTED=e8651278114f9d0a05add9a8ceb3035331d6e4de
           PARENT=$(git rev-parse HEAD^)
           test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
 
@@ -41,8 +41,6 @@ jobs:
                   raise SystemExit(f'{label}: expected 1 match, got {count}')
               path.write_text(updated, encoding='utf-8')
 
-          # Mobile manifest: remove the duplicate page-level override. The feature module
-          # owns this component's CSS and is also the DEV runtime generator source.
           html = Path('ms.html')
           sub_once(
               html,
@@ -61,63 +59,61 @@ jobs:
           if len(old_lines) != 1:
               raise SystemExit(f'origin manifest style source: expected 1 style.textContent line, got {len(old_lines)}')
           css = '''    style.textContent = `
-.origin-manifest-badge {
-  width: min(100%, 390px);
-  max-width: 100%;
-  margin: 8px auto 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: #62676d;
-  font-size: 12px;
-  line-height: 1.25;
-}
-.origin-manifest-badge > span {
-  min-width: 0;
-  min-height: 36px;
-  padding: 7px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  white-space: normal;
-  text-align: center;
-  border: 1px solid #c8cac6;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #62676d;
-}
-.origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400; }
-.origin-manifest-badge > span:last-child { border-top: 3px solid #252525; }
-.origin-manifest-badge strong { color: #151515; font-weight: 900; }
-.compact-card-head .origin-manifest-badge { margin-top: 8px; }
-@media (max-width: 700px) {
-  .origin-manifest-badge {
-    width: 100%;
-    max-width: none;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    justify-self: stretch;
-  }
-  .origin-manifest-badge > span {
-    flex-direction: column;
-    gap: 2px;
-    padding: 7px 6px;
-    white-space: nowrap;
-  }
-  .origin-manifest-badge > span strong { white-space: nowrap; }
-}
-`;'''
+          .origin-manifest-badge {
+            width: min(100%, 390px);
+            max-width: 100%;
+            margin: 8px auto 0;
+            padding: 0;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 7px;
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+            color: #62676d;
+            font-size: 12px;
+            line-height: 1.25;
+          }
+          .origin-manifest-badge > span {
+            min-width: 0;
+            min-height: 36px;
+            padding: 7px 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            white-space: normal;
+            text-align: center;
+            border: 1px solid #c8cac6;
+            border-radius: 7px;
+            background: #ffffff;
+            color: #62676d;
+          }
+          .origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400; }
+          .origin-manifest-badge > span:last-child { border-top: 3px solid #252525; }
+          .origin-manifest-badge strong { color: #151515; font-weight: 900; }
+          .compact-card-head .origin-manifest-badge { margin-top: 8px; }
+          @media (max-width: 700px) {
+            .origin-manifest-badge {
+              width: 100%;
+              max-width: none;
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+              gap: 8px;
+              justify-self: stretch;
+            }
+            .origin-manifest-badge > span {
+              flex-direction: column;
+              gap: 2px;
+              padding: 7px 6px;
+              white-space: nowrap;
+            }
+            .origin-manifest-badge > span strong { white-space: nowrap; }
+          }
+          `;'''
           block = block.replace(old_lines[0], css, 1)
           text = text[:start] + block + text[end:]
           manifest.write_text(text, encoding='utf-8')
 
-          # HBI photo session: the successful Fleet Load Info HAR and its bundled UI
-          # replay auth/lang/fbid/time/webSign/_from as one captured session tuple.
           worker = Path('worker/src/index.js')
           w = worker.read_text(encoding='utf-8')
           old_comment = '''    // The successful Fleet Load Info HAR shows `time` as the request timestamp;\n    // keep the dedicated auth/fbid/webSign but generate a fresh request time per click.\n    const value = key === "time" ? String(Date.now()) : credentials?.[key];'''
@@ -136,14 +132,14 @@ jobs:
           t = t.replace(old, new, 1)
           mobile_pattern = r'''test\("mobile origin manifest keeps shipped parcels and weight on the same row", \(\) => \{.*?\n\}\);\n'''
           mobile_replacement = '''test("mobile origin manifest keeps shipped parcels and weight on the same row", () => {
-  const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");
-  const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
-  assert.doesNotMatch(html, /\\.ms-page \\.origin-manifest-badge/);
-  assert.match(manifest, /grid-template-columns: repeat\\(2, minmax\\(0, 1fr\\)\\)/);
-  assert.match(manifest, /@media \\(max-width: 700px\\)[\\s\\S]*?width: 100%;[\\s\\S]*?max-width: none;/);
-  assert.match(manifest, /@media \\(max-width: 700px\\)[\\s\\S]*?white-space: nowrap;/);
-});
-'''
+            const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");
+            const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
+            assert.doesNotMatch(html, /\\.ms-page \\.origin-manifest-badge/);
+            assert.match(manifest, /grid-template-columns: repeat\\(2, minmax\\(0, 1fr\\)\\)/);
+            assert.match(manifest, /@media \\(max-width: 700px\\)[\\s\\S]*?width: 100%;[\\s\\S]*?max-width: none;/);
+            assert.match(manifest, /@media \\(max-width: 700px\\)[\\s\\S]*?white-space: nowrap;/);
+          });
+          '''
           t, count = re.subn(mobile_pattern, lambda _m: mobile_replacement, t, count=1, flags=re.S)
           if count != 1:
               raise SystemExit(f'mobile manifest test: expected 1, got {count}')

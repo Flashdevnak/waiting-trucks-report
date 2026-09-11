@@ -1,0 +1,75 @@
+name: Restore desktop truck photo position once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/restore-desktop-truck-photo-position-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Guard expected checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=190d61f2b64676a30625787a4cc530ea7f8e9807
+          PARENT=$(git rev-parse HEAD^)
+          test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
+
+      - name: Restore button to destination work-type cell
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('ms.js')
+          text = path.read_text(encoding='utf-8')
+
+          old_attendance = '''    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>'''
+          new_attendance = '''    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div>${truckPhotoButton(row)}</div></td>'''
+          old_people = '''    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${truckPhotoButton(row)}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>'''
+          new_people = '''    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>'''
+
+          for old, new, label in [
+              (old_attendance, new_attendance, 'desktop attendance cell'),
+              (old_people, new_people, 'desktop people cell'),
+          ]:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 anchor, got {count}')
+              text = text.replace(old, new, 1)
+
+          # Mobile compact card intentionally stays unchanged: its button remains
+          # inside .compact-work-type, so this patch only restores desktop placement.
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          node --check ms.js
+          cd worker
+          npm ci
+          node --test tests/hbi-truck-photos.test.mjs
+          cd ..
+          git diff --check
+
+      - name: Commit source and remove one-time workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name Flashdevnak
+          git config user.email 26nak.testdev@gmail.com
+          git rm .github/workflows/restore-desktop-truck-photo-position-once.yml
+          git add ms.js
+          git diff --cached --check
+          git commit -m "fix(ms): restore truck photo button to destination cell"
+          git push origin HEAD:main

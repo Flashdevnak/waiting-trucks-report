@@ -1,0 +1,149 @@
+name: One-shot HBI source cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-hbi-source-cleanup.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Fix source owners without override stacking
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          function replaceUnique(source, from, to, label) {
+            const first = source.indexOf(from);
+            const last = source.lastIndexOf(from);
+            if (first < 0 || first !== last) {
+              throw new Error(`${label}: expected exactly one source match`);
+            }
+            return source.slice(0, first) + to + source.slice(first + from.length);
+          }
+
+          function replaceRangeUnique(source, startMarker, endMarker, replacement, label) {
+            const start = source.indexOf(startMarker);
+            const secondStart = source.indexOf(startMarker, start + 1);
+            if (start < 0 || secondStart >= 0) throw new Error(`${label}: start marker must be unique`);
+            const endStart = source.indexOf(endMarker, start);
+            const secondEnd = source.indexOf(endMarker, endStart + 1);
+            if (endStart < 0 || secondEnd >= 0) throw new Error(`${label}: end marker must be unique`);
+            const end = endStart + endMarker.length;
+            return source.slice(0, start) + replacement + source.slice(end);
+          }
+
+          // 1) HBI Fleet Load Info: CBI Wujie sends authorization=<location auth>.
+          // Chrome HAR can redact the GET Authorization header, but its OPTIONS
+          // preflight still proves authorization is requested. Reuse the same
+          // captured auth value; do not create another credential/session source.
+          {
+            const path = 'worker/src/index.js';
+            let source = fs.readFileSync(path, 'utf8');
+            source = replaceUnique(
+              source,
+              `    "BI-PLATFORM": "",\n    Origin: "https://cbi-fbi.flashexpress.com",`,
+              `    "BI-PLATFORM": "",\n    // HBI_WUJIE_AUTH_HEADER_V1: the CBI client sends authorization=<location auth>.\n    // HAR exports may redact this GET header even though the preflight exposes it.\n    Authorization: credentials?.auth || "",\n    Origin: "https://cbi-fbi.flashexpress.com",`,
+              'HBI Authorization header',
+            );
+            fs.writeFileSync(path, source);
+          }
+
+          // 2) Origin-manifest badge CSS gets one static owner (ms-v4.css).
+          // Remove runtime <style> injection from the generated manifest frontend.
+          {
+            const path = 'worker/src/origin-manifest-v1.js';
+            let source = fs.readFileSync(path, 'utf8');
+            source = replaceRangeUnique(
+              source,
+              `  function installStyle() {`,
+              `  const manifestCache = new Map();`,
+              `  const manifestCache = new Map();`,
+              'origin manifest runtime style block',
+            );
+            source = replaceUnique(source, `    installStyle();\n`, ``, 'origin manifest init style call');
+            fs.writeFileSync(path, source);
+          }
+
+          // 3) Replace the old color-only override fragment with the full single-owner
+          // component style. On mobile the badge spans the compact-card two-column grid,
+          // then divides itself 50/50. This fixes the half-card layout at its source.
+          {
+            const path = 'ms-v4.css';
+            let source = fs.readFileSync(path, 'utf8');
+            const start = `html body.ms-page .origin-manifest-badge { color: #5b6064 !important; background: transparent !important; }`;
+            const end = `html body.ms-page .origin-manifest-badge strong { color: #151515 !important; }`;
+            const replacement = `/* ORIGIN_MANIFEST_BADGE_V2 — single static style owner; no runtime style injection. */\nhtml body.ms-page .origin-manifest-badge {\n  width: min(100%, 390px);\n  max-width: 100%;\n  margin: 8px auto 0;\n  padding: 0;\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 8px;\n  background: transparent !important;\n  color: #5b6064 !important;\n  font-size: 12px;\n  line-height: 1.25;\n}\nhtml body.ms-page .origin-manifest-badge > span {\n  min-width: 0;\n  min-height: 36px;\n  padding: 7px 10px;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  border: 1px solid #d1d3d0 !important;\n  border-radius: 7px;\n  background: #ffffff !important;\n  color: #5b6064 !important;\n  text-align: center;\n}\nhtml body.ms-page .origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400 !important; }\nhtml body.ms-page .origin-manifest-badge > span:last-child { border-top: 3px solid #202124 !important; }\nhtml body.ms-page .origin-manifest-badge strong { color: #151515 !important; font-weight: 900; }\nhtml body.ms-page .compact-card-head .origin-manifest-badge { margin-top: 8px; }\n@media (max-width: 700px) {\n  html body.ms-page .compact-card-head .origin-manifest-badge {\n    grid-column: 1 / -1;\n    width: 100%;\n    max-width: none;\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n    gap: 8px;\n    justify-self: stretch;\n  }\n  html body.ms-page .compact-card-head .origin-manifest-badge > span {\n    flex-direction: column;\n    gap: 2px;\n    padding: 7px 6px;\n    white-space: nowrap;\n  }\n  html body.ms-page .compact-card-head .origin-manifest-badge > span strong { white-space: nowrap; }\n}\n`;
+            source = replaceRangeUnique(source, start, end, replacement, 'origin manifest static CSS owner');
+            fs.writeFileSync(path, source);
+          }
+
+          // 4) Permanent focused regression coverage: HBI auth header + one CSS owner + full-row mobile grid.
+          {
+            const path = 'worker/tests/hbi-truck-photos.test.mjs';
+            let source = fs.readFileSync(path, 'utf8');
+            source = replaceUnique(
+              source,
+              `  assert.match(read, /"Accept-Language": credentials\\?\\.lang \\|\\| "th"/);\n  assert.doesNotMatch(read, /Promise\\.all|for \\(let page|page \\+\\//);`,
+              `  assert.match(read, /"Accept-Language": credentials\\?\\.lang \\|\\| "th"/);\n  assert.match(read, /Authorization: credentials\\?\\.auth \\|\\| ""/);\n  assert.equal((worker.match(/async function readHbiTruckPhotos/g) || []).length, 1);\n  assert.equal((worker.match(/async function msTruckPhotos/g) || []).length, 1);\n  assert.doesNotMatch(read, /Promise\\.all|for \\(let page|page \\+\\//);`,
+              'HBI request regression assertions',
+            );
+
+            const oldMobile = `test("mobile origin manifest keeps shipped parcels and weight on the same row", () => {\n  const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");\n  const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");\n  assert.doesNotMatch(html, /\\.ms-page \\.origin-manifest-badge/);\n  assert.match(manifest, /grid-template-columns: repeat\\(2, minmax\\(0, 1fr\\)\\)/);\n  assert.match(manifest, /@media \\(max-width: 700px\\)[\\s\\S]*?width: 100%;[\\s\\S]*?max-width: none;/);\n  assert.match(manifest, /@media \\(max-width: 700px\\)[\\s\\S]*?white-space: nowrap;/);\n});`;
+            const newMobile = `test("mobile origin manifest keeps shipped parcels and weight on one full-width 50/50 row", () => {\n  const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");\n  const baseStyle = fs.readFileSync(new URL("../../style.css", import.meta.url), "utf8");\n  const msStyle = fs.readFileSync(new URL("../../ms-v4.css", import.meta.url), "utf8");\n  const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");\n  assert.doesNotMatch(html, /\\.ms-page \\.origin-manifest-badge/);\n  assert.doesNotMatch(baseStyle, /origin-manifest-badge/);\n  assert.doesNotMatch(manifest, /origin-manifest-style-v1|function installStyle\\(\\)|\\.origin-manifest-badge \\{/);\n  assert.match(msStyle, /ORIGIN_MANIFEST_BADGE_V2/);\n  assert.match(msStyle, /grid-template-columns: repeat\\(2, minmax\\(0, 1fr\\)\\)/);\n  assert.match(msStyle, /@media \\(max-width: 700px\\)[\\s\\S]*?compact-card-head \\.origin-manifest-badge[\\s\\S]*?grid-column: 1 \\/ -1;[\\s\\S]*?width: 100%;[\\s\\S]*?max-width: none;/);\n  assert.match(msStyle, /@media \\(max-width: 700px\\)[\\s\\S]*?white-space: nowrap;/);\n});`;
+            source = replaceUnique(source, oldMobile, newMobile, 'mobile manifest regression test');
+            fs.writeFileSync(path, source);
+          }
+
+          console.log('SOURCE_CLEANUP=APPLIED');
+          NODE
+
+      - name: Install dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Focused HBI and source-owner regression
+        run: |
+          node --check worker/src/index.js
+          node --check worker/src/origin-manifest-v1.js
+          node --test worker/tests/hbi-truck-photos.test.mjs
+          node .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs --self-test
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+          git diff --check
+
+      - name: Full worker regression
+        working-directory: worker
+        run: npm run check
+
+      - name: Commit safe source fix and remove one-shot workflow
+        run: |
+          git rm .github/workflows/one-shot-hbi-source-cleanup.yml
+          git status --short
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add worker/src/index.js worker/src/origin-manifest-v1.js worker/tests/hbi-truck-photos.test.mjs ms-v4.css
+          git commit -m "fix(dev): clean HBI auth and manifest mobile source"
+          git push origin HEAD:main
+
+      - name: Dispatch existing DEV deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --ref main

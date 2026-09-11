@@ -60,7 +60,7 @@ test("daily history UI release and lower-reference SW revision are current", () 
   assert.equal(version.version, "20260904-01");
   // The data-release manifest remains frozen. The scoped MS asset revision
   // identifies the current lower presentation/freshness revision without changing pipelines.
-  assert.match(sw, /20260911-01-operation-header-responsive/);
+  assert.match(sw, /20260911-02-mobile-schedule-status/);
   assert.doesNotMatch(sw, /MS_JS_HOTFIX|MS_CSS_HOTFIX|appendPatch/);
 });
 

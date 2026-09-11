@@ -14,7 +14,7 @@ test("daily metrics stay on today/live rows until a dated history search is requ
   assert.match(frontend, /state\.currentRows\.filter\(\(row\) => rowBusinessDay\(row\) === today\)/);
   assert.match(frontend, /setMetric\("metric-archive", metricRows\.length\)/);
   assert.match(frontend, /pollMs:\s*4000/);
-  assert.match(frontend, /DEV: archive stays lazy; live polling must never auto-read msArchive/);
+  assert.match(frontend, /DEV: archive stays lazy; realtime transport never auto-reads msArchive/);
   assert.doesNotMatch(frontend, /if \(!state\.archiveTotalLoaded\) void ensureArchiveTotalLoaded\(\)/);
   assert.doesNotMatch(frontend, /apiGet\("msArchive",/);
 });

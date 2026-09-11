@@ -28,7 +28,9 @@ jobs:
           cache-dependency-path: worker/package-lock.json
 
       - name: Transform authoritative sources
-        run: python3 .tmp/realtime_quota_hardening.py
+        run: |
+          python3 .tmp/fix_realtime_quota_transform.py
+          python3 .tmp/realtime_quota_hardening.py
 
       - name: Install dependencies
         working-directory: worker
@@ -65,7 +67,7 @@ jobs:
 
       - name: Commit clean source and remove one-shot files
         run: |
-          git rm .github/workflows/apply-realtime-quota-hardening.yml .tmp/realtime_quota_hardening.py
+          git rm .github/workflows/apply-realtime-quota-hardening.yml .tmp/realtime_quota_hardening.py .tmp/fix_realtime_quota_transform.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add ms.js worker/src/index.js worker/src/proof-control.js worker/src/turso-index.js .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/realtime-quota-hardening.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/current-system-acceptance.yml

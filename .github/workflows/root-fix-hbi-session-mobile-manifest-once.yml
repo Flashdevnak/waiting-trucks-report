@@ -1,0 +1,206 @@
+name: Root-fix HBI captured session and mobile manifest once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/root-fix-hbi-session-mobile-manifest-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Guard latest remote main parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=7cd1ab37d1d83bce09dea9d0ae14b35c309c7a0c
+          PARENT=$(git rev-parse HEAD^)
+          test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
+
+      - name: Fix authoritative sources in place
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def sub_once(path, pattern, replacement, label, flags=0):
+              text = path.read_text(encoding='utf-8')
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, got {count}')
+              path.write_text(updated, encoding='utf-8')
+
+          # Mobile manifest: remove the duplicate page-level override. The feature module
+          # owns this component's CSS and is also the DEV runtime generator source.
+          html = Path('ms.html')
+          sub_once(
+              html,
+              r'''\n      /\* Origin LH Manifest only: parcel count and weight become two separate bordered cells, no icons\. \*/\n      \.ms-page \.origin-manifest-badge \{.*?\n      \.ms-page \.origin-manifest-badge strong \{\n        color: #151515 !important;\n        font-weight: 900 !important;\n      \}\n''',
+              '\n',
+              'remove duplicate manifest CSS from ms.html',
+              re.S,
+          )
+
+          manifest = Path('worker/src/origin-manifest-v1.js')
+          text = manifest.read_text(encoding='utf-8')
+          start = text.index('  function installStyle() {')
+          end = text.index('\n  function wrapRenderers()', start)
+          block = text[start:end]
+          old_lines = [line for line in block.splitlines() if line.strip().startswith('style.textContent = ')]
+          if len(old_lines) != 1:
+              raise SystemExit(f'origin manifest style source: expected 1 style.textContent line, got {len(old_lines)}')
+          css = '''    style.textContent = `
+.origin-manifest-badge {
+  width: min(100%, 390px);
+  max-width: 100%;
+  margin: 8px auto 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #62676d;
+  font-size: 12px;
+  line-height: 1.25;
+}
+.origin-manifest-badge > span {
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: normal;
+  text-align: center;
+  border: 1px solid #c8cac6;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #62676d;
+}
+.origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400; }
+.origin-manifest-badge > span:last-child { border-top: 3px solid #252525; }
+.origin-manifest-badge strong { color: #151515; font-weight: 900; }
+.compact-card-head .origin-manifest-badge { margin-top: 8px; }
+@media (max-width: 700px) {
+  .origin-manifest-badge {
+    width: 100%;
+    max-width: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    justify-self: stretch;
+  }
+  .origin-manifest-badge > span {
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 6px;
+    white-space: nowrap;
+  }
+  .origin-manifest-badge > span strong { white-space: nowrap; }
+}
+`;'''
+          block = block.replace(old_lines[0], css, 1)
+          text = text[:start] + block + text[end:]
+          manifest.write_text(text, encoding='utf-8')
+
+          # HBI photo session: the successful Fleet Load Info HAR and its bundled UI
+          # replay auth/lang/fbid/time/webSign/_from as one captured session tuple.
+          worker = Path('worker/src/index.js')
+          w = worker.read_text(encoding='utf-8')
+          old_comment = '''    // The successful Fleet Load Info HAR shows `time` as the request timestamp;\n    // keep the dedicated auth/fbid/webSign but generate a fresh request time per click.\n    const value = key === "time" ? String(Date.now()) : credentials?.[key];'''
+          new_comment = '''    // Replay the dedicated Fleet Load Info HAR session tuple exactly. HBI's page\n    // keeps auth/fbid/time/webSign stable for the session; synthesizing a new `time`\n    // breaks that signed session and returns `need login`.\n    const value = credentials?.[key];'''
+          if w.count(old_comment) != 1:
+              raise SystemExit(f'HBI captured-session anchor: expected 1, got {w.count(old_comment)}')
+          w = w.replace(old_comment, new_comment, 1)
+          worker.write_text(w, encoding='utf-8')
+
+          tests = Path('worker/tests/hbi-truck-photos.test.mjs')
+          t = tests.read_text(encoding='utf-8')
+          old = '  assert.match(read, /key === "time" \\? String\\(Date\\.now\\(\\)\\) : credentials\\?\\.\\[key\\]/);\n'
+          new = '  assert.match(read, /const value = credentials\\?\\.\\[key\\];/);\n  assert.doesNotMatch(read, /key === "time" \\? String\\(Date\\.now\\(\\)\\)/);\n'
+          if t.count(old) != 1:
+              raise SystemExit(f'HBI test time assertion: expected 1, got {t.count(old)}')
+          t = t.replace(old, new, 1)
+          mobile_pattern = r'''test\("mobile origin manifest keeps shipped parcels and weight on the same row", \(\) => \{.*?\n\}\);\n'''
+          mobile_replacement = '''test("mobile origin manifest keeps shipped parcels and weight on the same row", () => {
+  const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");
+  const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
+  assert.doesNotMatch(html, /\\.ms-page \\.origin-manifest-badge/);
+  assert.match(manifest, /grid-template-columns: repeat\\(2, minmax\\(0, 1fr\\)\\)/);
+  assert.match(manifest, /@media \\(max-width: 700px\\)[\\s\\S]*?width: 100%;[\\s\\S]*?max-width: none;/);
+  assert.match(manifest, /@media \\(max-width: 700px\\)[\\s\\S]*?white-space: nowrap;/);
+});
+'''
+          t, count = re.subn(mobile_pattern, lambda _m: mobile_replacement, t, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f'mobile manifest test: expected 1, got {count}')
+          tests.write_text(t, encoding='utf-8')
+          PY
+
+      - name: Verify source cleanup and focused contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test worker/tests/hbi-truck-photos.test.mjs
+          node <<'NODE'
+          const fs = require('node:fs');
+          const html = fs.readFileSync('ms.html','utf8');
+          const manifest = fs.readFileSync('worker/src/origin-manifest-v1.js','utf8');
+          const front = fs.readFileSync('ms.js','utf8');
+          const worker = fs.readFileSync('worker/src/index.js','utf8');
+          const wrangler = fs.readFileSync('worker/wrangler.dev.jsonc','utf8');
+          if ((html.match(/origin-manifest-badge/g)||[]).length !== 0) throw new Error('duplicate manifest selector remains in ms.html');
+          if ((manifest.match(/function installStyle\(/g)||[]).length !== 1) throw new Error('manifest style installer duplicated');
+          if (!manifest.includes('width: 100%;\n    max-width: none;\n    grid-template-columns: repeat(2, minmax(0, 1fr));')) throw new Error('mobile full-width 50/50 contract missing');
+          if (!manifest.includes('white-space: nowrap;')) throw new Error('mobile no-break contract missing');
+          if (!front.includes('pollMs: 4000')) throw new Error('Route polling changed');
+          if ((front.match(/setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/g)||[]).length !== 1) throw new Error('Route polling timer changed/duplicated');
+          const click = worker.slice(worker.indexOf('async function msTruckPhotos'), worker.indexOf('async function readHbiTruckPhotos'));
+          if (/INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM/i.test(click)) throw new Error('photo click path gained write');
+          const read = worker.slice(worker.indexOf('async function readHbiTruckPhotos'), worker.indexOf('async function readBusTimeData'));
+          if ((read.match(/await fetch\(/g)||[]).length !== 1) throw new Error('HBI cold click must make exactly one upstream request');
+          if (read.includes('Date.now()')) throw new Error('HBI captured session time must not be synthesized');
+          const refresh = worker.slice(worker.indexOf('async function runMsRefresh'), worker.indexOf('async function readMsLiveCache'));
+          if (/Hbi|hbi|TruckPhotos/.test(refresh)) throw new Error('HBI leaked into live refresh');
+          if (wrangler.includes('d1_databases')) throw new Error('DEV D1 binding forbidden');
+          if (!wrangler.includes('"crons": ["* * * * *"]')) throw new Error('DEV cron contract changed');
+          console.log('MOBILE_MANIFEST_SOURCE_CLEAN=PASS');
+          console.log('HBI_CAPTURED_SESSION_REPLAY=PASS');
+          console.log('HBI_CLICK_ONLY_ONE_UPSTREAM=PASS');
+          console.log('PHOTO_TURSO_WRITES=0');
+          console.log('ROUTE_POLL_MS=4000');
+          console.log('DEV_D1_BINDING=0');
+          NODE
+
+      - name: Full worker check
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+
+      - name: Commit clean source fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/root-fix-hbi-session-mobile-manifest-once.yml
+          git status --short
+          git diff --check
+          git diff -- ms.html worker/src/origin-manifest-v1.js worker/src/index.js worker/tests/hbi-truck-photos.test.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ms.html worker/src/origin-manifest-v1.js worker/src/index.js worker/tests/hbi-truck-photos.test.mjs
+          git commit -m "fix(dev): replay HBI photo session and clean mobile manifest layout"
+          git push origin HEAD:main

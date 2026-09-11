@@ -64,10 +64,13 @@ test("DEV Wrangler binds one SQLite-backed Durable Object class", () => {
 
 test("DEV deployment stages and validates coordinator before deploy", () => {
   assert.match(workflow, /ms-durable-coordinator\.test\.mjs/);
-  assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
+  assert.match(workflow, /cp -R src \.dev-runtime\/src/);
+  assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js \.dev-runtime\/src\/index\.js/);
   assert.match(stage, /patchDevDurableCoordinator/);
   assert.match(stage, /output = patchDevDurableCoordinator\(output\)/);
+  assert.match(workflow, /node --check \.dev-runtime\/src\/index\.js/);
   assert.match(workflow, /node --check src\/index\.js/);
+  assert.doesNotMatch(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
 });
 
 test("existing one-minute cron keeps main MS routes alive after every browser closes", () => {

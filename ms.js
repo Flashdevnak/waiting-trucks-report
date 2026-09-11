@@ -2311,15 +2311,37 @@ function setupDateInput(id) {
   input.onchange = () => {};
 }
 
+// MS_FRESHNESS_TRUTH_V1: source-data age is not session health. A HUB may have
+// no business changes for minutes while the accepted realtime transport remains
+// healthy. Use explicit source status + latest received transport snapshot.
 function renderFreshness() {
   const synced = parseDate(state.lastSync);
-  const stale = !synced || Date.now() - synced.getTime() > CONFIG.staleMs;
-  el("live-dot").classList.toggle("stale", stale);
-  el("source-sync").textContent = state.syncError
-    ? `MS: ${state.syncError}`
-    : synced
-      ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น.${stale ? " · เซสชันยังไม่อัปเดต" : ""}`
-      : "ยังไม่มีข้อมูลจาก MS";
+  const checkedAt = Number(state.transportLastOkAt || 0);
+  const transportStale =
+    !checkedAt ||
+    Date.now() - checkedAt > Math.max(CONFIG.staleMs, CONFIG.pollMs * 4);
+  const status = String(state.msStatus || "");
+  const healthy = status === "synced" && !state.syncError && !transportStale;
+  el("live-dot").classList.toggle("stale", !healthy);
+  if (healthy) {
+    el("source-sync").textContent =
+      `MS เรียลไทม์ · ตรวจสอบล่าสุด ${dtf.format(new Date(checkedAt))} น.`;
+    return;
+  }
+  if (state.syncError) {
+    el("source-sync").textContent = synced
+      ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ${state.syncError}`
+      : `MS: ${state.syncError}`;
+    return;
+  }
+  if (status === "degraded" && synced) {
+    el("source-sync").textContent =
+      `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ใช้ข้อมูลล่าสุดชั่วคราว ระบบกำลังลองใหม่`;
+    return;
+  }
+  el("source-sync").textContent = synced
+    ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · กำลังตรวจสอบรอบใหม่`
+    : "ยังไม่มีข้อมูลจาก MS";
 }
 
 function connection(ok) {

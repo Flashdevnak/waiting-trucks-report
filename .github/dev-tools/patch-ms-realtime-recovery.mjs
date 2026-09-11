@@ -245,6 +245,7 @@ async function readMsRoutes(credentials, wantedStart, wantedEnd) {`,
         );
         const result = {
           status: "degraded",
+          syncedAt: fallback.syncedAt || "",
           changes: 0,
           rows: fallback.rows,
           completedToday:
@@ -252,7 +253,9 @@ async function readMsRoutes(credentials, wantedStart, wantedEnd) {`,
               ? fallback.completedRows.length
               : 0,
           error:
-            "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
+            error?.code === "MS_SESSION_EXPIRED"
+            ? "เซสชัน MS ต้องอัปเดต · ระบบยังแสดงข้อมูลล่าสุดและจะลองเชื่อมต่อใหม่อัตโนมัติ"
+            : "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
         };
         recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
         return result;

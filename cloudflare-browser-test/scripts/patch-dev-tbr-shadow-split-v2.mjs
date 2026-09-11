@@ -156,11 +156,11 @@ if (!source.includes(ACCOUNT_GUARD_MARKER) && source.includes('export class MsRe
 
   source = patchAsyncFunction(source, 'runMsRefresh', (body) => {
     const transientAnchor = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error instanceof TypeError;`;
-    const transientReplacement = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error?.code === \"MS_ROUTE_SOURCE_ERROR\" ||\n      error?.code === \"MS_ROUTE_RATE_LIMIT\" ||\n      error instanceof TypeError;`;
+    const transientReplacement = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error?.code === \"MS_SESSION_EXPIRED\" ||\n      error?.code === \"MS_ROUTE_SOURCE_ERROR\" ||\n      error?.code === \"MS_ROUTE_RATE_LIMIT\" ||\n      error instanceof TypeError;`;
     if (!body.includes(transientAnchor)) throw new Error('runMsRefresh transient anchor not found');
     body = body.replace(transientAnchor, transientReplacement);
-    const degradedAnchor = `        const result = {\n          status: \"degraded\",\n          changes: 0,`;
-    const degradedReplacement = `        const result = {\n          status: \"degraded\",\n          errorCode: error?.code || \"MS_NETWORK_ERROR\",\n          changes: 0,`;
+    const degradedAnchor = `        const result = {\n          status: \"degraded\",\n          syncedAt: fallback.syncedAt || \"\",\n          changes: 0,`;
+    const degradedReplacement = `        const result = {\n          status: \"degraded\",\n          syncedAt: fallback.syncedAt || \"\",\n          errorCode: error?.code || \"MS_NETWORK_ERROR\",\n          changes: 0,`;
     if (!body.includes(degradedAnchor)) throw new Error('runMsRefresh degraded result anchor not found');
     body = body.replace(degradedAnchor, degradedReplacement);
     const errorAnchor = `    const result = {\n      status: \"error\",\n      error: error.message || \"เชื่อมต่อ MS ไม่สำเร็จ\",\n    };`;

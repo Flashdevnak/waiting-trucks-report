@@ -304,7 +304,7 @@ export async function originManifestHbiCredentials(env, actor, wantedHub) {
     auth: credentialValue(credentials.auth),
     lang: credentialValue(credentials.lang || "th", 20),
     fbid: credentialValue(credentials.fbid, 100),
-    time: credentialValue(credentials.time, 100),
+    time: String(Date.now()),
     webSign: credentialValue(credentials.webSign || "hbi", 50),
     _from: credentialValue(credentials._from, 100),
   };

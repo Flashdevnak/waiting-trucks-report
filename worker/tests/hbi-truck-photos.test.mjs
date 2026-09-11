@@ -40,20 +40,18 @@ test("worker keeps HBI out of live refresh and caps each cold click at one page"
   assert.doesNotMatch(refresh, /Hbi|hbi|TruckPhotos/);
   const read = worker.slice(worker.indexOf("async function readHbiTruckPhotos"), worker.indexOf("async function readBusTimeData"));
   assert.equal((read.match(/await fetch\(/g) || []).length, 1);
-  assert.match(read, /const value = credentials\?\.\[key\];/);
-  assert.doesNotMatch(read, /key === "time" \? String\(Date\.now\(\)\)/);
+  assert.match(read, /key === "time" \? String\(Date\.now\(\)\) : credentials\?\.\[key\]/);
   assert.match(read, /"BI-PLATFORM": ""/);
   assert.match(read, /"Accept-Language": credentials\?\.lang \|\| "th"/);
   assert.doesNotMatch(read, /Promise\.all|for \(let page|page \+/);
 });
 
-test("LH Manifest HBI fallback preserves the captured auth time", () => {
+test("LH Manifest HBI fallback refreshes HBI request time without extra polling", () => {
   const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
   const start = manifest.indexOf("export async function originManifestHbiCredentials");
   const end = manifest.indexOf("export async function readManifestPage", start);
   const fallback = manifest.slice(start, end);
-  assert.match(fallback, /time: credentialValue\(credentials\.time, 100\)/);
-  assert.doesNotMatch(fallback, /time: String\(Date\.now\(\)\)/);
+  assert.match(fallback, /time: String\(Date\.now\(\)\)/);
 });
 
 test("HBI schema is migration-owned and never created from request runtime", () => {

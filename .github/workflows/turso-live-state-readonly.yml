@@ -1,13 +1,12 @@
 name: Turso Live State Readonly
 
-# Lightweight post-cutover liveness check. Turso SELECTs only; never touches D1.
-# Readiness follows the intentional 15-minute connection heartbeat throttle; unchanged live snapshots may stay older without being stale.
-# Also exposes route-table row count beside live-cache row count so suspicious zero snapshots are visible without touching MS upstream.
+# DEV-only observation. One Turso SELECT, no MS upstream call and no write.
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
+      - .github/dev-tools/hub-runtime-readonly.mjs
       - .github/workflows/turso-live-state-readonly.yml
 
 permissions:
@@ -20,127 +19,11 @@ jobs:
       TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
       TURSO_ORG: flashdevnak
       TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
     steps:
-      - name: Inspect NE1 connector, cache and MS connection
-        run: |
-          node <<'NODE'
-          const org=process.env.TURSO_ORG;
-          const db=process.env.TURSO_DATABASE;
-          const platform=process.env.TURSO_PLATFORM_API_TOKEN;
-          if(!platform) throw new Error('Turso platform token missing');
-          const platformHeaders={Authorization:`Bearer ${platform}`};
-          const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:platformHeaders});
-          const dbJson=await dbRes.json();
-          if(!dbRes.ok) throw new Error(`Turso database lookup HTTP ${dbRes.status}: ${JSON.stringify(dbJson)}`);
-          const database=dbJson.database||dbJson;
-          const hostname=database.Hostname||database.hostname;
-          if(!hostname) throw new Error('Turso hostname missing');
-          const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:platformHeaders});
-          const tokenJson=await tokenRes.json();
-          const dbToken=tokenJson.jwt;
-          if(!tokenRes.ok||!dbToken) throw new Error(`Turso auth token HTTP ${tokenRes.status}`);
-          console.log(`::add-mask::${dbToken}`);
-
-          async function query(sql){
-            const response=await fetch(`https://${hostname}/v2/pipeline`,{
-              method:'POST',
-              headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
-              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
-            });
-            const payload=await response.json();
-            const item=payload?.results?.[0];
-            if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
-            return item?.response?.result;
-          }
-          const decode=(cell)=>{
-            if(cell==null) return null;
-            if(typeof cell!=='object') return cell;
-            if('value' in cell) return cell.value;
-            return cell;
-          };
-          const firstRow=(result)=>(result?.rows?.[0]||[]).map(decode);
-          const ageSeconds=(value)=>{
-            const parsed=Date.parse(String(value||''));
-            return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
-          };
-          const heartbeatReadySeconds=20*60;
-          const connectionHealthy=(row)=>{
-            const success=String(row?.[2]||'');
-            const error=String(row?.[3]||'');
-            const age=ageSeconds(success);
-            return Boolean(success) && !error && age>=0 && age<=heartbeatReadySeconds;
-          };
-
-          const [connectorResult,liveResult,routeTableResult,routeStateResult,routeResult,preentryResult,busResult]=await Promise.all([
-            query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
-            query("SELECT hub,source_hash,synced_at,CASE WHEN json_type(rows_json)='array' THEN json_array_length(rows_json) WHEN json_type(rows_json,'$.rows')='array' THEN json_array_length(rows_json,'$.rows') ELSE -1 END AS row_count FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
-            query("SELECT COUNT(*) AS route_count FROM ms_routes WHERE hub='NE1'"),
-            query("SELECT SUM(CASE WHEN unloading_state IN (0,1) THEN 1 ELSE 0 END) AS active_unload, SUM(CASE WHEN unloading_state=2 THEN 1 ELSE 0 END) AS completed_unload, SUM(CASE WHEN julianday(COALESCE(actual_arrival_at,estimated_arrival_at,actual_departure_at,estimated_departure_at))>=julianday('now','-3 day') THEN 1 ELSE 0 END) AS recent_3d, MAX(synced_at) AS max_synced_at FROM ms_routes WHERE hub='NE1'"),
-            query("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
-            query("SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
-            query("SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
-          ]);
-
-          const connector=firstRow(connectorResult);
-          const live=firstRow(liveResult);
-          const routeTable=firstRow(routeTableResult);
-          const routeState=firstRow(routeStateResult);
-          const route=firstRow(routeResult);
-          const preentry=firstRow(preentryResult);
-          const bus=firstRow(busResult);
-          if(String(connector[0]||'')!=='NE1'||Number(connector[1]||0)!==1) throw new Error('NE1 connector inactive or missing');
-          if(String(live[0]||'')!=='NE1') throw new Error('NE1 live cache missing');
-          if(String(route[0]||'')!=='NE1') throw new Error('NE1 MS connection missing');
-
-          const syncedAt=String(live[2]||'');
-          const routeLastError=String(route[3]||'');
-          const syncAge=ageSeconds(syncedAt);
-          const routeHealthy=connectionHealthy(route);
-          const preentryHealthy=connectionHealthy(preentry);
-          const busHealthy=connectionHealthy(bus);
-          const liveRows=Number(live[3]||0);
-          const routeRows=Number(routeTable[0]||0);
-          const activeUnload=Number(routeState[0]||0);
-          const completedUnload=Number(routeState[1]||0);
-          const recent3d=Number(routeState[2]||0);
-          const routeMaxSynced=String(routeState[3]||'');
-          const suspiciousZero=liveRows===0 && routeRows>0;
-
-          function printConnection(prefix,row){
-            console.log(`${prefix}_UPDATED_AT=${row[1]||'-'}`);
-            console.log(`${prefix}_LAST_SUCCESS=${row[2]||'-'}`);
-            console.log(`${prefix}_SUCCESS_AGE_SECONDS=${ageSeconds(row[2])}`);
-            console.log(`${prefix}_LAST_ERROR=${row[3]||'-'}`);
-          }
-
-          console.log(`TURSO_CONNECTOR_HUB=${connector[0]||'-'}`);
-          console.log(`TURSO_CONNECTOR_ACTIVE=${Number(connector[1]||0)}`);
-          console.log(`TURSO_CONNECTOR_LAST_USED=${connector[2]||'-'}`);
-          console.log(`TURSO_CONNECTOR_LAST_USED_AGE_SECONDS=${ageSeconds(connector[2])}`);
-          console.log(`TURSO_LIVE_SYNCED_AT=${syncedAt||'-'}`);
-          console.log(`TURSO_LIVE_SNAPSHOT_AGE_SECONDS=${syncAge}`);
-          console.log(`TURSO_LIVE_ROWS=${liveRows}`);
-          console.log(`TURSO_ROUTE_TABLE_ROWS=${routeRows}`);
-          console.log(`TURSO_ROUTE_ACTIVE_UNLOAD=${activeUnload}`);
-          console.log(`TURSO_ROUTE_COMPLETED_UNLOAD=${completedUnload}`);
-          console.log(`TURSO_ROUTE_RECENT_3D=${recent3d}`);
-          console.log(`TURSO_ROUTE_MAX_SYNCED_AT=${routeMaxSynced||'-'}`);
-          console.log(`TURSO_SUSPICIOUS_ZERO=${suspiciousZero}`);
-          printConnection('MS_ROUTE_CONNECTION',route);
-          printConnection('MS_PREENTRY_CONNECTION',preentry);
-          printConnection('MS_BUS_CONNECTION',bus);
-          console.log(`MS_ROUTE_HEALTHY=${routeHealthy}`);
-          console.log(`MS_PREENTRY_HEALTHY=${preentryHealthy}`);
-          console.log(`MS_BUS_HEALTHY=${busHealthy}`);
-
-          let readiness='STALE';
-          if(/\b401\b|SESSION_EXPIRED/i.test(routeLastError)) readiness='NO_MS_SESSION';
-          else if(routeHealthy && preentryHealthy && busHealthy && !suspiciousZero) readiness='READY';
-          else if(routeHealthy && suspiciousZero) readiness='SUSPICIOUS_ZERO';
-          console.log(`ALL_MS_SESSIONS_READY=${routeHealthy&&preentryHealthy&&busHealthy}`);
-          console.log(`REALTIME_READY=${readiness}`);
-          console.log('TURSO_INFRASTRUCTURE=PASS');
-          console.log('TURSO_LIVE_STATE_READONLY=PASS');
-          console.log('D1_QUERIES=0');
-          console.log('MS_UPSTREAM_CALLS=0');
-          NODE
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inspect every configured HUB through one contract
+        run: node .github/dev-tools/hub-runtime-readonly.mjs

@@ -56,25 +56,44 @@ jobs:
             for(const [name,html] of [['worker',workerHtml],['pages',pagesHtml]])
               if(!html.includes('ms.js')) throw new Error(`${name} ms.html does not load ms.js`);
             for(const [name,js] of [['worker',workerJs],['pages',pagesJs]]){
-              if(!/pollMs:\s*4000/.test(js)) throw new Error(`${name} polling is not 4000 ms`);
+              if(!/pollMs:\s*4000/.test(js)) throw new Error(`${name} visible cadence is not 4000 ms`);
+              if(!js.includes('MS_REALTIME_WS_V1')) throw new Error(`${name} WebSocket-first marker missing`);
+              if(!/setInterval\(realtimeTick,\s*CONFIG\.pollMs\)/.test(js)) throw new Error(`${name} realtimeTick 4s cadence missing`);
+              if(/setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/.test(js)) throw new Error(`${name} restored old direct HTTP 4s timer`);
               if(!js.includes('const preserveObservedCompletion =')) throw new Error(`${name} completed view stability missing`);
               if(js.includes('waiting-trucks-report.alert-squid-6738.chatgpt.site')) throw new Error(`${name} still references OLD API`);
+              if(!js.includes(`CONFIG.apiUrl = "${worker}/api"`)) throw new Error(`${name} promoted DEV API routing missing`);
             }
-            if(!workerJs.includes('window.location.origin}/api')) throw new Error('Worker same-origin API routing missing');
-            if(!pagesJs.includes('hostname.endsWith("github.io")')) throw new Error('GitHub Pages host routing missing');
-            if(!pagesJs.includes(worker)) throw new Error('GitHub Pages promoted Worker origin missing');
             if(!health?.ok) throw new Error(`Worker health failed: ${JSON.stringify(health)}`);
             if(!browserBody?.ok) throw new Error(`Browser health failed: ${JSON.stringify(browserBody)}`);
             console.log('WORKER_MS_PAGE=PASS');
-            console.log('WORKER_SAME_ORIGIN_API=PASS');
             console.log('GITHUB_PAGES_MS_PAGE=PASS');
-            console.log('GITHUB_PAGES_PROMOTED_TURSO_ROUTE=PASS');
+            console.log('PROMOTED_DEV_API_ROUTE=PASS');
             console.log('OLD_API_REFERENCE=0');
             console.log('FRONTEND_POLL_4S=PASS');
+            console.log('FRONTEND_WS_FIRST=PASS');
+            console.log('FRONTEND_REALTIME_TICK=PASS');
+            console.log('FRONTEND_DIRECT_HTTP_4S_TIMER=0');
             console.log('COMPLETED_VIEW_STABILITY=PASS');
             console.log('WORKER_HEALTH=PASS');
             console.log('BROWSER_HEALTH=PASS');
           })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Verify canonical and staged-runtime source boundary
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const canonical=fs.readFileSync('worker/src/index.js','utf8');
+          if(!canonical.includes('HUB_SETTINGS_CACHE_V1')) throw new Error('canonical HUB settings cache missing');
+          if(canonical.includes('MS_REALTIME_WS_V1')) throw new Error('canonical worker contains staged realtime marker');
+          if(canonical.includes('DEV_ROOT_ENTRY_V1')) throw new Error('canonical worker contains staged root marker');
+          const stage=fs.readFileSync('.github/dev-tools/stage-dev-runtime.mjs','utf8');
+          if(!stage.includes('patchDevDurableCoordinator')) throw new Error('staged coordinator generator missing');
+          if(!stage.includes('patchDevRootEntryWorker')) throw new Error('DEV root staging generator missing');
+          console.log('CANONICAL_HUB_SETTINGS_CACHE_V1=PASS');
+          console.log('CANONICAL_STAGED_MARKERS=0');
+          console.log('CANONICAL_STAGED_BOUNDARY=PASS');
           NODE
 
       - name: Verify Browser recovery source and one-minute Cron policy
@@ -130,7 +149,7 @@ jobs:
           })().catch((error)=>{console.error(error);process.exit(1);});
           NODE
 
-      - name: Verify Turso connector and all MS sessions
+      - name: Verify Turso connector and all active HUB sessions
         run: |
           node <<'NODE'
           (async()=>{
@@ -148,10 +167,10 @@ jobs:
             const dbToken=tokenJson.jwt;
             if(!tokenRes.ok||!dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
             console.log(`::add-mask::${dbToken}`);
-            async function query(sql){
+            async function query(sql,args=[]){
               const response=await fetch(`https://${hostname}/v2/pipeline`,{
                 method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
-                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql,args}},{type:'close'}]}),
               });
               const payload=await response.json();
               const item=payload?.results?.[0];
@@ -159,33 +178,69 @@ jobs:
               return item?.response?.result;
             }
             const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
-            const first=result=>(result?.rows?.[0]||[]).map(decode);
+            const rows=result=>(result?.rows||[]).map(row=>row.map(decode));
+            const first=result=>rows(result)[0]||[];
             const age=value=>{
               const parsed=Date.parse(String(value||''));
               return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
             };
-            const [connectorResult,liveResult,routeResult,preentryResult,busResult]=await Promise.all([
-              query("SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE hub='NE1' LIMIT 1"),
-              query("SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub='NE1' LIMIT 1"),
-              query("SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub='NE1' LIMIT 1"),
-              query("SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub='NE1' LIMIT 1"),
-              query("SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub='NE1' LIMIT 1"),
-            ]);
-            const connector=first(connectorResult), live=first(liveResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
-            if(String(connector[0]||'')!=='NE1'||Number(connector[1]||0)!==1) throw new Error('NE1 connector inactive');
-            if(String(live[0]||'')!=='NE1') throw new Error('NE1 live cache missing');
-            const healthy=row=>Boolean(row?.[2])&&!String(row?.[3]||'')&&age(row[2])>=0&&age(row[2])<=20*60;
-            const routeHealthy=healthy(route), preentryHealthy=healthy(preentry), busHealthy=healthy(bus);
-            console.log(`CONNECTOR_LAST_USED=${connector[2]||'-'}`);
-            console.log(`LIVE_SNAPSHOT_AT=${live[1]||'-'}`);
-            console.log(`LIVE_ROWS=${Number(live[2]||0)}`);
-            console.log(`ROUTE_LAST_SUCCESS=${route[2]||'-'} AGE=${age(route[2])} ERROR=${route[3]||'-'}`);
-            console.log(`PREENTRY_LAST_SUCCESS=${preentry[2]||'-'} AGE=${age(preentry[2])} ERROR=${preentry[3]||'-'}`);
-            console.log(`BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
-            if(!routeHealthy||!preentryHealthy||!busHealthy) throw new Error(`MS sessions unhealthy route=${routeHealthy} preentry=${preentryHealthy} bus=${busHealthy}`);
-            console.log('ALL_MS_SESSIONS_READY=true');
+            const activeHubs=rows(await query('SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE active=1 ORDER BY hub'));
+            if(!activeHubs.length) throw new Error('No active HUB connector found');
+            for(const connector of activeHubs){
+              const hub=String(connector[0]||'').trim().toUpperCase();
+              if(!hub) throw new Error('Active connector has empty HUB');
+              const [liveResult,routeResult,preentryResult,busResult]=await Promise.all([
+                query('SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub=? LIMIT 1',[hub]),
+                query('SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub=? LIMIT 1',[hub]),
+                query('SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub=? LIMIT 1',[hub]),
+                query('SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub=? LIMIT 1',[hub]),
+              ]);
+              const live=first(liveResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
+              if(String(live[0]||'')!==hub) throw new Error(`${hub} live cache missing`);
+              const healthy=row=>Boolean(row?.[2])&&!String(row?.[3]||'')&&age(row[2])>=0&&age(row[2])<=20*60;
+              const routeHealthy=healthy(route), preentryHealthy=healthy(preentry), busHealthy=healthy(bus);
+              console.log(`HUB=${hub} CONNECTOR_LAST_USED=${connector[2]||'-'} LIVE_SNAPSHOT_AT=${live[1]||'-'} LIVE_ROWS=${Number(live[2]||0)}`);
+              console.log(`HUB=${hub} ROUTE_LAST_SUCCESS=${route[2]||'-'} AGE=${age(route[2])} ERROR=${route[3]||'-'}`);
+              console.log(`HUB=${hub} PREENTRY_LAST_SUCCESS=${preentry[2]||'-'} AGE=${age(preentry[2])} ERROR=${preentry[3]||'-'}`);
+              console.log(`HUB=${hub} BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
+              if(!routeHealthy||!preentryHealthy||!busHealthy)
+                throw new Error(`${hub} sessions unhealthy route=${routeHealthy} preentry=${preentryHealthy} bus=${busHealthy}`);
+            }
+            console.log(`ACTIVE_HUB_CONTRACT_COUNT=${activeHubs.length}`);
+            console.log('ALL_ACTIVE_HUB_SESSIONS_READY=true');
             console.log('REALTIME_READY=READY');
             console.log('TURSO_INFRASTRUCTURE=PASS');
             console.log('D1_QUERIES=0');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Read-only sanitized Turso quota snapshot
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const token=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!token) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
+            const headers={Authorization:`Bearer ${token}`};
+            async function get(path){
+              const response=await fetch(`https://api.turso.tech${path}`,{headers});
+              const body=await response.json();
+              if(!response.ok) throw new Error(`${path} HTTP ${response.status}`);
+              return body;
+            }
+            const [organizations,usage,stats]=await Promise.all([
+              get('/v1/organizations'),
+              get(`/v1/organizations/${process.env.TURSO_ORG}/usage`),
+              get(`/v1/organizations/${process.env.TURSO_ORG}/databases/${process.env.TURSO_DATABASE}/stats`),
+            ]);
+            const org=(Array.isArray(organizations)?organizations:[]).find(x=>x.slug===process.env.TURSO_ORG)||{};
+            const u=usage.organization?.usage||{};
+            console.log(`TURSO_PLAN=${org.plan_id||'-'}`);
+            console.log(`TURSO_BLOCKED_READS=${Boolean(org.blocked_reads)}`);
+            console.log(`TURSO_BLOCKED_WRITES=${Boolean(org.blocked_writes)}`);
+            console.log(`TURSO_BILLING_ROWS_READ=${Number(u.rows_read||0)}`);
+            console.log(`TURSO_BILLING_ROWS_WRITTEN=${Number(u.rows_written||0)}`);
+            const top=(stats.top_queries||[]).slice(0,10).map((q,i)=>({rank:i+1,rowsRead:Number(q.rows_read||0),rowsWritten:Number(q.rows_written||0),query:String(q.query||'').replace(/'[^']*'/g,"'?'").replace(/\b\d+\b/g,'?').slice(0,180)}));
+            console.log(`TURSO_TOP_QUERIES_SANITIZED=${JSON.stringify(top)}`);
+            console.log('TURSO_QUOTA_SNAPSHOT=PASS');
           })().catch((error)=>{console.error(error);process.exit(1);});
           NODE

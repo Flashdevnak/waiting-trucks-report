@@ -14,7 +14,7 @@ const stagedWorker = stageWorker(workerSource);
 test("DEV live polling keeps archive lazy", () => {
   assert.match(staged, /pollMs:\s*4000/);
   assert.match(staged, /async function ensureArchiveLoaded/);
-  assert.match(staged, /DEV: archive stays lazy; live polling must never auto-read msArchive/);
+  assert.match(staged, /DEV: archive stays lazy; realtime transport never auto-reads msArchive/);
   assert.doesNotMatch(staged, /if \(!silent && !state\.archiveLoaded\) scheduleArchiveLoad\(\)/);
   assert.match(staged, /queueMode === "completed"/);
   assert.match(staged, /state\.archiveView/);

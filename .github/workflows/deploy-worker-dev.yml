@@ -69,6 +69,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
       - run: node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs
+      - run: node --test ../.github/dev-tools/realtime-quota-hardening.test.mjs
       - name: Verify LH Manifest session replay and compact HAR actions
         run: node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs --self-test
 
@@ -88,13 +89,14 @@ jobs:
 
       - name: Stage DEV runtime and enforce checkpoint contracts
         run: |
-          rm -rf .dev-assets
-          mkdir -p .dev-assets
+          rm -rf .dev-assets .dev-runtime
+          mkdir -p .dev-assets .dev-runtime
+          cp -R src .dev-runtime/src
           cp ../waiting.html ../main.js ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
-          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
-          node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js src/origin-manifest-v1.js
+          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
+          node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js .dev-runtime/src/origin-manifest-v1.js
           node --check .dev-assets/main.js
           node --check .dev-assets/ms-report.js
           node --check .dev-assets/ms.js
@@ -102,31 +104,37 @@ jobs:
           node --check .dev-assets/proof-v2-core.js
           node --check .dev-assets/proof-v2-ui.js
           node --check .dev-assets/proof-v2-actions.js
+          node --check .dev-runtime/src/index.js
+          node --check .dev-runtime/src/origin-manifest-v1.js
+          node --check .dev-runtime/src/turso-d1.js
+          node --check .dev-runtime/src/turso-index.js
+          node --check .dev-runtime/src/proof-control.js
+          node --check .dev-runtime/src/proof-live-v2.js
           node --check src/index.js
-          node --check src/origin-manifest-v1.js
-          node --check src/turso-d1.js
-          node --check src/turso-index.js
-          node --check src/proof-control.js
-          node --check src/proof-live-v2.js
           node <<'NODE'
           const fs=require('node:fs');
           const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
           const front=fs.readFileSync('.dev-assets/ms.js','utf8');
           const proofFront=fs.readFileSync('.dev-assets/proof.js','utf8');
           const proofHtml=fs.readFileSync('.dev-assets/proof.html','utf8');
-          const proofWorker=fs.readFileSync('src/proof-control.js','utf8');
-          const proofV2=fs.readFileSync('src/proof-live-v2.js','utf8');
-          const originManifest=fs.readFileSync('src/origin-manifest-v1.js','utf8');
+          const proofWorker=fs.readFileSync('.dev-runtime/src/proof-control.js','utf8');
+          const proofV2=fs.readFileSync('.dev-runtime/src/proof-live-v2.js','utf8');
+          const originManifest=fs.readFileSync('.dev-runtime/src/origin-manifest-v1.js','utf8');
           const proofV2Front=fs.readFileSync('.dev-assets/proof-v2-core.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-ui.js','utf8')+fs.readFileSync('.dev-assets/proof-v2-actions.js','utf8');
-          const worker=fs.readFileSync('src/index.js','utf8');
+          const worker=fs.readFileSync('.dev-runtime/src/index.js','utf8');
+          const canonicalWorker=fs.readFileSync('src/index.js','utf8');
           const style=fs.readFileSync('.dev-assets/style.css','utf8');
           const msV4=fs.readFileSync('.dev-assets/ms-v4.css','utf8');
           if(!msV4.includes('MS_UI_V4_VISUAL_CONTRACT')) throw new Error('staged MS UI V4 CSS missing');
 
-          for(const marker of ['MS_DAILY_HISTORY_V1','MS_UNLOAD_COMPLETION_UI_V1','pollMs: 4000','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
+          for(const marker of ['MS_DAILY_HISTORY_V1','MS_UNLOAD_COMPLETION_UI_V1','pollMs: 4000','MS_REALTIME_WS_V1','setInterval(realtimeTick, CONFIG.pollMs)','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
             if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
-          for(const marker of ['MS_DAILY_HISTORY_V1: read-only daily history','MS_QUOTA_SAFE_LIVE_V1','MS_COMPLETION_TIME_TRUTH_V2','MS_SCHEDULE_COMPLETION_TRUTH_V4','MS_COMPLETION_DAILY_HISTORY_TRUTH_V2','MS_COMPLETION_ARCHIVE_TRUTH_V2','AUTH_SESSION_RESILIENCE_V1','AUTH_VERIFY_UNAVAILABLE','TBR_SHADOW_SPLIT_V2','TBR_ROUTE_OPERATING_WINDOW_V3','TBR_ROUTE_CHUNK_RETRY_V4','tbrShadowRouteRanges','readTbrRouteRangeWithRetry','todayStartBangkok - 86400000','todayStartBangkok + 86400000 - 1000'])
+          if(front.includes('setInterval(() => state.auth && loadData(true), CONFIG.pollMs)')) throw new Error('staged frontend restored direct HTTP 4s timer');
+          for(const marker of ['MS_REALTIME_WS_V1','DEV_ROOT_ENTRY_V1','HUB_SETTINGS_CACHE_V1','MS_DAILY_HISTORY_V1: read-only daily history','MS_QUOTA_SAFE_LIVE_V1','MS_COMPLETION_TIME_TRUTH_V2','MS_SCHEDULE_COMPLETION_TRUTH_V4','MS_COMPLETION_DAILY_HISTORY_TRUTH_V2','MS_COMPLETION_ARCHIVE_TRUTH_V2','AUTH_SESSION_RESILIENCE_V1','AUTH_VERIFY_UNAVAILABLE','TBR_SHADOW_SPLIT_V2','TBR_ROUTE_OPERATING_WINDOW_V3','TBR_ROUTE_CHUNK_RETRY_V4','tbrShadowRouteRanges','readTbrRouteRangeWithRetry','todayStartBangkok - 86400000','todayStartBangkok + 86400000 - 1000'])
             if(!worker.includes(marker)) throw new Error(`staged worker missing ${marker}`);
+          if(!canonicalWorker.includes('HUB_SETTINGS_CACHE_V1')) throw new Error('canonical HUB settings cache missing');
+          if(canonicalWorker.includes('MS_REALTIME_WS_V1')) throw new Error('canonical worker contaminated by staged realtime runtime');
+          if(canonicalWorker.includes('DEV_ROOT_ENTRY_V1')) throw new Error('canonical worker contaminated by DEV root staging');
           if(!worker.includes('upstreamMsCalls: 0')||!worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
           if(!worker.includes('const baselineCache = currentCache || cache')||!worker.includes('String(baselineCache?.sourceHash || "").startsWith("completion-v2:")')) throw new Error('completion-v2 live-cache baseline gate missing');
           if(!worker.includes('completionTruth = resolveCompletionTruth')||!worker.includes('ensureMsCompletionRepair')) throw new Error('completion truth resolver/repair missing');
@@ -171,6 +179,8 @@ jobs:
           console.log('STAGED_HAR_COMPACT_ACTIONS_V3=PASS');
           console.log('STAGED_ORIGIN_MANIFEST_SESSION_REPLAY_V2=PASS');
           console.log('STAGED_POLL_MS=4000');
+          console.log('STAGED_REALTIME_WS_V1=PASS');
+          console.log('CANONICAL_STAGED_BOUNDARY=PASS');
           console.log('STAGED_PROOF_CONTROL=PASS');
           console.log('STAGED_PROOF_CANCEL_COMMANDS=0');
           NODE
@@ -189,7 +199,7 @@ jobs:
           NODE
 
       - name: Deploy DEV Worker on Turso
-        run: npx wrangler deploy --config wrangler.dev.jsonc
+        run: npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
 
       - name: Verify active Worker has zero D1 bindings
         working-directory: .
@@ -254,6 +264,9 @@ jobs:
           if(!proof.includes('ms.html#connection')) throw new Error('Proof shared connection link missing');
           if(!msJs.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('live compact HAR action marker missing');
           if(!msJs.includes('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2')) throw new Error('live origin manifest session replay marker missing');
+          if(!msJs.includes('MS_REALTIME_WS_V1')) throw new Error('live WebSocket-first marker missing');
+          if(!/pollMs:\s*4000/.test(msJs)||!msJs.includes('setInterval(realtimeTick, CONFIG.pollMs)')) throw new Error('live 4-second visible cadence missing');
+          if(msJs.includes('setInterval(() => state.auth && loadData(true), CONFIG.pollMs)')) throw new Error('live direct HTTP 4-second timer restored');
           const cssResponse=await fetch(`${base}/${style}`,{cache:'no-store'});
           const css=await cssResponse.text();
           if(!cssResponse.ok||!css.includes('DEV_HEADER_POLISH_V3')) throw new Error('live UI v3 CSS missing');
@@ -271,6 +284,9 @@ jobs:
           console.log('DEV_UI_HAR_SHARED_ENTRY=PASS');
           console.log('DEV_HAR_COMPACT_ACTIONS_V3=PASS');
           console.log('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2=PASS');
+          console.log('DEV_REALTIME_WS_V1=PASS');
+          console.log('DEV_REALTIME_VISIBLE_4S=PASS');
+          console.log('DEV_DIRECT_HTTP_4S_TIMER=0');
           console.log('DEV_UI_LIVE_AUDIT=PASS');
           console.log('DEV_MS_UI_V4_ASSET=PASS');
           console.log('DEV_DATABASE_BACKEND=TURSO');

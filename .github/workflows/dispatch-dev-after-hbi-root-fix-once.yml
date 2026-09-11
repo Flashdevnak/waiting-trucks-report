@@ -1,0 +1,35 @@
+name: Dispatch verified DEV pipeline once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dispatch-dev-after-hbi-root-fix-once.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Guard intended source parent
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "ba0e271ba1481cc5673d46d3ab714300e3327008"
+      - name: Remove one-time dispatcher and return main to clean source
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/dispatch-dev-after-hbi-root-fix-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(dev): remove one-time DEV dispatcher"
+          git push origin HEAD:main
+      - name: Dispatch existing DEV-only pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --repo Flashdevnak/waiting-trucks-report --ref main

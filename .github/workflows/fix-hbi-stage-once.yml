@@ -21,9 +21,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=e49a87c99092cacb4cd0ad64168767972af2162d
+          EXPECTED=1f9ae4968bed0fad021342fda4c0a2c1c7d7123d
           PARENT=$(git rev-parse HEAD^)
-          test "$PARENT" = "$EXPECTED" || exit 1
+          test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
       - name: Apply and test staging fix
         shell: bash
         run: |

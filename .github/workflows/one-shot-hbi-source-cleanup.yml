@@ -2,7 +2,8 @@ name: One-shot HBI source cleanup
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/one-shot-hbi-source-cleanup.yml]
+    paths:
+      - .github/workflows/one-shot-hbi-source-cleanup.yml
   workflow_dispatch:
 permissions:
   contents: write
@@ -17,87 +18,103 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: worker/package-lock.json
-      - name: Edit only authoritative HBI and manifest presentation sources
+      - name: Edit authoritative sources
         run: |
           python3 <<'PY'
           from pathlib import Path
-          def one(s,a,b,label):
-              n=s.count(a)
-              if n!=1: raise RuntimeError(f'{label}: expected 1 match, got {n}')
-              return s.replace(a,b,1)
+          from textwrap import dedent
 
-          p=Path('worker/src/index.js'); s=p.read_text()
-          a='    "BI-PLATFORM": "",\n    Origin: "https://cbi-fbi.flashexpress.com",'
-          b='    "BI-PLATFORM": "",\n    // HBI_WUJIE_AUTH_HEADER_V1: CBI sends authorization=<location auth>.\n    // HAR exports may redact this GET header even though its preflight exposes it.\n    Authorization: credentials?.auth || "",\n    Origin: "https://cbi-fbi.flashexpress.com",'
-          p.write_text(one(s,a,b,'HBI Authorization'))
+          def one(s, a, b, label):
+              n = s.count(a)
+              if n != 1:
+                  raise RuntimeError(f"{label}: expected 1 match, got {n}")
+              return s.replace(a, b, 1)
 
-          p=Path('worker/src/origin-manifest-v1.js'); s=p.read_text()
-          a='  function installStyle() {'
-          z='    document.head.appendChild(style);\n  }\n\n'
-          if s.count(a)!=1 or s.count(z)!=1: raise RuntimeError('manifest style function boundary changed')
-          i=s.index(a); j=s.index(z,i)+len(z)
-          s=s[:i]+s[j:]
-          s=one(s,'    installStyle();\n','','manifest init style call')
+          p = Path("worker/src/index.js")
+          s = p.read_text()
+          a = '    "BI-PLATFORM": "",\n    Origin: "https://cbi-fbi.flashexpress.com",'
+          b = '    "BI-PLATFORM": "",\n    // HBI_WUJIE_AUTH_HEADER_V1: CBI sends authorization=<location auth>.\n    // HAR exports may redact this GET header even though its preflight exposes it.\n    Authorization: credentials?.auth || "",\n    Origin: "https://cbi-fbi.flashexpress.com",'
+          p.write_text(one(s, a, b, "HBI Authorization"))
+
+          p = Path("worker/src/origin-manifest-v1.js")
+          s = p.read_text()
+          a = '  function installStyle() {'
+          z = '    document.head.appendChild(style);\n  }\n\n'
+          if s.count(a) != 1 or s.count(z) != 1:
+              raise RuntimeError("manifest style function boundary changed")
+          i = s.index(a)
+          j = s.index(z, i) + len(z)
+          s = s[:i] + s[j:]
+          s = one(s, '    installStyle();\n', '', "manifest init style call")
           p.write_text(s)
 
-          p=Path('ms-v4.css'); s=p.read_text()
-          a='html body.ms-page .origin-manifest-badge { color: #5b6064 !important; background: transparent !important; }'
-          z='html body.ms-page .origin-manifest-badge strong { color: #151515 !important; }'
-          if s.count(a)!=1 or s.count(z)!=1: raise RuntimeError('manifest CSS owner boundary changed')
-          i=s.index(a); j=s.index(z,i)+len(z)
-          b='''/* ORIGIN_MANIFEST_BADGE_V2 — single static style owner; no runtime injection. */
-html body.ms-page .origin-manifest-badge {
-  width: min(100%, 390px); max-width: 100%; margin: 8px auto 0; padding: 0;
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
-  background: transparent !important; color: #5b6064 !important; font-size: 12px; line-height: 1.25;
-}
-html body.ms-page .origin-manifest-badge > span {
-  min-width: 0; min-height: 36px; padding: 7px 10px; display: flex;
-  align-items: center; justify-content: center; gap: 6px; text-align: center;
-  border: 1px solid #d1d3d0 !important; border-radius: 7px;
-  background: #fff !important; color: #5b6064 !important;
-}
-html body.ms-page .origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400 !important; }
-html body.ms-page .origin-manifest-badge > span:last-child { border-top: 3px solid #202124 !important; }
-html body.ms-page .origin-manifest-badge strong { color: #151515 !important; font-weight: 900; }
-html body.ms-page .compact-card-head .origin-manifest-badge { margin-top: 8px; }
-@media (max-width: 700px) {
-  html body.ms-page .compact-card-head .origin-manifest-badge {
-    grid-column: 1 / -1; width: 100%; max-width: none;
-    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; justify-self: stretch;
-  }
-  html body.ms-page .compact-card-head .origin-manifest-badge > span {
-    flex-direction: column; gap: 2px; padding: 7px 6px; white-space: nowrap;
-  }
-  html body.ms-page .compact-card-head .origin-manifest-badge > span strong { white-space: nowrap; }
-}'''
-          p.write_text(s[:i]+b+s[j:])
+          p = Path("ms-v4.css")
+          s = p.read_text()
+          a = 'html body.ms-page .origin-manifest-badge { color: #5b6064 !important; background: transparent !important; }'
+          z = 'html body.ms-page .origin-manifest-badge strong { color: #151515 !important; }'
+          if s.count(a) != 1 or s.count(z) != 1:
+              raise RuntimeError("manifest CSS owner boundary changed")
+          i = s.index(a)
+          j = s.index(z, i) + len(z)
+          b = dedent('''\
+          /* ORIGIN_MANIFEST_BADGE_V2 — single static style owner; no runtime injection. */
+          html body.ms-page .origin-manifest-badge {
+            width: min(100%, 390px); max-width: 100%; margin: 8px auto 0; padding: 0;
+            display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+            background: transparent !important; color: #5b6064 !important; font-size: 12px; line-height: 1.25;
+          }
+          html body.ms-page .origin-manifest-badge > span {
+            min-width: 0; min-height: 36px; padding: 7px 10px; display: flex;
+            align-items: center; justify-content: center; gap: 6px; text-align: center;
+            border: 1px solid #d1d3d0 !important; border-radius: 7px;
+            background: #fff !important; color: #5b6064 !important;
+          }
+          html body.ms-page .origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400 !important; }
+          html body.ms-page .origin-manifest-badge > span:last-child { border-top: 3px solid #202124 !important; }
+          html body.ms-page .origin-manifest-badge strong { color: #151515 !important; font-weight: 900; }
+          html body.ms-page .compact-card-head .origin-manifest-badge { margin-top: 8px; }
+          @media (max-width: 700px) {
+            html body.ms-page .compact-card-head .origin-manifest-badge {
+              grid-column: 1 / -1; width: 100%; max-width: none;
+              grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; justify-self: stretch;
+            }
+            html body.ms-page .compact-card-head .origin-manifest-badge > span {
+              flex-direction: column; gap: 2px; padding: 7px 6px; white-space: nowrap;
+            }
+            html body.ms-page .compact-card-head .origin-manifest-badge > span strong { white-space: nowrap; }
+          }
+          ''')
+          p.write_text(s[:i] + b + s[j:])
 
-          p=Path('worker/tests/hbi-truck-photos.test.mjs'); s=p.read_text()
-          a='  assert.match(read, /"Accept-Language": credentials\\?\\.lang \\|\\| "th"/);\n'
-          b=a+'  assert.match(read, /Authorization: credentials\\?\\.auth \\|\\| ""/);\n  assert.equal((worker.match(/async function readHbiTruckPhotos/g) || []).length, 1);\n  assert.equal((worker.match(/async function msTruckPhotos/g) || []).length, 1);\n'
-          s=one(s,a,b,'HBI test anchor')
-          a='test("mobile origin manifest keeps shipped parcels and weight on the same row", () => {'
-          z='test("LH Manifest never marks HBI photos ready and worker never falls back to its session", () => {'
-          if s.count(a)!=1 or s.count(z)!=1: raise RuntimeError('manifest mobile test boundary changed')
-          i=s.index(a); j=s.index(z,i)
-          b='''test("mobile origin manifest keeps shipped parcels and weight on one full-width 50/50 row", () => {
-  const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");
-  const baseStyle = fs.readFileSync(new URL("../../style.css", import.meta.url), "utf8");
-  const msStyle = fs.readFileSync(new URL("../../ms-v4.css", import.meta.url), "utf8");
-  const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
-  assert.doesNotMatch(html, /\\.ms-page \\.origin-manifest-badge/);
-  assert.doesNotMatch(baseStyle, /origin-manifest-badge/);
-  assert.doesNotMatch(manifest, /origin-manifest-style-v1|function installStyle\\(\\)|\\.origin-manifest-badge \\{/);
-  assert.match(msStyle, /ORIGIN_MANIFEST_BADGE_V2/);
-  assert.match(msStyle, /grid-template-columns: repeat\\(2, minmax\\(0, 1fr\\)\\)/);
-  assert.match(msStyle, /@media \\(max-width: 700px\\)[\\s\\S]*?compact-card-head \\.origin-manifest-badge[\\s\\S]*?grid-column: 1 \\/ -1;[\\s\\S]*?width: 100%;[\\s\\S]*?max-width: none;/);
-  assert.match(msStyle, /@media \\(max-width: 700px\\)[\\s\\S]*?white-space: nowrap;/);
-});
+          p = Path("worker/tests/hbi-truck-photos.test.mjs")
+          s = p.read_text()
+          a = '  assert.match(read, /"Accept-Language": credentials\\?\\.lang \\|\\| "th"/);\n'
+          b = a + '  assert.match(read, /Authorization: credentials\\?\\.auth \\|\\| ""/);\n' + '  assert.equal((worker.match(/async function readHbiTruckPhotos/g) || []).length, 1);\n' + '  assert.equal((worker.match(/async function msTruckPhotos/g) || []).length, 1);\n'
+          s = one(s, a, b, "HBI test anchor")
+          a = 'test("mobile origin manifest keeps shipped parcels and weight on the same row", () => {'
+          z = 'test("LH Manifest never marks HBI photos ready and worker never falls back to its session", () => {'
+          if s.count(a) != 1 or s.count(z) != 1:
+              raise RuntimeError("manifest mobile test boundary changed")
+          i = s.index(a)
+          j = s.index(z, i)
+          b = dedent('''\
+          test("mobile origin manifest keeps shipped parcels and weight on one full-width 50/50 row", () => {
+            const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");
+            const baseStyle = fs.readFileSync(new URL("../../style.css", import.meta.url), "utf8");
+            const msStyle = fs.readFileSync(new URL("../../ms-v4.css", import.meta.url), "utf8");
+            const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
+            assert.doesNotMatch(html, /\\.ms-page \\.origin-manifest-badge/);
+            assert.doesNotMatch(baseStyle, /origin-manifest-badge/);
+            assert.doesNotMatch(manifest, /origin-manifest-style-v1|function installStyle\\(\\)|\\.origin-manifest-badge \\{/);
+            assert.match(msStyle, /ORIGIN_MANIFEST_BADGE_V2/);
+            assert.match(msStyle, /grid-template-columns: repeat\\(2, minmax\\(0, 1fr\\)\\)/);
+            assert.match(msStyle, /@media \\(max-width: 700px\\)[\\s\\S]*?compact-card-head \\.origin-manifest-badge[\\s\\S]*?grid-column: 1 \\/ -1;[\\s\\S]*?width: 100%;[\\s\\S]*?max-width: none;/);
+            assert.match(msStyle, /@media \\(max-width: 700px\\)[\\s\\S]*?white-space: nowrap;/);
+          });
 
-'''
-          p.write_text(s[:i]+b+s[j:])
-          print('SOURCE_CLEANUP=APPLIED')
+          ''')
+          p.write_text(s[:i] + b + s[j:])
+          print("SOURCE_CLEANUP=APPLIED")
           PY
       - name: Install
         working-directory: worker
@@ -111,19 +128,19 @@ html body.ms-page .compact-card-head .origin-manifest-badge { margin-top: 8px; }
           node --test .github/dev-tools/ms-durable-coordinator.test.mjs
           node --test .github/dev-tools/ms-quota-safe-live.test.mjs
           git diff --check
-      - name: Full worker regression
+      - name: Full regression
         working-directory: worker
         run: npm run check
-      - name: Commit clean source and remove this one-shot runner
+      - name: Commit source and self-delete
         run: |
           git rm .github/workflows/one-shot-hbi-source-cleanup.yml
           git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add worker/src/index.js worker/src/origin-manifest-v1.js worker/tests/hbi-truck-photos.test.mjs ms-v4.css
-          git commit -m 'fix(dev): clean HBI auth and manifest mobile source'
+          git commit -m "fix(dev): clean HBI auth and manifest mobile source"
           git push origin HEAD:main
-      - name: Deploy existing DEV pipeline
+      - name: Deploy DEV
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy-worker-dev.yml --ref main

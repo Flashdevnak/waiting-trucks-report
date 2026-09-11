@@ -47,6 +47,19 @@ let completedTodayNeedsRefresh = false;
 let completedTodayRetryAt = 0;
 let completedTodayZeroProbedKey = "";
 
+// MS_REALTIME_WS_V1: keep the visible 4-second realtime cadence without one
+// HTTP Worker request per browser every 4 seconds. One visible client per HUB
+// leads refreshes; the shared Durable Object broadcasts the same accepted data.
+const REALTIME_WS_RETRY_MS = 3000;
+const REALTIME_AUTH_HEARTBEAT_MS = 60 * 1000;
+let realtimeSocket = null;
+let realtimeSocketKey = "";
+let realtimeConnectStartedAt = 0;
+let realtimeRetryAt = 0;
+let realtimeIsLeader = null;
+let realtimeLastSnapshotAt = 0;
+let realtimeLastAuthSentAt = 0;
+
 // HBI_TRUCK_PHOTO_LAZY_V1: zero HBI/OSS photo request until the user clicks.
 // Cache is memory-only for this page; no database write and no background refresh.
 const TRUCK_PHOTO_CACHE_MS = 12 * 60 * 60 * 1000;
@@ -106,7 +119,8 @@ document.addEventListener("DOMContentLoaded", () => {
     state.branch = event.target.value;
     state.summary = "all";
     resetArchiveState();
-    loadData();
+    stopRealtimeTransport();
+    loadData().finally(() => restartRealtimeTransport());
   };
   setupDateInput("date-from");
   setupDateInput("date-to");
@@ -162,14 +176,165 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   });
   setInterval(clock, 1000);
-  setInterval(() => state.auth && loadData(true), CONFIG.pollMs);
+  setInterval(realtimeTick, CONFIG.pollMs);
   setInterval(renderFreshness, 10000);
   clock();
   authUi();
-  loadData();
+  loadData().finally(() => restartRealtimeTransport());
   handleMsEntryHash();
   window.addEventListener("hashchange", handleMsEntryHash);
+  document.addEventListener("visibilitychange", handleRealtimeVisibility);
 });
+
+function realtimeTransportKey() {
+  if (!state.auth) return "";
+  return `${state.branch}|${state.auth.username || ""}|${state.auth.expiresAt || ""}`;
+}
+
+function realtimeSocketUrl() {
+  const url = new URL(CONFIG.apiUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("action", "msStream");
+  url.searchParams.set("token", state.auth?.token || "");
+  url.searchParams.set("branch", state.branch);
+  return url.toString();
+}
+
+function stopRealtimeTransport() {
+  const socket = realtimeSocket;
+  realtimeSocket = null;
+  realtimeSocketKey = "";
+  realtimeConnectStartedAt = 0;
+  realtimeIsLeader = null;
+  realtimeLastSnapshotAt = 0;
+  realtimeLastAuthSentAt = 0;
+  if (!socket) return;
+  try {
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    if (socket.readyState === 0 || socket.readyState === 1)
+      socket.close(1000, "client reset");
+  } catch {}
+}
+
+function ensureRealtimeTransport() {
+  if (!state.auth || document.hidden || typeof WebSocket === "undefined") return false;
+  const key = realtimeTransportKey();
+  if (
+    realtimeSocket &&
+    realtimeSocketKey === key &&
+    (realtimeSocket.readyState === 0 || realtimeSocket.readyState === 1)
+  ) return true;
+  if (Date.now() < realtimeRetryAt) return false;
+
+  stopRealtimeTransport();
+  try {
+    const socket = new WebSocket(realtimeSocketUrl());
+    realtimeSocket = socket;
+    realtimeSocketKey = key;
+    realtimeConnectStartedAt = Date.now();
+    socket.onopen = () => {
+      if (socket !== realtimeSocket || realtimeSocketKey !== key) return;
+      realtimeConnectStartedAt = 0;
+      realtimeRetryAt = 0;
+    };
+    socket.onmessage = (event) => {
+      if (socket !== realtimeSocket || realtimeSocketKey !== key) return;
+      handleRealtimeMessage(event.data);
+    };
+    socket.onerror = () => {};
+    socket.onclose = () => {
+      if (socket !== realtimeSocket) return;
+      realtimeSocket = null;
+      realtimeSocketKey = "";
+      realtimeConnectStartedAt = 0;
+      realtimeIsLeader = null;
+      realtimeRetryAt = Date.now() + REALTIME_WS_RETRY_MS;
+    };
+    return true;
+  } catch {
+    realtimeRetryAt = Date.now() + REALTIME_WS_RETRY_MS;
+    return false;
+  }
+}
+
+function restartRealtimeTransport() {
+  stopRealtimeTransport();
+  realtimeRetryAt = 0;
+  ensureRealtimeTransport();
+}
+
+function handleRealtimeVisibility() {
+  if (document.hidden) {
+    stopRealtimeTransport();
+    return;
+  }
+  if (state.auth)
+    loadData(true).finally(() => restartRealtimeTransport());
+}
+
+function handleRealtimeMessage(raw) {
+  let payload;
+  try { payload = JSON.parse(String(raw || "{}")); }
+  catch { return; }
+  if (payload?.type === "role") {
+    realtimeIsLeader = payload.leader === true;
+    return;
+  }
+  if (payload?.type === "auth_error") {
+    stopRealtimeTransport();
+    invalidateSession();
+    return;
+  }
+  if (payload?.type === "error") {
+    state.syncError = payload.message || "Realtime stream ขัดข้องชั่วคราว";
+    state.msStatus = "degraded";
+    renderFreshness();
+    return;
+  }
+  if (payload?.type !== "snapshot") return;
+  realtimeLastSnapshotAt = Date.now();
+  applyLiveResult(payload, true);
+}
+
+function realtimeTick() {
+  if (!state.auth || document.hidden) return;
+  const available = ensureRealtimeTransport();
+  const socket = realtimeSocket;
+  if (socket?.readyState === 1) {
+    const now = Date.now();
+    const staleFollower =
+      realtimeIsLeader === false &&
+      realtimeLastSnapshotAt > 0 &&
+      now - realtimeLastSnapshotAt > CONFIG.staleMs;
+    const shouldRefresh =
+      realtimeIsLeader === true || realtimeIsLeader === null || staleFollower;
+    const shouldAuth =
+      !shouldRefresh &&
+      now - realtimeLastAuthSentAt >= REALTIME_AUTH_HEARTBEAT_MS;
+    if (shouldRefresh || shouldAuth) {
+      try {
+        socket.send(JSON.stringify({
+          type: shouldRefresh ? "refresh" : "auth",
+          token: state.auth.token,
+        }));
+        if (shouldAuth) realtimeLastAuthSentAt = now;
+        return;
+      } catch {}
+    } else {
+      return;
+    }
+  }
+  const connectingFresh =
+    socket?.readyState === 0 &&
+    realtimeConnectStartedAt > 0 &&
+    Date.now() - realtimeConnectStartedAt <= 5000;
+  if (available && connectingFresh) return;
+  if (socket?.readyState === 0) stopRealtimeTransport();
+  void loadData(true).finally(() => ensureRealtimeTransport());
+}
 
 function loadAuth() {
   try {
@@ -239,6 +404,7 @@ async function login(event) {
     el("login-dialog").close();
     authUi();
     await loadData();
+    restartRealtimeTransport();
     handleMsEntryHash();
     toast("เข้าสู่ระบบแล้ว");
   } catch (error) {
@@ -254,6 +420,7 @@ function closeLogin() {
 }
 
 function logout() {
+  stopRealtimeTransport();
   state.auth = null;
   state.currentRows = [];
   resetArchiveState();
@@ -267,6 +434,7 @@ function logout() {
 }
 
 function invalidateSession() {
+  stopRealtimeTransport();
   state.auth = null;
   state.rows = [];
   localStorage.removeItem(AUTH_KEY);
@@ -306,59 +474,8 @@ async function loadData(silent = false) {
   if (!silent) el("loading-state").classList.remove("hidden");
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
-    resetLowerDailyViewOnBangkokDayChange();
-    state.currentRows = Array.isArray(result?.rows) ? result.rows : [];
-    for (const row of state.currentRows) {
-      const routeId = String(row.id || row.proofId || "");
-      if (routeId && row.queueCancelledAt) state.cancelledRouteIds.add(routeId);
-    }
-    state.completedToday = Number(result?.completedToday) || 0;
-    // MS_DAILY_HISTORY_V1: live polling never grows or reads historical rows.
-    state.rows = state.archiveView ? state.archiveRows : state.currentRows;
-    state.branch = result?.branch || state.branch;
-    state.standards = Object.fromEntries(
-      (result?.standards || []).map((item) => [
-        normalizeVehicle(item.type),
-        Number(item.minutes) || 120,
-      ]),
-    );
-    fillBranches(result?.branches || []);
-    state.lastSync = result?.lastSync || "";
-    state.msStatus = result?.msStatus || "";
-    state.syncError = result?.syncError || "";
-    state.transportLastOkAt = Date.now();
-    state.transportFailures = 0;
-    fillFilters();
-    connection(
-      state.msStatus !== "error" && state.msStatus !== "not_configured",
-    );
-    if (state.syncError && state.msStatus !== "degraded")
-      toast(state.syncError, true);
-    el("last-refresh").textContent =
-      state.msStatus === "degraded"
-        ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
-        : `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
-    render();
-    const zeroProbeKey = completedTodayDatasetKey();
-    if (state.completedToday === 0 && completedTodayZeroProbedKey !== zeroProbeKey) {
-      completedTodayZeroProbedKey = zeroProbeKey;
-      const probeBranch = state.branch;
-      void loadCompletedTodayRows(true)
-        .then(() => {
-          if (state.auth && state.branch === probeBranch) render();
-        })
-        .catch(() => {});
-    }
-    if (shouldHydrateCompletedTodayRows()) {
-      const hydrationBranch = state.branch;
-      void loadCompletedTodayRows(false)
-        .then(() => {
-          if (state.auth && state.branch === hydrationBranch) render();
-        })
-        .catch(() => {});
-    }
-    // DEV: completed-today detail hydrates only when the lightweight daily total changes.
-    // DEV: archive stays lazy; live polling must never auto-read msArchive.
+    applyLiveResult(result, false);
+    ensureRealtimeTransport();
   } catch (error) {
     state.transportFailures = Number(state.transportFailures || 0) + 1;
     const recentlyHealthy =
@@ -373,6 +490,64 @@ async function loadData(silent = false) {
   } finally {
     state.loading = false;
   }
+}
+
+function applyLiveResult(result, fromStream = false) {
+  resetLowerDailyViewOnBangkokDayChange();
+  if (Array.isArray(result?.rows)) {
+    state.currentRows = result.rows;
+    for (const row of state.currentRows) {
+      const routeId = String(row.id || row.proofId || "");
+      if (routeId && row.queueCancelledAt) state.cancelledRouteIds.add(routeId);
+    }
+  }
+  if (result?.completedToday !== undefined)
+    state.completedToday = Number(result.completedToday) || 0;
+  // MS_DAILY_HISTORY_V1: realtime transport never grows or reads historical rows.
+  state.rows = state.archiveView ? state.archiveRows : state.currentRows;
+  if (result?.branch) state.branch = result.branch;
+  if (Array.isArray(result?.standards))
+    state.standards = Object.fromEntries(
+      result.standards.map((item) => [
+        normalizeVehicle(item.type),
+        Number(item.minutes) || 120,
+      ]),
+    );
+  if (Array.isArray(result?.branches)) fillBranches(result.branches);
+  if (result?.lastSync !== undefined) state.lastSync = result.lastSync || "";
+  if (result?.msStatus !== undefined) state.msStatus = result.msStatus || "";
+  if (result?.syncError !== undefined) state.syncError = result.syncError || "";
+  state.transportLastOkAt = Date.now();
+  state.transportFailures = 0;
+  fillFilters();
+  connection(state.msStatus !== "error" && state.msStatus !== "not_configured");
+  if (!fromStream && state.syncError && state.msStatus !== "degraded")
+    toast(state.syncError, true);
+  el("last-refresh").textContent =
+    state.msStatus === "degraded"
+      ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
+      : `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
+  render();
+  const zeroProbeKey = completedTodayDatasetKey();
+  if (state.completedToday === 0 && completedTodayZeroProbedKey !== zeroProbeKey) {
+    completedTodayZeroProbedKey = zeroProbeKey;
+    const probeBranch = state.branch;
+    void loadCompletedTodayRows(true)
+      .then(() => {
+        if (state.auth && state.branch === probeBranch) render();
+      })
+      .catch(() => {});
+  }
+  if (shouldHydrateCompletedTodayRows()) {
+    const hydrationBranch = state.branch;
+    void loadCompletedTodayRows(false)
+      .then(() => {
+        if (state.auth && state.branch === hydrationBranch) render();
+      })
+      .catch(() => {});
+  }
+  // DEV: completed-today detail hydrates only when the lightweight daily total changes.
+  // DEV: archive stays lazy; realtime transport never auto-reads msArchive.
 }
 
 function resetArchiveState() {

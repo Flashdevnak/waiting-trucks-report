@@ -323,7 +323,7 @@ test("realtime settings and D1 read safeguards remain intact", async () => {
   assert.match(source, /ARCHIVE_LOAD_DELAY_MS\s*=\s*1500/);
   assert.match(source, /async function ensureArchiveLoaded/);
   assert.doesNotMatch(source, /if \(!silent && !state\.archiveLoaded\) scheduleArchiveLoad\(\)/);
-  assert.match(source, /DEV: archive stays lazy; live polling must never auto-read msArchive/);
+  assert.match(source, /DEV: archive stays lazy; realtime transport never auto-reads msArchive/);
   assert.match(source, /state\.rows = mergeLatest\(state\.archiveRows, state\.currentRows\)/);
   assert.doesNotMatch(source, /!silent \|\| !state\.archiveLoaded/);
   const historyIndex = await readFile(new URL("worker/migrations/0007_ms_history_read_index.sql", root), "utf8");

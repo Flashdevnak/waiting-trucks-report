@@ -121,4 +121,7 @@ export class MsRefreshCoordinator {
     this.inner = new Coordinator(ctx, databaseEnv(env));
   }
   fetch(request) { return this.inner.fetch(request); }
+  webSocketMessage(ws, message) { return this.inner.webSocketMessage(ws, message); }
+  webSocketClose(ws, code, reason, wasClean) { return this.inner.webSocketClose(ws, code, reason, wasClean); }
+  webSocketError(ws, error) { return this.inner.webSocketError(ws, error); }
 }

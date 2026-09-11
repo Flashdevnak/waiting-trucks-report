@@ -129,13 +129,18 @@ async function syncProofDay(env, hub, day, force) {
     if (!credentials) fail(`HUB ${hub} ยังไม่ได้เชื่อมต่อ MS`, 'MS_NOT_CONFIGURED', 409);
     const upstream = await readProofTasks(credentials, day);
     const mapped = upstream.items.map(mapProofRow);
-    const sourceHash = await sha(JSON.stringify(mapped));
+    // PROOF_SOURCE_HASH_V2: total-only changes count as source changes too.
+    const sourceHash = await sha(JSON.stringify({ total: upstream.total, rows: mapped }));
     const now = new Date().toISOString();
 
     if (current?.source_hash === sourceHash) {
-      await env.DB.prepare(
-        'UPDATE ms_proof_snapshots SET total_count=?,checked_at=? WHERE hub=? AND business_day=?',
-      ).bind(upstream.total, now, hub, day).run();
+      // PROOF_UNCHANGED_CRON_WRITE_ZERO_V1: background cron never writes an
+      // unchanged snapshot. Interactive reads keep checked_at for the existing
+      // 60-second shared proof freshness window.
+      if (!force)
+        await env.DB.prepare(
+          'UPDATE ms_proof_snapshots SET total_count=?,checked_at=? WHERE hub=? AND business_day=?',
+        ).bind(upstream.total, now, hub, day).run();
       return {
         hub, day, rows: mapped, total: upstream.total,
         checkedAt: now, changedAt: current.changed_at || current.checked_at || now,

@@ -274,13 +274,16 @@ function patchDevUnifiedHeaderStyle(source) {
 export function patchDevRootEntryWorker(source) {
   const text = String(source || "");
   if (text.includes("DEV_ROOT_ENTRY_V1")) return text;
-  const needle = `const url = new URL(request.url);\n      if (!url.pathname.startsWith("/api")) return env.ASSETS.fetch(request);`;
+  // DEV_ROOT_ENTRY_ANCHOR_V2: anchor on the static-asset gate itself so a
+  // transport check may sit between URL parsing and the gate without creating
+  // another staging patch or changing canonical runtime behavior.
+  const needle = `if (!url.pathname.startsWith("/api")) return env.ASSETS.fetch(request);`;
   if (!text.includes(needle)) {
     throw new Error("DEV root entry anchor not found in worker source");
   }
   return text.replace(
     needle,
-    `const url = new URL(request.url);\n      // DEV_ROOT_ENTRY_V1: DEV-only staged entry route; canonical worker source is unchanged.\n      if (url.pathname === "/") return Response.redirect(new URL("/ms.html", request.url), 302);\n      if (!url.pathname.startsWith("/api")) return env.ASSETS.fetch(request);`,
+    `// DEV_ROOT_ENTRY_V1: DEV-only staged entry route; canonical worker source is unchanged.\n      if (url.pathname === "/") return Response.redirect(new URL("/ms.html", request.url), 302);\n      if (!url.pathname.startsWith("/api")) return env.ASSETS.fetch(request);`,
   );
 }
 

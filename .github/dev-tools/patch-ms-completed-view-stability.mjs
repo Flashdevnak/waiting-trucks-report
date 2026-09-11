@@ -87,8 +87,8 @@ export function patchMsCompletedViewStabilityFrontend(source) {
 
   output = replaceUnique(
     output,
-    `    const zeroProbeKey = completedTodayDatasetKey();`,
-    `    const zeroProbeKey = completedTodayDatasetKey();\n    if (cancelledTodayHydratedKey !== zeroProbeKey && !cancelledTodayLoadPromise) {\n      void loadCancelledTodayCount()\n        .then(() => {\n          if (state.auth && completedTodayDatasetKey() === zeroProbeKey) render();\n        })\n        .catch(() => {});\n    }`,
+    `  const zeroProbeKey = completedTodayDatasetKey();`,
+    `  const zeroProbeKey = completedTodayDatasetKey();\n    if (cancelledTodayHydratedKey !== zeroProbeKey && !cancelledTodayLoadPromise) {\n      void loadCancelledTodayCount()\n        .then(() => {\n          if (state.auth && completedTodayDatasetKey() === zeroProbeKey) render();\n        })\n        .catch(() => {});\n    }`,
     "hydrate cancelled count once per HUB calendar day",
   );
 

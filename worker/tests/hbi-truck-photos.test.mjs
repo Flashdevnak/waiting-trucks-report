@@ -25,7 +25,11 @@ test("frontend keeps photo loading strictly click-only and single-shot", () => {
   assert.doesNotMatch(desktopRow, /people-summary[\s\S]*truckPhotoButton\(row\)/);
   assert.match(front, /apiGetOnce\("msTruckPhotos"/);
   assert.doesNotMatch(front, /apiGet\("msTruckPhotos"/);
-  assert.match(front, /setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/);
+  // HBI remains click-only; realtime Route transport is now WebSocket-first at
+  // the same 4-second visible cadence instead of direct HTTP polling.
+  assert.match(front, /pollMs:\s*4000/);
+  assert.match(front, /setInterval\(realtimeTick, CONFIG\.pollMs\)/);
+  assert.doesNotMatch(front, /setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/);
 });
 
 test("worker keeps HBI out of live refresh and caps each cold click at one page", () => {

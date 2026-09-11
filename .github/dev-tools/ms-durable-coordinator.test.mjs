@@ -141,6 +141,7 @@ test("Origin LH Manifest V1 is staged into existing shared coordinator and APIs"
     'url.pathname.startsWith("/origin-manifest/")',
   ]) assert.ok(worker.includes(marker), `staged worker missing ${marker}`);
   assert.match(worker, /MS_REFRESH_COORDINATOR\.idFromName\(branch\)/);
+  assert.doesNotMatch(worker, /originManifestHbiCredentials/);
   assert.doesNotMatch(worker, /d1_databases|origin_manifest_cache|manifest_history/i);
 });
 

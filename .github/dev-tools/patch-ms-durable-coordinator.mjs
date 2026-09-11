@@ -9,30 +9,20 @@ function replaceUnique(output, from, to, label) {
   return output.replace(from, to);
 }
 
-const ORIGIN_IMPORT = `import {\n  OriginManifestCoordinator,\n  originManifestHbiCredentials,\n  originManifestLive,\n  originManifestStatus,\n  saveOriginManifestConnection,\n  wrapOriginManifestAssets,\n} from "./origin-manifest-v1.js";\n`;
+const ORIGIN_IMPORT = `import {\n  OriginManifestCoordinator,\n  originManifestLive,\n  originManifestStatus,\n  saveOriginManifestConnection,\n  wrapOriginManifestAssets,\n} from "./origin-manifest-v1.js";\n`;
 const MS_CRON_MARKER = "MS_CRON_LIVE_REFRESH_V1";
 
 export function patchDevDurableCoordinator(source) {
   let output = String(source || "");
 
   if (!output.includes("OriginManifestCoordinator")) {
-    const helperImport = `import { originManifestHbiCredentials } from "./origin-manifest-v1.js";\n`;
     const firstImport = `import { canonicalMsSource, planMsChanges } from "./sync-policy.js";\n`;
-    if (output.includes(helperImport)) {
-      output = replaceUnique(
-        output,
-        helperImport,
-        ORIGIN_IMPORT,
-        "merge Origin Manifest helper import",
-      );
-    } else {
-      output = replaceUnique(
-        output,
-        firstImport,
-        `${ORIGIN_IMPORT}${firstImport}`,
-        "origin manifest module import",
-      );
-    }
+    output = replaceUnique(
+      output,
+      firstImport,
+      `${ORIGIN_IMPORT}${firstImport}`,
+      "origin manifest module import",
+    );
   }
 
   if (!output.includes("wrapOriginManifestAssets(env)")) {

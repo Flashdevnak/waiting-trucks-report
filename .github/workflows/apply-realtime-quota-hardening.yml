@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      CLEAN_BASE: 67c245f5b733bbae83cd0feb1924aa0ae3ba2cec
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,11 +28,23 @@ jobs:
           cache: npm
           cache-dependency-path: worker/package-lock.json
 
-      - name: Transform authoritative sources
+      - name: Rebuild authoritative worker without staged-runtime contamination
         run: |
-          python3 .tmp/realtime_quota_hardening.py
-          python3 .tmp/fix_stage_root_anchor.py
-          python3 .tmp/fix_hbi_realtime_test.py
+          rm -rf /tmp/realtime-rebuild
+          git worktree add --detach /tmp/realtime-rebuild "$CLEAN_BASE"
+          (
+            cd /tmp/realtime-rebuild
+            python3 .tmp/realtime_quota_hardening.py
+          )
+          cp /tmp/realtime-rebuild/worker/src/index.js worker/src/index.js
+          git worktree remove --force /tmp/realtime-rebuild
+          grep -q 'MS_REALTIME_WS_V1' worker/src/index.js
+          grep -q 'HUB_SETTINGS_CACHE_V1' worker/src/index.js
+          if grep -q 'DEV_ROOT_ENTRY_V1' worker/src/index.js; then
+            echo 'canonical worker contains staged DEV root mutation' >&2
+            exit 1
+          fi
+          echo 'AUTHORITATIVE_WORKER_REBUILD=PASS'
 
       - name: Install dependencies
         working-directory: worker
@@ -47,20 +60,13 @@ jobs:
           node --check .github/dev-tools/patch-ms-completed-view-stability.mjs
           node --check .github/dev-tools/stage-dev-runtime.mjs
 
-      - name: Quota hardening regression
-        run: node --test .github/dev-tools/realtime-quota-hardening.test.mjs
-
-      - name: Durable coordinator regression
-        run: node --test .github/dev-tools/ms-durable-coordinator.test.mjs
-
-      - name: Quota-safe live regression
-        run: node --test .github/dev-tools/ms-quota-safe-live.test.mjs
-
-      - name: Multiclient dedupe regression
-        run: node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
-
-      - name: HBI regression
-        run: node --test worker/tests/hbi-truck-photos.test.mjs
+      - name: Realtime and quota regressions
+        run: |
+          node --test .github/dev-tools/realtime-quota-hardening.test.mjs
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+          node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test worker/tests/hbi-truck-photos.test.mjs
 
       - name: Worker full check
         working-directory: worker
@@ -69,30 +75,41 @@ jobs:
       - name: Diff check
         run: git diff --check
 
-      - name: Verify staged runtime parses
+      - name: Verify staged runtime on copies only
         run: |
           rm -rf worker/.dev-assets
           mkdir -p worker/.dev-assets
           cp ms.js worker/.dev-assets/ms.js
           cp style.css worker/.dev-assets/style.css
           cp ms.html proof.html waiting.html ms-report.html worker/.dev-assets/
-          node .github/dev-tools/stage-dev-runtime.mjs worker/.dev-assets/ms.js worker/src/index.js
-          node .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs worker/.dev-assets/ms.js worker/src/origin-manifest-v1.js
+          cp worker/src/index.js worker/.dev-assets/index.js
+          cp worker/src/origin-manifest-v1.js worker/.dev-assets/origin-manifest-v1.js
+          node .github/dev-tools/stage-dev-runtime.mjs worker/.dev-assets/ms.js worker/.dev-assets/index.js
+          node .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs worker/.dev-assets/ms.js worker/.dev-assets/origin-manifest-v1.js
           node --check worker/.dev-assets/ms.js
+          node --check worker/.dev-assets/index.js
           node --check worker/src/index.js
           grep -q 'MS_REALTIME_WS_V1' worker/.dev-assets/ms.js
-          grep -q 'MS_REALTIME_WS_V1' worker/src/index.js
-          grep -q 'HUB_SETTINGS_CACHE_V1' worker/src/index.js
+          grep -q 'MS_REALTIME_WS_V1' worker/.dev-assets/index.js
+          grep -q 'HUB_SETTINGS_CACHE_V1' worker/.dev-assets/index.js
+          if grep -q 'DEV_ROOT_ENTRY_V1' worker/src/index.js; then
+            echo 'staging mutated canonical worker' >&2
+            exit 1
+          fi
           echo 'STAGED_REALTIME_QUOTA_HARDENING=PASS'
+          echo 'CANONICAL_SOURCE_UNTOUCHED_BY_STAGING=PASS'
 
-      - name: Commit clean source and remove temp transforms
+      - name: Commit corrected authoritative source
         run: |
-          git rm .tmp/realtime_quota_hardening.py .tmp/fix_realtime_quota_transform.py .tmp/fix_stage_root_anchor.py .tmp/fix_hbi_realtime_test.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ms.js worker/src/index.js worker/src/proof-control.js worker/src/turso-index.js .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/patch-ms-completed-view-stability.mjs .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/realtime-quota-hardening.test.mjs worker/tests/hbi-truck-photos.test.mjs worker/tests/frontend-requirements.test.mjs
+          git add worker/src/index.js
           git diff --cached --check
-          git commit -m 'perf(dev): harden realtime quota without reducing cadence'
+          if git diff --cached --quiet; then
+            echo 'No authoritative source correction required' >&2
+            exit 1
+          fi
+          git commit -m 'fix(dev): keep realtime hardening in authoritative worker source'
           git push origin HEAD:main
           echo "SOURCE_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
@@ -100,8 +117,8 @@ jobs:
         run: |
           gh workflow run deploy-worker-dev.yml --ref main
           RUN_ID=''
-          for i in $(seq 1 40); do
-            RUN_ID=$(gh run list --workflow deploy-worker-dev.yml --branch main --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+          for i in $(seq 1 50); do
+            RUN_ID=$(gh run list --workflow deploy-worker-dev.yml --branch main --limit 15 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
             if [ -n "$RUN_ID" ]; then break; fi
             sleep 5
           done
@@ -113,8 +130,8 @@ jobs:
         run: |
           gh workflow run current-system-acceptance.yml --ref main
           RUN_ID=''
-          for i in $(seq 1 40); do
-            RUN_ID=$(gh run list --workflow current-system-acceptance.yml --branch main --limit 10 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+          for i in $(seq 1 50); do
+            RUN_ID=$(gh run list --workflow current-system-acceptance.yml --branch main --limit 15 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
             if [ -n "$RUN_ID" ]; then break; fi
             sleep 5
           done

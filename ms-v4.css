@@ -97,6 +97,62 @@
   max-width: 100%;
 }
 
+
+/* HBI_TRUCK_PHOTO_UI_V1 — new feature selectors only; no override stack. */
+.ms-page .truck-photo-toggle {
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid #aeb2af;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #202124;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.ms-page .truck-photo-toggle:hover { background: #f4f5f3; border-color: #858a86; }
+.truck-photo-dialog {
+  width: min(780px, calc(100vw - 24px));
+  max-width: 780px;
+  max-height: 92vh;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 60px rgba(0,0,0,.28);
+}
+.truck-photo-dialog::backdrop { background: rgba(10,12,11,.62); }
+.truck-photo-card { display: flex; flex-direction: column; max-height: 92vh; }
+.truck-photo-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #d9dedb; background: #f6f7f5; }
+.truck-photo-head > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.truck-photo-head span { color: #6b716d; font-size: 12px; font-weight: 800; }
+.truck-photo-head strong { color: #202124; overflow-wrap: anywhere; }
+.truck-photo-body { min-height: 180px; padding: 16px; overflow: auto; }
+.truck-photo-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: start; }
+.truck-photo-item { min-width: 0; padding: 8px; border: 1px solid #d1d3d0; border-radius: 10px; background: #ffffff; cursor: zoom-in; }
+.truck-photo-item img { display: block; width: 100%; height: 190px; object-fit: contain; border-radius: 7px; background: #f4f5f3; }
+.truck-photo-item.is-expanded { grid-column: 1 / -1; cursor: zoom-out; }
+.truck-photo-item.is-expanded img { width: auto; max-width: 100%; height: auto; max-height: 70vh; margin: 0 auto; }
+.truck-photo-empty { display: flex; min-height: 150px; align-items: center; justify-content: center; padding: 18px; text-align: center; color: #5b6064; }
+.truck-photo-empty.is-error { color: #b3261e; }
+.truck-photo-note { display: block; padding: 0 18px 14px; color: #727874; text-align: center; }
+@media (min-width: 1025px) {
+  html body.ms-page .attendance-cell .truck-photo-toggle { width: 100%; margin-top: 2px; }
+}
+@media (max-width: 1024px) {
+  html body.ms-page .compact-card-tags .compact-work-type .truck-photo-toggle { width: 100%; margin-top: 3px; border-color: rgba(255,255,255,.7); background: #ffffff; color: #202124; }
+  .truck-photo-body { padding: 12px; }
+  .truck-photo-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .truck-photo-item img { height: 160px; }
+}
+@media (max-width: 430px) {
+  .truck-photo-gallery { grid-template-columns: 1fr; }
+  .truck-photo-item img { height: 220px; }
+}
+
 @media (min-width: 1025px) {
   .ms-page .ms-table col.col-route { width: 22%; }
   .ms-page .ms-table col.col-meta { width: 9%; }

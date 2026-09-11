@@ -567,12 +567,13 @@
         </p>
 
         <details class="setup-fallback" open>
-          <summary>อัปโหลด HAR ทั้ง 3 แหล่ง</summary>
+          <summary>อัปโหลด HAR ทั้ง 4 แหล่ง</summary>
 
           <div class="connection-source-status" id="connection-source-status">
             <div data-source-status="routes"><b>1. สถานะเส้นทางเดินรถ</b><span>กำลังตรวจสอบ…</span></div>
             <div data-source-status="preEntry"><b>2. พัสดุที่คาดว่าจะเข้าคลัง</b><span>กำลังตรวจสอบ…</span></div>
             <div data-source-status="busTime"><b>3. การจัดการตารางเวลา (KIT/TBR)</b><span>กำลังตรวจสอบ…</span></div>
+            <div data-source-status="hbiPhotos"><b>4. รูปท้ายรถ (HBI)</b><span>กำลังตรวจสอบ…</span></div>
           </div>
 
           <ol class="setup-steps">
@@ -580,12 +581,13 @@
               <strong>เปิด MS และเข้าสู่ระบบ</strong>
               <span
                 >สแกน QR แล้วรอจนเห็นตารางข้อมูล หากล็อกอินแล้วกลับไปหน้าแรก
-                ให้เปิดและบันทึก HAR จากทั้ง 3 หน้าด้านล่าง โดยไม่ต้องล็อกอินใหม่</span
+                ให้เปิดและบันทึก HAR จากทั้ง 4 หน้าด้านล่าง โดยไม่ต้องล็อกอินใหม่</span
               >
               <div class="setup-source-links">
                 <a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance" target="_blank" rel="noopener">1. บันทึกสถานะเส้นทางเดินรถ</a>
                 <a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/sendoutlets/preEntry" target="_blank" rel="noopener">2. พัสดุที่คาดว่าจะเข้าคลัง</a>
                 <a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/store/busTimeManagement" target="_blank" rel="noopener">3. การจัดการตารางเวลา</a>
+                <a class="btn btn-header setup-link" href="https://hbi-v3.flashexpress.com/fleet-load-info" target="_blank" rel="noopener">4. รูปท้ายรถ (HBI)</a>
               </div>
             </li>
             <li>
@@ -630,6 +632,8 @@
             <button class="btn btn-accent" type="button" data-har-save="preEntry">ทดสอบและบันทึก</button>
             <label><span>3. HAR การจัดการตารางเวลา (KIT/TBR) · รองรับสูงสุด 250 MB</span><input id="ms-har-bustime" type="file" accept=".har,application/json" /></label>
             <button class="btn btn-accent" type="button" data-har-save="busTime">ทดสอบและบันทึก</button>
+            <label><span>4. HAR รูปท้ายรถ (HBI) · โหลดรูปเฉพาะเมื่อกดดู</span><input id="ms-har-hbi-photos" type="file" accept=".har,application/json" /></label>
+            <button class="btn btn-accent" type="button" data-har-save="hbiPhotos">บันทึกเซสชันรูปท้ายรถ</button>
           </div>
           <p id="ms-connection-error" class="form-error hidden"></p>
         </details>

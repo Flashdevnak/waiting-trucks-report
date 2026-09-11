@@ -46,6 +46,13 @@ let completedTodayHydratedLiveTotal = -1;
 let completedTodayNeedsRefresh = false;
 let completedTodayRetryAt = 0;
 let completedTodayZeroProbedKey = "";
+
+// HBI_TRUCK_PHOTO_LAZY_V1: zero HBI/OSS photo request until the user clicks.
+// Cache is memory-only for this page; no database write and no background refresh.
+const TRUCK_PHOTO_CACHE_MS = 12 * 60 * 60 * 1000;
+const truckPhotoCache = new Map();
+const truckPhotoPanels = new Map();
+const truckPhotoPending = new Map();
 const el = (id) => document.getElementById(id);
 const nf = new Intl.NumberFormat("th-TH");
 const dtf = new Intl.DateTimeFormat("th-TH", {
@@ -72,6 +79,10 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     const barcodeButton = event.target.closest("[data-local-barcode-toggle]");
     if (barcodeButton) toggleLocalRouteBarcode(barcodeButton);
+    const truckPhotoButton = event.target.closest("[data-truck-photo]");
+    if (truckPhotoButton) void openTruckPhotos(truckPhotoButton.dataset.truckPhoto);
+    const truckPhotoImage = event.target.closest("[data-truck-photo-image]");
+    if (truckPhotoImage) truckPhotoImage.classList.toggle("is-expanded");
     const cancelButton = event.target.closest("[data-cancel-ms-route]");
     if (cancelButton) openCancelMsRoute(cancelButton.dataset.cancelMsRoute);
   });
@@ -246,6 +257,10 @@ function logout() {
   state.auth = null;
   state.currentRows = [];
   resetArchiveState();
+  truckPhotoCache.clear();
+  truckPhotoPanels.clear();
+  truckPhotoPending.clear();
+  if (el("truck-photo-dialog")?.open) el("truck-photo-dialog").close();
   localStorage.removeItem(AUTH_KEY);
   authUi();
   render();
@@ -1756,6 +1771,91 @@ function toggleLocalRouteBarcode(button) {
 
 // Barcode presentation is first-class in style.css; no runtime style injection.
 
+
+// HBI_TRUCK_PHOTO_LAZY_V1: destination only. No URL and no <img> exists before a click.
+function truckPhotoButton(row) {
+  if (!isDestination(row) || !String(row?.proofId || "").trim()) return "";
+  return `<button type="button" class="truck-photo-toggle" data-truck-photo="${esc(encodeURIComponent(String(row.proofId).trim()))}">ดูรูปท้ายรถ</button>`;
+}
+
+function ensureTruckPhotoDialog() {
+  let dialog = el("truck-photo-dialog");
+  if (dialog) return dialog;
+  dialog = document.createElement("dialog");
+  dialog.id = "truck-photo-dialog";
+  dialog.className = "truck-photo-dialog";
+  dialog.innerHTML = `<div class="truck-photo-card"><div class="truck-photo-head"><div><span>รูปท้ายรถ</span><strong id="truck-photo-proof"></strong></div><button type="button" class="dialog-close" data-truck-photo-close aria-label="ปิด">×</button></div><div id="truck-photo-body" class="truck-photo-body"><div class="truck-photo-empty">กดดูรูปเพื่อโหลดรูปท้ายรถ</div></div><small class="truck-photo-note">รูปโหลดจาก Flash OSS เฉพาะเมื่อกดดูเท่านั้น · กดรูปเพื่อขยาย/ย่อ</small></div>`;
+  document.body.append(dialog);
+  dialog.querySelector("[data-truck-photo-close]").onclick = () => dialog.close();
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+  return dialog;
+}
+
+function truckPhotoPanel(key, proofId, photos) {
+  if (truckPhotoPanels.has(key)) return truckPhotoPanels.get(key);
+  const panel = document.createElement("div");
+  if (!photos.length) {
+    panel.className = "truck-photo-empty";
+    panel.textContent = "ไม่พบรูปท้ายรถสำหรับเที่ยวนี้";
+    truckPhotoPanels.set(key, panel);
+    return panel;
+  }
+  panel.className = "truck-photo-gallery";
+  photos.forEach((url, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "truck-photo-item";
+    button.dataset.truckPhotoImage = "1";
+    button.setAttribute("aria-label", `ขยายรูปท้ายรถ ${index + 1}`);
+    const image = new Image();
+    image.alt = `รูปท้ายรถ ${proofId} รูปที่ ${index + 1}`;
+    image.decoding = "async";
+    image.src = url;
+    button.append(image);
+    panel.append(button);
+  });
+  truckPhotoPanels.set(key, panel);
+  return panel;
+}
+
+async function openTruckPhotos(encodedProofId) {
+  let proofId = "";
+  try { proofId = decodeURIComponent(String(encodedProofId || "")); }
+  catch { proofId = String(encodedProofId || ""); }
+  proofId = proofId.trim();
+  if (!proofId) return;
+  const branch = state.branch;
+  const key = `${branch}|${proofId}`;
+  const dialog = ensureTruckPhotoDialog();
+  el("truck-photo-proof").textContent = proofId;
+  const body = el("truck-photo-body");
+  const savedPanel = truckPhotoPanels.get(key);
+  if (savedPanel) body.replaceChildren(savedPanel);
+  else body.innerHTML = '<div class="truck-photo-empty">กำลังโหลดรูปท้ายรถ…</div>';
+  if (!dialog.open) dialog.showModal();
+  if (savedPanel) return;
+  try {
+    const cached = truckPhotoCache.get(key);
+    let result;
+    if (cached?.until > Date.now()) result = cached.value;
+    else {
+      if (cached) truckPhotoCache.delete(key);
+      let pending = truckPhotoPending.get(key);
+      if (!pending) {
+        pending = apiGetOnce("msTruckPhotos", { branch, proofId });
+        truckPhotoPending.set(key, pending);
+      }
+      try { result = await pending; }
+      finally { if (truckPhotoPending.get(key) === pending) truckPhotoPending.delete(key); }
+      truckPhotoCache.set(key, { until: Date.now() + TRUCK_PHOTO_CACHE_MS, value: result });
+    }
+    if (state.branch !== branch) return;
+    body.replaceChildren(truckPhotoPanel(key, proofId, Array.isArray(result?.photos) ? result.photos : []));
+  } catch (error) {
+    body.innerHTML = `<div class="truck-photo-empty is-error">${esc(error.message || "โหลดรูปท้ายรถไม่สำเร็จ")}</div>`;
+  }
+}
+
 function tableRow(row) {
   const status = routeState(row);
   const p = punctuality(row);
@@ -1793,7 +1893,7 @@ function tableRow(row) {
   return `<tr>
     <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</div></td>
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
-    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
+    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div>${truckPhotoButton(row)}</div></td>
     <td><div class="schedule-stack single">${scheduleHtml}${arrivalSources(row)}</div></td>
     <td><div class="work-summary">${operationHtml || `<div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div><small class="queue-label">${esc(queueText)}</small>`}</div></td>
     <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
@@ -1859,7 +1959,7 @@ function card(row) {
           : "ยังไม่เข้าคิว";
   const compactSchedule = scheduleSection(row, "arrival");
   return `<article class="truck-card ms-card compact-card">
-    <header class="compact-card-head"><div class="compact-card-tags"><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span><span class="compact-work-type"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><small>${esc(attendanceLabel(row))}</small></span></div><h2>${esc(row.proofId || "-")}</h2><p class="compact-route-name">${esc(row.routeName || "-")}</p><small>ทะเบียน ${esc(row.plate || "-")}</small>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</header>
+    <header class="compact-card-head"><div class="compact-card-tags"><span class="vehicle-chip">${esc(row.vehicleType || "-")}</span><span class="compact-work-type"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><small>${esc(attendanceLabel(row))}</small>${truckPhotoButton(row)}</span></div><h2>${esc(row.proofId || "-")}</h2><p class="compact-route-name">${esc(row.routeName || "-")}</p><small>ทะเบียน ${esc(row.plate || "-")}</small>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</header>
     <div class="compact-meta"><span><b>ภูมิภาค</b>${esc(row.region || "-")}</span><span><b>ลักษณะ</b>${esc(row.routeAttribute || "-")}</span><span><b>เส้นทาง</b>${esc(row.routeType || "-")}</span></div>
     <div class="compact-times compact-schedule schedule-stack single">${compactSchedule}${arrivalSources(row)}</div>
     ${renderOperation(row)}
@@ -2138,6 +2238,36 @@ async function apiGet(action, params = {}) {
   throw lastError || new Error("โหลดข้อมูลไม่สำเร็จ");
 }
 
+
+async function apiGetOnce(action, params = {}) {
+  const url = new URL(CONFIG.apiUrl);
+  url.searchParams.set("action", action);
+  url.searchParams.set("token", state.auth?.token || "");
+  Object.entries(params).forEach(([key, value]) => value !== undefined && value !== "" && url.searchParams.set(key, value));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CONFIG.requestTimeoutMs);
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal, headers: { Accept: "application/json" } });
+    const text = await response.text();
+    let json;
+    try { json = JSON.parse(text); }
+    catch { throw new Error("API รูปท้ายรถตอบกลับข้อมูลไม่สมบูรณ์"); }
+    if (json?.ok === false) {
+      if (json.code === "INVALID_SESSION") invalidateSession();
+      const error = new Error(json.message || `API error HTTP ${response.status}`);
+      error.code = json.code || "SERVER_ERROR";
+      throw error;
+    }
+    if (!response.ok) throw new Error(`API HTTP ${response.status}`);
+    return json.data ?? json;
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("โหลดรูปท้ายรถใช้เวลานานเกินไป กรุณากดใหม่ภายหลัง");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function openMsConnection() {
   const hubInput = el("ms-har-hub");
   hubInput.value = state.branch || state.auth?.branches?.[0] || "NE1";
@@ -2145,7 +2275,7 @@ function openMsConnection() {
   hubInput.title = hubInput.readOnly
     ? "บัญชีนี้เชื่อมต่อได้เฉพาะ HUB ที่ได้รับสิทธิ์"
     : "ADMIN สามารถเลือก HUB ที่ต้องการตรวจสอบได้";
-  ["ms-har-routes", "ms-har-preentry", "ms-har-bustime"].forEach((id) => { el(id).value = ""; });
+  ["ms-har-routes", "ms-har-preentry", "ms-har-bustime", "ms-har-hbi-photos"].forEach((id) => { el(id).value = ""; });
   el("ms-connection-error").classList.add("hidden");
   el("ms-qr-status").textContent =
     "ลิงก์เชื่อมต่อมีอายุ 10 นาที และใช้ได้ครั้งเดียว";
@@ -2157,16 +2287,18 @@ async function loadMsConnectionStatus() {
   const hub = el("ms-har-hub").value.trim().toUpperCase();
   try {
     const status = await apiGet("msConnectionStatus", { branch: hub });
-    for (const key of ["routes", "preEntry", "busTime"]) {
+    for (const key of ["routes", "preEntry", "busTime", "hbiPhotos"]) {
       const node = document.querySelector(`[data-source-status="${key}"] span`);
       const item = status[key];
       if (!node) continue;
       node.className = item?.configured ? (item.lastError ? "source-error" : "source-ok") : "source-missing";
       node.textContent = !item?.configured
         ? "ยังไม่ได้อัปโหลด"
-        : item.lastError
-          ? `เชื่อมต่อมีปัญหา · ${item.lastError}`
-          : `พร้อมใช้งาน · อัปเดตล่าสุด ${shortDateTime(item.lastSuccessAt || item.updatedAt)}`;
+        : key === "hbiPhotos"
+          ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"
+          : item.lastError
+            ? `เชื่อมต่อมีปัญหา · ${item.lastError}`
+            : `พร้อมใช้งาน · อัปเดตล่าสุด ${shortDateTime(item.lastSuccessAt || item.updatedAt)}`;
     }
   } catch (error) {
     const box = el("ms-connection-error");
@@ -2218,8 +2350,9 @@ async function startQrConnection() {
 
 async function saveMsConnection(source, button) {
   const errorEl = el("ms-connection-error"),
-    inputId = source === "routes" ? "ms-har-routes" : source === "preEntry" ? "ms-har-preentry" : "ms-har-bustime",
-    file = el(inputId).files[0],
+    inputIds = { routes: "ms-har-routes", preEntry: "ms-har-preentry", busTime: "ms-har-bustime", hbiPhotos: "ms-har-hbi-photos" },
+    inputId = inputIds[source],
+    file = inputId ? el(inputId).files[0] : null,
     hub = el("ms-har-hub").value.trim().toUpperCase();
   try {
     button.disabled = true;
@@ -2248,11 +2381,36 @@ async function saveMsConnection(source, button) {
         return new URL(item.request?.url).pathname === "/api/fleet_time/getList" && item.response?.status === 200;
       } catch { return false; }
     });
-    if (!entry && !preEntry && !busEntry)
-      throw new Error("ไม่พบข้อมูลเส้นทาง พัสดุเข้าคลัง หรือการจัดการตารางเวลาในไฟล์ HAR");
+    const hbiEntry = entries.find((item) => {
+      try {
+        const url = new URL(item.request?.url);
+        return item.request?.method === "GET" && url.hostname === "hbi-common.flashexpress.com" && url.pathname === "/api/fleet/loadInfoList" && item.response?.status === 200;
+      } catch { return false; }
+    });
+    if (!entry && !preEntry && !busEntry && !hbiEntry)
+      throw new Error("ไม่พบข้อมูลเส้นทาง พัสดุเข้าคลัง ตารางเวลา หรือรูปท้ายรถในไฟล์ HAR");
     if (source === "routes" && !entry) throw new Error("ไฟล์นี้ไม่มีข้อมูลบันทึกสถานะเส้นทางเดินรถ");
     if (source === "preEntry" && !preEntry) throw new Error("ไฟล์นี้ไม่มีข้อมูลพัสดุที่คาดว่าจะเข้าคลัง");
     if (source === "busTime" && !busEntry) throw new Error("ไฟล์นี้ไม่มีข้อมูลการจัดการตารางเวลา KIT/TBR");
+    if (source === "hbiPhotos" && !hbiEntry) throw new Error("ไฟล์นี้ไม่มีข้อมูลรูปท้ายรถ HBI");
+    if (source === "hbiPhotos") {
+      const url = new URL(hbiEntry.request.url);
+      const credentials = {};
+      for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"]) credentials[key] = url.searchParams.get(key) || "";
+      if (!credentials.auth || !credentials.fbid || !credentials.time || String(credentials.webSign).toLowerCase() !== "hbi")
+        throw new Error("ไฟล์ HAR รูปท้ายรถไม่มีข้อมูล Session HBI ที่ต้องใช้");
+      try {
+        const sample = JSON.parse(hbiEntry.response?.content?.text || "{}");
+        if (Number(sample.code) !== 1) throw new Error(sample.msg || sample.message || "HBI ตอบกลับไม่สำเร็จ");
+      } catch (error) {
+        throw new Error(`ตรวจ HAR รูปท้ายรถไม่สำเร็จ: ${error.message}`);
+      }
+      await apiPost("saveMsHbiConnection", { hub, credentials });
+      errorEl.classList.add("hidden");
+      toast(`เชื่อมรูปท้ายรถ ${hub} สำเร็จ · ไม่โหลดรูปจนกว่าจะกดดู`);
+      await loadMsConnectionStatus();
+      return;
+    }
     if (source === "preEntry") {
       const url = new URL(preEntry.request.url);
       const credentials = {};

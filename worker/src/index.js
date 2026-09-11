@@ -6,6 +6,12 @@ const CONNECTION_HEARTBEAT_MS = 15 * 60 * 1000;
 const CONNECTOR_HEARTBEAT_MS = 60 * 60 * 1000;
 const recentMsSync = new Map();
 const activeMsSync = new Map();
+// HBI_PHOTO_ON_DEMAND_V1: never joined to the 4-second live refresh.
+const HBI_PHOTO_CACHE_MS = 12 * 60 * 60 * 1000;
+const HBI_EMPTY_CACHE_MS = 30 * 60 * 1000;
+const HBI_PHOTO_CACHE_MAX = 400;
+const hbiPhotoCache = new Map();
+const activeHbiPhotoReads = new Map();
 // AUTH_VERIFY_READ_CACHE_V2: remove repeated identical user reads from 4-second polling.
 const AUTH_VERIFY_CACHE_MS = 60 * 1000;
 const authVerifyCache = new Map();
@@ -285,6 +291,10 @@ async function get(url, env) {
     const hub = pickBranch(actor, url.searchParams.get("branch"));
     return ok(await msConnectionStatus(env, actor, hub));
   }
+  if (action === "msTruckPhotos") {
+    const hub = pickBranch(actor, url.searchParams.get("branch"));
+    return ok(await msTruckPhotos(env, actor, hub, url.searchParams.get("proofId")));
+  }
   if (action === "pendingParcels") {
     const hub = pickBranch(actor, url.searchParams.get("branch"));
     return ok(await pendingParcels(
@@ -355,6 +365,7 @@ async function post(body, env) {
     const live = await refreshMsIfStale(env, actor, saved.hub, true);
     return ok({ ...saved, live });
   }
+  if (action === "saveMsHbiConnection") return ok(await saveMsHbiConnection(body, actor, env));
   if (action === "createMsPairing") {
     return ok(await createMsPairing(body, actor, env));
   }
@@ -1566,6 +1577,155 @@ async function saveMsBusConnection(body, actor, env) {
   return { hub, total: test.total, updatedAt: now, source: "busTimeManagement" };
 }
 
+
+// HBI_PHOTO_ON_DEMAND_V1
+// No cron, no live-refresh hook, no pagination, no automatic retry,
+// no photo persistence, and no status heartbeat writes.
+function isMissingTableError(error, table) {
+  return new RegExp(`no such table:\\s*${table}`, "i").test(String(error?.message || error || ""));
+}
+
+async function ensureHbiConnectionTable(env) {
+  return env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS ms_hbi_connections(hub TEXT PRIMARY KEY,credentials_cipher TEXT NOT NULL,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL)",
+  ).run();
+}
+
+async function saveMsHbiConnection(body, actor, env) {
+  const hub = text(body.hub, 80).toUpperCase();
+  if (!hub || !access(hub, actor))
+    fail("บัญชีนี้ไม่มีสิทธิ์เชื่อมต่อ HUB ที่เลือก", "FORBIDDEN", 403);
+  const credentials = {};
+  for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"])
+    credentials[key] = text(body.credentials?.[key], 2500);
+  if (!credentials.auth || !credentials.fbid || !credentials.time || String(credentials.webSign).toLowerCase() !== "hbi")
+    fail("ไฟล์ HAR ไม่มีข้อมูล Session HBI รูปท้ายรถที่ต้องใช้", "INVALID_HAR");
+  await ensureHbiConnectionTable(env);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT INTO ms_hbi_connections(hub,credentials_cipher,updated_at,updated_by) VALUES(?,?,?,?) ON CONFLICT(hub) DO UPDATE SET credentials_cipher=excluded.credentials_cipher,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
+  ).bind(hub, await encryptMs(JSON.stringify(credentials), env), now, actor.username).run();
+  for (const key of [...hbiPhotoCache.keys()]) if (key.startsWith(`${hub}|`)) hbiPhotoCache.delete(key);
+  await audit(env, "SAVE_MS_HBI_CONNECTION", hub, "บันทึก Session รูปท้ายรถแบบ on-demand; upstream calls=0", actor.username);
+  return { hub, updatedAt: now, source: "hbiPhotos", upstreamCalls: 0 };
+}
+
+async function hbiConnectionStatus(env, hub) {
+  try {
+    return await env.DB.prepare(
+      "SELECT updated_at,updated_by FROM ms_hbi_connections WHERE hub=?",
+    ).bind(hub).first();
+  } catch (error) {
+    if (isMissingTableError(error, "ms_hbi_connections")) return null;
+    throw error;
+  }
+}
+
+export function hbiPhotoDateWindow(value, now = new Date()) {
+  const parsed = value ? new Date(value) : now;
+  const base = isNaN(parsed) ? now : parsed;
+  const bangkokDay = new Date(base.getTime() + 7 * 3600000).toISOString().slice(0, 10);
+  const midnight = Date.parse(`${bangkokDay}T00:00:00Z`);
+  return {
+    begin: new Date(midnight - 86400000).toISOString().slice(0, 10),
+    end: new Date(midnight + 86400000).toISOString().slice(0, 10),
+  };
+}
+
+export function normalizeHbiPhotoUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (url.hostname.toLowerCase() !== "fle-asset-internal.oss-ap-southeast-1.aliyuncs.com") return "";
+    if (!url.pathname.startsWith("/fleetOutbound/")) return "";
+    if (!/^https?:$/.test(url.protocol)) return "";
+    url.protocol = "https:";
+    url.hash = "";
+    url.search = "?x-oss-process=image/resize,w_200/quality,q_80";
+    return url.toString();
+  } catch { return ""; }
+}
+
+function rememberHbiPhoto(key, value) {
+  if (hbiPhotoCache.has(key)) hbiPhotoCache.delete(key);
+  while (hbiPhotoCache.size >= HBI_PHOTO_CACHE_MAX) hbiPhotoCache.delete(hbiPhotoCache.keys().next().value);
+  hbiPhotoCache.set(key, {
+    until: Date.now() + (value.photos?.length ? HBI_PHOTO_CACHE_MS : HBI_EMPTY_CACHE_MS),
+    value,
+  });
+}
+
+async function msTruckPhotos(env, actor, hub, wantedProofId) {
+  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดูข้อมูล HUB นี้", "FORBIDDEN", 403);
+  const proofId = normalizeProofId(wantedProofId);
+  if (!proofId) fail("รถเที่ยวนี้ยังไม่มีบาร์โค้ด จึงเปิดรูปท้ายรถไม่ได้", "MISSING_PROOF_ID");
+  const cacheKey = `${hub}|${proofId}`;
+  const cached = hbiPhotoCache.get(cacheKey);
+  if (cached?.until > Date.now()) return { ...cached.value, upstreamCalls: 0, cache: "memory" };
+  if (cached) hbiPhotoCache.delete(cacheKey);
+  if (activeHbiPhotoReads.has(cacheKey)) return activeHbiPhotoReads.get(cacheKey);
+  const task = (async () => {
+    let route;
+    try {
+      route = await env.DB.prepare(
+        "SELECT r.proof_id,r.attendance_type,r.estimated_arrival_at,h.credentials_cipher FROM ms_routes r JOIN ms_hbi_connections h ON h.hub=r.hub WHERE r.hub=? AND r.proof_id=? ORDER BY r.synced_at DESC LIMIT 1",
+      ).bind(hub, proofId).first();
+    } catch (error) {
+      if (isMissingTableError(error, "ms_hbi_connections"))
+        fail(`HUB ${hub} ยังไม่ได้อัปโหลด HAR รูปท้ายรถ`, "HBI_PHOTOS_NOT_CONFIGURED", 409);
+      throw error;
+    }
+    if (!route?.credentials_cipher)
+      fail(`HUB ${hub} ยังไม่ได้อัปโหลด HAR รูปท้ายรถ หรือไม่พบเที่ยวรถนี้`, "HBI_PHOTOS_NOT_CONFIGURED", 409);
+    if (normalizeMsAttendance(route.attendance_type) !== "ปลายทาง")
+      fail("รูปท้ายรถเปิดได้เฉพาะงานเข้าปลายทาง", "HBI_PHOTOS_DESTINATION_ONLY", 403);
+    let credentials;
+    try { credentials = JSON.parse(await decryptMs(route.credentials_cipher, env)); }
+    catch { fail("Session HBI รูปท้ายรถเสียหาย กรุณาอัปโหลด HAR ใหม่", "HBI_PHOTOS_CREDENTIAL_ERROR", 500); }
+    const value = await readHbiTruckPhotos(credentials, proofId, route.estimated_arrival_at);
+    rememberHbiPhoto(cacheKey, value);
+    return { ...value, upstreamCalls: 1, cache: "miss" };
+  })().finally(() => activeHbiPhotoReads.delete(cacheKey));
+  activeHbiPhotoReads.set(cacheKey, task);
+  return task;
+}
+
+async function readHbiTruckPhotos(credentials, proofId, estimatedArrivalAt) {
+  const url = new URL("https://hbi-common.flashexpress.com/api/fleet/loadInfoList");
+  for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"])
+    if (credentials?.[key] !== undefined) url.searchParams.set(key, credentials[key]);
+  const window = hbiPhotoDateWindow(estimatedArrivalAt);
+  const filters = {
+    page: "1", page_size: "20", total: "0", sorting_no: "", region: "", piece: "", category: "",
+    select_type: "", origin_id: "", target_id: "", plate_type: "", proof_id: proofId,
+    transport_mode_category: "", transport_detail_category: "", begin_date: window.begin, end_date: window.end,
+  };
+  for (const [key, value] of Object.entries(filters)) url.searchParams.set(key, value);
+  const response = await fetch(url, { headers: {
+    Accept: "application/json, text/plain, */*",
+    Origin: "https://cbi-fbi.flashexpress.com",
+    Referer: "https://cbi-fbi.flashexpress.com/",
+    "User-Agent": "Mozilla/5.0",
+  }});
+  if (response.status === 429)
+    fail("HBI จำกัดคำขอชั่วคราว กรุณารอสักครู่แล้วกดดูใหม่", "HBI_PHOTO_RATE_LIMIT", 429);
+  if (!response.ok) fail(`HBI รูปท้ายรถตอบกลับ ${response.status}`, "HBI_PHOTO_HTTP_ERROR", 502);
+  const json = await response.json();
+  if (Number(json.code) !== 1)
+    fail(json.msg || json.message || "Session HBI รูปท้ายรถหมดอายุ", "HBI_PHOTO_SESSION_EXPIRED", 502);
+  const rows = Array.isArray(json.data?.dataList) ? json.data.dataList : [];
+  const photos = [];
+  const seen = new Set();
+  for (const row of rows) {
+    if (normalizeProofId(row.proof_id) !== proofId) continue;
+    const raw = Array.isArray(row.route_out_pic) ? row.route_out_pic : row.route_out_pic ? [row.route_out_pic] : [];
+    for (const item of raw) {
+      const photo = normalizeHbiPhotoUrl(item);
+      if (photo && !seen.has(photo)) { seen.add(photo); photos.push(photo); }
+    }
+  }
+  return { proofId, photos, total: photos.length };
+}
+
 async function readBusTimeData(env, hub, wantedDays = liveSourceDays()) {
   const row = await env.DB.prepare(
     "SELECT credentials_cipher FROM ms_bus_connections WHERE hub=?",
@@ -1960,15 +2120,17 @@ async function listMsConnections(env) {
 }
 async function msConnectionStatus(env, actor, hub) {
   if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
-  const [routes, preEntry, busTime] = await Promise.all([
+  const [routes, preEntry, busTime, hbiPhotos] = await Promise.all([
     env.DB.prepare("SELECT updated_at,updated_by,last_success_at,last_error FROM ms_connections WHERE hub=?").bind(hub).first(),
     env.DB.prepare("SELECT updated_at,updated_by,last_success_at,last_error FROM ms_preentry_connections WHERE hub=?").bind(hub).first(),
     env.DB.prepare("SELECT updated_at,updated_by,last_success_at,last_error FROM ms_bus_connections WHERE hub=?").bind(hub).first(),
+    hbiConnectionStatus(env, hub),
   ]);
   const source = (row) => row
     ? { configured: true, ...output(row) }
     : { configured: false, updatedAt: "", updatedBy: "", lastSuccessAt: "", lastError: "" };
-  return { hub, routes: source(routes), preEntry: source(preEntry), busTime: source(busTime) };
+  const hbiSource = hbiPhotos ? { configured: true, ...output(hbiPhotos), lastSuccessAt: "", lastError: "" } : { configured: false, updatedAt: "", updatedBy: "", lastSuccessAt: "", lastError: "" };
+  return { hub, routes: source(routes), preEntry: source(preEntry), busTime: source(busTime), hbiPhotos: hbiSource };
 }
 async function knownMsBranches(env) {
   const rows = (

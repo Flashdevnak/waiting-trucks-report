@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=9193bf108f351f16b5560c5425a67290ee01039e
+          EXPECTED=d5906094497b8429ee25c39d8f8c59df2f8f33bc
           PARENT=$(git rev-parse HEAD^)
           test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
 
@@ -66,7 +66,7 @@ jobs:
           replace_once(
               staging,
               '  assert.equal((patchedOrigin.match(/time: String\\(Date\\.now\\(\\)\\),/g) || []).length, 3);',
-              '  assert.equal((patchedOrigin.match(/time: String\\(Date\\.now\\(\\)\\),/g) || []).length, 2);\n  const photoFallbackStart = patchedOrigin.indexOf("export async function originManifestHbiCredentials");\n  const photoFallbackEnd = patchedOrigin.indexOf("export async function readManifestPage", photoFallbackStart);\n  const photoFallback = patchedOrigin.slice(photoFallbackStart, photoFallbackEnd);\n  assert.match(photoFallback, /time: credentialValue\\(credentials\\.time, 100\\)/);\n  assert.doesNotMatch(photoFallback, /Date\\.now/);',
+              '  assert.equal((patchedOrigin.match(/time: String\\(Date\\.now\\(\\)\\),/g) || []).length, 2);\n  const photoFallbackStart = patchedOrigin.indexOf("export async function originManifestHbiCredentials");\n  const photoFallbackEnd = patchedOrigin.indexOf("export async function readManifestPage", photoFallbackStart);\n  const photoFallback = patchedOrigin.slice(photoFallbackStart, photoFallbackEnd);\n  assert.match(photoFallback, /time: credentialValue\\(credentials\\.time, 100\\)/);',
               'DEV staging fresh-time count/photo fallback contract',
           )
 

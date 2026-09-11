@@ -21,8 +21,8 @@ test("frontend keeps photo loading strictly click-only and single-shot", () => {
   assert.match(front, /HBI_TRUCK_PHOTO_LAZY_V1/);
   assert.match(front, /data-truck-photo=/);
   const desktopRow = front.slice(front.indexOf("function tableRow"), front.indexOf("function card"));
-  assert.match(desktopRow, /people-summary[\s\S]*truckPhotoButton\(row\)/);
-  assert.doesNotMatch(desktopRow, /attendance-cell[\s\S]{0,220}truckPhotoButton\(row\)/);
+  assert.match(desktopRow, /attendance-cell[\s\S]{0,220}truckPhotoButton\(row\)/);
+  assert.doesNotMatch(desktopRow, /people-summary[\s\S]*truckPhotoButton\(row\)/);
   assert.match(front, /apiGetOnce\("msTruckPhotos"/);
   assert.doesNotMatch(front, /apiGet\("msTruckPhotos"/);
   assert.match(front, /setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/);

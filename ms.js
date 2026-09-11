@@ -1893,10 +1893,10 @@ function tableRow(row) {
   return `<tr>
     <td><div class="route-summary"><div class="route-code"><strong>${esc(row.proofId || "-")}</strong><span>${esc(row.vehicleType || "-")}</span></div><div class="route-title">${esc(row.routeName || "-")}</div><div class="route-plate">ทะเบียน ${esc(row.plate || "-")}</div>${expectedParcelsBadge(row)}${localBarcodeButton(row)}</div></td>
     <td><div class="route-meta route-meta-grid"><span><b>ภูมิภาค</b><em class="meta-chip">${esc(row.region || "-")}</em></span><span><b>ลักษณะ</b><em class="meta-chip">${esc(row.routeAttribute || "-")}</em></span><span><b>เส้นทาง</b><em class="meta-chip">${esc(row.routeType || "-")}</em></span></div></td>
-    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>
+    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div>${truckPhotoButton(row)}</div></td>
     <td><div class="schedule-stack single">${scheduleHtml}${arrivalSources(row)}</div></td>
     <td><div class="work-summary">${operationHtml || `<div class="work-badge ${q.cancelled ? "cancelled" : q.expired ? "expired" : status.key}"><span class="status-dot"></span><strong>${esc(workStatus)}</strong></div><small class="queue-label">${esc(queueText)}</small>`}</div></td>
-    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${truckPhotoButton(row)}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
+    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>
   </tr>`;
 }
 

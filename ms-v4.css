@@ -236,17 +236,21 @@ html body.ms-page .route-meta span:nth-child(3) .meta-chip { color: #151515 !imp
     border-color: #e6bf00 !important;
     box-shadow: none !important;
   }
-  html body.ms-page .attendance-cell .type-badge.inbound::after { content: "เข้าปลายทาง"; }
-  html body.ms-page .attendance-cell .type-badge.outbound,
-  html body.ms-page .attendance-cell .type-badge.drop {
-    color: #202124 !important;
-    background: transparent !important;
-    border-color: transparent !important;
+  html body.ms-page .attendance-cell .type-badge.outbound {
+    color: #ffffff !important;
+    background: #34393d !important;
+    border-color: #3b4145 !important;
     box-shadow: none !important;
   }
+  html body.ms-page .attendance-cell .type-badge.drop {
+    color: #376f8d !important;
+    background: #edf5f9 !important;
+    border-color: #b8cfdb !important;
+    box-shadow: none !important;
+  }
+  html body.ms-page .attendance-cell .type-badge.inbound::after { content: "เข้าปลายทาง"; }
   html body.ms-page .attendance-cell .type-badge.outbound::after { content: "ออกต้นทาง"; }
   html body.ms-page .attendance-cell .type-badge.drop::after { content: "ผ่านจุดดรอป"; }
-  html body.ms-page .attendance-cell .row-muted { display: none !important; }
 }
 html body.ms-page .schedule-stack.single .schedule-heading { color: #ffffff !important; background: #202124 !important; border-bottom-color: #151515 !important; }
 html body.ms-page .timing-chip.ontime { color: #126b32 !important; background: #eef8f0 !important; border-color: #8cc59b !important; }

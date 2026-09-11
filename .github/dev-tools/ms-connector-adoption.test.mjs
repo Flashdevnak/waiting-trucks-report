@@ -48,8 +48,11 @@ test("same connector token is idempotent and adoption does not trigger an MS ref
 
 test("DEV deploy stages connector adoption before syntax validation", () => {
   assert.match(workflow, /ms-connector-adoption\.test\.mjs/);
-  assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
+  assert.match(workflow, /cp -R src \.dev-runtime\/src/);
+  assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js \.dev-runtime\/src\/index\.js/);
   assert.match(stage, /patchDevConnectorAdoption/);
   assert.match(stage, /output = patchDevConnectorAdoption\(output\)/);
+  assert.match(workflow, /node --check \.dev-runtime\/src\/index\.js/);
   assert.match(workflow, /node --check src\/index\.js/);
+  assert.doesNotMatch(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
 });

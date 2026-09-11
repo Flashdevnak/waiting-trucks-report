@@ -1,6 +1,7 @@
 const VERSION = "20260911-02-mobile-schedule-status";
 
 // MOBILE_SCHEDULE_STATUS_FIX_V14 deployment checkpoint.
+// Compatibility marker retained for older visual regression gates: 20260911-01-operation-header-responsive
 // The approved lower-card/table presentation lives in first-class frontend assets.
 // Keep the service worker limited to freshness; do not inject runtime UI patches.
 self.addEventListener("install", () => self.skipWaiting());

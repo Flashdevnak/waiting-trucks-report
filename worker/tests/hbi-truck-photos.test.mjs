@@ -35,3 +35,13 @@ test("worker keeps HBI out of live refresh and caps each cold click at one page"
   assert.equal((read.match(/await fetch\(/g) || []).length, 1);
   assert.doesNotMatch(read, /Promise\.all|for \(let page|page \+/);
 });
+
+test("HBI schema is migration-owned and never created from request runtime", () => {
+  const worker = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  const migration = fs.readFileSync(new URL("../migrations/0011_hbi_truck_photos.sql", import.meta.url), "utf8");
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS ms_hbi_connections/);
+  assert.match(migration, /hub TEXT PRIMARY KEY/);
+  assert.match(migration, /credentials_cipher TEXT NOT NULL/);
+  assert.doesNotMatch(worker, /CREATE TABLE IF NOT EXISTS ms_hbi_connections/);
+  assert.doesNotMatch(worker, /ensureHbiConnectionTable/);
+});

@@ -20,6 +20,9 @@ test("frontend keeps photo loading strictly click-only and single-shot", () => {
   const front = fs.readFileSync(new URL("../../ms.js", import.meta.url), "utf8");
   assert.match(front, /HBI_TRUCK_PHOTO_LAZY_V1/);
   assert.match(front, /data-truck-photo=/);
+  const desktopRow = front.slice(front.indexOf("function tableRow"), front.indexOf("function card"));
+  assert.match(desktopRow, /people-summary[\s\S]*truckPhotoButton\(row\)/);
+  assert.doesNotMatch(desktopRow, /attendance-cell[\s\S]{0,220}truckPhotoButton\(row\)/);
   assert.match(front, /apiGetOnce\("msTruckPhotos"/);
   assert.doesNotMatch(front, /apiGet\("msTruckPhotos"/);
   assert.match(front, /setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/);
@@ -29,6 +32,10 @@ test("worker keeps HBI out of live refresh and caps each cold click at one page"
   const worker = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(worker, /HBI_PHOTO_ON_DEMAND_V1/);
   assert.match(worker, /page_size: "20"/);
+  assert.match(worker, /HBI_PHOTO_MANIFEST_FALLBACK_V2/);
+  assert.match(worker, /originManifestHbiCredentials\(env, actor, hub\)/);
+  const clickPath = worker.slice(worker.indexOf("async function msTruckPhotos"), worker.indexOf("async function readHbiTruckPhotos"));
+  assert.doesNotMatch(clickPath, /INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM/i);
   const refresh = worker.slice(worker.indexOf("async function runMsRefresh"), worker.indexOf("async function readMsLiveCache"));
   assert.doesNotMatch(refresh, /Hbi|hbi|TruckPhotos/);
   const read = worker.slice(worker.indexOf("async function readHbiTruckPhotos"), worker.indexOf("async function readBusTimeData"));

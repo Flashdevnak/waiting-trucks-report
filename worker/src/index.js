@@ -1,3 +1,4 @@
+import { originManifestHbiCredentials } from "./origin-manifest-v1.js";
 import { canonicalMsSource, planMsChanges } from "./sync-policy.js";
 
 const SESSION_MS = 180 * 86400000;
@@ -1657,26 +1658,45 @@ async function msTruckPhotos(env, actor, hub, wantedProofId) {
   if (cached) hbiPhotoCache.delete(cacheKey);
   if (activeHbiPhotoReads.has(cacheKey)) return activeHbiPhotoReads.get(cacheKey);
   const task = (async () => {
+    // HBI_PHOTO_MANIFEST_FALLBACK_V2: prefer a dedicated HBI session when present,
+    // otherwise reuse the already-configured LH Manifest HBI session. This path
+    // is entered only after a user click; it adds no 4-second polling or writes.
     let route;
     try {
       route = await env.DB.prepare(
-        "SELECT r.proof_id,r.attendance_type,r.estimated_arrival_at,h.credentials_cipher FROM ms_routes r JOIN ms_hbi_connections h ON h.hub=r.hub WHERE r.hub=? AND r.proof_id=? ORDER BY r.synced_at DESC LIMIT 1",
+        "SELECT r.proof_id,r.attendance_type,r.estimated_arrival_at,h.credentials_cipher FROM ms_routes r LEFT JOIN ms_hbi_connections h ON h.hub=r.hub WHERE r.hub=? AND r.proof_id=? ORDER BY r.synced_at DESC LIMIT 1",
       ).bind(hub, proofId).first();
     } catch (error) {
-      if (isMissingTableError(error, "ms_hbi_connections"))
-        fail(`HUB ${hub} ยังไม่ได้อัปโหลด HAR รูปท้ายรถ`, "HBI_PHOTOS_NOT_CONFIGURED", 409);
-      throw error;
+      if (!isMissingTableError(error, "ms_hbi_connections")) throw error;
+      route = await env.DB.prepare(
+        "SELECT proof_id,attendance_type,estimated_arrival_at,NULL AS credentials_cipher FROM ms_routes WHERE hub=? AND proof_id=? ORDER BY synced_at DESC LIMIT 1",
+      ).bind(hub, proofId).first();
     }
-    if (!route?.credentials_cipher)
-      fail(`HUB ${hub} ยังไม่ได้อัปโหลด HAR รูปท้ายรถ หรือไม่พบเที่ยวรถนี้`, "HBI_PHOTOS_NOT_CONFIGURED", 409);
+    if (!route?.proof_id)
+      fail(`ไม่พบเที่ยวรถ ${proofId} ใน HUB ${hub}`, "HBI_PHOTOS_ROUTE_NOT_FOUND", 404);
     if (normalizeMsAttendance(route.attendance_type) !== "ปลายทาง")
       fail("รูปท้ายรถเปิดได้เฉพาะงานเข้าปลายทาง", "HBI_PHOTOS_DESTINATION_ONLY", 403);
-    let credentials;
-    try { credentials = JSON.parse(await decryptMs(route.credentials_cipher, env)); }
-    catch { fail("Session HBI รูปท้ายรถเสียหาย กรุณาอัปโหลด HAR ใหม่", "HBI_PHOTOS_CREDENTIAL_ERROR", 500); }
+
+    let credentials = null;
+    let credentialSource = "";
+    if (route.credentials_cipher) {
+      try {
+        credentials = JSON.parse(await decryptMs(route.credentials_cipher, env));
+        credentialSource = "HBI_HAR";
+      } catch (error) {
+        console.warn(JSON.stringify({ event: "hbi_photo_dedicated_session_error", hub, message: error?.message || String(error) }));
+      }
+    }
+    if (!credentials) {
+      credentials = await originManifestHbiCredentials(env, actor, hub);
+      if (credentials) credentialSource = "LH_MANIFEST";
+    }
+    if (!credentials)
+      fail(`HUB ${hub} ยังไม่มี Session HBI ที่ใช้ดูรูปท้ายรถ · เชื่อม LH Manifest หรืออัปโหลด HAR รูปท้ายรถ`, "HBI_PHOTOS_NOT_CONFIGURED", 409);
+
     const value = await readHbiTruckPhotos(credentials, proofId, route.estimated_arrival_at);
     rememberHbiPhoto(cacheKey, value);
-    return { ...value, upstreamCalls: 1, cache: "miss" };
+    return { ...value, upstreamCalls: 1, cache: "miss", credentialSource };
   })().finally(() => activeHbiPhotoReads.delete(cacheKey));
   activeHbiPhotoReads.set(cacheKey, task);
   return task;
@@ -1684,8 +1704,10 @@ async function msTruckPhotos(env, actor, hub, wantedProofId) {
 
 async function readHbiTruckPhotos(credentials, proofId, estimatedArrivalAt) {
   const url = new URL("https://hbi-common.flashexpress.com/api/fleet/loadInfoList");
-  for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"])
-    if (credentials?.[key] !== undefined) url.searchParams.set(key, credentials[key]);
+  for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"]) {
+    const value = key === "time" ? String(Date.now()) : credentials?.[key];
+    if (value !== undefined && value !== null) url.searchParams.set(key, value);
+  }
   const window = hbiPhotoDateWindow(estimatedArrivalAt);
   const filters = {
     page: "1", page_size: "20", total: "0", sorting_no: "", region: "", piece: "", category: "",

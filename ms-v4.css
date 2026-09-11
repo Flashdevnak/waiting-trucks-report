@@ -140,7 +140,7 @@
 .truck-photo-empty.is-error { color: #b3261e; }
 .truck-photo-note { display: block; padding: 0 18px 14px; color: #727874; text-align: center; }
 @media (min-width: 1025px) {
-  html body.ms-page .attendance-cell .truck-photo-toggle { width: 100%; margin-top: 2px; }
+  html body.ms-page .people-summary .truck-photo-toggle { width: 100%; margin-top: 2px; }
 }
 @media (max-width: 1024px) {
   html body.ms-page .compact-card-tags .compact-work-type .truck-photo-toggle { width: 100%; margin-top: 3px; border-color: rgba(255,255,255,.7); background: #ffffff; color: #202124; }

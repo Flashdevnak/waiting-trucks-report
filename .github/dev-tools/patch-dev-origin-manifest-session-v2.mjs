@@ -74,7 +74,8 @@ async function selfTest() {
   assert.ok(patchedOrigin.includes("extraMsPolling: 0"));
   assert.ok(patchedOrigin.includes("authorization: manifestRequestHeader(routeEntry, 'authorization') || params.get('auth') || ''"));
   assert.ok(patchedOrigin.includes("requestHeaders.Authorization = credentials.authorization"));
-  assert.equal((patchedOrigin.match(/time: String\(Date\.now\(\)\),/g) || []).length, 2);
+  assert.equal((patchedOrigin.match(/time: String\(Date\.now\(\)\),/g) || []).length, 3);
+  assert.ok(patchedOrigin.includes("HBI_PHOTO_MANIFEST_FALLBACK_V2"));
   assert.ok(!patchedOrigin.includes("time: credentials.time,"));
   assert.equal(patchOriginManifestSessionReplay(patchedOrigin), patchedOrigin);
 

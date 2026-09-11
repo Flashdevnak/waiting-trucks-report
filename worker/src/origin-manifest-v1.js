@@ -304,7 +304,7 @@ export async function originManifestHbiCredentials(env, actor, wantedHub) {
     auth: credentialValue(credentials.auth),
     lang: credentialValue(credentials.lang || "th", 20),
     fbid: credentialValue(credentials.fbid, 100),
-    time: String(Date.now()),
+    time: credentialValue(credentials.time, 100),
     webSign: credentialValue(credentials.webSign || "hbi", 50),
     _from: credentialValue(credentials._from, 100),
   };
@@ -599,7 +599,7 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     if (document.getElementById('origin-manifest-style-v1')) return;
     const style = document.createElement('style');
     style.id = 'origin-manifest-style-v1';
-    style.textContent = '.origin-manifest-badge{display:flex;flex-wrap:wrap;justify-content:center;gap:5px 10px;margin:8px auto 0;padding:6px 9px;width:max-content;max-width:100%;border:1px solid #c8d4da;border-radius:8px;background:#f5f8f9;color:#34444b;font-size:12px;line-height:1.25}.origin-manifest-badge span{white-space:nowrap}.origin-manifest-badge strong{color:#111;font-weight:800}.compact-card-head .origin-manifest-badge{margin-top:8px}@media(max-width:700px){.origin-manifest-badge{font-size:12px;width:100%;justify-content:space-between}}';
+    style.textContent = '.origin-manifest-badge{display:flex;flex-wrap:wrap;justify-content:center;gap:5px 10px;margin:8px auto 0;padding:6px 9px;width:max-content;max-width:100%;border:1px solid #c8d4da;border-radius:8px;background:#f5f8f9;color:#34444b;font-size:12px;line-height:1.25}.origin-manifest-badge span{white-space:nowrap}.origin-manifest-badge strong{color:#111;font-weight:800}.compact-card-head .origin-manifest-badge{margin-top:8px}@media(max-width:700px){.origin-manifest-badge{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);font-size:12px;width:100%;gap:8px;justify-content:stretch}.origin-manifest-badge span{display:flex;align-items:center;justify-content:center;min-width:0;gap:4px}}';
     document.head.appendChild(style);
   }
 

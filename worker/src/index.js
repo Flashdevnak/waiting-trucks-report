@@ -1705,7 +1705,7 @@ async function msTruckPhotos(env, actor, hub, wantedProofId) {
 async function readHbiTruckPhotos(credentials, proofId, estimatedArrivalAt) {
   const url = new URL("https://hbi-common.flashexpress.com/api/fleet/loadInfoList");
   for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"]) {
-    const value = key === "time" ? String(Date.now()) : credentials?.[key];
+    const value = credentials?.[key];
     if (value !== undefined && value !== null) url.searchParams.set(key, value);
   }
   const window = hbiPhotoDateWindow(estimatedArrivalAt);

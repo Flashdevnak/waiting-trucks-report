@@ -1585,12 +1585,6 @@ function isMissingTableError(error, table) {
   return new RegExp(`no such table:\\s*${table}`, "i").test(String(error?.message || error || ""));
 }
 
-async function ensureHbiConnectionTable(env) {
-  return env.DB.prepare(
-    "CREATE TABLE IF NOT EXISTS ms_hbi_connections(hub TEXT PRIMARY KEY,credentials_cipher TEXT NOT NULL,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL)",
-  ).run();
-}
-
 async function saveMsHbiConnection(body, actor, env) {
   const hub = text(body.hub, 80).toUpperCase();
   if (!hub || !access(hub, actor))
@@ -1600,7 +1594,6 @@ async function saveMsHbiConnection(body, actor, env) {
     credentials[key] = text(body.credentials?.[key], 2500);
   if (!credentials.auth || !credentials.fbid || !credentials.time || String(credentials.webSign).toLowerCase() !== "hbi")
     fail("ไฟล์ HAR ไม่มีข้อมูล Session HBI รูปท้ายรถที่ต้องใช้", "INVALID_HAR");
-  await ensureHbiConnectionTable(env);
   const now = new Date().toISOString();
   await env.DB.prepare(
     "INSERT INTO ms_hbi_connections(hub,credentials_cipher,updated_at,updated_by) VALUES(?,?,?,?) ON CONFLICT(hub) DO UPDATE SET credentials_cipher=excluded.credentials_cipher,updated_at=excluded.updated_at,updated_by=excluded.updated_by",

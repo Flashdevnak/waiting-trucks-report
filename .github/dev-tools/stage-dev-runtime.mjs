@@ -161,23 +161,23 @@ export function patchDevUiShellSource(source, currentPage) {
   }
 
   if (currentPage === "ms.html" && !output.includes("DEV_PROOF_HAR_CONNECTION_V9")) {
-    const proofHarAnchor = '<button class="btn btn-accent" type="button" data-har-save="busTime">ทดสอบและบันทึก</button>';
-    const statusAnchor = '<div data-source-status="busTime"><b>3. การจัดการตารางเวลา (KIT/TBR)</b><span>กำลังตรวจสอบ…</span></div>';
-    const linkAnchor = '<a class="btn btn-header setup-link" href="https://ms.flashexpress.com/#/store/busTimeManagement" target="_blank" rel="noopener">3. การจัดการตารางเวลา</a>';
-    if (!output.includes(proofHarAnchor) || !output.includes(statusAnchor) || !output.includes(linkAnchor)) throw new Error("DEV Proof HAR fourth-source anchors missing in ms.html");
-    output = output.replace('อัปโหลด HAR ทั้ง 3 แหล่ง', 'อัปโหลด HAR ทั้ง 4 แหล่ง');
-    output = output.replace('ให้เปิดและบันทึก HAR จากทั้ง 3 หน้าด้านล่าง', 'ให้เปิดและบันทึก HAR จากทั้ง 4 หน้าด้านล่าง');
+    const proofHarAnchor = '<button class="btn btn-accent" type="button" data-har-save="hbiPhotos">บันทึกเซสชันรูปท้ายรถ</button>';
+    const statusAnchor = '<div data-source-status="hbiPhotos"><b>4. รูปท้ายรถ (HBI)</b><span>กำลังตรวจสอบ…</span></div>';
+    const linkAnchor = '<a class="btn btn-header setup-link" href="https://hbi-v3.flashexpress.com/fleet-load-info" target="_blank" rel="noopener">4. รูปท้ายรถ (HBI)</a>';
+    if (!output.includes(proofHarAnchor) || !output.includes(statusAnchor) || !output.includes(linkAnchor)) throw new Error("DEV Proof HAR fifth-source anchors missing in ms.html");
+    output = output.replace('อัปโหลด HAR ทั้ง 4 แหล่ง', 'อัปโหลด HAR ทั้ง 5 แหล่ง');
+    output = output.replace('ให้เปิดและบันทึก HAR จากทั้ง 4 หน้าด้านล่าง', 'ให้เปิดและบันทึก HAR จากทั้ง 5 หน้าด้านล่าง');
     output = output.replace(
       statusAnchor,
-      `${statusAnchor}<div data-source-status="proof" data-dev-proof-har-status="DEV_PROOF_HAR_CONNECTION_V9"><b>4. ปริ้นบาร์โค้ดรถ</b><span>กำลังตรวจสอบ…</span></div>`,
+      `${statusAnchor}<div data-source-status="proof" data-dev-proof-har-status="DEV_PROOF_HAR_CONNECTION_V9"><b>5. ปริ้นบาร์โค้ดรถ</b><span>กำลังตรวจสอบ…</span></div>`,
     );
     output = output.replace(
       linkAnchor,
-      `${linkAnchor}<a class="btn btn-header setup-link" data-dev-proof-har-link="DEV_PROOF_HAR_CONNECTION_V9" href="https://ms.flashexpress.com/#/sendoutlets/storeLine" target="_blank" rel="noopener">4. ปริ้นบาร์โค้ดรถ</a>`,
+      `${linkAnchor}<a class="btn btn-header setup-link" data-dev-proof-har-link="DEV_PROOF_HAR_CONNECTION_V9" href="https://ms.flashexpress.com/#/sendoutlets/storeLine" target="_blank" rel="noopener">5. ปริ้นบาร์โค้ดรถ</a>`,
     );
     output = output.replace(
       proofHarAnchor,
-      `${proofHarAnchor}<label data-dev-proof-har="DEV_PROOF_HAR_CONNECTION_V9"><span>4. HAR ปริ้นบาร์โค้ดรถ</span><input id="ms-har-proof" type="file" accept=".har,application/json" /></label><button id="ms-har-proof-save" class="btn btn-accent" type="button">อัปไฟล์ปริ้นบาร์รถ</button><small class="dev-proof-har-note">อ่าน HAR ในเครื่องและส่งเฉพาะ Session ID / Device ID ที่จำเป็น ไม่เก็บไฟล์ HAR ทั้งไฟล์</small>`,
+      `${proofHarAnchor}<label data-dev-proof-har="DEV_PROOF_HAR_CONNECTION_V9"><span>5. HAR ปริ้นบาร์โค้ดรถ</span><input id="ms-har-proof" type="file" accept=".har,application/json" /></label><button id="ms-har-proof-save" class="btn btn-accent" type="button">อัปไฟล์ปริ้นบาร์รถ</button><small class="dev-proof-har-note">อ่าน HAR ในเครื่องและส่งเฉพาะ Session ID / Device ID ที่จำเป็น ไม่เก็บไฟล์ HAR ทั้งไฟล์</small>`,
     );
   }
   if (!output.includes("DEV_EXCLUSIVE_DROPDOWNS_V4")) {
@@ -298,13 +298,13 @@ export function frontendHasIntegratedDevRuntime(source) {
 export function patchDevProofHarConnectionFrontend(source) {
   let output = String(source || "");
   if (output.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V9")) return output;
-  const statusLoop = 'for (const key of ["routes", "preEntry", "busTime"]) {';
+  const statusLoop = 'for (const key of ["routes", "preEntry", "busTime", "hbiPhotos"]) {';
   const statusItem = 'const item = status[key];';
-  const resetInputs = '["ms-har-routes", "ms-har-preentry", "ms-har-bustime"]';
-  if (!output.includes(statusLoop) || !output.includes(statusItem) || !output.includes(resetInputs)) throw new Error("DEV Proof HAR frontend fourth-source anchors missing");
-  output = output.replace(statusLoop, 'for (const key of ["routes", "preEntry", "busTime", "proof"]) {');
+  const resetInputs = '["ms-har-routes", "ms-har-preentry", "ms-har-bustime", "ms-har-hbi-photos"]';
+  if (!output.includes(statusLoop) || !output.includes(statusItem) || !output.includes(resetInputs)) throw new Error("DEV Proof HAR frontend fifth-source anchors missing");
+  output = output.replace(statusLoop, 'for (const key of ["routes", "preEntry", "busTime", "hbiPhotos", "proof"]) {');
   output = output.replace(statusItem, 'const item = key === "proof" ? status.routes : status[key];');
-  output = output.replace(resetInputs, '["ms-har-routes", "ms-har-preentry", "ms-har-bustime", "ms-har-proof"]');
+  output = output.replace(resetInputs, '["ms-har-routes", "ms-har-preentry", "ms-har-bustime", "ms-har-hbi-photos", "ms-har-proof"]');
   const marker = `
 
 // DEV_PROOF_HAR_CONNECTION_FRONTEND_V9: Proof print HAR is parsed locally; only Session ID / Device ID are sent; Proof status mirrors shared MS Session.

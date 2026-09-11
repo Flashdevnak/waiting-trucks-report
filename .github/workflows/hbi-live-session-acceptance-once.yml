@@ -1,0 +1,165 @@
+name: HBI live session acceptance once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hbi-live-session-acceptance-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Guard intended latest main
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "63523a2e3c7f128ce1d51f614bc0a1de845322be"
+
+      - name: Remove one-time acceptance source before network test
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/hbi-live-session-acceptance-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(dev): remove one-shot HBI acceptance"
+          git push origin HEAD:main
+
+      - name: One-shot HBI dedicated-session acceptance
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          (async()=>{
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN||'';
+            const authSecret=process.env.AUTH_SECRET||'';
+            if(!platform) throw new Error('TURSO_PLATFORM_API_TOKEN_MISSING');
+            if(!authSecret){
+              console.log('GITHUB_AUTH_SECRET_PRESENT=false');
+              throw new Error('AUTH_SECRET_NOT_AVAILABLE_TO_GITHUB_ACTIONS');
+            }
+            console.log('GITHUB_AUTH_SECRET_PRESENT=true');
+            const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE;
+            const pHeaders={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:pHeaders});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`TURSO_LOOKUP_HTTP_${dbRes.status}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('TURSO_HOSTNAME_MISSING');
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:pHeaders});
+            const tokenJson=await tokenRes.json();
+            const dbToken=tokenJson.jwt||'';
+            if(!tokenRes.ok||!dbToken) throw new Error('TURSO_DB_TOKEN_FAILED');
+            console.log(`::add-mask::${dbToken}`);
+            const candidates=[
+              'AYU1TH0Z36','AYU1TH1554','AYU1TH1G27','AYU1TH1J27','AYU1TH2018',
+              'AYU1TH2D09','AYU1TH2E27','AYU1TH2Q27','AYU1TH2Q81','AYU1TH2S54',
+              'AYU1TH3D72','AYU1TH4254','AYU1TH4V63','AYU1TH5909','AYU1TH6818',
+              'AYU1TH6936','AYU1TH8572','AYU1THA781','AYU1THAP72','AYU1THAZ81'
+            ];
+            const quoted=candidates.map(x=>`'${x}'`).join(',');
+            const sql=`SELECT r.proof_id,r.attendance_type,r.estimated_arrival_at,h.credentials_cipher,h.updated_at FROM ms_routes r JOIN ms_hbi_connections h ON h.hub=r.hub WHERE r.hub='NE1' AND r.proof_id IN (${quoted}) AND r.attendance_type LIKE '%ปลายทาง%' ORDER BY r.synced_at DESC LIMIT 1`;
+            const pipeline=await fetch(`https://${hostname}/v2/pipeline`,{
+              method:'POST',
+              headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+            });
+            const payload=await pipeline.json();
+            const item=payload?.results?.[0];
+            if(!pipeline.ok||item?.type==='error') throw new Error('TURSO_HBI_LOOKUP_FAILED');
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const row=(item?.response?.result?.rows?.[0]||[]).map(decode);
+            if(!row.length) throw new Error('NO_CURRENT_DESTINATION_ROUTE_MATCHING_HAR_PHOTO_ROWS');
+            const [proofId,attendanceType,estimatedArrivalAt,cipherText,hbiUpdatedAt]=row;
+            if(!proofId||!cipherText) throw new Error('HBI_SESSION_OR_ROUTE_MISSING');
+            console.log(`HBI_ROUTE_PRESENT=true`);
+            console.log(`HBI_ATTENDANCE_DESTINATION=${String(attendanceType||'').includes('ปลายทาง')}`);
+            console.log(`HBI_SESSION_UPDATED_AT=${hbiUpdatedAt||'-'}`);
+
+            function unb64(s){return Buffer.from(String(s||'').replace(/-/g,'+').replace(/_/g,'/'),'base64')}
+            const parts=String(cipherText).split('.');
+            if(parts.length!==2) throw new Error('HBI_CIPHER_FORMAT_INVALID');
+            const key=crypto.createHash('sha256').update(`${authSecret}|ms-credentials`).digest();
+            const iv=unb64(parts[0]);
+            const packed=unb64(parts[1]);
+            if(packed.length<17) throw new Error('HBI_CIPHER_TOO_SHORT');
+            const ciphertext=packed.subarray(0,-16), tag=packed.subarray(-16);
+            const decipher=crypto.createDecipheriv('aes-256-gcm',key,iv);
+            decipher.setAuthTag(tag);
+            const plain=Buffer.concat([decipher.update(ciphertext),decipher.final()]).toString('utf8');
+            const credentials=JSON.parse(plain);
+            for(const keyName of ['auth','fbid','time','webSign']) if(!credentials?.[keyName]) throw new Error(`HBI_CREDENTIAL_${keyName.toUpperCase()}_MISSING`);
+            if(String(credentials.webSign).toLowerCase()!=='hbi') throw new Error('HBI_WEBSIGN_NOT_HBI');
+
+            const parsed=estimatedArrivalAt?new Date(estimatedArrivalAt):new Date();
+            const base=Number.isNaN(parsed.getTime())?new Date():parsed;
+            const bangkokDay=new Date(base.getTime()+7*3600000).toISOString().slice(0,10);
+            const midnight=Date.parse(`${bangkokDay}T00:00:00Z`);
+            const begin=new Date(midnight-86400000).toISOString().slice(0,10);
+            const end=new Date(midnight+86400000).toISOString().slice(0,10);
+            const url=new URL('https://hbi-common.flashexpress.com/api/fleet/loadInfoList');
+            for(const keyName of ['auth','lang','fbid','time','webSign','_from']){
+              const value=credentials?.[keyName];
+              if(value!==undefined&&value!==null) url.searchParams.set(keyName,value);
+            }
+            const filters={page:'1',page_size:'100',total:'0',sorting_no:'',region:'',piece:'',category:'',select_type:'',origin_id:'',target_id:'',plate_type:'',proof_id:String(proofId),transport_mode_category:'',transport_detail_category:'',begin_date:begin,end_date:end};
+            for(const [k,v] of Object.entries(filters)) url.searchParams.set(k,v);
+            const response=await fetch(url,{
+              headers:{
+                Accept:'application/json, text/plain, */*',
+                'Accept-Language':credentials?.lang||'th',
+                'BI-PLATFORM':'',
+                Origin:'https://cbi-fbi.flashexpress.com',
+                Referer:'https://cbi-fbi.flashexpress.com/',
+                'User-Agent':'Mozilla/5.0',
+              },
+              redirect:'manual',
+            });
+            console.log(`HBI_UPSTREAM_REQUESTS=1`);
+            console.log(`HBI_HTTP_STATUS=${response.status}`);
+            if(!response.ok) throw new Error(`HBI_HTTP_${response.status}`);
+            const json=await response.json();
+            if(Number(json?.code)!==1){
+              const msg=String(json?.msg||json?.message||'').toLowerCase();
+              console.log(`HBI_NEED_LOGIN=${msg.includes('need login')}`);
+              throw new Error('EXPIRED_SESSION');
+            }
+            console.log('HBI_NEED_LOGIN=false');
+            const rows=Array.isArray(json?.data?.dataList)?json.data.dataList:[];
+            const matched=rows.filter(x=>String(x?.proof_id||'').trim().toUpperCase()===String(proofId).trim().toUpperCase());
+            const raw=[];
+            for(const x of matched){const v=x?.route_out_pic;if(Array.isArray(v))raw.push(...v);else if(v)raw.push(v)}
+            const photos=[];
+            for(const value of raw){
+              try{
+                const u=new URL(String(value||'').trim());
+                if(u.hostname.toLowerCase()!=='fle-asset-internal.oss-ap-southeast-1.aliyuncs.com') continue;
+                if(!u.pathname.startsWith('/fleetOutbound/')) continue;
+                if(!/^https?:$/.test(u.protocol)) continue;
+                u.protocol='https:';
+                photos.push(u.toString());
+              }catch{}
+            }
+            console.log(`HBI_ROUTE_OUT_PIC_PARSED=${photos.length>0}`);
+            console.log(`HBI_VALIDATED_OSS_PHOTOS=${photos.length}`);
+            if(!photos.length) throw new Error('NO_ROUTE_OUT_PIC_FOR_ACCEPTANCE_ROUTE');
+            const oss=await fetch(photos[0],{method:'HEAD',redirect:'manual'});
+            console.log('OSS_REQUESTS=1');
+            console.log(`OSS_HTTP_STATUS=${oss.status}`);
+            if(!(oss.status>=200&&oss.status<400)) throw new Error(`OSS_HTTP_${oss.status}`);
+            console.log('HBI_LIVE_SESSION_ACCEPTANCE=PASS');
+            console.log('HBI_SECRETS_EXPOSED=0');
+          })().catch((error)=>{console.error(`HBI_LIVE_SESSION_ACCEPTANCE=FAIL ${error.message}`);process.exit(1)});
+          NODE

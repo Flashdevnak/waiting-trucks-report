@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=b8b6b28db0e31e59ee1229e5530cbd5c34786fe3
+          EXPECTED=f2d8e996a943a2852989298081af5681083c59f4
           PARENT=$(git rev-parse HEAD^)
           test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
 
@@ -35,51 +35,41 @@ jobs:
 
           worker = Path('worker/src/index.js')
           text = worker.read_text(encoding='utf-8')
+          start = text.index('async function readHbiTruckPhotos')
+          end = text.index('async function readBusTimeData', start)
+          read = text[start:end]
 
-          old_time = '''  for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"]) {
-            const value = key === "time" ? String(Date.now()) : credentials?.[key];
-            if (value !== undefined && value !== null) url.searchParams.set(key, value);
-          }'''
-          new_time = '''  for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"]) {
-            const value = credentials?.[key];
-            if (value !== undefined && value !== null) url.searchParams.set(key, value);
-          }'''
-          if text.count(old_time) != 1:
-            raise SystemExit(f'HBI time replay anchor expected 1, got {text.count(old_time)}')
-          text = text.replace(old_time, new_time, 1)
+          old_time = 'const value = key === "time" ? String(Date.now()) : credentials?.[key];'
+          new_time = 'const value = credentials?.[key];'
+          if read.count(old_time) != 1:
+            raise SystemExit(f'HBI time replay anchor expected 1, got {read.count(old_time)}')
+          read = read.replace(old_time, new_time, 1)
 
-          old_headers = '''  const response = await fetch(url, { headers: {
-            Accept: "application/json, text/plain, */*",
-            Origin: "https://cbi-fbi.flashexpress.com",
-            Referer: "https://cbi-fbi.flashexpress.com/",
-            "User-Agent": "Mozilla/5.0",
-          }});'''
-          new_headers = '''  const response = await fetch(url, { headers: {
-            Accept: "application/json, text/plain, */*",
-            "Accept-Language": credentials?.lang || "th",
-            "BI-PLATFORM": "",
-            Origin: "https://cbi-fbi.flashexpress.com",
-            Referer: "https://cbi-fbi.flashexpress.com/",
-            "User-Agent": "Mozilla/5.0",
-          }});'''
-          if text.count(old_headers) != 1:
-            raise SystemExit(f'HBI header replay anchor expected 1, got {text.count(old_headers)}')
-          text = text.replace(old_headers, new_headers, 1)
+          accept = '    Accept: "application/json, text/plain, */*",\n'
+          if read.count(accept) != 1:
+            raise SystemExit(f'HBI Accept header anchor expected 1, got {read.count(accept)}')
+          read = read.replace(
+            accept,
+            accept + '    "Accept-Language": credentials?.lang || "th",\n    "BI-PLATFORM": "",\n',
+            1,
+          )
+
+          text = text[:start] + read + text[end:]
           worker.write_text(text, encoding='utf-8')
 
           test_file = Path('worker/tests/hbi-truck-photos.test.mjs')
           test_text = test_file.read_text(encoding='utf-8')
-          anchor = '''  assert.equal((read.match(/await fetch\\(/g) || []).length, 1);
-          assert.doesNotMatch(read, /Promise\\.all|for \\(let page|page \\+/);'''
-          replacement = '''  assert.equal((read.match(/await fetch\\(/g) || []).length, 1);
-          assert.doesNotMatch(read, /Promise\\.all|for \\(let page|page \\+/);
-          assert.match(read, /const value = credentials\\?\\.\\[key\\];/);
-          assert.doesNotMatch(read, /key === "time" \\? String\\(Date\\.now\\(\\)\\)/);
-          assert.match(read, /"BI-PLATFORM": ""/);
-          assert.match(read, /"Accept-Language": credentials\\?\\.lang \\|\\| "th"/);'''
-          if test_text.count(anchor) != 1:
-            raise SystemExit(f'HBI test anchor expected 1, got {test_text.count(anchor)}')
-          test_text = test_text.replace(anchor, replacement, 1)
+          needle = '  assert.equal((read.match(/await fetch\\(/g) || []).length, 1);\n'
+          if test_text.count(needle) != 1:
+            raise SystemExit(f'HBI regression test anchor expected 1, got {test_text.count(needle)}')
+          addition = (
+            needle
+            + '  assert.match(read, /const value = credentials\\?\\.\\[key\\];/);\n'
+            + '  assert.doesNotMatch(read, /key === "time" \\? String\\(Date\\.now\\(\\)\\)/);\n'
+            + '  assert.match(read, /"BI-PLATFORM": ""/);\n'
+            + '  assert.match(read, /"Accept-Language": credentials\\?\\.lang \\|\\| "th"/);\n'
+          )
+          test_text = test_text.replace(needle, addition, 1)
           test_file.write_text(test_text, encoding='utf-8')
           PY
 

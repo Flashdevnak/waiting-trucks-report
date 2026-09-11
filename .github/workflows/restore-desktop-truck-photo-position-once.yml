@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=190d61f2b64676a30625787a4cc530ea7f8e9807
+          EXPECTED=f93ca68b19acb889e388b2e6caa501cf3205abd2
           PARENT=$(git rev-parse HEAD^)
           test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
 
@@ -53,6 +53,14 @@ jobs:
           # Mobile compact card intentionally stays unchanged: its button remains
           # inside .compact-work-type, so this patch only restores desktop placement.
           path.write_text(text, encoding='utf-8')
+
+          test_path = Path('worker/tests/hbi-truck-photos.test.mjs')
+          test_text = test_path.read_text(encoding='utf-8')
+          old_test = '''  assert.match(desktopRow, /people-summary[\\s\\S]*truckPhotoButton\\(row\\)/);\n  assert.doesNotMatch(desktopRow, /attendance-cell[\\s\\S]{0,220}truckPhotoButton\\(row\\)/);'''
+          new_test = '''  assert.match(desktopRow, /attendance-cell[\\s\\S]{0,220}truckPhotoButton\\(row\\)/);\n  assert.doesNotMatch(desktopRow, /people-summary[\\s\\S]*truckPhotoButton\\(row\\)/);'''
+          if test_text.count(old_test) != 1:
+              raise SystemExit('desktop photo placement test: expected 1 anchor')
+          test_path.write_text(test_text.replace(old_test, new_test, 1), encoding='utf-8')
           PY
 
           node --check ms.js
@@ -69,7 +77,7 @@ jobs:
           git config user.name Flashdevnak
           git config user.email 26nak.testdev@gmail.com
           git rm .github/workflows/restore-desktop-truck-photo-position-once.yml
-          git add ms.js
+          git add ms.js worker/tests/hbi-truck-photos.test.mjs
           git diff --cached --check
           git commit -m "fix(ms): restore truck photo button to destination cell"
           git push origin HEAD:main

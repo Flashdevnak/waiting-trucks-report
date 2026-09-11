@@ -38,8 +38,11 @@ jobs:
           )
           cp /tmp/realtime-rebuild/worker/src/index.js worker/src/index.js
           git worktree remove --force /tmp/realtime-rebuild
-          grep -q 'MS_REALTIME_WS_V1' worker/src/index.js
           grep -q 'HUB_SETTINGS_CACHE_V1' worker/src/index.js
+          if grep -q 'MS_REALTIME_WS_V1' worker/src/index.js; then
+            echo 'canonical worker contains staged realtime transport mutation' >&2
+            exit 1
+          fi
           if grep -q 'DEV_ROOT_ENTRY_V1' worker/src/index.js; then
             echo 'canonical worker contains staged DEV root mutation' >&2
             exit 1
@@ -92,6 +95,11 @@ jobs:
           grep -q 'MS_REALTIME_WS_V1' worker/.dev-assets/ms.js
           grep -q 'MS_REALTIME_WS_V1' worker/.dev-assets/index.js
           grep -q 'HUB_SETTINGS_CACHE_V1' worker/.dev-assets/index.js
+          grep -q 'HUB_SETTINGS_CACHE_V1' worker/src/index.js
+          if grep -q 'MS_REALTIME_WS_V1' worker/src/index.js; then
+            echo 'staging leaked realtime transport into canonical worker' >&2
+            exit 1
+          fi
           if grep -q 'DEV_ROOT_ENTRY_V1' worker/src/index.js; then
             echo 'staging mutated canonical worker' >&2
             exit 1
@@ -109,7 +117,7 @@ jobs:
             echo 'No authoritative source correction required' >&2
             exit 1
           fi
-          git commit -m 'fix(dev): keep realtime hardening in authoritative worker source'
+          git commit -m 'fix(dev): keep staged realtime transport out of canonical worker'
           git push origin HEAD:main
           echo "SOURCE_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 

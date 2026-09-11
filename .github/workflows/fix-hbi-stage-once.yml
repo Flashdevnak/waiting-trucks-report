@@ -21,26 +21,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=1f9ae4968bed0fad021342fda4c0a2c1c7d7123d
+          EXPECTED=c8fe233e092b0ef9e719b136a20f6ebb1849512d
           PARENT=$(git rev-parse HEAD^)
           test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
-      - name: Apply and test staging fix
+      - name: Apply and test final HBI cleanup
         shell: bash
         run: |
           set -euo pipefail
           python3 .tmp-fix-hbi-stage.py
           node --check .github/dev-tools/stage-dev-runtime.mjs
-          cd worker
-          node --test tests/dev-archive-patch.test.mjs
-          cd ..
+          node --check worker/src/index.js
+          node --test worker/tests/hbi-truck-photos.test.mjs worker/tests/dev-archive-patch.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          grep -q 'CREATE TABLE IF NOT EXISTS ms_hbi_connections' worker/migrations/0011_hbi_truck_photos.sql
           git diff --check
-      - name: Commit clean staging fix
+      - name: Commit clean final source
         shell: bash
         run: |
           set -euo pipefail
           git config user.name Flashdevnak
           git config user.email 26nak.testdev@gmail.com
           git rm .github/workflows/fix-hbi-stage-once.yml .tmp-fix-hbi-stage.py
-          git add .github/dev-tools/stage-dev-runtime.mjs
-          git commit -m "fix(dev): stage Proof HAR after HBI source"
+          git add .github/dev-tools/stage-dev-runtime.mjs worker/src/index.js
+          git commit -m "fix(dev): finalize HBI staging without runtime DDL"
           git push origin HEAD:main

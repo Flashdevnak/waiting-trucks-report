@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CUTOVER_VERSION: 20260904-01
-      SW_PATCH_VERSION: 20260909-06-classic-arrival-truth
+      SW_PATCH_VERSION: 20260911-02-mobile-schedule-status
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

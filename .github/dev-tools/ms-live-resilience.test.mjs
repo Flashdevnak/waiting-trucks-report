@@ -38,6 +38,17 @@ test("live resilience keeps existing realtime invariants", () => {
   assert.ok(source.includes("const preserveObservedCompletion ="));
 });
 
+test("DEV freshness uses explicit source status plus transport receipt, never source age as session health", () => {
+  const staged = stageFrontend(source);
+  assert.ok(staged.includes("MS_FRESHNESS_TRUTH_V1"));
+  assert.ok(staged.includes('status === "synced"'));
+  assert.ok(staged.includes("state.transportLastOkAt"));
+  assert.ok(staged.includes("MS เรียลไทม์ · ตรวจสอบล่าสุด"));
+  assert.ok(staged.includes("ใช้ข้อมูลล่าสุดชั่วคราว ระบบกำลังลองใหม่"));
+  assert.ok(!staged.includes("เซสชันยังไม่อัปเดต"));
+  assert.match(staged, /pollMs:\s*4000/);
+});
+
 test("DEV-only frontend staging is complete, idempotent, and stays out of canonical public source", () => {
   const first = stageFrontend(source);
   const second = stageFrontend(first);
@@ -51,6 +62,7 @@ test("DEV-only frontend staging is complete, idempotent, and stays out of canoni
   assert.ok(first.includes("DEV_PROOF_HAR_CONNECTION_FRONTEND_V9"));
 
   assert.ok(first.includes("LIVE_RESILIENCE_V1"));
+  assert.ok(first.includes("MS_FRESHNESS_TRUTH_V1"));
   assert.ok(first.includes(`CONFIG.apiUrl = "${promotedApi}"`));
   assert.match(first, /pollMs:\s*4000/);
   assert.ok(first.includes("DEV: archive stays lazy"));

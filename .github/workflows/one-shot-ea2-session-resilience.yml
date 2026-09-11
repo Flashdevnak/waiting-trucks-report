@@ -1,0 +1,278 @@
+name: One-shot EA2 Session Resilience
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-ea2-session-resilience.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Patch authoritative source
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          # 1) Frontend: freshness must describe data/transport truth, never infer
+          # session expiry from age alone. Session/config state comes from msStatus/syncError.
+          p = Path('ms.js')
+          s = p.read_text()
+          old = '''function renderFreshness() {
+            const synced = parseDate(state.lastSync);
+            const stale = !synced || Date.now() - synced.getTime() > CONFIG.staleMs;
+            el("live-dot").classList.toggle("stale", stale);
+            el("source-sync").textContent = state.syncError
+              ? `MS: ${state.syncError}`
+              : synced
+                ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น.${stale ? " · เซสชันยังไม่อัปเดต" : ""}`
+                : "ยังไม่มีข้อมูลจาก MS";
+          }
+          '''
+          new = '''function renderFreshness() {
+            const synced = parseDate(state.lastSync);
+            const ageMs = synced ? Math.max(0, Date.now() - synced.getTime()) : Infinity;
+            const stale = !synced || ageMs > CONFIG.staleMs;
+            const hardOffline = state.msStatus === "error" || state.msStatus === "not_configured";
+            const degraded = state.msStatus === "degraded";
+            el("live-dot").classList.toggle("stale", stale || hardOffline || degraded);
+            if (state.syncError) {
+              el("source-sync").textContent = synced
+                ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ${state.syncError}`
+                : `MS: ${state.syncError}`;
+              return;
+            }
+            if (!synced) {
+              el("source-sync").textContent = "ยังไม่มีข้อมูลจาก MS";
+              return;
+            }
+            if (degraded || hardOffline) {
+              el("source-sync").textContent =
+                `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ใช้ข้อมูลล่าสุดและกำลังเชื่อมต่อใหม่`;
+              return;
+            }
+            el("source-sync").textContent = stale
+              ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · กำลังตรวจข้อมูลใหม่`
+              : `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น.`;
+          }
+          '''
+          if old not in s:
+              raise SystemExit('renderFreshness authoritative block not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # 2) Worker: on a HUB-specific missing/expired MS session, preserve the last
+          # accepted snapshot instead of dropping to not_configured/error while data exists.
+          # This only performs fallback reads on failure, so normal 4-second realtime quota
+          # behavior is unchanged.
+          p = Path('worker/src/index.js')
+          s = p.read_text()
+          anchor = '''async function runMsRefresh(env, branch) {
+            const credentials = await msCredentials(env, branch);
+            if (!credentials)
+              return {
+                status: "not_configured",
+                error: `HUB ${branch} ยังไม่ได้อัปเดตเซสชัน MS`,
+              };
+          '''
+          replacement = '''async function lastAcceptedMsFallback(env, branch, message, emptyStatus = "error") {
+            let rows = [];
+            let syncedAt = "";
+            try {
+              const cached = await env.DB.prepare(
+                "SELECT rows_json,synced_at FROM ms_live_cache WHERE hub=?",
+              ).bind(branch).first();
+              if (cached?.rows_json) {
+                const parsed = JSON.parse(cached.rows_json || "[]");
+                rows = Array.isArray(parsed)
+                  ? parsed
+                  : Array.isArray(parsed?.rows)
+                    ? parsed.rows
+                    : [];
+                syncedAt = cached.synced_at || "";
+              }
+            } catch (error) {
+              console.error(JSON.stringify({ event: "ms_fallback_cache_error", branch, message: error.message }));
+            }
+            if (!rows.length) {
+              try {
+                rows = (
+                  await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
+                    .bind(branch)
+                    .all()
+                ).results.map(output);
+              } catch (error) {
+                console.error(JSON.stringify({ event: "ms_fallback_routes_error", branch, message: error.message }));
+              }
+            }
+            if (!syncedAt) {
+              try {
+                const latest = await env.DB.prepare(
+                  "SELECT MAX(timestamp) AS synced_at FROM audit_log WHERE action='SYNC_MS_ROUTES' AND record_id=?",
+                ).bind(branch).first();
+                syncedAt = latest?.synced_at || "";
+              } catch (error) {
+                console.error(JSON.stringify({ event: "ms_fallback_sync_time_error", branch, message: error.message }));
+              }
+            }
+            if (rows.length || syncedAt)
+              return {
+                status: "degraded",
+                error: message || "MS ยังไม่พร้อมใช้งานชั่วคราว",
+                syncedAt,
+                rows,
+                fallback: true,
+              };
+            return {
+              status: emptyStatus,
+              error: message || "เชื่อมต่อ MS ไม่สำเร็จ",
+            };
+          }
+
+          async function runMsRefresh(env, branch) {
+            const credentials = await msCredentials(env, branch);
+            if (!credentials)
+              return lastAcceptedMsFallback(
+                env,
+                branch,
+                `HUB ${branch} ยังไม่ได้อัปเดตเซสชัน MS`,
+                "not_configured",
+              );
+          '''
+          if anchor not in s:
+              raise SystemExit('runMsRefresh credential block not found')
+          s = s.replace(anchor, replacement, 1)
+
+          oldcatch = '''    const result = {
+              status: "error",
+              error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",
+            };
+            recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+            return result;
+          }
+          '''
+          newcatch = '''    const result = await lastAcceptedMsFallback(
+              env,
+              branch,
+              error.message || "เชื่อมต่อ MS ไม่สำเร็จ",
+              "error",
+            );
+            recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+            return result;
+          }
+          '''
+          if oldcatch not in s:
+              raise SystemExit('runMsRefresh catch result block not found')
+          s = s.replace(oldcatch, newcatch, 1)
+          p.write_text(s)
+          PY
+
+      - name: Add focused regression
+        run: |
+          cat > worker/tests/ms-session-resilience.test.mjs <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+
+          const ui = fs.readFileSync(new URL('../../ms.js', import.meta.url), 'utf8');
+          const worker = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+
+          test('freshness never infers session state from timestamp age', () => {
+            const block = ui.slice(ui.indexOf('function renderFreshness()'), ui.indexOf('function connection('));
+            assert.ok(block.includes('กำลังตรวจข้อมูลใหม่'));
+            assert.ok(block.includes('ใช้ข้อมูลล่าสุดและกำลังเชื่อมต่อใหม่'));
+            assert.equal(block.includes('เซสชันยังไม่อัปเดต'), false);
+            assert.ok(block.includes('state.msStatus === "degraded"'));
+          });
+
+          test('HUB-specific session failure preserves last accepted snapshot', () => {
+            assert.ok(worker.includes('async function lastAcceptedMsFallback'));
+            assert.ok(worker.includes('SELECT rows_json,synced_at FROM ms_live_cache WHERE hub=?'));
+            assert.ok(worker.includes('status: "degraded"'));
+            assert.ok(worker.includes('fallback: true'));
+            assert.ok(worker.includes('return lastAcceptedMsFallback('));
+          });
+
+          test('normal realtime cadence is unchanged', () => {
+            assert.ok(ui.includes('pollMs: 4000'));
+            assert.ok(ui.includes('setInterval(realtimeTick, CONFIG.pollMs)'));
+          });
+          EOF
+
+      - name: Install dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Regression gates
+        run: |
+          node --check ms.js
+          node --check worker/src/index.js
+          node --test worker/tests/ms-session-resilience.test.mjs
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+          node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test worker/tests/hbi-truck-photos.test.mjs
+          (cd worker && npm run check)
+          git diff --check
+
+      - name: Commit source and remove one-shot workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/one-shot-ea2-session-resilience.yml
+          git add ms.js worker/src/index.js worker/tests/ms-session-resilience.test.mjs
+          git diff --cached --check
+          git commit -m 'fix(dev): preserve realtime data across HUB session gaps'
+          git push origin HEAD:main
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Deploy DEV and wait
+        run: |
+          gh workflow run deploy-worker-dev.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 60); do
+            RUN_ID=$(gh run list --workflow deploy-worker-dev.yml --branch main --limit 20 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "DEV_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Live acceptance
+        run: |
+          gh workflow run current-system-acceptance.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 60); do
+            RUN_ID=$(gh run list --workflow current-system-acceptance.yml --branch main --limit 20 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "ACCEPT_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Final checkpoint
+        run: |
+          echo "SOURCE_HEAD=$SOURCE_HEAD"
+          echo "DEV_RUN_ID=$DEV_RUN_ID"
+          echo "ACCEPT_RUN_ID=$ACCEPT_RUN_ID"
+          echo "REALTIME_CADENCE=4000ms"
+          echo "PRODUCTION_TOUCHED=NO"

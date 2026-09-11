@@ -44,6 +44,7 @@ jobs:
           node --check worker/src/proof-control.js
           node --check worker/src/turso-index.js
           node --check .github/dev-tools/patch-ms-durable-coordinator.mjs
+          node --check .github/dev-tools/patch-ms-completed-view-stability.mjs
           node --check .github/dev-tools/stage-dev-runtime.mjs
 
       - name: Quota hardening regression
@@ -88,7 +89,7 @@ jobs:
           git rm .github/workflows/apply-realtime-quota-hardening.yml .tmp/realtime_quota_hardening.py .tmp/fix_realtime_quota_transform.py .tmp/fix_stage_root_anchor.py .tmp/fix_hbi_realtime_test.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ms.js worker/src/index.js worker/src/proof-control.js worker/src/turso-index.js .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/realtime-quota-hardening.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/current-system-acceptance.yml worker/tests/hbi-truck-photos.test.mjs worker/tests/frontend-requirements.test.mjs
+          git add ms.js worker/src/index.js worker/src/proof-control.js worker/src/turso-index.js .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/patch-ms-completed-view-stability.mjs .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/realtime-quota-hardening.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/current-system-acceptance.yml worker/tests/hbi-truck-photos.test.mjs worker/tests/frontend-requirements.test.mjs
           git diff --cached --check
           git commit -m 'perf(dev): harden realtime quota without reducing cadence'
           git push origin HEAD:main

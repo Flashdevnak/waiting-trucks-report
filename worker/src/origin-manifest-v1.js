@@ -584,7 +584,58 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     if (document.getElementById('origin-manifest-style-v1')) return;
     const style = document.createElement('style');
     style.id = 'origin-manifest-style-v1';
-    style.textContent = '.origin-manifest-badge{display:flex;flex-wrap:wrap;justify-content:center;gap:5px 10px;margin:8px auto 0;padding:6px 9px;width:max-content;max-width:100%;border:1px solid #c8d4da;border-radius:8px;background:#f5f8f9;color:#34444b;font-size:12px;line-height:1.25}.origin-manifest-badge span{white-space:nowrap}.origin-manifest-badge strong{color:#111;font-weight:800}.compact-card-head .origin-manifest-badge{margin-top:8px}@media(max-width:700px){.origin-manifest-badge{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);font-size:12px;width:100%;gap:8px;justify-content:stretch}.origin-manifest-badge span{display:flex;align-items:center;justify-content:center;min-width:0;gap:4px}}';
+    style.textContent = `
+.origin-manifest-badge {
+  width: min(100%, 390px);
+  max-width: 100%;
+  margin: 8px auto 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #62676d;
+  font-size: 12px;
+  line-height: 1.25;
+}
+.origin-manifest-badge > span {
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: normal;
+  text-align: center;
+  border: 1px solid #c8cac6;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #62676d;
+}
+.origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400; }
+.origin-manifest-badge > span:last-child { border-top: 3px solid #252525; }
+.origin-manifest-badge strong { color: #151515; font-weight: 900; }
+.compact-card-head .origin-manifest-badge { margin-top: 8px; }
+@media (max-width: 700px) {
+  .origin-manifest-badge {
+    width: 100%;
+    max-width: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    justify-self: stretch;
+  }
+  .origin-manifest-badge > span {
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 6px;
+    white-space: nowrap;
+  }
+  .origin-manifest-badge > span strong { white-space: nowrap; }
+}
+`;
     document.head.appendChild(style);
   }
 

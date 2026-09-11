@@ -1698,9 +1698,10 @@ async function msTruckPhotos(env, actor, hub, wantedProofId) {
 async function readHbiTruckPhotos(credentials, proofId, estimatedArrivalAt) {
   const url = new URL("https://hbi-common.flashexpress.com/api/fleet/loadInfoList");
   for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"]) {
-    // The successful Fleet Load Info HAR shows `time` as the request timestamp;
-    // keep the dedicated auth/fbid/webSign but generate a fresh request time per click.
-    const value = key === "time" ? String(Date.now()) : credentials?.[key];
+    // Replay the dedicated Fleet Load Info HAR session tuple exactly. HBI's page
+    // keeps auth/fbid/time/webSign stable for the session; synthesizing a new `time`
+    // breaks that signed session and returns `need login`.
+    const value = credentials?.[key];
     if (value !== undefined && value !== null) url.searchParams.set(key, value);
   }
   const window = hbiPhotoDateWindow(estimatedArrivalAt);

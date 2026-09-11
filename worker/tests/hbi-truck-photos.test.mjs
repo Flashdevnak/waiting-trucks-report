@@ -40,7 +40,8 @@ test("worker keeps HBI out of live refresh and caps each cold click at one page"
   assert.doesNotMatch(refresh, /Hbi|hbi|TruckPhotos/);
   const read = worker.slice(worker.indexOf("async function readHbiTruckPhotos"), worker.indexOf("async function readBusTimeData"));
   assert.equal((read.match(/await fetch\(/g) || []).length, 1);
-  assert.match(read, /key === "time" \? String\(Date\.now\(\)\) : credentials\?\.\[key\]/);
+  assert.match(read, /const value = credentials\?\.\[key\];/);
+  assert.doesNotMatch(read, /key === "time" \? String\(Date\.now\(\)\)/);
   assert.match(read, /"BI-PLATFORM": ""/);
   assert.match(read, /"Accept-Language": credentials\?\.lang \|\| "th"/);
   assert.doesNotMatch(read, /Promise\.all|for \(let page|page \+/);
@@ -49,11 +50,11 @@ test("worker keeps HBI out of live refresh and caps each cold click at one page"
 
 test("mobile origin manifest keeps shipped parcels and weight on the same row", () => {
   const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");
-  const manifestStart = html.indexOf("/* Origin LH Manifest only");
-  const manifestEnd = html.indexOf("</style>", manifestStart);
-  const manifestCss = html.slice(manifestStart, manifestEnd);
-  assert.match(manifestCss, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important/);
-  assert.doesNotMatch(manifestCss, /origin-manifest-badge \{ grid-template-columns: 1fr !important; \}/);
+  const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
+  assert.doesNotMatch(html, /\.ms-page \.origin-manifest-badge/);
+  assert.match(manifest, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(manifest, /@media \(max-width: 700px\)[\s\S]*?width: 100%;[\s\S]*?max-width: none;/);
+  assert.match(manifest, /@media \(max-width: 700px\)[\s\S]*?white-space: nowrap;/);
 });
 
 test("LH Manifest never marks HBI photos ready and worker never falls back to its session", () => {

@@ -44,17 +44,25 @@ test("worker keeps HBI out of live refresh and caps each cold click at one page"
   assert.doesNotMatch(read, /key === "time" \? String\(Date\.now\(\)\)/);
   assert.match(read, /"BI-PLATFORM": ""/);
   assert.match(read, /"Accept-Language": credentials\?\.lang \|\| "th"/);
+  assert.match(read, /Authorization: credentials\?\.auth \|\| ""/);
+  assert.equal((worker.match(/async function readHbiTruckPhotos/g) || []).length, 1);
+  assert.equal((worker.match(/async function msTruckPhotos/g) || []).length, 1);
   assert.doesNotMatch(read, /Promise\.all|for \(let page|page \+/);
 });
 
 
-test("mobile origin manifest keeps shipped parcels and weight on the same row", () => {
+test("mobile origin manifest keeps shipped parcels and weight on one full-width 50/50 row", () => {
   const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");
+  const baseStyle = fs.readFileSync(new URL("../../style.css", import.meta.url), "utf8");
+  const msStyle = fs.readFileSync(new URL("../../ms-v4.css", import.meta.url), "utf8");
   const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
   assert.doesNotMatch(html, /\.ms-page \.origin-manifest-badge/);
-  assert.match(manifest, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
-  assert.match(manifest, /@media \(max-width: 700px\)[\s\S]*?width: 100%;[\s\S]*?max-width: none;/);
-  assert.match(manifest, /@media \(max-width: 700px\)[\s\S]*?white-space: nowrap;/);
+  assert.doesNotMatch(baseStyle, /origin-manifest-badge/);
+  assert.doesNotMatch(manifest, /origin-manifest-style-v1|function installStyle\(\)|\.origin-manifest-badge \{/);
+  assert.match(msStyle, /ORIGIN_MANIFEST_BADGE_V2/);
+  assert.match(msStyle, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(msStyle, /@media \(max-width: 700px\)[\s\S]*?compact-card-head \.origin-manifest-badge[\s\S]*?grid-column: 1 \/ -1;[\s\S]*?width: 100%;[\s\S]*?max-width: none;/);
+  assert.match(msStyle, /@media \(max-width: 700px\)[\s\S]*?white-space: nowrap;/);
 });
 
 test("LH Manifest never marks HBI photos ready and worker never falls back to its session", () => {

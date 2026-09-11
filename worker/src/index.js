@@ -1715,6 +1715,9 @@ async function readHbiTruckPhotos(credentials, proofId, estimatedArrivalAt) {
     Accept: "application/json, text/plain, */*",
     "Accept-Language": credentials?.lang || "th",
     "BI-PLATFORM": "",
+    // HBI_WUJIE_AUTH_HEADER_V1: CBI sends authorization=<location auth>.
+    // HAR exports may redact this GET header even though its preflight exposes it.
+    Authorization: credentials?.auth || "",
     Origin: "https://cbi-fbi.flashexpress.com",
     Referer: "https://cbi-fbi.flashexpress.com/",
     "User-Agent": "Mozilla/5.0",

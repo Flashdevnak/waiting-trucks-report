@@ -580,14 +580,6 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     return '<div class="origin-manifest-badge" title="LH Manifest · อัปเดตทุก 5 นาที"><span>พัสดุออกจริง <strong>' + esc(parcelText) + '</strong></span><span>น้ำหนัก <strong>' + esc(weightText) + '</strong></span></div>';
   }
 
-  function installStyle() {
-    if (document.getElementById('origin-manifest-style-v1')) return;
-    const style = document.createElement('style');
-    style.id = 'origin-manifest-style-v1';
-    style.textContent = "\n.origin-manifest-badge {\n  width: min(100%, 390px);\n  max-width: 100%;\n  margin: 8px auto 0;\n  padding: 0;\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 7px;\n  border: 0;\n  border-radius: 0;\n  background: transparent;\n  color: #62676d;\n  font-size: 12px;\n  line-height: 1.25;\n}\n.origin-manifest-badge > span {\n  min-width: 0;\n  min-height: 36px;\n  padding: 7px 10px;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: 5px;\n  white-space: normal;\n  text-align: center;\n  border: 1px solid #c8cac6;\n  border-radius: 7px;\n  background: #ffffff;\n  color: #62676d;\n}\n.origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400; }\n.origin-manifest-badge > span:last-child { border-top: 3px solid #252525; }\n.origin-manifest-badge strong { color: #151515; font-weight: 900; }\n.compact-card-head .origin-manifest-badge { margin-top: 8px; }\n@media (max-width: 700px) {\n  .origin-manifest-badge {\n    width: 100%;\n    max-width: none;\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n    gap: 8px;\n    justify-self: stretch;\n  }\n  .origin-manifest-badge > span {\n    flex-direction: column;\n    gap: 2px;\n    padding: 7px 6px;\n    white-space: nowrap;\n  }\n  .origin-manifest-badge > span strong { white-space: nowrap; }\n}\n";
-    document.head.appendChild(style);
-  }
-
   function wrapRenderers() {
     if (globalThis.__MS_ORIGIN_MANIFEST_RENDERERS_V1__) return;
     globalThis.__MS_ORIGIN_MANIFEST_RENDERERS_V1__ = true;
@@ -847,7 +839,6 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
   }
 
   function init() {
-    installStyle();
     wrapRenderers();
     wrapRender();
     installConnectionUi();

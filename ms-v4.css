@@ -330,11 +330,33 @@ html body.ms-page .operation-compact .classic-operation-summary > strong { color
 html body.ms-page .operation-compact .classic-operation-summary.is-danger > strong { color: #c51f2c !important; background: #fdecef !important; }
 html body.ms-page .operation-compact .classic-operation-summary.is-safe > strong { color: #126b32 !important; background: #eef8f0 !important; }
 html body.ms-page .operation-compact .classic-operation-summary.is-drop > strong { color: #202124 !important; background: #f5f5f2 !important; }
-html body.ms-page .origin-manifest-badge { color: #5b6064 !important; background: transparent !important; }
-html body.ms-page .origin-manifest-badge > span { color: #5b6064 !important; background: #ffffff !important; border-color: #d1d3d0 !important; }
-html body.ms-page .origin-manifest-badge > span:first-child { border-top-color: #ffd400 !important; }
-html body.ms-page .origin-manifest-badge > span:last-child { border-top-color: #202124 !important; }
-html body.ms-page .origin-manifest-badge strong { color: #151515 !important; }
+/* ORIGIN_MANIFEST_BADGE_V2 — single static style owner; no runtime injection. */
+html body.ms-page .origin-manifest-badge {
+  width: min(100%, 390px); max-width: 100%; margin: 8px auto 0; padding: 0;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;
+  background: transparent !important; color: #5b6064 !important; font-size: 12px; line-height: 1.25;
+}
+html body.ms-page .origin-manifest-badge > span {
+  min-width: 0; min-height: 36px; padding: 7px 10px; display: flex;
+  align-items: center; justify-content: center; gap: 6px; text-align: center;
+  border: 1px solid #d1d3d0 !important; border-radius: 7px;
+  background: #fff !important; color: #5b6064 !important;
+}
+html body.ms-page .origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400 !important; }
+html body.ms-page .origin-manifest-badge > span:last-child { border-top: 3px solid #202124 !important; }
+html body.ms-page .origin-manifest-badge strong { color: #151515 !important; font-weight: 900; }
+html body.ms-page .compact-card-head .origin-manifest-badge { margin-top: 8px; }
+@media (max-width: 700px) {
+  html body.ms-page .compact-card-head .origin-manifest-badge {
+    grid-column: 1 / -1; width: 100%; max-width: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; justify-self: stretch;
+  }
+  html body.ms-page .compact-card-head .origin-manifest-badge > span {
+    flex-direction: column; gap: 2px; padding: 7px 6px; white-space: nowrap;
+  }
+  html body.ms-page .compact-card-head .origin-manifest-badge > span strong { white-space: nowrap; }
+}
+
 
 @media (max-width: 1024px) {
   html body.ms-page .compact-card-tags .compact-work-type .type-badge.inbound { color: #151515 !important; background: #ffd400 !important; border-color: #e6bf00 !important; }

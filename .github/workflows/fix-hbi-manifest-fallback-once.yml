@@ -1,0 +1,144 @@
+name: Fix HBI manifest fallback once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/fix-hbi-manifest-fallback-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Guard expected source checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=9d6569f5daeeb7587e902a5fd7c355f046cf7d79
+          PARENT=$(git rev-parse HEAD^)
+          test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
+
+      - name: Fix HBI fallback and desktop placement at authoritative sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 anchor, got {count}')
+              return text.replace(old, new, 1)
+
+          # 1) Worker: use the already-configured LH Manifest HBI session as a
+          # click-only fallback. No background poll and no persistence write.
+          worker = Path('worker/src/index.js')
+          text = worker.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              'import { canonicalMsSource, planMsChanges } from "./sync-policy.js";\n',
+              'import { originManifestHbiCredentials } from "./origin-manifest-v1.js";\nimport { canonicalMsSource, planMsChanges } from "./sync-policy.js";\n',
+              'worker origin-manifest helper import',
+          )
+          old = '''  const task = (async () => {\n    let route;\n    try {\n      route = await env.DB.prepare(\n        "SELECT r.proof_id,r.attendance_type,r.estimated_arrival_at,h.credentials_cipher FROM ms_routes r JOIN ms_hbi_connections h ON h.hub=r.hub WHERE r.hub=? AND r.proof_id=? ORDER BY r.synced_at DESC LIMIT 1",\n      ).bind(hub, proofId).first();\n    } catch (error) {\n      if (isMissingTableError(error, "ms_hbi_connections"))\n        fail(`HUB ${hub} ยังไม่ได้อัปโหลด HAR รูปท้ายรถ`, "HBI_PHOTOS_NOT_CONFIGURED", 409);\n      throw error;\n    }\n    if (!route?.credentials_cipher)\n      fail(`HUB ${hub} ยังไม่ได้อัปโหลด HAR รูปท้ายรถ หรือไม่พบเที่ยวรถนี้`, "HBI_PHOTOS_NOT_CONFIGURED", 409);\n    if (normalizeMsAttendance(route.attendance_type) !== "ปลายทาง")\n      fail("รูปท้ายรถเปิดได้เฉพาะงานเข้าปลายทาง", "HBI_PHOTOS_DESTINATION_ONLY", 403);\n    let credentials;\n    try { credentials = JSON.parse(await decryptMs(route.credentials_cipher, env)); }\n    catch { fail("Session HBI รูปท้ายรถเสียหาย กรุณาอัปโหลด HAR ใหม่", "HBI_PHOTOS_CREDENTIAL_ERROR", 500); }\n    const value = await readHbiTruckPhotos(credentials, proofId, route.estimated_arrival_at);\n    rememberHbiPhoto(cacheKey, value);\n    return { ...value, upstreamCalls: 1, cache: "miss" };\n  })().finally(() => activeHbiPhotoReads.delete(cacheKey));'''
+          new = '''  const task = (async () => {\n    // HBI_PHOTO_MANIFEST_FALLBACK_V2: prefer a dedicated HBI session when present,\n    // otherwise reuse the already-configured LH Manifest HBI session. This path\n    // is entered only after a user click; it adds no 4-second polling or writes.\n    let route;\n    try {\n      route = await env.DB.prepare(\n        "SELECT r.proof_id,r.attendance_type,r.estimated_arrival_at,h.credentials_cipher FROM ms_routes r LEFT JOIN ms_hbi_connections h ON h.hub=r.hub WHERE r.hub=? AND r.proof_id=? ORDER BY r.synced_at DESC LIMIT 1",\n      ).bind(hub, proofId).first();\n    } catch (error) {\n      if (!isMissingTableError(error, "ms_hbi_connections")) throw error;\n      route = await env.DB.prepare(\n        "SELECT proof_id,attendance_type,estimated_arrival_at,NULL AS credentials_cipher FROM ms_routes WHERE hub=? AND proof_id=? ORDER BY synced_at DESC LIMIT 1",\n      ).bind(hub, proofId).first();\n    }\n    if (!route?.proof_id)\n      fail(`ไม่พบเที่ยวรถ ${proofId} ใน HUB ${hub}`, "HBI_PHOTOS_ROUTE_NOT_FOUND", 404);\n    if (normalizeMsAttendance(route.attendance_type) !== "ปลายทาง")\n      fail("รูปท้ายรถเปิดได้เฉพาะงานเข้าปลายทาง", "HBI_PHOTOS_DESTINATION_ONLY", 403);\n\n    let credentials = null;\n    let credentialSource = "";\n    if (route.credentials_cipher) {\n      try {\n        credentials = JSON.parse(await decryptMs(route.credentials_cipher, env));\n        credentialSource = "HBI_HAR";\n      } catch (error) {\n        console.warn(JSON.stringify({ event: "hbi_photo_dedicated_session_error", hub, message: error?.message || String(error) }));\n      }\n    }\n    if (!credentials) {\n      credentials = await originManifestHbiCredentials(env, actor, hub);\n      if (credentials) credentialSource = "LH_MANIFEST";\n    }\n    if (!credentials)\n      fail(`HUB ${hub} ยังไม่มี Session HBI ที่ใช้ดูรูปท้ายรถ · เชื่อม LH Manifest หรืออัปโหลด HAR รูปท้ายรถ`, "HBI_PHOTOS_NOT_CONFIGURED", 409);\n\n    const value = await readHbiTruckPhotos(credentials, proofId, route.estimated_arrival_at);\n    rememberHbiPhoto(cacheKey, value);\n    return { ...value, upstreamCalls: 1, cache: "miss", credentialSource };\n  })().finally(() => activeHbiPhotoReads.delete(cacheKey));'''
+          text = replace_once(text, old, new, 'worker HBI fallback block')
+          old = '''  for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"])\n    if (credentials?.[key] !== undefined) url.searchParams.set(key, credentials[key]);'''
+          new = '''  for (const key of ["auth", "lang", "fbid", "time", "webSign", "_from"]) {\n    const value = key === "time" ? String(Date.now()) : credentials?.[key];\n    if (value !== undefined && value !== null) url.searchParams.set(key, value);\n  }'''
+          text = replace_once(text, old, new, 'fresh HBI request time')
+          worker.write_text(text, encoding='utf-8')
+
+          # 2) Origin Manifest: expose server-only credentials for the on-click HBI fallback,
+          # and surface that fallback as ready in the connector UI.
+          manifest = Path('worker/src/origin-manifest-v1.js')
+          text = manifest.read_text(encoding='utf-8')
+          anchor = '''async function loadCredentials(env, hub) {\n  const row = await readCredentialRow(env, hub);\n  if (!row?.credentials_cipher) return null;\n  try {\n    return await decryptCredentials(row.credentials_cipher, env);\n  } catch (error) {\n    console.error(JSON.stringify({ event: "origin_manifest_credential_error", hub, message: error.message }));\n    return null;\n  }\n}\n'''
+          helper = anchor + '''\n// HBI_PHOTO_MANIFEST_FALLBACK_V2: server-only reuse of the existing HBI SSO\n// session. No credential is returned to the browser and no persistence write occurs.\nexport async function originManifestHbiCredentials(env, actor, wantedHub) {\n  const hub = requireAccess(wantedHub, actor);\n  const credentials = await loadCredentials(env, hub);\n  if (!credentials?.auth || !credentials?.fbid) return null;\n  return {\n    auth: credentialValue(credentials.auth),\n    lang: credentialValue(credentials.lang || "th", 20),\n    fbid: credentialValue(credentials.fbid, 100),\n    time: String(Date.now()),\n    webSign: credentialValue(credentials.webSign || "hbi", 50),\n    _from: credentialValue(credentials._from, 100),\n  };\n}\n'''
+          text = replace_once(text, anchor, helper, 'origin manifest HBI helper')
+          old = '''      const result = await apiGet('msOriginManifestStatus', { branch: hubInput.value.trim().toUpperCase() });\n      node.className = result?.configured ? 'source-ok' : 'source-missing';\n      node.textContent = result?.configured\n        ? 'พร้อมใช้งาน · Shared refresh ทุก 5 นาที · 0 data writes'\n        : 'ยังไม่ได้อัปโหลด';'''
+          new = '''      const result = await apiGet('msOriginManifestStatus', { branch: hubInput.value.trim().toUpperCase() });\n      globalThis.__MS_ORIGIN_MANIFEST_HBI_FALLBACK__ = Boolean(result?.configured);\n      node.className = result?.configured ? 'source-ok' : 'source-missing';\n      node.textContent = result?.configured\n        ? 'พร้อมใช้งาน · Shared refresh ทุก 5 นาที · 0 data writes'\n        : 'ยังไม่ได้อัปโหลด';\n      const hbiNode = document.querySelector('[data-source-status="hbiPhotos"] span');\n      if (result?.configured && hbiNode && !hbiNode.classList.contains('source-ok')) {\n        hbiNode.className = 'source-ok';\n        hbiNode.textContent = 'พร้อมใช้งานผ่าน LH Manifest · รูปโหลดเฉพาะเมื่อกดดูรูปท้ายรถ';\n      }'''
+          text = replace_once(text, old, new, 'origin manifest connector fallback status')
+          manifest.write_text(text, encoding='utf-8')
+
+          # 3) Base frontend: desktop button belongs in company/driver cell, and
+          # status remains ready regardless of async ordering between the two status calls.
+          front = Path('ms.js')
+          text = front.read_text(encoding='utf-8')
+          old = '''      node.className = item?.configured ? (item.lastError ? "source-error" : "source-ok") : "source-missing";\n      node.textContent = !item?.configured\n        ? "ยังไม่ได้อัปโหลด"\n        : key === "hbiPhotos"\n          ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"'''
+          new = '''      const manifestPhotoFallback = key === "hbiPhotos" && globalThis.__MS_ORIGIN_MANIFEST_HBI_FALLBACK__ === true;\n      node.className = item?.configured\n        ? (item.lastError ? "source-error" : "source-ok")\n        : manifestPhotoFallback\n          ? "source-ok"\n          : "source-missing";\n      node.textContent = !item?.configured\n        ? manifestPhotoFallback\n          ? "พร้อมใช้งานผ่าน LH Manifest · รูปโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"\n          : "ยังไม่ได้อัปโหลด"\n        : key === "hbiPhotos"\n          ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"'''
+          text = replace_once(text, old, new, 'frontend HBI fallback status')
+          old = '''    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div>${truckPhotoButton(row)}</div></td>'''
+          new = '''    <td><div class="attendance-cell"><span class="type-badge ${attendanceClass}">${esc(attendanceWorkLabel(row))}</span><div class="row-muted">${attendanceLabel(row)}</div></div></td>'''
+          text = replace_once(text, old, new, 'remove desktop photo button from work type')
+          old = '''    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>'''
+          new = '''    <td><div class="people-summary"><strong>${esc(row.supplier || "-")}</strong><span>${esc(row.driverName || "ไม่พบชื่อคนขับ")}</span>${row.driverPhone ? `<a class="phone-chip" href="tel:${esc(row.driverPhone)}">${esc(row.driverPhone)}</a>` : ""}${truckPhotoButton(row)}${q.active && isOrigin(row) ? `<button type="button" class="cancel-route-button" data-cancel-ms-route="${esc(row.id || "")}">ยกเลิกเส้นทาง</button>` : ""}</div></td>'''
+          text = replace_once(text, old, new, 'move desktop photo button to people cell')
+          front.write_text(text, encoding='utf-8')
+
+          css = Path('ms-v4.css')
+          text = css.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              'html body.ms-page .attendance-cell .truck-photo-toggle { width: 100%; margin-top: 2px; }',
+              'html body.ms-page .people-summary .truck-photo-toggle { width: 100%; margin-top: 2px; }',
+              'desktop photo button CSS owner',
+          )
+          css.write_text(text, encoding='utf-8')
+
+          # 4) Staging composer must still add the full Origin Manifest import even
+          # though the base worker now imports one helper from that module.
+          patch = Path('.github/dev-tools/patch-ms-durable-coordinator.mjs')
+          text = patch.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              '''  if (!output.includes('from "./origin-manifest-v1.js"')) {''',
+              '''  if (!output.includes("OriginManifestCoordinator")) {''',
+              'durable coordinator import guard',
+          )
+          patch.write_text(text, encoding='utf-8')
+
+          # 5) Lock the quota and UI contract in tests.
+          test_path = Path('worker/tests/hbi-truck-photos.test.mjs')
+          text = test_path.read_text(encoding='utf-8')
+          old = '''  assert.match(front, /data-truck-photo=/);\n  assert.match(front, /apiGetOnce\\(\"msTruckPhotos\"/);'''
+          new = '''  assert.match(front, /data-truck-photo=/);\n  const desktopRow = front.slice(front.indexOf("function tableRow"), front.indexOf("function card"));\n  assert.match(desktopRow, /people-summary[\\s\\S]*truckPhotoButton\\(row\\)/);\n  assert.doesNotMatch(desktopRow, /attendance-cell[\\s\\S]{0,220}truckPhotoButton\\(row\\)/);\n  assert.match(front, /apiGetOnce\\(\"msTruckPhotos\"/);'''
+          text = replace_once(text, old, new, 'HBI desktop placement test')
+          old = '''  assert.match(worker, /page_size: "20"/);\n  const refresh = worker.slice(worker.indexOf("async function runMsRefresh"), worker.indexOf("async function readMsLiveCache"));'''
+          new = '''  assert.match(worker, /page_size: "20"/);\n  assert.match(worker, /HBI_PHOTO_MANIFEST_FALLBACK_V2/);\n  assert.match(worker, /originManifestHbiCredentials\\(env, actor, hub\\)/);\n  const clickPath = worker.slice(worker.indexOf("async function msTruckPhotos"), worker.indexOf("async function readHbiTruckPhotos"));\n  assert.doesNotMatch(clickPath, /INSERT\\s+INTO|UPDATE\\s+|DELETE\\s+FROM/i);\n  const refresh = worker.slice(worker.indexOf("async function runMsRefresh"), worker.indexOf("async function readMsLiveCache"));'''
+          text = replace_once(text, old, new, 'HBI fallback quota test')
+          test_path.write_text(text, encoding='utf-8')
+          PY
+
+          node --check ms.js
+          node --check worker/src/index.js
+          node --check worker/src/origin-manifest-v1.js
+          node --check .github/dev-tools/patch-ms-durable-coordinator.mjs
+          cd worker
+          npm ci
+          node --test tests/hbi-truck-photos.test.mjs
+          cd ..
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs --self-test
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          git diff --check
+
+      - name: Commit safe fix and remove one-time workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name Flashdevnak
+          git config user.email 26nak.testdev@gmail.com
+          git rm .github/workflows/fix-hbi-manifest-fallback-once.yml
+          git add ms.js ms-v4.css worker/src/index.js worker/src/origin-manifest-v1.js worker/tests/hbi-truck-photos.test.mjs .github/dev-tools/patch-ms-durable-coordinator.mjs
+          git diff --cached --check
+          git commit -m "fix(ms): reuse LH Manifest session for truck photos"
+          git push origin HEAD:main

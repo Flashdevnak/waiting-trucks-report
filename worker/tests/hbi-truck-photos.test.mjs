@@ -40,6 +40,10 @@ test("worker keeps HBI out of live refresh and caps each cold click at one page"
   assert.doesNotMatch(refresh, /Hbi|hbi|TruckPhotos/);
   const read = worker.slice(worker.indexOf("async function readHbiTruckPhotos"), worker.indexOf("async function readBusTimeData"));
   assert.equal((read.match(/await fetch\(/g) || []).length, 1);
+  assert.match(read, /const value = credentials\?\.\[key\];/);
+  assert.doesNotMatch(read, /key === "time" \? String\(Date\.now\(\)\)/);
+  assert.match(read, /"BI-PLATFORM": ""/);
+  assert.match(read, /"Accept-Language": credentials\?\.lang \|\| "th"/);
   assert.doesNotMatch(read, /Promise\.all|for \(let page|page \+/);
 });
 

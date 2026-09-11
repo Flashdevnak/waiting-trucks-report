@@ -1,19 +1,9 @@
-import {
-  OriginManifestCoordinator,
-  originManifestLive,
-  originManifestStatus,
-  saveOriginManifestConnection,
-  wrapOriginManifestAssets,
-} from "./origin-manifest-v1.js";
-import { canonicalMsSource, planMsChanges, resolveCompletionTruth } from "./sync-policy.js";
+import { canonicalMsSource, planMsChanges } from "./sync-policy.js";
 
 const SESSION_MS = 180 * 86400000;
 const MS_SYNC_TTL = 3000;
-const MS_LIVE_CACHE_VERSION = "completion-v2";
-const completionRepairChecked = new Set();
 const CONNECTION_HEARTBEAT_MS = 15 * 60 * 1000;
 const CONNECTOR_HEARTBEAT_MS = 60 * 60 * 1000;
-const UPSTREAM_FETCH_TIMEOUT_MS = 9000;
 const recentMsSync = new Map();
 const activeMsSync = new Map();
 // HBI_PHOTO_ON_DEMAND_V1: never joined to the 4-second live refresh.
@@ -160,14 +150,7 @@ const CENTRAL_LIMITS = {
 export default {
   async fetch(request, env) {
     try {
-      // MS_ORIGIN_LH_MANIFEST_V1: wrap DEV assets only; no Production path is changed.
-      env = wrapOriginManifestAssets(env);
       const url = new URL(request.url);
-      // MS_REALTIME_WS_V1: upgrade before the normal JSON GET wrapper.
-      if (request.method === "GET" && url.searchParams.get("action") === "msStream" && String(request.headers.get("Upgrade") || "").toLowerCase() === "websocket")
-        return msRealtimeStream(request, url, env);
-      // DEV_ROOT_ENTRY_V1: DEV-only staged entry route; canonical worker source is unchanged.
-      if (url.pathname === "/") return Response.redirect(new URL("/ms.html", request.url), 302);
       if (!url.pathname.startsWith("/api")) return env.ASSETS.fetch(request);
       if (request.method === "OPTIONS")
         return new Response(null, { headers: cors() });
@@ -210,19 +193,6 @@ async function get(url, env) {
       time: new Date().toISOString(),
     });
   const actor = await verify(url.searchParams.get("token"), env);
-  if (action === "msOriginManifestStatus")
-    return ok(await originManifestStatus(
-      env,
-      actor,
-      pickBranch(actor, url.searchParams.get("branch")),
-    ));
-  if (action === "msOriginManifestLive")
-    return ok(await originManifestLive(
-      env,
-      actor,
-      pickBranch(actor, url.searchParams.get("branch")),
-      url.searchParams.get("days"),
-    ));
   if (action === "list") return ok(await scoped(env, "active_trucks", actor));
   if (action === "history")
     return ok(
@@ -244,15 +214,11 @@ async function get(url, env) {
       live = await refreshMsIfStale(env, actor, branch);
     const rows = Array.isArray(live.rows)
       ? live.rows
-      : await applyRouteCancellationsToRows(
-          env,
-          branch,
-          (
-            await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
-              .bind(branch)
-              .all()
-          ).results.map(output),
-        );
+      : (
+          await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
+            .bind(branch)
+            .all()
+        ).results.map(output);
     const settings = await readSettings(env, branch);
     const latest = live.syncedAt
       ? null
@@ -272,7 +238,6 @@ async function get(url, env) {
       lastSync: live.syncedAt || latest?.synced_at || "",
       msStatus: live.status,
       syncError: live.error || "",
-      completedToday: Number(live.completedToday) || 0,
     });
   }
   if (action === "msArchiveTotal") {
@@ -308,14 +273,6 @@ async function get(url, env) {
         pickBranch(actor, url.searchParams.get("branch")),
       ),
     );
-  if (action === "msCompletedToday") {
-    const branch = pickBranch(actor, url.searchParams.get("branch"));
-    return ok(await readMsCompletedToday(env, actor, branch));
-  }
-  if (action === "msCancelledToday") {
-    const branch = pickBranch(actor, url.searchParams.get("branch"));
-    return ok(await readMsCancelledToday(env, actor, branch));
-  }
   if (action === "msRange")
     return ok(
       await msRange(
@@ -365,19 +322,8 @@ async function post(body, env) {
   if (action === "login") return ok(await login(body, env));
   if (action === "completeMsPairing") return ok(await completeMsPairing(body, env));
   if (action === "connectorSync") return ok(await connectorSync(body, env));
-  if (action === "bootstrapConnector")
-    return ok(await bootstrapConnector(body, env));
   const actor = await verify(body.token, env);
-  if (action === "cancelMsRoute")
-    return ok(await cancelMsRoute(body, actor, env));
   if (action === "import") return ok(await importRows(body, actor, env));
-  if (action === "saveMsOriginManifestConnection")
-    return ok(await saveOriginManifestConnection(
-      env,
-      actor,
-      pickBranch(actor, body.hub),
-      body.credentials,
-    ));
   if (action === "start") return ok(await work(body.id, actor, env, true));
   if (action === "cancelStart")
     return ok(await work(body.id, actor, env, false));
@@ -1012,89 +958,6 @@ async function changePassword(body, actor, env) {
   return { changed: true };
 }
 
-async function confirmActionPin(actor, pin, env) {
-  const user = await env.DB.prepare(
-    "SELECT password_hash,active FROM users WHERE username=?",
-  )
-    .bind(actor.username)
-    .first();
-  if (!user || Number(user.active) !== 1 || !(await passMatch(actor.username, pin, user.password_hash, env)))
-    fail("รหัสจัดการไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่", "INVALID_CONFIRMATION_PIN", 401);
-}
-
-function routeCancellationMeta(row) {
-  return { queueCancelledAt: row.cancelled_at || "", queueCancelledBy: row.cancelled_by || "", queueCancelReason: row.reason || "ยกเลิกเส้นทาง" };
-}
-
-async function activeRouteCancellations(env, hub) {
-  return (await env.DB.prepare("SELECT route_id,proof_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1").bind(hub).all()).results;
-}
-
-async function applyRouteCancellationsToRows(env, hub, rows) {
-  const cancellations = await activeRouteCancellations(env, hub);
-  if (!cancellations.length) return rows || [];
-  const byId = new Map(cancellations.map((row) => [String(row.route_id), row]));
-  return (rows || []).map((row) => {
-    const cancellation = byId.get(String(row.id || row.routeId || ""));
-    if (!cancellation || (cancellation.proof_id && row.proofId && String(cancellation.proof_id) !== String(row.proofId))) return row;
-    return { ...row, ...routeCancellationMeta(cancellation) };
-  });
-}
-
-async function markCancelledInLiveCache(env, hub, routeId, proofId, meta) {
-  const cache = await env.DB.prepare("SELECT rows_json FROM ms_live_cache WHERE hub=?").bind(hub).first();
-  if (!cache) return false;
-  let parsed;
-  try { parsed = JSON.parse(cache.rows_json || "[]"); } catch { return false; }
-  const legacy = Array.isArray(parsed);
-  const rows = legacy ? parsed : Array.isArray(parsed?.rows) ? parsed.rows : [];
-  let changed = false;
-  const nextRows = rows.map((row) => {
-    const idMatch = String(row.id || row.routeId || "") === String(routeId);
-    const proofMatch = !proofId || !row.proofId || String(row.proofId) === String(proofId);
-    if (!idMatch || !proofMatch) return row;
-    changed = true;
-    return { ...row, ...meta };
-  });
-  const completedRows = legacy ? [] : (Array.isArray(parsed.completedRows) ? parsed.completedRows : []).filter((row) => String(row.id || row.routeId || "") !== String(routeId));
-  const completedChanged = !legacy && completedRows.length !== (Array.isArray(parsed.completedRows) ? parsed.completedRows.length : 0);
-  if (!changed && !completedChanged) return false;
-  const payload = legacy ? nextRows : { ...parsed, rows: nextRows, completedRows };
-  await env.DB.prepare("UPDATE ms_live_cache SET rows_json=? WHERE hub=?").bind(JSON.stringify(payload), hub).run();
-  return true;
-}
-
-async function cancelMsRoute(body, actor, env) {
-  const hub = pickBranch(actor, body.branch);
-  const routeId = text(body.routeId, 200);
-  if (!routeId) fail("ไม่พบรหัสเส้นทาง", "INVALID_ROUTE", 400);
-  await confirmActionPin(actor, body.pin, env);
-  const route = await env.DB.prepare("SELECT id,proof_id,route_name,attendance_type,actual_arrival_at,actual_departure_at,unloading_state,schedule_kit_arrival_at,schedule_tbr_arrival_at FROM ms_routes WHERE hub=? AND id=?").bind(hub, routeId).first();
-  if (!route) fail("ไม่พบเส้นทางนี้ใน HUB ปัจจุบัน", "ROUTE_NOT_FOUND", 404);
-  const attendance = normalizeMsAttendance(route.attendance_type);
-  if (attendance === "ปลายทาง")
-    fail("งานปลายทางไม่สามารถยกเลิกรถจากคิวด้วยมือได้", "DESTINATION_CANCEL_NOT_ALLOWED", 409);
-  const done = attendance === "ปลายทาง" ? Number(route.unloading_state) === 2 : attendance === "จุดดรอป" ? Number(route.unloading_state) === 2 && Boolean(route.actual_departure_at) : Boolean(route.actual_departure_at);
-  if (done) fail("เส้นทางนี้ดำเนินการเสร็จแล้ว จึงไม่สามารถยกเลิกจากคิวได้", "ROUTE_ALREADY_DONE", 409);
-  const effectiveArrival = earliestDate(route.actual_arrival_at, route.schedule_kit_arrival_at, route.schedule_tbr_arrival_at);
-  if (!route.actual_arrival_at || !effectiveArrival || Date.now() - Date.parse(effectiveArrival) > 12 * 60 * 60 * 1000) fail("เส้นทางนี้ไม่ได้อยู่ในคิวปัจจุบันแล้ว", "ROUTE_NOT_ACTIVE", 409);
-  const existing = await env.DB.prepare("SELECT proof_id,cancelled_at,cancelled_by,reason,active FROM ms_route_cancellations WHERE hub=? AND route_id=?").bind(hub, routeId).first();
-  if (Number(existing?.active) === 1 && (!existing.proof_id || String(existing.proof_id) === String(route.proof_id || ""))) {
-    const meta = routeCancellationMeta(existing);
-    await markCancelledInLiveCache(env, hub, routeId, route.proof_id || "", meta);
-    return { hub, routeId, proofId: route.proof_id || "", routeName: route.route_name || "", cancelledAt: meta.queueCancelledAt, cancelledBy: meta.queueCancelledBy, reason: meta.queueCancelReason, alreadyCancelled: true };
-  }
-  const now = new Date().toISOString();
-  const reason = "ยกเลิกเส้นทาง";
-  await env.DB.prepare("INSERT INTO ms_route_cancellations(hub,route_id,proof_id,route_name,cancelled_at,cancelled_by,reason,active) VALUES(?,?,?,?,?,?,?,1) ON CONFLICT(hub,route_id) DO UPDATE SET proof_id=excluded.proof_id,route_name=excluded.route_name,cancelled_at=excluded.cancelled_at,cancelled_by=excluded.cancelled_by,reason=excluded.reason,active=1").bind(hub, routeId, route.proof_id || "", route.route_name || "", now, actor.username, reason).run();
-  const meta = { queueCancelledAt: now, queueCancelledBy: actor.username, queueCancelReason: reason };
-  await markCancelledInLiveCache(env, hub, routeId, route.proof_id || "", meta);
-  await audit(env, "CANCEL_MS_ROUTE", routeId, JSON.stringify({ hub, proofId: route.proof_id || "", routeName: route.route_name || "", reason }), actor.username);
-  return { hub, routeId, proofId: route.proof_id || "", routeName: route.route_name || "", cancelledAt: now, cancelledBy: actor.username, reason, alreadyCancelled: false };
-}
-
-// MS_QUOTA_SAFE_LIVE_V1: live source changes diff against the existing live-cache snapshot.
-// A full ms_routes read remains only as a cold-cache / explicit-sync fallback.
 async function syncMs(body, actor, env) {
   if (!Array.isArray(body.rows) || body.rows.length > 2000)
     fail("ข้อมูล MS ไม่ถูกต้องหรือเกิน 2,000 รายการ");
@@ -1104,24 +967,11 @@ async function syncMs(body, actor, env) {
   ).toUpperCase();
   if (!branch || !access(branch, actor))
     fail("ไม่มีสิทธิ์ซิงก์ HUB นี้", "FORBIDDEN", 403);
-  await ensureMsCompletionRepair(env, branch);
-  const cacheBaseline = Array.isArray(body.baselineRows)
-    ? body.baselineRows
-    : null;
-  const [oldRowsResult, cancellationResult] = await Promise.all([
-    cacheBaseline
-      ? Promise.resolve({ results: [] })
-      : env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?").bind(branch).all(),
-    env.DB.prepare(
-      "SELECT route_id,proof_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1",
-    )
+  const oldRows = (
+    await env.DB.prepare("SELECT * FROM ms_routes WHERE hub=?")
       .bind(branch)
-      .all(),
-  ]);
-  const oldRows = cacheBaseline || oldRowsResult.results.map(output);
-  const cancellationById = new Map(
-    cancellationResult.results.map((row) => [String(row.route_id), row]),
-  );
+      .all()
+  ).results;
   const oldById = new Map(oldRows.map((row) => [row.id, row]));
   const now = new Date().toISOString(),
     seen = new Set(),
@@ -1145,13 +995,13 @@ async function syncMs(body, actor, env) {
         Number.isFinite(Number(r.unloadingState))
           ? Number(r.unloadingState)
           : null,
-      completionTruth = resolveCompletionTruth(
-        old,
-        unloadingState,
-        r.scheduleUnloadingCompletedAt,
-        now,
-      ),
-      unloadingCompletedAt = completionTruth.at;
+      priorCompletedAt = old?.unloading_completed_at,
+      unloadingCompletedAt =
+        unloadingState === 2
+          ? Number.isFinite(Date.parse(priorCompletedAt || ""))
+            ? priorCompletedAt
+            : now
+          : "";
     const values = [
       id,
       branch,
@@ -1209,9 +1059,6 @@ async function syncMs(body, actor, env) {
       loadStatus: values[19],
       unloadingState: values[20],
       unloadingCompletedAt: values[21],
-      completionSource: completionTruth.source,
-      scheduleUnloadingStartedAt: date(r.scheduleUnloadingStartedAt),
-      scheduleUnloadingCompletedAt: date(r.scheduleUnloadingCompletedAt),
       sourceUpdatedAt: values[22],
       expectedParcels: values[23],
       enteredParcels: values[24],
@@ -1221,19 +1068,10 @@ async function syncMs(body, actor, env) {
       arrivedParcels: values[28],
       arrivedBags: values[29],
     };
-    const cancellation = cancellationById.get(String(id));
-    if (
-      cancellation &&
-      (!cancellation.proof_id || !snapshot.proofId || String(cancellation.proof_id) === String(snapshot.proofId))
-    ) {
-      snapshot.queueCancelledAt = cancellation.cancelled_at || "";
-      snapshot.queueCancelledBy = cancellation.cancelled_by || "";
-      snapshot.queueCancelReason = cancellation.reason || "ยกเลิกเส้นทาง";
-    }
     prepared.push({ id, values, snapshot });
   }
   const plan = planMsChanges(
-      oldRows,
+      oldRows.map(output),
       prepared.map((item) => item.snapshot),
       Boolean(body.preserveMissing),
     ),
@@ -1243,12 +1081,11 @@ async function syncMs(body, actor, env) {
   for (const item of prepared) {
     const old = oldById.get(item.id);
     if (changedIds.has(item.id)) {
-      if (!old)
-        statements.push(
-          env.DB.prepare(
-            "INSERT OR IGNORE INTO ms_route_registry(hub,route_id,first_seen_at) VALUES(?,?,?)",
-          ).bind(branch, item.id, now),
-        );
+      statements.push(
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO ms_route_registry(hub,route_id,first_seen_at) VALUES(?,?,?)",
+        ).bind(branch, item.id, now),
+      );
       statements.push(
         env.DB.prepare(
           "INSERT OR REPLACE INTO ms_routes(id,hub,proof_id,route_name,region,route_attribute,route_type,attendance_type,estimated_arrival_at,actual_arrival_at,estimated_departure_at,actual_departure_at,supplier,vehicle_type,plate,driver_name,driver_phone,tracking_status,vehicle_status,load_status,unloading_state,unloading_completed_at,source_updated_at,expected_parcels,entered_parcels,pending_parcels,schedule_kit_arrival_at,schedule_tbr_arrival_at,arrived_parcels,arrived_bags,synced_at,synced_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -1263,10 +1100,7 @@ async function syncMs(body, actor, env) {
           branch,
           old ? "UPDATED" : "FIRST_SEEN",
           now,
-          JSON.stringify({
-            ...item.snapshot,
-            completionObservedLive: Boolean(item.snapshot?.unloadingCompletedAt),
-          }),
+          JSON.stringify(item.snapshot),
           actor.username,
         ),
       );
@@ -1283,7 +1117,7 @@ async function syncMs(body, actor, env) {
           branch,
           "REMOVED",
           now,
-          JSON.stringify(old),
+          JSON.stringify(output(old)),
           actor.username,
         ),
         env.DB.prepare("DELETE FROM ms_routes WHERE id=?").bind(old.id),
@@ -1305,11 +1139,10 @@ async function syncMs(body, actor, env) {
   }
   const responseRows = prepared.map((item) => {
     const old = oldById.get(item.id);
-    const previous = old || null;
+    const previous = old ? output(old) : null;
     const changed = changedIds.has(item.id);
     return {
       ...item.snapshot,
-      completionObservedLive: Boolean(item.snapshot?.unloadingCompletedAt),
       syncedAt: changed ? now : previous?.syncedAt || now,
       syncedBy: changed ? actor.username : previous?.syncedBy || actor.username,
     };
@@ -1323,333 +1156,14 @@ async function syncMs(body, actor, env) {
   };
 }
 
-async function msRealtimeStream(request, url, env) {
-  const actor = await verify(url.searchParams.get("token"), env);
-  const branch = pickBranch(actor, url.searchParams.get("branch"));
-  if (!env.MS_REFRESH_COORDINATOR) fail("Realtime coordinator ไม่พร้อมใช้งาน", "MS_STREAM_UNAVAILABLE", 503);
-  const id = env.MS_REFRESH_COORDINATOR.idFromName(branch);
-  const stub = env.MS_REFRESH_COORDINATOR.get(id);
-  const target = new URL("https://ms-refresh.internal/stream");
-  target.searchParams.set("branch", branch);
-  return stub.fetch(new Request(target, request));
-}
-
 async function refreshMsIfStale(env, actor, branch, force = false) {
   if (!access(branch, actor)) return { status: "forbidden" };
   const nowMs = Date.now(), recent = recentMsSync.get(branch);
   if (!force && recent?.until > nowMs) return recent.result;
   if (activeMsSync.has(branch)) return activeMsSync.get(branch);
-
-  if (env.MS_REFRESH_COORDINATOR) {
-    const id = env.MS_REFRESH_COORDINATOR.idFromName(branch);
-    const stub = env.MS_REFRESH_COORDINATOR.get(id);
-    const url = new URL("https://ms-refresh.internal/refresh");
-    url.searchParams.set("branch", branch);
-    if (force) url.searchParams.set("force", "1");
-    const response = await stub.fetch(new Request(url));
-    if (!response.ok) {
-      const error = new Error("ตัวประสานการอัปเดต MS ตอบกลับผิดพลาด");
-      error.code = "MS_COORDINATOR_ERROR";
-      throw error;
-    }
-    const result = await response.json();
-    recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
-    return result;
-  }
-
   const task = runMsRefresh(env, branch).finally(() => activeMsSync.delete(branch));
   activeMsSync.set(branch, task);
   return task;
-}
-
-export class MsRefreshCoordinator {
-  constructor(ctx, env) {
-    this.ctx = ctx;
-    this.env = env;
-    this.active = null;
-    this.lastResult = null;
-    this.recentUntil = 0;
-    this.lastSourceAt = 0;
-    this.routeRateLimitedUntil = 0;
-    this.routeRateLimitStrikes = 0;
-    this.originManifest = new OriginManifestCoordinator(ctx, env);
-    this.ctx.blockConcurrencyWhile(async () => {
-      const saved = await this.ctx.storage.get(MS_ROUTE_QUOTA_GUARD_KEY);
-      if (saved && typeof saved === "object") {
-        this.routeRateLimitedUntil = Number(saved.until || 0);
-        this.routeRateLimitStrikes = Number(saved.strikes || 0);
-      }
-    });
-  }
-
-  async fetch(request) {
-    const url = new URL(request.url);
-    if (url.pathname === "/quota-reset") {
-      this.routeRateLimitedUntil = 0;
-      this.routeRateLimitStrikes = 0;
-      await this.ctx.storage.delete(MS_ROUTE_QUOTA_GUARD_KEY);
-      return Response.json({ ok: true, reset: true });
-    }
-    if (url.pathname.startsWith("/origin-manifest/"))
-      return this.originManifest.fetch(request);
-    const branch = String(url.searchParams.get("branch") || "").trim().toUpperCase();
-    if (url.pathname === "/stream") return this.openStream(request, branch);
-    const force = url.searchParams.get("force") === "1";
-    const cron = url.searchParams.get("cron") === "1";
-    if (!branch)
-      return Response.json(
-        { status: "error", error: "missing branch" },
-        { status: 400 },
-      );
-    return Response.json(await this.refresh(branch, force, cron));
-  }
-
-  async openStream(request, branch) {
-    if (!branch) return new Response("missing branch", { status: 400 });
-    if (String(request.headers.get("Upgrade") || "").toLowerCase() !== "websocket")
-      return new Response("expected websocket", { status: 426 });
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    const leader = this.ctx.getWebSockets().length === 0;
-    this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ branch, leader });
-    server.send(JSON.stringify({ type: "role", leader }));
-    this.ctx.waitUntil(this.pushSnapshot(server, branch).catch((error) => {
-      try {
-        server.send(JSON.stringify({
-          type: "error",
-          code: error?.code || "MS_STREAM_ERROR",
-          message: error?.message || "Realtime stream ขัดข้อง",
-        }));
-      } catch {}
-    }));
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
-  async streamPayload(branch) {
-    const live = await this.refresh(branch, false, false);
-    const settings = await readSettings(this.env, branch);
-    return {
-      type: "snapshot",
-      rows: Array.isArray(live?.rows) ? live.rows : null,
-      completedToday: Number(live?.completedToday) || 0,
-      standards: settings.msVehicleLimits,
-      lastSync: live?.syncedAt || "",
-      msStatus: live?.status || "",
-      syncError: live?.error || "",
-      pollMs: 4000,
-    };
-  }
-
-  async pushSnapshot(ws, branch) {
-    ws.send(JSON.stringify(await this.streamPayload(branch)));
-  }
-
-  async broadcastSnapshot(branch) {
-    const payload = JSON.stringify(await this.streamPayload(branch));
-    for (const socket of this.ctx.getWebSockets()) {
-      const attachment = socket.deserializeAttachment?.() || {};
-      if (String(attachment.branch || "").toUpperCase() !== branch) continue;
-      try { socket.send(payload); } catch {}
-    }
-  }
-
-  async webSocketMessage(ws, message) {
-    const attachment = ws.deserializeAttachment?.() || {};
-    const branch = String(attachment.branch || "").trim().toUpperCase();
-    if (!branch) {
-      try { ws.close(1008, "missing branch"); } catch {}
-      return;
-    }
-    let payload = {};
-    try { payload = JSON.parse(String(message || "{}")); } catch {}
-    try {
-      const actor = await verify(payload?.token, this.env);
-      if (!access(branch, actor)) fail("ไม่มีสิทธิ์ดูข้อมูล HUB นี้", "FORBIDDEN", 403);
-      if (payload?.type === "auth") {
-        ws.send(JSON.stringify({ type: "auth_ok" }));
-        return;
-      }
-      if (payload?.type !== "refresh") return;
-      await this.broadcastSnapshot(branch);
-    } catch (error) {
-      const code = error?.code || "MS_STREAM_ERROR";
-      try {
-        ws.send(JSON.stringify({
-          type: code === "INVALID_SESSION" || code === "FORBIDDEN" ? "auth_error" : "error",
-          code,
-          message: error?.message || "Realtime stream ขัดข้อง",
-        }));
-      } catch {}
-      if (code === "INVALID_SESSION" || code === "FORBIDDEN")
-        try { ws.close(1008, "auth"); } catch {}
-    }
-  }
-
-  webSocketClose(ws, code, reason) {
-    const attachment = ws.deserializeAttachment?.() || {};
-    const wasLeader = attachment.leader === true;
-    try { ws.close(code, reason); } catch {}
-    if (!wasLeader) return;
-    const next = this.ctx.getWebSockets().find((socket) => socket !== ws);
-    if (!next) return;
-    const nextAttachment = next.deserializeAttachment?.() || {};
-    nextAttachment.leader = true;
-    next.serializeAttachment(nextAttachment);
-    try { next.send(JSON.stringify({ type: "role", leader: true })); } catch {}
-  }
-
-  webSocketError(ws) {
-    try { ws.close(1011, "stream error"); } catch {}
-  }
-
-  async refresh(branch, force = false, cron = false) {
-    const nowMs = Date.now();
-    if (!force && this.routeRateLimitedUntil > nowMs) {
-      const retryAt = new Date(this.routeRateLimitedUntil).toISOString();
-      if (this.lastResult?.rows)
-        return {
-          ...this.lastResult,
-          status: "degraded",
-          errorCode: "MS_ROUTE_RATE_LIMIT",
-          quotaGuard: "cooldown",
-          retryAt,
-        };
-      return {
-        status: "degraded",
-        errorCode: "MS_ROUTE_RATE_LIMIT",
-        error: "MS จำกัดคำขอชั่วคราว ระบบหยุดยิงต้นทางและรอรอบปลอดภัย",
-        changes: 0,
-        rows: [],
-        quotaGuard: "cooldown",
-        retryAt,
-      };
-    }
-    if (
-      cron &&
-      this.lastResult &&
-      nowMs - this.lastSourceAt < MS_CRON_ACTIVE_SKIP_MS
-    )
-      return { ...this.lastResult, cronSkipped: true };
-    if (!force && this.lastResult && this.recentUntil > nowMs)
-      return this.lastResult;
-
-    if (this.active) {
-      if (!force && this.lastResult) return this.lastResult;
-      try {
-        await this.active;
-      } catch {}
-      if (!force && this.lastResult && this.recentUntil > Date.now())
-        return this.lastResult;
-    }
-
-    const task = runMsRefresh(this.env, branch)
-      .then(async (result) => {
-        if (result?.errorCode === "MS_ROUTE_RATE_LIMIT") {
-          this.routeRateLimitStrikes = Math.min(8, this.routeRateLimitStrikes + 1);
-          const cooldownMs = Math.min(
-            MS_ROUTE_RATE_LIMIT_MAX_COOLDOWN_MS,
-            MS_ROUTE_RATE_LIMIT_BASE_COOLDOWN_MS * (2 ** Math.max(0, this.routeRateLimitStrikes - 1)),
-          );
-          this.routeRateLimitedUntil = Date.now() + cooldownMs;
-          await this.ctx.storage.put(MS_ROUTE_QUOTA_GUARD_KEY, {
-            strikes: this.routeRateLimitStrikes,
-            until: this.routeRateLimitedUntil,
-          });
-        } else if (result?.status === "synced" && (this.routeRateLimitStrikes || this.routeRateLimitedUntil)) {
-          this.routeRateLimitStrikes = 0;
-          this.routeRateLimitedUntil = 0;
-          await this.ctx.storage.delete(MS_ROUTE_QUOTA_GUARD_KEY);
-        }
-        this.lastResult = result;
-        this.lastSourceAt = Date.now();
-        this.recentUntil = Date.now() + MS_SYNC_TTL;
-        return result;
-      })
-      .finally(() => {
-        if (this.active === task) this.active = null;
-      });
-    this.active = task;
-    return task;
-  }
-}
-
-// MS_CRON_LIVE_REFRESH_V1: the existing one-minute Worker cron keeps the main MS
-// route source alive even when every browser is closed. It reuses the same
-// per-HUB Durable Object, so an actively polling browser suppresses the cron
-// read for 45 seconds instead of causing a duplicate upstream MS request.
-const MS_CRON_ACTIVE_SKIP_MS = 45 * 1000;
-const MS_ROUTE_QUOTA_GUARD_KEY = "route-quota-guard-v12";
-
-export async function runMsScheduledRefresh(env) {
-  let rows = [];
-  try {
-    rows = (
-      await env.DB.prepare("SELECT hub FROM ms_connections ORDER BY hub").all()
-    ).results || [];
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "ms_cron_connection_list_error",
-        message: error.message || String(error),
-      }),
-    );
-    return;
-  }
-
-  const actor = { username: "MS_CRON", role: "admin", branches: ["*"] };
-  for (const row of rows.slice(0, 20)) {
-    const branch = text(row?.hub, 80).toUpperCase();
-    if (!branch) continue;
-    try {
-      if (env.MS_REFRESH_COORDINATOR) {
-        const id = env.MS_REFRESH_COORDINATOR.idFromName(branch);
-        const stub = env.MS_REFRESH_COORDINATOR.get(id);
-        const url = new URL("https://ms-refresh.internal/refresh");
-        url.searchParams.set("branch", branch);
-        url.searchParams.set("cron", "1");
-        const response = await stub.fetch(new Request(url));
-        if (!response.ok) {
-          const error = new Error("ตัวประสาน Cron MS ตอบกลับผิดพลาด");
-          error.code = "MS_CRON_COORDINATOR_ERROR";
-          throw error;
-        }
-      } else {
-        await refreshMsIfStale(env, actor, branch);
-      }
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          event: "ms_cron_sync_error",
-          hub: branch,
-          code: error.code || "MS_CRON_SYNC_FAILED",
-          message: error.message || String(error),
-        }),
-      );
-    }
-  }
-}
-
-// MS_COMPLETION_BURST_TRUTH_V3: legacy mass catch-up observations are not authoritative unload-finish times.
-function hasLegacyCompletionBurstRows(rows) {
-  const groups = new Map();
-  const legacyBefore = Date.parse("2026-09-08T12:39:00.000Z");
-  for (const row of Array.isArray(rows) ? rows : []) {
-    const completion = String(row?.unloadingCompletedAt ?? row?.unloading_completed_at ?? "");
-    const completionMs = Date.parse(completion);
-    const arrivalMs = Date.parse(String(row?.actualArrivalAt ?? row?.actual_arrival_at ?? ""));
-    const id = String(row?.id ?? row?.route_id ?? row?.proofId ?? "");
-    if (!id || !Number.isFinite(completionMs) || !Number.isFinite(arrivalMs)) continue;
-    if (completionMs >= legacyBefore) continue;
-    const group = groups.get(completion) || { ids: new Set(), minArrival: Infinity, maxArrival: -Infinity };
-    group.ids.add(id);
-    group.minArrival = Math.min(group.minArrival, arrivalMs);
-    group.maxArrival = Math.max(group.maxArrival, arrivalMs);
-    groups.set(completion, group);
-  }
-  return [...groups.values()].some((group) =>
-    group.ids.size >= 8 && group.maxArrival - group.minArrival >= 60 * 60 * 1000
-  );
 }
 
 async function runMsRefresh(env, branch) {
@@ -1661,137 +1175,30 @@ async function runMsRefresh(env, branch) {
     };
   try {
     const rows = await readMsRoutes(credentials);
-    const [parcelCounts, busData] = await Promise.all([
-      readPreEntryCounts(env, branch),
-      readBusTimeData(env, branch),
-    ]);
-    const tbrShadowFeed = msTbrShadowFeed(busData);
-    const previousEnrichment =
-      parcelCounts.sourceFailed || busData.sourceFailed
-        ? await readMsLiveCache(env, branch)
-        : null;
-    const previousById = new Map(
-      (previousEnrichment?.rows || []).map((row) => [row.id, row]),
+    const parcelCounts = await readPreEntryCounts(env, branch);
+    const busData = await readBusTimeData(env, branch);
+    const mappedRows = rows.map((row) =>
+      enrichMsRow(mapMsRow(row), parcelCounts, busData),
     );
-    const mappedRows = rows.map((row) => {
-      const mapped = enrichMsRow(mapMsRow(row), parcelCounts, busData);
-      const previous = previousById.get(mapped.id);
-      if (previous && parcelCounts.sourceFailed) {
-        mapped.expectedParcels = previous.expectedParcels;
-        mapped.enteredParcels = previous.enteredParcels;
-        mapped.pendingParcels = previous.pendingParcels;
-      }
-      if (previous && busData.sourceFailed) {
-        mapped.scheduleKitArrivalAt = previous.scheduleKitArrivalAt;
-        mapped.scheduleTbrArrivalAt = previous.scheduleTbrArrivalAt;
-        mapped.arrivedParcels = previous.arrivedParcels;
-        mapped.arrivedBags = previous.arrivedBags;
-      }
-      return mapped;
-    });
-    const sourceHash = MS_LIVE_CACHE_VERSION + ":" + await sha(canonicalMsSource(mappedRows));
-    let cache = await readMsLiveCache(env, branch, sourceHash);
-    let sync;
-    let syncClaim = null;
-    let publishSource = false;
-
-    if (cache?.sourceMatch) {
-      sync = {
-        syncedAt: new Date().toISOString(),
-        changes: 0,
-        rows: cache.rows,
-      };
-    } else {
-      const claim = await acquireMsSyncClaim(env, branch, sourceHash);
-      if (claim.acquired) {
-        syncClaim = claim;
-        const currentCache = await readMsLiveCache(env, branch, sourceHash);
-        if (currentCache?.sourceMatch) {
-          cache = currentCache;
-          sync = {
-            syncedAt: new Date().toISOString(),
-            changes: 0,
-            rows: currentCache.rows,
-          };
-          await finishMsSyncClaim(env, branch, claim, true);
-          syncClaim = null;
-        } else {
-          cache = currentCache || cache;
-          try {
-            const baselineCache = currentCache || cache;
-            sync = await syncMs(
-              {
-                branch,
-                rows: mappedRows,
-                baselineRows:
-                  String(baselineCache?.sourceHash || "").startsWith("completion-v2:")
-                    ? baselineCache?.rows || null
-                    : null,
-              },
-              { username: "MS_AUTO", role: "admin", branches: ["*"] },
-              env,
-            );
-            publishSource = true;
-          } catch (error) {
-            await finishMsSyncClaim(env, branch, claim, false);
-            syncClaim = null;
-            throw error;
-          }
+    const sourceHash = await sha(canonicalMsSource(mappedRows));
+    const cachedRows = await readMsLiveCache(env, branch, sourceHash);
+    const sync = cachedRows
+      ? {
+          syncedAt: new Date().toISOString(),
+          changes: 0,
+          rows: cachedRows,
         }
-      } else {
-        const settled = await waitForMsSourceCache(env, branch, sourceHash);
-        if (settled?.sourceMatch) {
-          cache = settled;
-          sync = {
-            syncedAt: new Date().toISOString(),
-            changes: 0,
-            rows: settled.rows,
-          };
-        } else {
-          sync = {
-            syncedAt: new Date().toISOString(),
-            changes: 0,
-            rows: cache?.rows || [],
-          };
-        }
-      }
-    }
-    const completedDay = thaiDay();
-    const completionCacheReady =
-      cache?.format === 6 &&
-      cache.completedDay === completedDay &&
-      cache.completedRows.every(
-        (row) => typeof row?.completionObservedLive === "boolean",
-      );
-    const priorCompleted = completionCacheReady
-      ? cache.completedRows
-      : await bootstrapCompletedToday(env, branch, completedDay);
-    const completedRows = mergeCompletedToday(priorCompleted, sync.rows, completedDay);
-    let cacheWrite = null;
-    if (
-      publishSource ||
-      (cache?.sourceMatch &&
-        (cache?.format !== 6 ||
-          cache?.completedDay !== completedDay ||
-          !completionCacheReady))
-    )
-      cacheWrite = await safeStatusWrite(
-        writeMsLiveCache(
+      : await syncMs(
+          { branch, rows: mappedRows },
+          { username: "MS_AUTO", role: "admin", branches: ["*"] },
           env,
-          branch,
-          sourceHash,
-          sync.rows,
-          sync.syncedAt,
-          completedDay,
-          completedRows,
-        ),
+        );
+    if (!cachedRows)
+      await safeStatusWrite(
+        writeMsLiveCache(env, branch, sourceHash, sync.rows, sync.syncedAt),
         "ms_live_cache_write_error",
         branch,
       );
-    if (syncClaim) {
-      await finishMsSyncClaim(env, branch, syncClaim, Boolean(cacheWrite));
-      syncClaim = null;
-    }
     await safeStatusWrite(
       markConnectionSuccess(env, "ms_connections", branch, sync.syncedAt),
       "ms_connection_success_write_error",
@@ -1802,45 +1209,10 @@ async function runMsRefresh(env, branch) {
       syncedAt: sync.syncedAt,
       changes: sync.changes,
       rows: sync.rows,
-      completedToday: completedRows.length,
-      tbrShadowFeed,
     };
     recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
     return result;
   } catch (error) {
-    const transient =
-      error?.code === "UPSTREAM_TIMEOUT" ||
-      error?.code === "MS_HTTP_ERROR" ||
-      error?.code === "MS_ROUTE_SOURCE_ERROR" ||
-      error?.code === "MS_ROUTE_RATE_LIMIT" ||
-      error instanceof TypeError;
-    if (transient) {
-      const fallback = await readMsLiveCache(env, branch);
-      if (fallback?.rows) {
-        console.warn(
-          JSON.stringify({
-            event: "ms_sync_degraded",
-            branch,
-            code: error.code || "MS_NETWORK_ERROR",
-            message: error.message,
-          }),
-        );
-        const result = {
-          status: "degraded",
-          errorCode: error?.code || "MS_NETWORK_ERROR",
-          changes: 0,
-          rows: fallback.rows,
-          completedToday:
-            fallback.completedDay === thaiDay()
-              ? fallback.completedRows.length
-              : 0,
-          error:
-            "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
-        };
-        recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
-        return result;
-      }
-    }
     await safeStatusWrite(
       markConnectionError(env, "ms_connections", branch, error.message),
       "ms_connection_error_write_error",
@@ -1855,7 +1227,6 @@ async function runMsRefresh(env, branch) {
     );
     const result = {
       status: "error",
-      errorCode: error?.code || "MS_SYNC_FAILED",
       error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",
     };
     recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
@@ -1863,98 +1234,16 @@ async function runMsRefresh(env, branch) {
   }
 }
 
-// MS_COMPLETION_TIME_TRUTH_V2: completion time is authoritative only when this system observed 0/1 -> 2.
-async function verifiedCompletionRouteIds(env, hub) {
-  // MS_SCHEDULE_COMPLETION_TRUTH_V4: Route owns status; safely matched Schedule E
-  // remains trusted completion timing evidence without restoring correlated scans.
-  const result = await env.DB.prepare(
-    `WITH ordered AS (
-       SELECT route_id,snapshot_at,rowid,event_type,synced_by,payload_json,
-              CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER) AS current_state,
-              LAG(CAST(json_extract(payload_json,'$.unloadingState') AS INTEGER))
-                OVER (PARTITION BY route_id ORDER BY snapshot_at,rowid) AS previous_state,
-              COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),'') AS completion_at,
-              COALESCE(json_extract(payload_json,'$.completionSource'),'') AS completion_source,
-              COALESCE(json_extract(payload_json,'$.actualArrivalAt'),'') AS actual_arrival
-         FROM ms_route_history
-        WHERE hub=? AND json_valid(payload_json)=1
-     ),
-     transitions AS (
-       SELECT route_id,completion_at
-         FROM ordered
-        WHERE current_state=2
-          AND completion_at<>''
-          AND (
-            completion_source='SCHEDULE'
-            OR (
-              previous_state IN (0,1)
-              AND COALESCE(event_type,'UPDATED')<>'FIRST_SEEN'
-              AND COALESCE(synced_by,'')<>'MS_RANGE'
-            )
-          )
-     ),
-     legacy_bursts AS (
-       SELECT completion_at
-         FROM ordered
-        WHERE completion_at<>''
-          AND completion_at<'2026-09-08T12:39:00.000Z'
-        GROUP BY completion_at
-       HAVING COUNT(DISTINCT route_id)>=8
-          AND (julianday(MAX(actual_arrival))-julianday(MIN(actual_arrival))) * 86400000 >= 3600000
-     )
-     SELECT DISTINCT route_id
-       FROM transitions
-      WHERE completion_at NOT IN (SELECT completion_at FROM legacy_bursts)`,
-  ).bind(hub).all();
-  return new Set((result.results || []).map((row) => String(row.route_id || '')).filter(Boolean));
-}
-
-async function ensureMsCompletionRepair(env, hub) {
-  if (completionRepairChecked.has(hub)) return;
-  const cache = await env.DB.prepare(
-    "SELECT source_hash FROM ms_live_cache WHERE hub=?",
-  ).bind(hub).first();
-  if (!String(cache?.source_hash || "").startsWith(MS_LIVE_CACHE_VERSION + ":")) {
-    const verified = await verifiedCompletionRouteIds(env, hub);
-    const polluted = (
-      await env.DB.prepare(
-        "SELECT id FROM ms_routes WHERE hub=? AND unloading_state=2 AND COALESCE(unloading_completed_at,'')<>''",
-      ).bind(hub).all()
-    ).results
-      .map((row) => String(row.id || ""))
-      .filter((id) => id && !verified.has(id));
-    if (polluted.length) {
-      const statements = polluted.map((id) =>
-        env.DB.prepare(
-          "UPDATE ms_routes SET unloading_completed_at='' WHERE hub=? AND id=?",
-        ).bind(hub, id),
-      );
-      await batches(env, statements);
-    }
-  }
-  completionRepairChecked.add(hub);
-}
-
-async function readMsLiveCache(env, hub, sourceHash = "") {
+async function readMsLiveCache(env, hub, sourceHash) {
   try {
     const row = await env.DB.prepare(
       "SELECT source_hash,rows_json FROM ms_live_cache WHERE hub=?",
     )
       .bind(hub)
       .first();
-    if (!row) return null;
-    const parsed = JSON.parse(row.rows_json || "[]");
-    const legacy = Array.isArray(parsed);
-    const rows = legacy ? parsed : Array.isArray(parsed?.rows) ? parsed.rows : null;
-    if (!rows) return null;
-    return {
-      sourceHash: String(row.source_hash || ""),
-      format: legacy ? 1 : Number(parsed.version) || 0,
-      sourceMatch: Boolean(sourceHash) && row.source_hash === sourceHash,
-      rows,
-      completedDay: legacy ? "" : String(parsed.completedDay || ""),
-      completedRows: legacy || !Array.isArray(parsed.completedRows) ? [] : parsed.completedRows,
-    };
+    if (!row || row.source_hash !== sourceHash) return null;
+    const rows = JSON.parse(row.rows_json || "[]");
+    return Array.isArray(rows) ? rows : null;
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -1967,192 +1256,14 @@ async function readMsLiveCache(env, hub, sourceHash = "") {
   }
 }
 
-async function writeMsLiveCache(
-  env,
-  hub,
-  sourceHash,
-  rows,
-  syncedAt,
-  completedDay = "",
-  completedRows = [],
-) {
-  const payload = {
-    version: 6,
-    rows: rows || [],
-    completedDay,
-    completedRows: completedRows || [],
-  };
+async function writeMsLiveCache(env, hub, sourceHash, rows, syncedAt) {
   return env.DB.prepare(
-    "INSERT INTO ms_live_cache(hub,source_hash,rows_json,synced_at) VALUES(?,?,?,?) ON CONFLICT(hub) DO UPDATE SET source_hash=excluded.source_hash,rows_json=excluded.rows_json,synced_at=excluded.synced_at WHERE ms_live_cache.source_hash<>excluded.source_hash OR ms_live_cache.rows_json<>excluded.rows_json",
+    "INSERT INTO ms_live_cache(hub,source_hash,rows_json,synced_at) VALUES(?,?,?,?) ON CONFLICT(hub) DO UPDATE SET source_hash=excluded.source_hash,rows_json=excluded.rows_json,synced_at=excluded.synced_at",
   )
-    .bind(hub, sourceHash, JSON.stringify(payload), syncedAt || new Date().toISOString())
+    .bind(hub, sourceHash, JSON.stringify(rows || []), syncedAt || new Date().toISOString())
     .run();
 }
 
-function thaiDayForValue(value) {
-  const dateValue = new Date(value || "");
-  if (Number.isNaN(dateValue.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(dateValue);
-  const item = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${item.year}-${item.month}-${item.day}`;
-}
-
-// MS_COMPLETED_ROUTE_DAY_TRUTH_V1: completed membership comes only from accepted
-// Destination/Drop Route state 2 truth. Completion timestamps remain timing
-// evidence for SLA and never decide whether a completed route is counted.
-function msCompletedRowBusinessDay(row) {
-  const attendance = normalizeMsAttendance(row?.attendanceType);
-  const value = attendance === "ต้นทาง"
-    ? row?.estimatedDepartureAt || row?.actualDepartureAt || row?.estimatedArrivalAt
-    : row?.estimatedArrivalAt || row?.actualArrivalAt || row?.estimatedDepartureAt;
-  return thaiDayForValue(value);
-}
-
-function isCompletedForThaiDay(row, day) {
-  const attendance = normalizeMsAttendance(row?.attendanceType);
-  return (
-    !row?.queueCancelledAt &&
-    (attendance === "ปลายทาง" || attendance === "จุดดรอป") &&
-    Number(row?.unloadingState) === 2 &&
-    msCompletedRowBusinessDay(row) === day
-  );
-}
-
-function mergeCompletedToday(previousRows, liveRows, day) {
-  const latest = new Map();
-  for (const row of previousRows || []) {
-    const id = row?.id || row?.routeId || row?.proofId;
-    if (id && isCompletedForThaiDay(row, day)) latest.set(id, row);
-  }
-  for (const row of liveRows || []) {
-    const id = row?.id || row?.routeId || row?.proofId;
-    if (id && isCompletedForThaiDay(row, day)) latest.set(id, row);
-  }
-  return [...latest.values()];
-}
-
-async function bootstrapCompletedToday(env, hub, day) {
-  const start = new Date(`${day}T00:00:00+07:00`).toISOString();
-  const history = (
-    await env.DB.prepare(
-      "SELECT route_id,payload_json,event_type AS action,synced_by FROM ms_route_history WHERE hub=? AND snapshot_at>=? ORDER BY snapshot_at ASC",
-    )
-      .bind(hub, start)
-      .all()
-  ).results;
-  const completed = new Map();
-  for (const item of history) {
-    if (item.synced_by === "MS_RANGE") continue;
-    try {
-      const row = JSON.parse(item.payload_json || "{}");
-      row.id = row.id || item.route_id;
-      // MS_DAILY_COMPLETION_LEGACY_SCHEDULE_RECOVERY_V2: old history/cache rows can predate completionSource.
-      // When Route says completed and the already-matched Schedule payload has a valid E,
-      // recover the trusted completion at read time instead of requiring a later live transition.
-      const trustedScheduleCompletedAt =
-        Number(row.unloadingState) === 2 &&
-        Number.isFinite(
-          Date.parse(String(row.scheduleUnloadingCompletedAt || "")),
-        )
-          ? String(row.scheduleUnloadingCompletedAt)
-          : "";
-      if (trustedScheduleCompletedAt) {
-        row.unloadingCompletedAt = trustedScheduleCompletedAt;
-        row.completionSource = "SCHEDULE";
-      }
-      if (typeof row.completionObservedLive !== "boolean")
-        row.completionObservedLive =
-          Boolean(row.unloadingCompletedAt) &&
-          item.action !== "FIRST_SEEN" && item.synced_by !== "MS_RANGE";
-      if (row.id && isCompletedForThaiDay(row, day)) completed.set(row.id, row);
-    } catch {}
-  }
-  return [...completed.values()];
-}
-
-async function readMsCompletedToday(env, actor, hub) {
-  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
-  const day = thaiDay();
-  const cache = await readMsLiveCache(env, hub);
-  const completionCacheReady =
-    cache?.format === 6 &&
-    cache.completedDay === day &&
-    cache.completedRows.every(
-      (row) => typeof row?.completionObservedLive === "boolean",
-    );
-  const previous = completionCacheReady
-    ? cache.completedRows
-    : await bootstrapCompletedToday(env, hub, day);
-  const rows = mergeCompletedToday(previous, cache?.rows || [], day);
-  return { hub, day, total: rows.length, rows };
-}
-
-const MS_SYNC_CLAIM_LEASE_MS = 15000;
-
-async function acquireMsSyncClaim(env, hub, sourceHash) {
-  const now = new Date();
-  const claimedAt = now.toISOString();
-  const leaseUntil = new Date(now.getTime() + MS_SYNC_CLAIM_LEASE_MS).toISOString();
-  const token = crypto.randomUUID();
-  const result = await env.DB.prepare(
-    "INSERT INTO ms_sync_claims(hub,source_hash,claim_token,state,lease_until,claimed_at,finished_at) VALUES(?,?,?,'ACTIVE',?,?,'') ON CONFLICT(hub) DO UPDATE SET source_hash=excluded.source_hash,claim_token=excluded.claim_token,state='ACTIVE',lease_until=excluded.lease_until,claimed_at=excluded.claimed_at,finished_at='' WHERE (ms_sync_claims.state='DONE' AND ms_sync_claims.source_hash<>excluded.source_hash) OR ms_sync_claims.state='FAILED' OR (ms_sync_claims.state='ACTIVE' AND ms_sync_claims.lease_until<?)",
-  )
-    .bind(hub, sourceHash, token, leaseUntil, claimedAt, claimedAt)
-    .run();
-  return {
-    acquired: Number(result?.meta?.changes || 0) > 0,
-    token,
-    sourceHash,
-  };
-}
-
-async function finishMsSyncClaim(env, hub, claim, success) {
-  if (!claim?.token) return null;
-  return safeStatusWrite(
-    env.DB.prepare(
-      "UPDATE ms_sync_claims SET state=?,lease_until='',finished_at=? WHERE hub=? AND claim_token=?",
-    )
-      .bind(
-        success ? "DONE" : "FAILED",
-        new Date().toISOString(),
-        hub,
-        claim.token,
-      )
-      .run(),
-    "ms_sync_claim_finish_error",
-    hub,
-  );
-}
-
-async function waitForMsSourceCache(env, hub, sourceHash) {
-  for (let attempt = 0; attempt < 6; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const cache = await readMsLiveCache(env, hub, sourceHash);
-    if (cache?.sourceMatch) return cache;
-  }
-  return null;
-}
-
-async function readMsCancelledToday(env, actor, hub) {
-  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
-  const day = thaiDay();
-  const start = new Date(`${day}T00:00:00+07:00`).toISOString();
-  const end = new Date(Date.parse(start) + 86400000).toISOString();
-  const row = await env.DB.prepare(
-    "SELECT COUNT(*) AS total FROM ms_route_cancellations WHERE hub=? AND cancelled_at>=? AND cancelled_at<?",
-  )
-    .bind(hub, start, end)
-    .first();
-  return { hub, day, total: Number(row?.total) || 0 };
-}
-
-// MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2: staged worker exposes lower daily facts and resets them at Bangkok midnight.
-// completion cache only trusts observed live unloading transitions
 async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {
   if (!["ms_connections", "ms_preentry_connections", "ms_bus_connections"].includes(table))
     throw new Error("Unsupported connection table");
@@ -2179,53 +1290,12 @@ async function safeStatusWrite(promise, event, hub) {
   }
 }
 
-async function fetchWithTimeout(
-  url,
-  options = {},
-  timeoutMs = UPSTREAM_FETCH_TIMEOUT_MS,
-) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      const timeoutError = new Error(
-        `ระบบต้นทางตอบช้าเกิน ${Math.ceil(timeoutMs / 1000)} วินาที`,
-      );
-      timeoutError.code = "UPSTREAM_TIMEOUT";
-      timeoutError.status = 504;
-      throw timeoutError;
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// MS_UPSTREAM_ACCOUNT_GUARD_V12: Route keeps the 4-second truth while duplicate/burst requests are blocked.
-const MS_ROUTE_PAGE_CONCURRENCY = 1;
-const MS_ROUTE_PAGE_BATCH_DELAY_MS = 120;
-const MS_ROUTE_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
-const MS_ROUTE_RATE_LIMIT_MAX_COOLDOWN_MS = 60 * 60 * 1000;
-
-export function classifyMsRouteFailure(message, httpStatus = 0) {
-  const value = String(message || "").trim();
-  if (Number(httpStatus) === 429 || /request\s+exceeds\s+the\s+limit|rate.?limit|too many requests|exceed(?:ed|s)?\s+(?:the\s+)?limit/i.test(value))
-    return { code: "MS_ROUTE_RATE_LIMIT", status: 429 };
-  if ([401, 403].includes(Number(httpStatus)) || /session|token|auth|login|expired|unauthor/i.test(value))
-    return { code: "MS_SESSION_EXPIRED", status: 502 };
-  return { code: "MS_ROUTE_SOURCE_ERROR", status: 502 };
-}
-
 async function readMsRoutes(credentials, wantedStart, wantedEnd) {
   const nowThai = Date.now() + 7 * 3600000;
   const start = Number.isFinite(wantedStart)
     ? wantedStart
     : Math.floor(nowThai / 86400000) * 86400000 - 7 * 3600000 - 86400000;
-  // Live Route window includes previous day, today and tomorrow so trips
-  // planned across Bangkok midnight are already visible before 00:00.
-  const end = Number.isFinite(wantedEnd) ? wantedEnd : start + 3 * 86400000 - 1000;
+  const end = Number.isFinite(wantedEnd) ? wantedEnd : start + 2 * 86400000 - 1000;
   const first = await readMsPage(credentials, 1, start, end),
     rows = [...first.items];
   const pages = Math.min(
@@ -2233,15 +1303,12 @@ async function readMsRoutes(credentials, wantedStart, wantedEnd) {
     Math.ceil((Number(first.total) || rows.length) / 100),
   );
   if (pages > 1) {
-    const remainingPages = Array.from({ length: pages - 1 }, (_, index) => index + 2);
-    for (let offset = 0; offset < remainingPages.length; offset += MS_ROUTE_PAGE_CONCURRENCY) {
-      const pageBatch = remainingPages.slice(offset, offset + MS_ROUTE_PAGE_CONCURRENCY);
-      const results = await Promise.all(pageBatch.map((page) =>
-        readMsPage(credentials, page, start, end)));
-      for (const result of results) rows.push(...result.items);
-      if (offset + MS_ROUTE_PAGE_CONCURRENCY < remainingPages.length)
-        await new Promise((resolve) => setTimeout(resolve, MS_ROUTE_PAGE_BATCH_DELAY_MS));
-    }
+    const remaining = await Promise.all(
+      Array.from({ length: pages - 1 }, (_, index) =>
+        readMsPage(credentials, index + 2, start, end),
+      ),
+    );
+    for (const result of remaining) rows.push(...result.items);
   }
   return rows;
 }
@@ -2320,7 +1387,7 @@ async function readMsPage(credentials, page, start, end) {
   };
   for (const [key, value] of Object.entries(query))
     url.searchParams.set(key, value);
-  const response = await fetchWithTimeout(url, {
+  const response = await fetch(url, {
     headers: {
       Accept: "application/json, text/plain, */*",
       "Accept-Language": "th",
@@ -2333,17 +1400,10 @@ async function readMsPage(credentials, page, start, end) {
       "X-FLE-SESSION-ID": credentials.sessionId,
     },
   });
-  if (!response.ok) {
-    const message = `MS ตอบกลับ ${response.status}`;
-    const failure = classifyMsRouteFailure(message, response.status);
-    fail(message, failure.code, failure.status);
-  }
+  if (!response.ok) fail(`MS ตอบกลับ ${response.status}`, "MS_HTTP_ERROR", 502);
   const json = await response.json();
-  if (json.code !== 1) {
-    const message = json.message || json.msg || "MS ตอบกลับผิดพลาด";
-    const failure = classifyMsRouteFailure(message);
-    fail(message, failure.code, failure.status);
-  }
+  if (json.code !== 1)
+    fail(json.message || "เซสชัน MS หมดอายุ", "MS_SESSION_EXPIRED", 502);
   return {
     items: Array.isArray(json.data?.items) ? json.data.items : [],
     total: Number(json.data?.pagination?.total_count) || 0,
@@ -2398,266 +1458,6 @@ function liveSourceDays() {
   return [thaiDayOffset(-1), thaiDayOffset(0)];
 }
 
-// MS_TBR_SHADOW_FEED_V1: expose only barcode + KIT/TBR timestamps from the BusTime
-// payload already fetched for enrichment. This helper never reads or writes DB.
-function msTbrShadowFeed(busData) {
-  if (!(busData instanceof Map) || busData.sourceFailed) return [];
-  const seen = new Set();
-  const feed = [];
-  for (const item of busData.values()) {
-    const proofId = normalizeProofId(item?.proofId);
-    const tbrAt = text(item?.scheduleTbrArrivalAt, 100);
-    if (!proofId || !tbrAt || seen.has(proofId)) continue;
-    seen.add(proofId);
-    feed.push({
-      proofId: text(item?.proofId, 100),
-      scheduleTbrArrivalAt: tbrAt,
-      scheduleKitArrivalAt: text(item?.scheduleKitArrivalAt, 100),
-    });
-  }
-  return feed;
-}
-
-function tbrInboundAttendance(value) {
-  const normalized = normalizeMsAttendance(value);
-  return normalized === "ปลายทาง" || normalized === "จุดดรอป";
-}
-
-async function readTbrShadowBusData(env, hub, wantedDays = liveSourceDays()) {
-  // Read-only BusTime source for TBR Shadow. No connection heartbeat writes.
-  const row = await env.DB.prepare(
-    "SELECT credentials_cipher FROM ms_bus_connections WHERE hub=?",
-  ).bind(hub).first();
-  if (!row) return new Map();
-  const credentials = JSON.parse(await decryptMs(row.credentials_cipher, env));
-  const rows = [];
-  for (const day of wantedDays) {
-    const first = await readBusPage(credentials, 1, day);
-    rows.push(...first.items);
-    const pages = Math.min(20, Math.ceil((first.total || first.items.length) / 100));
-    if (pages > 1) {
-      const remainingPages = Array.from({ length: pages - 1 }, (_, index) => index + 2);
-      for (let offset = 0; offset < remainingPages.length; offset += BUS_TIME_PAGE_CONCURRENCY) {
-        const pageBatch = remainingPages.slice(offset, offset + BUS_TIME_PAGE_CONCURRENCY);
-        const results = await Promise.all(pageBatch.map((page) => readBusPage(credentials, page, day)));
-        results.forEach((result) => rows.push(...result.items));
-        if (offset + BUS_TIME_PAGE_CONCURRENCY < remainingPages.length)
-          await new Promise((resolve) => setTimeout(resolve, BUS_TIME_PAGE_BATCH_DELAY_MS));
-      }
-    }
-  }
-  const result = new Map();
-  for (const item of rows) {
-    const targetStore = String(nestedValue(item.next_store_info, 0) || "").toUpperCase();
-    if (targetStore && !targetStore.includes(String(hub).toUpperCase())) continue;
-    const proofId = nestedValue(item.proof_id, 0);
-    const key = normalizeProofId(proofId);
-    if (!key) continue;
-    const kit = msDate(nestedValue(item.kit_arrive_time, 0));
-    const tbr = msDate(nestedValue(item.fleet_sign_info, 0));
-    const current = result.get(`P:${key}`) || {};
-    const candidate = {
-      proofId: text(proofId, 100),
-      routeName: text(nestedValue(item.line_info, 0), 300),
-      scheduleKitArrivalAt: earliestDate(current.scheduleKitArrivalAt, kit),
-      scheduleTbrArrivalAt: earliestDate(current.scheduleTbrArrivalAt, tbr),
-      arrivedParcels: Math.max(Number(current.arrivedParcels) || 0, Number(nestedValue(item.parcel_count, 0)) || 0),
-      arrivedBags: Math.max(Number(current.arrivedBags) || 0, Number(nestedValue(item.pack_count, 0)) || 0),
-    };
-    setEnrichmentAliases(result, candidate, proofId);
-  }
-  return result;
-}
-
-// TBR_SHADOW_SPLIT_V2: split Route and BusTime into separate Worker invocations.
-// TBR_ROUTE_OPERATING_WINDOW_V3 / TBR_ROUTE_CHUNK_RETRY_V4 / TBR_ROUTE_ADAPTIVE_RETRY_V5
-// are retained as compatibility helpers for existing deploy gates only. V12 no
-// longer invokes these helpers from TBR Shadow; both Shadow parts reuse the
-// accepted main live cache, so TBR Intelligence adds zero MS upstream polling.
-function tbrShadowRouteRanges(now = Date.now()) {
-  const nowThai = now + 7 * 60 * 60 * 1000;
-  const todayStartBangkok = Math.floor(nowThai / 86400000) * 86400000 - 7 * 60 * 60 * 1000;
-  return [
-    { label: "yesterday", start: todayStartBangkok - 86400000, end: todayStartBangkok - 1000 },
-    { label: "today", start: todayStartBangkok, end: todayStartBangkok + 86400000 - 1000 },
-  ];
-}
-
-async function readTbrRouteRangeAttempt(credentials, range) {
-  let lastError;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try { return await readMsRoutes(credentials, range.start, range.end); }
-    catch (error) {
-      lastError = error;
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 350));
-    }
-  }
-  throw lastError || new Error("Route " + range.label + " failed");
-}
-
-async function readTbrRouteRangeAdaptive(credentials, range, depth = 0) {
-  try { return await readTbrRouteRangeAttempt(credentials, range); }
-  catch (error) {
-    const span = Number(range.end) - Number(range.start) + 1;
-    if (depth >= 2 || span <= 6 * 60 * 60 * 1000) {
-      error.message = "[" + range.label + " depth=" + depth + "] " + (error.message || "Route source failed");
-      throw error;
-    }
-    const middle = Number(range.start) + Math.floor(span / 2);
-    const left = { label: range.label + "-A", start: Number(range.start), end: middle - 1 };
-    const right = { label: range.label + "-B", start: middle, end: Number(range.end) };
-    const [leftRows, rightRows] = await Promise.all([
-      readTbrRouteRangeAdaptive(credentials, left, depth + 1),
-      readTbrRouteRangeAdaptive(credentials, right, depth + 1),
-    ]);
-    return [...leftRows, ...rightRows];
-  }
-}
-
-async function readTbrRouteRangeWithRetry(credentials, range) {
-  return readTbrRouteRangeAdaptive(credentials, range);
-}
-
-function tbrShadowBusDays(now = new Date()) {
-  const hour = Number(new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Bangkok",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).format(now));
-  return hour < 12 ? [thaiDayOffset(-1), thaiDayOffset(0)] : [thaiDayOffset(0)];
-}
-
-function tbrShadowPartQuota(part) {
-  return {
-    mode: "SHADOW_READONLY_SPLIT_V2_CACHE_V12",
-    part,
-    tursoPointReadsThisCall: 2,
-    tursoPointReadsPerCron: 4,
-    tursoWritesPerCron: 0,
-    routeTableReads: 0,
-    routeTableWrites: 0,
-    historyReads: 0,
-    historyWrites: 0,
-    liveCacheReads: 1,
-    liveCacheWrites: 0,
-    preEntryCalls: 0,
-    extraMsPolling: 0,
-  };
-}
-
-// TBR_LIVE_CACHE_ENVELOPE_V13: accept both legacy array cache and current V2 envelope.
-async function readTbrShadowLiveCache(env, hub, sourceLabel) {
-  const cached = await env.DB.prepare(
-    "SELECT rows_json,synced_at FROM ms_live_cache WHERE hub=?",
-  ).bind(hub).first();
-  if (!cached)
-    fail("ยังไม่มี live cache สำหรับ " + sourceLabel, "TBR_CACHE_EMPTY", 503);
-  let parsed, rows;
-  try {
-    parsed = JSON.parse(cached.rows_json || "[]");
-    rows = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed?.rows)
-        ? parsed.rows
-        : null;
-  } catch {
-    fail("live cache สำหรับ " + sourceLabel + " อ่านไม่ได้", "TBR_CACHE_INVALID", 503);
-  }
-  if (!rows)
-    fail("live cache สำหรับ " + sourceLabel + " ไม่ถูกต้อง", "TBR_CACHE_INVALID", 503);
-  return {
-    rows,
-    syncedAt: text(cached.synced_at, 100),
-    cacheFormat: Array.isArray(parsed) ? 1 : Number(parsed?.version) || 0,
-  };
-}
-
-// TBR_ROUTE_REUSE_LIVE_CACHE_V12: Route Shadow consumes the same accepted main Route
-// snapshot already refreshed by the 4-second shared coordinator. No second MS
-// Route request stream is allowed from the one-minute Browser/TBR cron.
-async function readTbrShadowRouteFromLiveCache(env, hub) {
-  const cached = await readTbrShadowLiveCache(env, hub, "Route");
-  if (cached.rows.length === 0) {
-    const existing = await env.DB.prepare(
-      "SELECT id FROM ms_routes WHERE hub=? LIMIT 1",
-    ).bind(hub).first();
-    if (existing)
-      fail("live cache Route เป็น 0 ทั้งที่ยังมี Route truth อยู่", "TBR_ROUTE_CACHE_INCONSISTENT", 503);
-  }
-  const rows = cached.rows
-    .filter((row) => tbrInboundAttendance(row?.attendanceType))
-    .map((row) => ({
-      proofId: text(row?.proofId, 100),
-      attendanceType: normalizeMsAttendance(row?.attendanceType),
-      actualArrivalAt: date(row?.actualArrivalAt),
-    }))
-    .filter((row) => normalizeProofId(row.proofId));
-  return { rows, syncedAt: cached.syncedAt };
-}
-
-// TBR_BUS_REUSE_LIVE_CACHE_V10: TBR Bus shadow reuses the accepted main live cache instead
-// of issuing a second Fleet Time Management request stream.
-async function readTbrShadowBusFromLiveCache(env, hub) {
-  const cached = await readTbrShadowLiveCache(env, hub, "TBR / BusTime");
-  const seen = new Set();
-  const feed = [];
-  for (const item of cached.rows) {
-    if (!tbrInboundAttendance(item?.attendanceType)) continue;
-    const proofId = normalizeProofId(item?.proofId);
-    const tbrAt = text(item?.scheduleTbrArrivalAt, 100);
-    if (!proofId || !tbrAt || seen.has(proofId)) continue;
-    seen.add(proofId);
-    feed.push({
-      proofId: text(item?.proofId, 100),
-      scheduleTbrArrivalAt: tbrAt,
-      scheduleKitArrivalAt: text(item?.scheduleKitArrivalAt, 100),
-    });
-  }
-  return { feed, syncedAt: cached.syncedAt };
-}
-
-// TBR_BUS_DAILY_SPLIT_V9: shadowDay remains a compatibility field only.
-async function readTbrShadowSnapshot(env, hub, part, shadowDay) {
-  if (part === "routes") {
-    let cachedRoute;
-    try { cachedRoute = await readTbrShadowRouteFromLiveCache(env, hub); }
-    catch (error) {
-      const code = String(error?.code || "ROUTE_CACHE_FAILED");
-      fail(error?.message || "อ่าน Route จาก live cache ไม่สำเร็จ",
-        code.startsWith("TBR_ROUTE_") ? code : `TBR_ROUTE_${code}`, 503);
-    }
-    return {
-      status: "shadow_readonly_routes_cache",
-      syncedAt: cachedRoute.syncedAt || new Date().toISOString(),
-      changes: 0,
-      rows: cachedRoute.rows,
-      tbrShadowFeed: [],
-      shadowQuota: tbrShadowPartQuota("routes"),
-    };
-  }
-
-  if (part === "bus") {
-    let cachedBus;
-    try { cachedBus = await readTbrShadowBusFromLiveCache(env, hub); }
-    catch (error) {
-      const code = String(error?.code || "BUS_CACHE_FAILED");
-      fail(error?.message || "อ่าน TBR / BusTime จาก live cache ไม่สำเร็จ",
-        code.startsWith("TBR_BUS_") ? code : `TBR_BUS_${code}`, 503);
-    }
-    return {
-      status: "shadow_readonly_bus_cache",
-      syncedAt: cachedBus.syncedAt || new Date().toISOString(),
-      changes: 0,
-      rows: [],
-      tbrShadowFeed: cachedBus.feed,
-      shadowDay: String(shadowDay || ""),
-      shadowQuota: tbrShadowPartQuota("bus"),
-    };
-  }
-
-  fail("TBR Shadow ต้องระบุ source part", "TBR_SHADOW_PART_REQUIRED", 400);
-}
-
 async function preEntryCredentials(env, hub) {
   const row = await env.DB.prepare(
     "SELECT credentials_cipher FROM ms_preentry_connections WHERE hub=?",
@@ -2667,64 +1467,7 @@ async function preEntryCredentials(env, hub) {
   catch { return null; }
 }
 
-// PREENTRY_RATE_GUARD_V12 / OPTIONAL_SOURCE_RATE_GUARD_V12: one shared real read/minute; hard backoff on provider limit.
-const PREENTRY_SOURCE_TTL_MS = 60 * 1000;
-const PREENTRY_PAGE_CONCURRENCY = 1;
-const PREENTRY_PAGE_BATCH_DELAY_MS = 120;
-const preEntrySourceCache = new Map();
-const preEntrySourceActive = new Map();
-const preEntryRateGuard = new Map();
-
-function preEntrySourceKey(hub, wantedDays) {
-  return String(hub || "").toUpperCase() + "|" + (Array.isArray(wantedDays) ? wantedDays.join(",") : "");
-}
-
 async function readPreEntryCounts(env, hub, wantedDays = liveSourceDays()) {
-  const key = preEntrySourceKey(hub, wantedDays);
-  const now = Date.now();
-  const cached = preEntrySourceCache.get(key);
-  const guard = preEntryRateGuard.get(key);
-  if (guard?.until > now) {
-    if (cached?.data) {
-      cached.data.sourceStale = true;
-      cached.data.retryAt = new Date(guard.until).toISOString();
-      return cached.data;
-    }
-    const failed = new Map();
-    failed.sourceFailed = true;
-    failed.sourceCode = "PREENTRY_RATE_LIMIT";
-    failed.retryAt = new Date(guard.until).toISOString();
-    return failed;
-  }
-  if (cached && cached.until > now) return cached.data;
-  if (preEntrySourceActive.has(key)) return preEntrySourceActive.get(key);
-  const task = readPreEntryCountsFresh(env, hub, wantedDays)
-    .then((data) => {
-      if (data instanceof Map && data.sourceFailed !== true) {
-        data.sourceStale = false;
-        preEntryRateGuard.delete(key);
-        preEntrySourceCache.set(key, { until: Date.now() + PREENTRY_SOURCE_TTL_MS, data });
-        return data;
-      }
-      if (data?.sourceCode === "PREENTRY_RATE_LIMIT") {
-        const previous = preEntryRateGuard.get(key);
-        const strikes = Math.min(8, Number(previous?.strikes || 0) + 1);
-        const until = Date.now() + optionalRateCooldownMs(strikes);
-        preEntryRateGuard.set(key, { strikes, until });
-        if (cached?.data) {
-          cached.data.sourceStale = true;
-          cached.data.retryAt = new Date(until).toISOString();
-          return cached.data;
-        }
-      }
-      return data;
-    })
-    .finally(() => preEntrySourceActive.delete(key));
-  preEntrySourceActive.set(key, task);
-  return task;
-}
-
-async function readPreEntryCountsFresh(env, hub, wantedDays = liveSourceDays()) {
   const credentials = await preEntryCredentials(env, hub);
   if (!credentials) return new Map();
   try {
@@ -2734,14 +1477,9 @@ async function readPreEntryCountsFresh(env, hub, wantedDays = liveSourceDays()) 
       rows.push(...first.items);
       const pages = Math.min(20, Math.ceil((first.total || first.items.length) / 100));
       if (pages > 1) {
-        const remainingPages = Array.from({ length: pages - 1 }, (_, index) => index + 2);
-        for (let offset = 0; offset < remainingPages.length; offset += PREENTRY_PAGE_CONCURRENCY) {
-          const pageBatch = remainingPages.slice(offset, offset + PREENTRY_PAGE_CONCURRENCY);
-          const results = await Promise.all(pageBatch.map((page) => readPreEntryPage(credentials, page, day)));
-          results.forEach((result) => rows.push(...result.items));
-          if (offset + PREENTRY_PAGE_CONCURRENCY < remainingPages.length)
-            await new Promise((resolve) => setTimeout(resolve, PREENTRY_PAGE_BATCH_DELAY_MS));
-        }
+        const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, index) =>
+          readPreEntryPage(credentials, index + 2, day)));
+        rest.forEach((result) => rows.push(...result.items));
       }
     }
     await safeStatusWrite(
@@ -2770,20 +1508,8 @@ async function readPreEntryCountsFresh(env, hub, wantedDays = liveSourceDays()) 
       hub,
     );
     console.error(JSON.stringify({ event: "ms_preentry_sync_error", hub, message: error.message }));
-    const failed = new Map();
-    failed.sourceFailed = true;
-    failed.sourceCode = error?.code || "PREENTRY_SOURCE_ERROR";
-    return failed;
+    return new Map();
   }
-}
-
-export function classifyPreEntryFailure(message, httpStatus = 0) {
-  const value = String(message || "").trim();
-  if (Number(httpStatus) === 429 || /request\s+exceeds\s+the\s+limit|rate.?limit|too many requests|exceed(?:ed|s)?\s+(?:the\s+)?limit/i.test(value))
-    return { code: "PREENTRY_RATE_LIMIT", status: 429 };
-  if (/session|token|auth|login|expired|unauthor/i.test(value))
-    return { code: "PREENTRY_SESSION_EXPIRED", status: 502 };
-  return { code: "PREENTRY_SOURCE_ERROR", status: 502 };
 }
 
 async function readPreEntryPage(credentials, page, day) {
@@ -2794,22 +1520,15 @@ async function readPreEntryPage(credentials, page, day) {
     stat_time: day, last_stop: "", next_store_id: credentials.next_store_id || "",
     page: String(page), page_size: "100", export: "0",
   })) url.searchParams.set(key, value);
-  const response = await fetchWithTimeout(url, { headers: {
+  const response = await fetch(url, { headers: {
     Accept: "application/json, text/plain, */*",
     Referer: "https://fbi.flashexpress.com/fbi-ui/",
     "User-Agent": "Mozilla/5.0", "BI-PLATFORM": "pc",
   }});
-  if (!response.ok) {
-    const message = `ข้อมูลพัสดุตอบกลับ ${response.status}`;
-    const failure = classifyPreEntryFailure(message, response.status);
-    fail(message, failure.code, failure.status);
-  }
+  if (!response.ok) fail(`ข้อมูลพัสดุตอบกลับ ${response.status}`, "PREENTRY_HTTP_ERROR", 502);
   const json = await response.json();
-  if (Number(json.code) !== 1) {
-    const message = json.message || json.msg || "ข้อมูลพัสดุตอบกลับผิดพลาด";
-    const failure = classifyPreEntryFailure(message);
-    fail(message, failure.code, failure.status);
-  }
+  if (Number(json.code) !== 1)
+    fail(json.message || "เซสชันพัสดุที่คาดว่าจะเข้าคลังหมดอายุ", "PREENTRY_SESSION_EXPIRED", 502);
   return {
     items: Array.isArray(json.data?.DataList) ? json.data.DataList : [],
     total: Number(json.data?.Total) || 0,
@@ -3045,70 +1764,7 @@ async function readHbiTruckPhotos(credentials, proofId, estimatedArrivalAt) {
   return { proofId, photos, total: photos.length };
 }
 
-// BUS_TIME_RATE_GUARD_V10 / OPTIONAL_SOURCE_RATE_GUARD_V12: Fleet Time is enrichment, not the 4-second Route truth.
-const BUS_TIME_SOURCE_TTL_MS = 60 * 1000;
-const BUS_TIME_PAGE_CONCURRENCY = 1;
-const BUS_TIME_PAGE_BATCH_DELAY_MS = 120;
-const OPTIONAL_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
-const OPTIONAL_RATE_LIMIT_MAX_COOLDOWN_MS = 60 * 60 * 1000;
-const busTimeSourceCache = new Map();
-const busTimeSourceActive = new Map();
-const busTimeRateGuard = new Map();
-
-function optionalRateCooldownMs(strikes) {
-  return Math.min(OPTIONAL_RATE_LIMIT_MAX_COOLDOWN_MS, OPTIONAL_RATE_LIMIT_BASE_COOLDOWN_MS * (2 ** Math.max(0, Number(strikes || 1) - 1)));
-}
-
-function busTimeSourceKey(hub, wantedDays) {
-  return String(hub || "").toUpperCase() + "|" + (Array.isArray(wantedDays) ? wantedDays.join(",") : "");
-}
-
 async function readBusTimeData(env, hub, wantedDays = liveSourceDays()) {
-  const key = busTimeSourceKey(hub, wantedDays);
-  const now = Date.now();
-  const cached = busTimeSourceCache.get(key);
-  const guard = busTimeRateGuard.get(key);
-  if (guard?.until > now) {
-    if (cached?.data) {
-      cached.data.sourceStale = true;
-      cached.data.retryAt = new Date(guard.until).toISOString();
-      return cached.data;
-    }
-    const failed = new Map();
-    failed.sourceFailed = true;
-    failed.sourceCode = "BUS_TIME_RATE_LIMIT";
-    failed.retryAt = new Date(guard.until).toISOString();
-    return failed;
-  }
-  if (cached && cached.until > now) return cached.data;
-  if (busTimeSourceActive.has(key)) return busTimeSourceActive.get(key);
-  const task = readBusTimeDataFresh(env, hub, wantedDays)
-    .then((data) => {
-      if (data instanceof Map && data.sourceFailed !== true) {
-        data.sourceStale = false;
-        busTimeRateGuard.delete(key);
-        busTimeSourceCache.set(key, { until: Date.now() + BUS_TIME_SOURCE_TTL_MS, data });
-        return data;
-      }
-      if (data?.sourceCode === "BUS_TIME_RATE_LIMIT") {
-        const previous = busTimeRateGuard.get(key);
-        const strikes = Math.min(8, Number(previous?.strikes || 0) + 1);
-        const until = Date.now() + optionalRateCooldownMs(strikes);
-        busTimeRateGuard.set(key, { strikes, until });
-        if (cached?.data) {
-          cached.data.sourceStale = true;
-          cached.data.retryAt = new Date(until).toISOString();
-          return cached.data;
-        }
-      }
-      return data;
-    })
-    .finally(() => busTimeSourceActive.delete(key));
-  busTimeSourceActive.set(key, task);
-  return task;
-}
-
-async function readBusTimeDataFresh(env, hub, wantedDays = liveSourceDays()) {
   const row = await env.DB.prepare(
     "SELECT credentials_cipher FROM ms_bus_connections WHERE hub=?",
   ).bind(hub).first();
@@ -3121,14 +1777,9 @@ async function readBusTimeDataFresh(env, hub, wantedDays = liveSourceDays()) {
       rows.push(...first.items);
       const pages = Math.min(20, Math.ceil((first.total || first.items.length) / 100));
       if (pages > 1) {
-        const remainingPages = Array.from({ length: pages - 1 }, (_, index) => index + 2);
-        for (let offset = 0; offset < remainingPages.length; offset += BUS_TIME_PAGE_CONCURRENCY) {
-          const pageBatch = remainingPages.slice(offset, offset + BUS_TIME_PAGE_CONCURRENCY);
-          const results = await Promise.all(pageBatch.map((page) => readBusPage(credentials, page, day)));
-          results.forEach((result) => rows.push(...result.items));
-          if (offset + BUS_TIME_PAGE_CONCURRENCY < remainingPages.length)
-            await new Promise((resolve) => setTimeout(resolve, BUS_TIME_PAGE_BATCH_DELAY_MS));
-        }
+        const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, index) =>
+          readBusPage(credentials, index + 2, day)));
+        rest.forEach((result) => rows.push(...result.items));
       }
     }
     await safeStatusWrite(
@@ -3183,10 +1834,7 @@ async function readBusTimeDataFresh(env, hub, wantedDays = liveSourceDays()) {
       hub,
     );
     console.error(JSON.stringify({ event: "ms_bus_sync_error", hub, message: error.message }));
-    const failed = new Map();
-    failed.sourceFailed = true;
-    failed.sourceCode = error?.code || "BUS_TIME_SOURCE_ERROR";
-    return failed;
+    return new Map();
   }
 }
 
@@ -3342,7 +1990,7 @@ async function readBusPage(credentials, page, day) {
     page: String(page), pageSize: "100",
   };
   for (const [key, value] of Object.entries(filters)) url.searchParams.set(key, value);
-  const response = await fetchWithTimeout(url, { headers: {
+  const response = await fetch(url, { headers: {
     Accept: "application/json, text/plain, */*", Referer: "https://fbi.flashexpress.com/fbi-ui/",
     "User-Agent": "Mozilla/5.0", "BI-PLATFORM": "pc",
   }});
@@ -3408,15 +2056,6 @@ async function persistMsConnection(hub, sessionId, deviceId, updatedBy, env) {
     `ทดสอบสำเร็จ ${test.total} รายการ`,
     updatedBy,
   );
-  if (env.MS_REFRESH_COORDINATOR) {
-    try {
-      const id = env.MS_REFRESH_COORDINATOR.idFromName(hub);
-      const stub = env.MS_REFRESH_COORDINATOR.get(id);
-      await stub.fetch(new Request("https://ms-refresh.internal/quota-reset?branch=" + encodeURIComponent(hub)));
-    } catch (error) {
-      console.warn(JSON.stringify({ event: "ms_route_quota_guard_reset_failed", hub, message: error?.message || String(error) }));
-    }
-  }
   return { hub, total: test.total, updatedAt: now };
 }
 
@@ -3452,121 +2091,19 @@ async function completeMsPairing(body, env) {
   return { ...result, connectorToken };
 }
 
-async function bootstrapConnector(body, env) {
-  const configuredSecret = String(env.CONNECTOR_BOOTSTRAP_SECRET || "");
-  if (!configuredSecret)
-    fail(
-      "ปิดการรับตัวเชื่อมต่อชั่วคราว",
-      "CONNECTOR_BOOTSTRAP_DISABLED",
-      404,
-    );
-
-  const suppliedSecret = String(body.bootstrapSecret || "");
-  if (
-    !suppliedSecret ||
-    !(await equal(
-      await sha256(suppliedSecret),
-      await sha256(configuredSecret),
-    ))
-  )
-    fail(
-      "ยืนยันการย้ายตัวเชื่อมต่อไม่สำเร็จ",
-      "INVALID_CONNECTOR_BOOTSTRAP",
-      401,
-    );
-
-  const hub = text(body.hub, 80).toUpperCase();
-  const connectorToken = text(body.connectorToken, 500);
-  if (!/^[A-Z0-9_-]{2,20}$/.test(hub) || connectorToken.length < 20)
-    fail(
-      "ข้อมูลตัวเชื่อมต่อไม่ถูกต้อง",
-      "INVALID_CONNECTOR_BOOTSTRAP",
-      400,
-    );
-
-  const connection = await env.DB.prepare(
-    "SELECT hub FROM ms_connections WHERE hub=?",
-  )
-    .bind(hub)
-    .first();
-  if (!connection)
-    fail(
-      "HUB นี้ยังไม่มี MS connection ที่ยืนยันแล้ว",
-      "MS_NOT_CONFIGURED",
-      409,
-    );
-
-  const tokenHash = await sha256(connectorToken);
-  const existing = await env.DB.prepare(
-    "SELECT token_hash,active FROM ms_connector_tokens WHERE hub=?",
-  )
-    .bind(hub)
-    .first();
-  if (Number(existing?.active) === 1) {
-    if (await equal(String(existing.token_hash || ""), tokenHash))
-      return { hub, adopted: false, alreadyRegistered: true };
-    fail(
-      "HUB นี้มีตัวเชื่อมต่อที่ใช้งานอยู่แล้ว",
-      "CONNECTOR_ALREADY_ACTIVE",
-      409,
-    );
-  }
-
-  const now = new Date().toISOString();
-  if (existing) {
-    await env.DB.prepare(
-      "UPDATE ms_connector_tokens SET token_hash=?,created_at=?,last_used_at='',active=1 WHERE hub=? AND active<>1",
-    )
-      .bind(tokenHash, now, hub)
-      .run();
-  } else {
-    await env.DB.prepare(
-      "INSERT OR IGNORE INTO ms_connector_tokens(hub,token_hash,created_at,last_used_at,active) VALUES(?,?,?,'',1)",
-    )
-      .bind(hub, tokenHash, now)
-      .run();
-  }
-
-  const registered = await env.DB.prepare(
-    "SELECT token_hash,active FROM ms_connector_tokens WHERE hub=?",
-  )
-    .bind(hub)
-    .first();
-  if (
-    Number(registered?.active) !== 1 ||
-    !(await equal(String(registered?.token_hash || ""), tokenHash))
-  )
-    fail(
-      "มีตัวเชื่อมต่ออื่นลงทะเบียนก่อนแล้ว",
-      "CONNECTOR_ALREADY_ACTIVE",
-      409,
-    );
-
-  return { hub, adopted: true, alreadyRegistered: false };
-}
-
-// TBR_SHADOW_READONLY_V1: Browser TEST can request a quota-safe shadow snapshot.
-// The shadow path never calls syncMs, pre-entry, ms_routes, history or live cache.
 async function connectorSync(body, env) {
   const hub = text(body.hub, 80).toUpperCase(), tokenHash = await sha256(text(body.connectorToken, 500));
   const row = await env.DB.prepare("SELECT hub FROM ms_connector_tokens WHERE hub=? AND token_hash=? AND active=1").bind(hub, tokenHash).first();
   if (!row) fail("ตัวเชื่อมต่อไม่ถูกต้อง", "INVALID_CONNECTOR", 401);
-  const shadowOnly = body.shadowOnly === true;
-  const shadowPart = text(body.shadowPart, 20).toLowerCase();
-  const shadowDay = text(body.shadowDay, 20);
-  const result = shadowOnly
-    ? await readTbrShadowSnapshot(env, hub, shadowPart, shadowDay)
-    : await refreshMsIfStale(env, { username: "MS_CRON", role: "admin", branches: ["*"] }, hub);
-  if (!shadowOnly) {
-    const now = new Date().toISOString(), cutoff = new Date(Date.parse(now) - CONNECTOR_HEARTBEAT_MS).toISOString();
-    await safeStatusWrite(
-      env.DB.prepare(
-        "UPDATE ms_connector_tokens SET last_used_at=? WHERE hub=? AND (last_used_at IS NULL OR last_used_at='' OR last_used_at<?)",
-      ).bind(now, hub, cutoff).run(),
-      "ms_connector_heartbeat_write_error",
-      hub,
-    );
-  }
+  const result = await refreshMsIfStale(env, { username: "MS_CRON", role: "admin", branches: ["*"] }, hub);
+  const now = new Date().toISOString(), cutoff = new Date(Date.parse(now) - CONNECTOR_HEARTBEAT_MS).toISOString();
+  await safeStatusWrite(
+    env.DB.prepare(
+      "UPDATE ms_connector_tokens SET last_used_at=? WHERE hub=? AND (last_used_at IS NULL OR last_used_at='' OR last_used_at<?)",
+    ).bind(now, hub, cutoff).run(),
+    "ms_connector_heartbeat_write_error",
+    hub,
+  );
   return { hub, ...result };
 }
 
@@ -3718,8 +2255,6 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
       .all(),
   ]);
 
-  // MS_COMPLETION_DAILY_HISTORY_TRUTH_V2: history reads expose only completion times backed by a recorded 0/1 -> 2 transition.
-  const verifiedCompletionRoutes = await verifiedCompletionRouteIds(env, hub);
   const cancellations = new Map(
     cancellationResult.results.map((row) => [row.route_id, row]),
   );
@@ -3732,11 +2267,6 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
       row.hub = row.hub || hub;
       row.archivedAt = item.snapshot_at;
       row.businessDay = item.business_day;
-      row.completionObservedLive =
-        Boolean(row.unloadingCompletedAt) &&
-        verifiedCompletionRoutes.has(String(row.id || ""));
-      if (row.unloadingCompletedAt && !row.completionObservedLive)
-        row.unloadingCompletedAt = "";
       const cancelled = cancellations.get(item.route_id);
       if (cancelled) {
         row.queueCancelledAt = cancelled.cancelled_at;
@@ -3855,21 +2385,7 @@ async function msArchive(env, actor, hub) {
     latest.set(row.id, row);
   }
 
-  const rows = await applyRouteCancellationsToRows(
-    env,
-    hub,
-    [...latest.values()],
-  );
-  // MS_COMPLETION_ARCHIVE_TRUTH_V2: never expose a completion timestamp unless history proves an observed 0/1 -> 2 transition.
-  const archiveVerifiedCompletionRoutes = await verifiedCompletionRouteIds(env, hub);
-  for (const row of latest.values()) {
-    row.completionObservedLive =
-      Boolean(row.unloadingCompletedAt) &&
-      archiveVerifiedCompletionRoutes.has(String(row.id || ""));
-    if (row.unloadingCompletedAt && !row.completionObservedLive)
-      row.unloadingCompletedAt = "";
-  }
-
+  const rows = [...latest.values()];
   const totalDistinct = Math.max(
     Number(distinctResult?.total_distinct) || 0,
     rows.length,

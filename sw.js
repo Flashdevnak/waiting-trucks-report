@@ -1,4 +1,4 @@
-const VERSION = "20260911-01-operation-header-responsive";
+const VERSION = "20260911-02-mobile-schedule-status";
 
 // The approved lower-card/table presentation lives in first-class frontend assets.
 // Keep the service worker limited to freshness; do not inject runtime UI patches.

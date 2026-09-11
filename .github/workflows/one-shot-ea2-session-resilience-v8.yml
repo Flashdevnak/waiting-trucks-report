@@ -1,0 +1,254 @@
+name: One-shot EA2 Session Resilience V8
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-ea2-session-resilience-v8.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Apply authoritative source fixes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          # 1) Canonical frontend owns freshness truth.
+          p = Path('ms.js')
+          s = p.read_text()
+          a = s.index('function renderFreshness() {')
+          b = s.index('\nfunction connection(', a)
+          freshness = '''// MS_FRESHNESS_TRUTH_V1: source-data age is not session health. A HUB may have
+          // no business changes for minutes while the accepted realtime transport remains
+          // healthy. Use explicit source status + latest received transport snapshot.
+          function renderFreshness() {
+            const synced = parseDate(state.lastSync);
+            const checkedAt = Number(state.transportLastOkAt || 0);
+            const transportStale =
+              !checkedAt ||
+              Date.now() - checkedAt > Math.max(CONFIG.staleMs, CONFIG.pollMs * 4);
+            const status = String(state.msStatus || "");
+            const healthy = status === "synced" && !state.syncError && !transportStale;
+
+            el("live-dot").classList.toggle("stale", !healthy);
+
+            if (healthy) {
+              el("source-sync").textContent =
+                `MS เรียลไทม์ · ตรวจสอบล่าสุด ${dtf.format(new Date(checkedAt))} น.`;
+              return;
+            }
+
+            if (state.syncError) {
+              el("source-sync").textContent = synced
+                ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ${state.syncError}`
+                : `MS: ${state.syncError}`;
+              return;
+            }
+
+            if (status === "degraded" && synced) {
+              el("source-sync").textContent =
+                `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · ใช้ข้อมูลล่าสุดชั่วคราว ระบบกำลังลองใหม่`;
+              return;
+            }
+
+            el("source-sync").textContent = synced
+              ? `ข้อมูล MS ล่าสุด ${dtf.format(synced)} น. · กำลังตรวจสอบรอบใหม่`
+              : "ยังไม่มีข้อมูลจาก MS";
+          }
+          '''
+          s = s[:a] + freshness + s[b:]
+          p.write_text(s)
+
+          # 2) Recovery staging source keeps the original `transient` contract so
+          # downstream TBR staging can extend it. Add only fallback truth metadata/message.
+          p = Path('.github/dev-tools/patch-ms-realtime-recovery.mjs')
+          s = p.read_text()
+          fallback_start = s.index('const transient =')
+          fallback_end = s.index('recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });', fallback_start)
+          segment = s[fallback_start:fallback_end]
+          if 'syncedAt: fallback.syncedAt || "",' not in segment:
+              needle = 'status: "degraded",'
+              pos = segment.index(needle) + len(needle)
+              segment = segment[:pos] + '\n          syncedAt: fallback.syncedAt || "",' + segment[pos:]
+          if 'เซสชัน MS ต้องอัปเดต · ระบบยังแสดงข้อมูลล่าสุด' not in segment:
+              literal = '"MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ"'
+              if segment.count(literal) != 1:
+                  raise SystemExit(f'recovery degraded message shape changed: {segment.count(literal)}')
+              segment = segment.replace(
+                  literal,
+                  'error?.code === "MS_SESSION_EXPIRED"\n            ? "เซสชัน MS ต้องอัปเดต · ระบบยังแสดงข้อมูลล่าสุดและจะลองเชื่อมต่อใหม่อัตโนมัติ"\n            : "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ"',
+                  1,
+              )
+          s = s[:fallback_start] + segment + s[fallback_end:]
+          p.write_text(s)
+
+          # 3) TBR staging is the authoritative owner that expands which Route
+          # failures are recoverable. Include real session expiry without renaming
+          # the transient anchor or changing normal refresh cadence.
+          p = Path('cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs')
+          s = p.read_text()
+          replacement_anchor = '''    const transientReplacement = `    const transient =\\n      error?.code === \\"UPSTREAM_TIMEOUT\\" ||\\n      error?.code === \\"MS_HTTP_ERROR\\" ||\\n      error?.code === \\"MS_ROUTE_SOURCE_ERROR\\" ||\\n      error?.code === \\"MS_ROUTE_RATE_LIMIT\\" ||\\n      error instanceof TypeError;`;'''
+          replacement_new = '''    const transientReplacement = `    const transient =\\n      error?.code === \\"UPSTREAM_TIMEOUT\\" ||\\n      error?.code === \\"MS_HTTP_ERROR\\" ||\\n      error?.code === \\"MS_SESSION_EXPIRED\\" ||\\n      error?.code === \\"MS_ROUTE_SOURCE_ERROR\\" ||\\n      error?.code === \\"MS_ROUTE_RATE_LIMIT\\" ||\\n      error instanceof TypeError;`;'''
+          if 'error?.code === \\"MS_SESSION_EXPIRED\\" ||' not in s:
+              if replacement_anchor not in s:
+                  raise SystemExit('TBR transientReplacement anchor not found')
+              s = s.replace(replacement_anchor, replacement_new, 1)
+          p.write_text(s)
+          PY
+
+      - name: Add focused regression
+        run: |
+          cat > worker/tests/ms-session-resilience.test.mjs <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import { patchDevRealtimeWorker } from '../../.github/dev-tools/patch-ms-realtime-recovery.mjs';
+          import { stageFrontend } from '../../.github/dev-tools/stage-dev-runtime.mjs';
+
+          const ui = fs.readFileSync(new URL('../../ms.js', import.meta.url), 'utf8');
+          const worker = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
+          const tbr = fs.readFileSync(new URL('../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs', import.meta.url), 'utf8');
+
+          test('canonical freshness uses transport health and never guesses session state from source age', () => {
+            const block = ui.slice(ui.indexOf('// MS_FRESHNESS_TRUTH_V1'), ui.indexOf('function connection('));
+            assert.ok(block.includes('state.transportLastOkAt'));
+            assert.ok(block.includes('status === "synced"'));
+            assert.ok(block.includes('MS เรียลไทม์ · ตรวจสอบล่าสุด'));
+            assert.equal(block.includes('เซสชันยังไม่อัปเดต'), false);
+          });
+
+          test('frontend DEV staging stays idempotent with canonical freshness truth', () => {
+            const staged = stageFrontend(ui);
+            assert.equal((staged.match(/MS_FRESHNESS_TRUTH_V1/g) || []).length, 1);
+            assert.equal(staged.includes('เซสชันยังไม่อัปเดต'), false);
+          });
+
+          test('recovery fallback preserves accepted sync timestamp and truthful real session message', () => {
+            const staged = patchDevRealtimeWorker(worker);
+            assert.ok(staged.includes('const transient ='));
+            assert.ok(staged.includes('syncedAt: fallback.syncedAt || ""'));
+            assert.ok(staged.includes('error?.code === "MS_SESSION_EXPIRED"'));
+            assert.ok(staged.includes('เซสชัน MS ต้องอัปเดต · ระบบยังแสดงข้อมูลล่าสุด'));
+          });
+
+          test('TBR route classifier treats actual session expiry as recoverable without extra polling', () => {
+            assert.ok(tbr.includes('error?.code === \\"MS_SESSION_EXPIRED\\" ||'));
+            assert.ok(tbr.includes('const transientReplacement'));
+          });
+
+          test('normal realtime cadence remains exactly four seconds', () => {
+            assert.ok(ui.includes('pollMs: 4000'));
+            assert.ok(ui.includes('setInterval(realtimeTick, CONFIG.pollMs)'));
+          });
+          EOF
+
+      - name: Install dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Regression gates
+        run: |
+          node --check ms.js
+          node --check .github/dev-tools/patch-ms-realtime-recovery.mjs
+          node --check cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
+          node --check worker/src/index.js
+          node --test worker/tests/ms-session-resilience.test.mjs
+          node --test .github/dev-tools/ms-live-resilience.test.mjs
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+          node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test worker/tests/hbi-truck-photos.test.mjs
+          (cd worker && npm run check)
+          git diff --check
+
+      - name: Verify exact DEV staging path
+        working-directory: worker
+        run: |
+          rm -rf .ea2-check
+          mkdir -p .ea2-check
+          cp ../waiting.html ../main.js ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .ea2-check/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .ea2-check/
+          cp ../.github/dev-tools/safe-parity.html .ea2-check/safe-parity.html
+          cp src/index.js .ea2-check/index.js
+          node ../.github/dev-tools/stage-dev-runtime.mjs .ea2-check/ms.js .ea2-check/index.js
+          node --check .ea2-check/ms.js
+          node --check .ea2-check/index.js
+          grep -q 'MS_FRESHNESS_TRUTH_V1' .ea2-check/ms.js
+          ! grep -q 'เซสชันยังไม่อัปเดต' .ea2-check/ms.js
+          grep -q 'error?.code === "MS_SESSION_EXPIRED"' .ea2-check/index.js
+          grep -q 'syncedAt: fallback.syncedAt || ""' .ea2-check/index.js
+          grep -q 'เซสชัน MS ต้องอัปเดต' .ea2-check/index.js
+          grep -q 'pollMs: 4000' .ea2-check/ms.js
+          rm -rf .ea2-check
+
+      - name: Commit clean authoritative source and remove all EA2 one-shots
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for f in \
+            .github/workflows/one-shot-ea2-session-resilience.yml \
+            .github/workflows/one-shot-ea2-session-resilience-v2.yml \
+            .github/workflows/one-shot-ea2-session-resilience-v3.yml \
+            .github/workflows/one-shot-ea2-session-resilience-v4.yml \
+            .github/workflows/one-shot-ea2-session-resilience-v5.yml \
+            .github/workflows/one-shot-ea2-session-resilience-v6.yml \
+            .github/workflows/one-shot-ea2-session-resilience-v7.yml \
+            .github/workflows/one-shot-ea2-session-resilience-v8.yml; do
+            git rm -f "$f" 2>/dev/null || true
+          done
+          git add ms.js .github/dev-tools/patch-ms-realtime-recovery.mjs cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs worker/tests/ms-session-resilience.test.mjs
+          git diff --cached --check
+          git commit -m 'fix(dev): make EA2 session state truth-safe'
+          git push origin HEAD:main
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Wait for automatic DEV deployment
+        run: |
+          RUN_ID=''
+          for i in $(seq 1 90); do
+            RUN_ID=$(gh run list --workflow deploy-worker-dev.yml --branch main --limit 30 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            [ -n "$RUN_ID" ] && break
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "DEV_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Dispatch and wait current-system acceptance
+        run: |
+          gh workflow run current-system-acceptance.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 90); do
+            RUN_ID=$(gh run list --workflow current-system-acceptance.yml --branch main --limit 30 --json databaseId,headSha --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            [ -n "$RUN_ID" ] && break
+            sleep 5
+          done
+          test -n "$RUN_ID"
+          echo "ACCEPT_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Final checkpoint
+        run: |
+          echo "SOURCE_HEAD=$SOURCE_HEAD"
+          echo "DEV_RUN_ID=$DEV_RUN_ID"
+          echo "ACCEPT_RUN_ID=$ACCEPT_RUN_ID"
+          echo "REALTIME_CADENCE=4000ms"
+          echo "EA2_SESSION_STATUS_TRUTH_SAFE=PASS"
+          echo "PRODUCTION_TOUCHED=NO"

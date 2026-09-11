@@ -1,0 +1,706 @@
+name: Apply Realtime Quota Hardening
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-realtime-quota-hardening.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Patch authoritative sources only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected 1 anchor, found {count}")
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------------
+          # 1) Main MS frontend: WebSocket-first realtime, exact 4-second cadence.
+          #    HTTP 4s polling remains only as compatibility/failure fallback.
+          #    Hidden tabs close the socket and stop background polling.
+          # ------------------------------------------------------------------
+          ms_path = Path('ms.js')
+          ms = ms_path.read_text()
+          if 'MS_REALTIME_WS_V1' in ms:
+              raise SystemExit('MS_REALTIME_WS_V1 already exists; refusing duplicate patch')
+
+          ms = replace_once(
+              ms,
+              'let completedTodayZeroProbedKey = "";\n',
+              '''let completedTodayZeroProbedKey = "";\n\n// MS_REALTIME_WS_V1: one hibernatable realtime stream per visible browser page.\n// The visible UI keeps the exact 4-second cadence. HTTP polling is fallback-only.\nconst REALTIME_WS_RETRY_MS = 3000;\nconst REALTIME_AUTH_HEARTBEAT_MS = 60 * 1000;\nlet realtimeSocket = null;\nlet realtimeSocketKey = "";\nlet realtimeConnectStartedAt = 0;\nlet realtimeRetryAt = 0;\nlet realtimeIsLeader = null;\nlet realtimeLastSnapshotAt = 0;\nlet realtimeLastAuthSentAt = 0;\n''',
+              'ms realtime declarations',
+          )
+
+          ms = replace_once(
+              ms,
+              '''  el("branch-filter").onchange = (event) => {\n    state.branch = event.target.value;\n    state.summary = "all";\n    resetArchiveState();\n    loadData();\n  };''',
+              '''  el("branch-filter").onchange = (event) => {\n    state.branch = event.target.value;\n    state.summary = "all";\n    resetArchiveState();\n    stopRealtimeTransport();\n    loadData().finally(() => restartRealtimeTransport());\n  };''',
+              'branch realtime restart',
+          )
+
+          ms = replace_once(
+              ms,
+              '  setInterval(() => state.auth && loadData(true), CONFIG.pollMs);',
+              '  setInterval(realtimeTick, CONFIG.pollMs);',
+              'replace direct 4s HTTP poll',
+          )
+          ms = replace_once(
+              ms,
+              '''  loadData();\n  handleMsEntryHash();\n  window.addEventListener("hashchange", handleMsEntryHash);''',
+              '''  loadData().finally(() => restartRealtimeTransport());\n  handleMsEntryHash();\n  window.addEventListener("hashchange", handleMsEntryHash);\n  document.addEventListener("visibilitychange", handleRealtimeVisibility);''',
+              'startup realtime transport',
+          )
+
+          realtime_helpers = r'''
+function realtimeTransportKey() {
+  if (!state.auth) return "";
+  return `${state.branch}|${state.auth.username || ""}|${state.auth.expiresAt || ""}`;
+}
+
+function realtimeSocketUrl() {
+  const url = new URL(CONFIG.apiUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("action", "msStream");
+  url.searchParams.set("token", state.auth?.token || "");
+  url.searchParams.set("branch", state.branch);
+  return url.toString();
+}
+
+function stopRealtimeTransport() {
+  const socket = realtimeSocket;
+  realtimeSocket = null;
+  realtimeSocketKey = "";
+  realtimeConnectStartedAt = 0;
+  realtimeIsLeader = null;
+  realtimeLastSnapshotAt = 0;
+  realtimeLastAuthSentAt = 0;
+  if (!socket) return;
+  try {
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    if (socket.readyState === 0 || socket.readyState === 1)
+      socket.close(1000, "client reset");
+  } catch {}
+}
+
+function ensureRealtimeTransport() {
+  if (!state.auth || document.hidden || typeof WebSocket === "undefined") return false;
+  const key = realtimeTransportKey();
+  if (
+    realtimeSocket &&
+    realtimeSocketKey === key &&
+    (realtimeSocket.readyState === 0 || realtimeSocket.readyState === 1)
+  ) return true;
+  if (Date.now() < realtimeRetryAt) return false;
+
+  stopRealtimeTransport();
+  try {
+    const socket = new WebSocket(realtimeSocketUrl());
+    realtimeSocket = socket;
+    realtimeSocketKey = key;
+    realtimeConnectStartedAt = Date.now();
+    socket.onopen = () => {
+      if (socket !== realtimeSocket || realtimeSocketKey !== key) return;
+      realtimeConnectStartedAt = 0;
+      realtimeRetryAt = 0;
+    };
+    socket.onmessage = (event) => {
+      if (socket !== realtimeSocket || realtimeSocketKey !== key) return;
+      handleRealtimeMessage(event.data);
+    };
+    socket.onerror = () => {};
+    socket.onclose = () => {
+      if (socket !== realtimeSocket) return;
+      realtimeSocket = null;
+      realtimeSocketKey = "";
+      realtimeConnectStartedAt = 0;
+      realtimeIsLeader = null;
+      realtimeRetryAt = Date.now() + REALTIME_WS_RETRY_MS;
+    };
+    return true;
+  } catch {
+    realtimeRetryAt = Date.now() + REALTIME_WS_RETRY_MS;
+    return false;
+  }
+}
+
+function restartRealtimeTransport() {
+  stopRealtimeTransport();
+  realtimeRetryAt = 0;
+  ensureRealtimeTransport();
+}
+
+function handleRealtimeVisibility() {
+  if (document.hidden) {
+    stopRealtimeTransport();
+    return;
+  }
+  if (state.auth)
+    loadData(true).finally(() => restartRealtimeTransport());
+}
+
+function handleRealtimeMessage(raw) {
+  let payload;
+  try { payload = JSON.parse(String(raw || "{}")); }
+  catch { return; }
+  if (payload?.type === "role") {
+    realtimeIsLeader = payload.leader === true;
+    return;
+  }
+  if (payload?.type === "auth_error") {
+    stopRealtimeTransport();
+    invalidateSession();
+    return;
+  }
+  if (payload?.type === "error") {
+    state.syncError = payload.message || "Realtime stream ขัดข้องชั่วคราว";
+    state.msStatus = "degraded";
+    renderFreshness();
+    return;
+  }
+  if (payload?.type !== "snapshot") return;
+  realtimeLastSnapshotAt = Date.now();
+  applyLiveResult(payload, true);
+}
+
+function realtimeTick() {
+  if (!state.auth || document.hidden) return;
+  const available = ensureRealtimeTransport();
+  const socket = realtimeSocket;
+  if (socket?.readyState === 1) {
+    const now = Date.now();
+    const staleFollower =
+      realtimeIsLeader === false &&
+      realtimeLastSnapshotAt > 0 &&
+      now - realtimeLastSnapshotAt > CONFIG.staleMs;
+    const shouldRefresh = realtimeIsLeader === true || realtimeIsLeader === null || staleFollower;
+    const shouldAuth = !shouldRefresh && now - realtimeLastAuthSentAt >= REALTIME_AUTH_HEARTBEAT_MS;
+    if (shouldRefresh || shouldAuth) {
+      try {
+        socket.send(JSON.stringify({
+          type: shouldRefresh ? "refresh" : "auth",
+          token: state.auth.token,
+        }));
+        if (shouldAuth) realtimeLastAuthSentAt = now;
+        return;
+      } catch {}
+    } else {
+      return;
+    }
+  }
+  const connectingFresh =
+    socket?.readyState === 0 &&
+    realtimeConnectStartedAt > 0 &&
+    Date.now() - realtimeConnectStartedAt <= 5000;
+  if (available && connectingFresh) return;
+  if (socket?.readyState === 0) stopRealtimeTransport();
+  void loadData(true).finally(() => ensureRealtimeTransport());
+}
+
+'''
+          ms = replace_once(ms, 'function loadAuth() {\n', realtime_helpers + 'function loadAuth() {\n', 'insert realtime helpers')
+
+          ms = replace_once(
+              ms,
+              '''    await loadData();\n    handleMsEntryHash();\n    toast("เข้าสู่ระบบแล้ว");''',
+              '''    await loadData();\n    restartRealtimeTransport();\n    handleMsEntryHash();\n    toast("เข้าสู่ระบบแล้ว");''',
+              'login realtime restart',
+          )
+          ms = replace_once(ms, 'function logout() {\n  state.auth = null;', 'function logout() {\n  stopRealtimeTransport();\n  state.auth = null;', 'logout stream close')
+          ms = replace_once(ms, 'function invalidateSession() {\n  state.auth = null;', 'function invalidateSession() {\n  stopRealtimeTransport();\n  state.auth = null;', 'invalid session stream close')
+
+          load_start = ms.index('async function loadData(silent = false) {')
+          load_end = ms.index('\nfunction resetArchiveState()', load_start)
+          if load_start < 0 or load_end < 0:
+              raise SystemExit('loadData section not found')
+          new_load = r'''async function loadData(silent = false) {
+  if (!state.auth) {
+    connection(false);
+    empty("กรุณาเข้าสู่ระบบเพื่อดูข้อมูลเส้นทาง MS");
+    return;
+  }
+  if (state.loading) return;
+  state.loading = true;
+  if (!silent) el("loading-state").classList.remove("hidden");
+  try {
+    const result = await apiGet("msRoutes", { branch: state.branch });
+    applyLiveResult(result, false);
+    ensureRealtimeTransport();
+  } catch (error) {
+    state.transportFailures = Number(state.transportFailures || 0) + 1;
+    const recentlyHealthy =
+      Number(state.transportLastOkAt || 0) > 0 &&
+      Date.now() - Number(state.transportLastOkAt) <= CONFIG.staleMs;
+    connection(Boolean(recentlyHealthy));
+    if (!silent) {
+      if (recentlyHealthy)
+        toast(`เครือข่ายสะดุดชั่วคราว · ใช้ข้อมูลล่าสุดและกำลังลองใหม่: ${error.message}`, true);
+      else empty(`โหลดข้อมูลไม่สำเร็จ: ${error.message}`);
+    }
+  } finally {
+    state.loading = false;
+  }
+}
+
+function applyLiveResult(result, fromStream = false) {
+  resetLowerDailyViewOnBangkokDayChange();
+  if (Array.isArray(result?.rows)) {
+    state.currentRows = result.rows;
+    for (const row of state.currentRows) {
+      const routeId = String(row.id || row.proofId || "");
+      if (routeId && row.queueCancelledAt) state.cancelledRouteIds.add(routeId);
+    }
+  }
+  if (result?.completedToday !== undefined)
+    state.completedToday = Number(result.completedToday) || 0;
+  // MS_DAILY_HISTORY_V1: realtime transport never grows or reads historical rows.
+  state.rows = state.archiveView ? state.archiveRows : state.currentRows;
+  if (result?.branch) state.branch = result.branch;
+  if (Array.isArray(result?.standards))
+    state.standards = Object.fromEntries(
+      result.standards.map((item) => [
+        normalizeVehicle(item.type),
+        Number(item.minutes) || 120,
+      ]),
+    );
+  if (Array.isArray(result?.branches)) fillBranches(result.branches);
+  if (result?.lastSync !== undefined) state.lastSync = result.lastSync || "";
+  if (result?.msStatus !== undefined) state.msStatus = result.msStatus || "";
+  if (result?.syncError !== undefined) state.syncError = result.syncError || "";
+  state.transportLastOkAt = Date.now();
+  state.transportFailures = 0;
+  fillFilters();
+  connection(
+    state.msStatus !== "error" && state.msStatus !== "not_configured",
+  );
+  if (!fromStream && state.syncError && state.msStatus !== "degraded")
+    toast(state.syncError, true);
+  el("last-refresh").textContent =
+    state.msStatus === "degraded"
+      ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
+      : `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
+  render();
+  const zeroProbeKey = completedTodayDatasetKey();
+  if (state.completedToday === 0 && completedTodayZeroProbedKey !== zeroProbeKey) {
+    completedTodayZeroProbedKey = zeroProbeKey;
+    const probeBranch = state.branch;
+    void loadCompletedTodayRows(true)
+      .then(() => {
+        if (state.auth && state.branch === probeBranch) render();
+      })
+      .catch(() => {});
+  }
+  if (shouldHydrateCompletedTodayRows()) {
+    const hydrationBranch = state.branch;
+    void loadCompletedTodayRows(false)
+      .then(() => {
+        if (state.auth && state.branch === hydrationBranch) render();
+      })
+      .catch(() => {});
+  }
+  // DEV: completed-today detail hydrates only when the lightweight daily total changes.
+  // DEV: archive stays lazy; realtime transport must never auto-read msArchive.
+}
+'''
+          ms = ms[:load_start] + new_load + ms[load_end:]
+          ms_path.write_text(ms)
+
+          # ------------------------------------------------------------------
+          # 2) Worker source: cache hub settings for 60 s and invalidate exactly
+          #    on settings writes. This removes per-4-second Turso settings reads.
+          # ------------------------------------------------------------------
+          worker_path = Path('worker/src/index.js')
+          worker = worker_path.read_text()
+          if 'HUB_SETTINGS_CACHE_V1' in worker:
+              raise SystemExit('HUB_SETTINGS_CACHE_V1 already exists; refusing duplicate patch')
+          read_start = worker.index('async function readSettings(env, branch) {')
+          read_end = worker.index('\nasync function saveSettings(body, actor, env) {', read_start)
+          if read_start < 0 or read_end < 0:
+              raise SystemExit('readSettings section not found')
+          new_settings = r'''// HUB_SETTINGS_CACHE_V1: settings do not change at realtime cadence.
+// Cache/coalesce per HUB for 60 seconds and invalidate immediately on save.
+const HUB_SETTINGS_CACHE_MS = 60 * 1000;
+const hubSettingsCache = new Map();
+const hubSettingsActive = new Map();
+function invalidateHubSettings(branch) {
+  hubSettingsCache.delete(String(branch || "").toUpperCase());
+}
+
+async function readSettings(env, branch) {
+  const key = String(branch || "").toUpperCase();
+  const now = Date.now();
+  const cached = hubSettingsCache.get(key);
+  if (cached?.until > now) return cached.value;
+  if (cached) hubSettingsCache.delete(key);
+  if (hubSettingsActive.has(key)) return hubSettingsActive.get(key);
+
+  const task = (async () => {
+    const rows = (
+      await env.DB.prepare(
+        "SELECT * FROM hub_settings WHERE branch=? AND enabled=1 ORDER BY category,setting_key",
+      )
+        .bind(key)
+        .all()
+    ).results;
+    const central = CENTRAL_LIMITS[key] || [],
+      queue = rows.filter((x) => x.category === "vehicle"),
+      ms = rows.filter((x) => x.category === "ms_vehicle"),
+      pauses = rows.filter((x) => x.category === "pause");
+    return {
+      branch: key,
+      pauseWindows: pauses.length
+        ? pauses.map((x) => ({
+            key: x.setting_key,
+            label: x.label,
+            startHour: x.start_hour,
+            endHour: x.end_hour,
+          }))
+        : rows.length
+          ? []
+          : PAUSES.map((x) => ({
+              key: x[0],
+              label: x[1],
+              startHour: x[2],
+              endHour: x[3],
+            })),
+      vehicleLimits: queue.length
+        ? queue.map((x) => ({ type: x.setting_key, minutes: x.minutes }))
+        : LIMITS.map((type) => ({ type, minutes: 120 })),
+      msVehicleLimits: ms.length
+        ? ms.map((x) => ({ type: x.setting_key, minutes: x.minutes }))
+        : LIMITS.map((type, i) => ({ type, minutes: central[i] || 120 })),
+    };
+  })()
+    .then((value) => {
+      hubSettingsCache.set(key, { until: Date.now() + HUB_SETTINGS_CACHE_MS, value });
+      return value;
+    })
+    .finally(() => hubSettingsActive.delete(key));
+  hubSettingsActive.set(key, task);
+  return task;
+}
+'''
+          worker = worker[:read_start] + new_settings + worker[read_end:]
+          worker = replace_once(
+              worker,
+              '  await env.DB.batch(s);\n  return readSettings(env, branch);',
+              '  await env.DB.batch(s);\n  invalidateHubSettings(branch);\n  return readSettings(env, branch);',
+              'settings cache invalidation',
+          )
+          worker_path.write_text(worker)
+
+          # ------------------------------------------------------------------
+          # 3) Proof cron: unchanged background refresh does ZERO Turso writes.
+          #    Interactive proof reads keep the checked_at write because proof.js
+          #    polls every 30 s and uses this 60 s freshness gate.
+          # ------------------------------------------------------------------
+          proof_path = Path('worker/src/proof-control.js')
+          proof = proof_path.read_text()
+          if 'PROOF_UNCHANGED_CRON_WRITE_ZERO_V1' in proof:
+              raise SystemExit('PROOF_UNCHANGED_CRON_WRITE_ZERO_V1 already exists')
+          proof = replace_once(
+              proof,
+              '    const sourceHash = await sha(JSON.stringify(mapped));',
+              '    // PROOF_SOURCE_HASH_V2: total-count changes are real changes too.\n    const sourceHash = await sha(JSON.stringify({ total: upstream.total, rows: mapped }));',
+              'proof source hash',
+          )
+          proof = replace_once(
+              proof,
+              '''    if (current?.source_hash === sourceHash) {\n      await env.DB.prepare(\n        'UPDATE ms_proof_snapshots SET total_count=?,checked_at=? WHERE hub=? AND business_day=?',\n      ).bind(upstream.total, now, hub, day).run();\n      return {''',
+              '''    if (current?.source_hash === sourceHash) {\n      // PROOF_UNCHANGED_CRON_WRITE_ZERO_V1: background cron never writes an\n      // unchanged snapshot. Interactive reads retain checked_at so the 30 s UI\n      // still shares one upstream proof read for the existing 60 s freshness window.\n      if (!force)\n        await env.DB.prepare(\n          'UPDATE ms_proof_snapshots SET total_count=?,checked_at=? WHERE hub=? AND business_day=?',\n        ).bind(upstream.total, now, hub, day).run();\n      return {''',
+              'proof unchanged write guard',
+          )
+          proof_path.write_text(proof)
+
+          # ------------------------------------------------------------------
+          # 4) Existing Durable Object generator: add hibernatable WebSocket
+          #    transport. No second coordinator/patch chain is introduced.
+          # ------------------------------------------------------------------
+          durable_path = Path('.github/dev-tools/patch-ms-durable-coordinator.mjs')
+          durable = durable_path.read_text()
+          if 'MS_REALTIME_WS_V1' in durable:
+              raise SystemExit('MS_REALTIME_WS_V1 already exists in coordinator generator')
+
+          durable = replace_once(
+              durable,
+              '      `  async fetch(request, env) {\\n    try {\\n      // MS_ORIGIN_LH_MANIFEST_V1: wrap DEV assets only; no Production path is changed.\\n      env = wrapOriginManifestAssets(env);\\n      const url = new URL(request.url);`,',
+              '      `  async fetch(request, env) {\\n    try {\\n      // MS_ORIGIN_LH_MANIFEST_V1: wrap DEV assets only; no Production path is changed.\\n      env = wrapOriginManifestAssets(env);\\n      const url = new URL(request.url);\\n      // MS_REALTIME_WS_V1: WebSocket upgrade is handled before JSON GET wrapping.\\n      if (request.method === "GET" && url.searchParams.get("action") === "msStream" && String(request.headers.get("Upgrade") || "").toLowerCase() === "websocket")\\n        return msRealtimeStream(request, url, env);`,',
+              'worker websocket route',
+          )
+
+          refresh_to = '      `async function refreshMsIfStale(env, actor, branch, force = false) {\\n  if (!access(branch, actor)) return { status: "forbidden" };\\n  const nowMs = Date.now(), recent = recentMsSync.get(branch);\\n  if (!force && recent?.until > nowMs) return recent.result;\\n  if (activeMsSync.has(branch)) return activeMsSync.get(branch);\\n\\n  if (env.MS_REFRESH_COORDINATOR) {'
+          if durable.count(refresh_to) != 1:
+              raise SystemExit(f'coordinator refresh target anchor count={durable.count(refresh_to)}')
+          stream_helper = '      `async function msRealtimeStream(request, url, env) {\\n  const actor = await verify(url.searchParams.get("token"), env);\\n  const branch = pickBranch(actor, url.searchParams.get("branch"));\\n  if (!env.MS_REFRESH_COORDINATOR) fail("Realtime coordinator ไม่พร้อมใช้งาน", "MS_STREAM_UNAVAILABLE", 503);\\n  const id = env.MS_REFRESH_COORDINATOR.idFromName(branch);\\n  const stub = env.MS_REFRESH_COORDINATOR.get(id);\\n  const target = new URL("https://ms-refresh.internal/stream");\\n  target.searchParams.set("branch", branch);\\n  return stub.fetch(new Request(target, request));\\n}\\n\\nasync function refreshMsIfStale(env, actor, branch, force = false) {\\n  if (!access(branch, actor)) return { status: "forbidden" };\\n  const nowMs = Date.now(), recent = recentMsSync.get(branch);\\n  if (!force && recent?.until > nowMs) return recent.result;\\n  if (activeMsSync.has(branch)) return activeMsSync.get(branch);\\n\\n  if (env.MS_REFRESH_COORDINATOR) {'
+          durable = durable.replace(refresh_to, stream_helper, 1)
+
+          durable = replace_once(
+              durable,
+              '    if (url.pathname.startsWith("/origin-manifest/"))\\n      return this.originManifest.fetch(request);\\n    const branch = String(url.searchParams.get("branch") || "").trim().toUpperCase();',
+              '    if (url.pathname.startsWith("/origin-manifest/"))\\n      return this.originManifest.fetch(request);\\n    const branch = String(url.searchParams.get("branch") || "").trim().toUpperCase();\\n    if (url.pathname === "/stream") return this.openStream(request, branch);',
+              'coordinator stream dispatch',
+          )
+
+          ws_methods = r'''  async openStream(request, branch) {\n    if (!branch) return new Response("missing branch", { status: 400 });\n    if (String(request.headers.get("Upgrade") || "").toLowerCase() !== "websocket")\n      return new Response("expected websocket", { status: 426 });\n    const pair = new WebSocketPair();\n    const [client, server] = Object.values(pair);\n    const existing = this.ctx.getWebSockets();\n    const leader = existing.length === 0;\n    this.ctx.acceptWebSocket(server);\n    server.serializeAttachment({ branch, leader });\n    server.send(JSON.stringify({ type: "role", leader }));\n    this.ctx.waitUntil(this.pushSnapshot(server, branch).catch((error) => {\n      try {\n        server.send(JSON.stringify({ type: "error", code: error?.code || "MS_STREAM_ERROR", message: error?.message || "Realtime stream ขัดข้อง" }));\n      } catch {}\n    }));\n    return new Response(null, { status: 101, webSocket: client });\n  }\n\n  async streamPayload(branch) {\n    const live = await this.refresh(branch, false, false);\n    const settings = await readSettings(this.env, branch);\n    return {\n      type: "snapshot",\n      rows: Array.isArray(live?.rows) ? live.rows : null,\n      completedToday: Number(live?.completedToday) || 0,\n      standards: settings.msVehicleLimits,\n      lastSync: live?.syncedAt || "",\n      msStatus: live?.status || "",\n      syncError: live?.error || "",\n      pollMs: 4000,\n    };\n  }\n\n  async pushSnapshot(ws, branch) {\n    ws.send(JSON.stringify(await this.streamPayload(branch)));\n  }\n\n  async broadcastSnapshot(branch) {\n    const payload = JSON.stringify(await this.streamPayload(branch));\n    for (const socket of this.ctx.getWebSockets()) {\n      const attachment = socket.deserializeAttachment?.() || {};\n      if (String(attachment.branch || "").toUpperCase() !== branch) continue;\n      try { socket.send(payload); } catch {}\n    }\n  }\n\n  async webSocketMessage(ws, message) {\n    const attachment = ws.deserializeAttachment?.() || {};\n    const branch = String(attachment.branch || "").trim().toUpperCase();\n    if (!branch) {\n      try { ws.close(1008, "missing branch"); } catch {}\n      return;\n    }\n    let payload = {};\n    try { payload = JSON.parse(String(message || "{}")); } catch {}\n    try {\n      const actor = await verify(payload?.token, this.env);\n      if (!access(branch, actor)) fail("ไม่มีสิทธิ์ดูข้อมูล HUB นี้", "FORBIDDEN", 403);\n      if (payload?.type === "auth") {\n        ws.send(JSON.stringify({ type: "auth_ok" }));\n        return;\n      }\n      if (payload?.type !== "refresh") return;\n      await this.broadcastSnapshot(branch);\n    } catch (error) {\n      const code = error?.code || "MS_STREAM_ERROR";\n      try {\n        ws.send(JSON.stringify({\n          type: code === "INVALID_SESSION" || code === "FORBIDDEN" ? "auth_error" : "error",\n          code,\n          message: error?.message || "Realtime stream ขัดข้อง",\n        }));\n      } catch {}\n      if (code === "INVALID_SESSION" || code === "FORBIDDEN")\n        try { ws.close(1008, "auth"); } catch {}\n    }\n  }\n\n  webSocketClose(ws, code, reason) {\n    const attachment = ws.deserializeAttachment?.() || {};\n    const wasLeader = attachment.leader === true;\n    try { ws.close(code, reason); } catch {}\n    if (!wasLeader) return;\n    const next = this.ctx.getWebSockets().find((socket) => socket !== ws);\n    if (!next) return;\n    const nextAttachment = next.deserializeAttachment?.() || {};\n    nextAttachment.leader = true;\n    next.serializeAttachment(nextAttachment);\n    try { next.send(JSON.stringify({ type: "role", leader: true })); } catch {}\n  }\n\n  webSocketError(ws) {\n    try { ws.close(1011, "stream error"); } catch {}\n  }\n\n'''
+          durable = replace_once(
+              durable,
+              '  async refresh(branch, force = false, cron = false) {\\n',
+              ws_methods + '  async refresh(branch, force = false, cron = false) {\\n',
+              'coordinator websocket methods',
+          )
+          durable_path.write_text(durable)
+
+          # ------------------------------------------------------------------
+          # 5) DEV Turso entrypoint must proxy hibernated WebSocket events to
+          #    the staged coordinator class.
+          # ------------------------------------------------------------------
+          turso_path = Path('worker/src/turso-index.js')
+          turso = turso_path.read_text()
+          turso = replace_once(
+              turso,
+              '  fetch(request) { return this.inner.fetch(request); }\n}',
+              '''  fetch(request) { return this.inner.fetch(request); }\n  webSocketMessage(ws, message) { return this.inner.webSocketMessage(ws, message); }\n  webSocketClose(ws, code, reason, wasClean) { return this.inner.webSocketClose(ws, code, reason, wasClean); }\n  webSocketError(ws, error) { return this.inner.webSocketError(ws, error); }\n}''',
+              'turso websocket proxy',
+          )
+          turso_path.write_text(turso)
+
+          # ------------------------------------------------------------------
+          # 6) Permanent regression gate. It also locks the already-correct TBR
+          #    single Bus cache call/accounting instead of changing it again.
+          # ------------------------------------------------------------------
+          test_path = Path('.github/dev-tools/realtime-quota-hardening.test.mjs')
+          test_path.write_text(r'''import assert from "node:assert/strict";
+import fs from "node:fs";
+import test from "node:test";
+import { stageWorker } from "./stage-dev-runtime.mjs";
+
+const workerSource = fs.readFileSync(new URL("../../worker/src/index.js", import.meta.url), "utf8");
+const front = fs.readFileSync(new URL("../../ms.js", import.meta.url), "utf8");
+const proof = fs.readFileSync(new URL("../../worker/src/proof-control.js", import.meta.url), "utf8");
+const turso = fs.readFileSync(new URL("../../worker/src/turso-index.js", import.meta.url), "utf8");
+const browser = fs.readFileSync(new URL("../../cloudflare-browser-test/src/index.js", import.meta.url), "utf8");
+const staged = stageWorker(workerSource);
+
+test("visible realtime stays at 4 seconds but HTTP polling is fallback-only", () => {
+  assert.match(front, /pollMs:\s*4000/);
+  assert.match(front, /MS_REALTIME_WS_V1/);
+  assert.match(front, /setInterval\(realtimeTick, CONFIG\.pollMs\)/);
+  assert.doesNotMatch(front, /setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/);
+  assert.match(front, /new WebSocket\(realtimeSocketUrl\(\)\)/);
+  assert.match(front, /document\.addEventListener\("visibilitychange", handleRealtimeVisibility\)/);
+  assert.match(front, /REALTIME_AUTH_HEARTBEAT_MS = 60 \* 1000/);
+  assert.match(front, /realtimeIsLeader === true/);
+  assert.match(front, /now - realtimeLastSnapshotAt > CONFIG\.staleMs/);
+});
+
+test("staged coordinator uses hibernatable WebSocket and one leader refresh stream", () => {
+  assert.match(staged, /MS_REALTIME_WS_V1/);
+  assert.match(staged, /action"\) === "msStream"/);
+  assert.match(staged, /this\.ctx\.acceptWebSocket\(server\)/);
+  assert.match(staged, /server\.serializeAttachment\(\{ branch, leader \}\)/);
+  assert.match(staged, /async webSocketMessage\(ws, message\)/);
+  assert.match(staged, /await verify\(payload\?\.token, this\.env\)/);
+  assert.match(staged, /async broadcastSnapshot\(branch\)/);
+  assert.match(staged, /standards: settings\.msVehicleLimits/);
+  assert.match(turso, /webSocketMessage\(ws, message\).*this\.inner\.webSocketMessage/s);
+});
+
+test("hub settings reads are cached and save invalidates immediately", () => {
+  assert.match(workerSource, /HUB_SETTINGS_CACHE_V1/);
+  assert.match(workerSource, /HUB_SETTINGS_CACHE_MS = 60 \* 1000/);
+  assert.match(workerSource, /hubSettingsActive\.has\(key\)/);
+  assert.match(workerSource, /hubSettingsCache\.set\(key/);
+  assert.match(workerSource, /invalidateHubSettings\(branch\);\s*return readSettings\(env, branch\);/);
+});
+
+test("proof background cron writes zero rows when snapshot is unchanged", () => {
+  assert.match(proof, /PROOF_UNCHANGED_CRON_WRITE_ZERO_V1/);
+  assert.match(proof, /PROOF_SOURCE_HASH_V2/);
+  assert.match(proof, /JSON\.stringify\(\{ total: upstream\.total, rows: mapped \}\)/);
+  assert.match(proof, /if \(!force\)\s*await env\.DB\.prepare\(\s*'UPDATE ms_proof_snapshots SET total_count=\?,checked_at=\?/);
+});
+
+test("TBR shadow already uses one Bus cache call and truthful dynamic point-read accounting", () => {
+  assert.match(browser, /TBR_BUS_SINGLE_CACHE_CALL_V11/);
+  assert.match(browser, /return \[bangkokSourceDay\(nowMs, 0\)\]/);
+  assert.match(browser, /const pointReads = 2 \* \(/);
+  assert.match(browser, /currentSteadyStateTursoPointReadsPerCron: currentSteadyStateReads/);
+  assert.match(browser, /tursoPointReadsPerCron: pointReads/);
+});
+
+test("HBI remains click-only and is never joined to realtime transport", () => {
+  assert.match(workerSource, /HBI_PHOTO_ON_DEMAND_V1/);
+  const refresh = staged.slice(staged.indexOf("async function runMsRefresh"), staged.indexOf("async function readMsLiveCache"));
+  assert.doesNotMatch(refresh, /readHbiTruckPhotos|msTruckPhotos/);
+  assert.match(front, /apiGetOnce\("msTruckPhotos"/);
+});
+''')
+
+          # Future deploys must run the permanent gate.
+          deploy_path = Path('.github/workflows/deploy-worker-dev.yml')
+          deploy = deploy_path.read_text()
+          deploy = replace_once(
+              deploy,
+              '      - run: node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs\n',
+              '      - run: node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs\n      - run: node --test ../.github/dev-tools/realtime-quota-hardening.test.mjs\n',
+              'deploy quota hardening gate',
+          )
+          deploy_path.write_text(deploy)
+
+          # Live acceptance should reject regression back to per-device HTTP 4s polling.
+          acceptance_path = Path('.github/workflows/current-system-acceptance.yml')
+          acceptance = acceptance_path.read_text()
+          acceptance = replace_once(
+              acceptance,
+              "              if(!/pollMs:\\\\s*4000/.test(js)) throw new Error(`${name} polling is not 4000 ms`);\n",
+              "              if(!/pollMs:\\\\s*4000/.test(js)) throw new Error(`${name} polling is not 4000 ms`);\n              if(!js.includes('MS_REALTIME_WS_V1')) throw new Error(`${name} realtime WebSocket transport missing`);\n              if(!/setInterval\\(realtimeTick,\\s*CONFIG\\.pollMs\\)/.test(js)) throw new Error(`${name} realtime 4s ticker missing`);\n              if(/setInterval\\(\\(\\) => state\\.auth && loadData\\(true\\), CONFIG\\.pollMs\\)/.test(js)) throw new Error(`${name} still performs direct HTTP polling every 4s`);\n",
+              'live acceptance websocket checks',
+          )
+          acceptance_path.write_text(acceptance)
+
+          print('SOURCE_PATCH=PASS')
+          PY
+
+      - name: Install dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Syntax and focused quota regression
+        run: |
+          node --check ms.js
+          node --check worker/src/index.js
+          node --check worker/src/proof-control.js
+          node --check worker/src/turso-index.js
+          node --check .github/dev-tools/patch-ms-durable-coordinator.mjs
+          node --test .github/dev-tools/realtime-quota-hardening.test.mjs
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+          node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test worker/tests/hbi-truck-photos.test.mjs
+          (cd worker && npm run check)
+          git diff --check
+
+      - name: Verify staged runtime parses
+        run: |
+          rm -rf worker/.dev-assets
+          mkdir -p worker/.dev-assets
+          cp ms.js worker/.dev-assets/ms.js
+          node .github/dev-tools/stage-dev-runtime.mjs worker/.dev-assets/ms.js worker/src/index.js
+          node .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs worker/.dev-assets/ms.js worker/src/origin-manifest-v1.js
+          node --check worker/.dev-assets/ms.js
+          node --check worker/src/index.js
+          grep -q 'MS_REALTIME_WS_V1' worker/.dev-assets/ms.js
+          grep -q 'MS_REALTIME_WS_V1' worker/src/index.js
+          grep -q 'HUB_SETTINGS_CACHE_V1' worker/src/index.js
+          echo 'STAGED_REALTIME_QUOTA_HARDENING=PASS'
+
+      - name: Commit clean source and remove one-shot workflow
+        run: |
+          rm .github/workflows/apply-realtime-quota-hardening.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ms.js worker/src/index.js worker/src/proof-control.js worker/src/turso-index.js .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/realtime-quota-hardening.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/current-system-acceptance.yml .github/workflows/apply-realtime-quota-hardening.yml
+          git diff --cached --check
+          git commit -m 'perf(dev): harden realtime quota without reducing cadence'
+          git push origin HEAD:main
+          echo "SOURCE_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Dispatch and wait for DEV deploy
+        run: |
+          gh workflow run deploy-worker-dev.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 40); do
+            RUN_ID=$(gh run list --workflow deploy-worker-dev.yml --branch main --limit 10 --json databaseId,headSha,status --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 5
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo 'DEV deploy run not found for source HEAD' >&2
+            exit 1
+          fi
+          echo "DEV_DEPLOY_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Dispatch and wait for live acceptance
+        run: |
+          gh workflow run current-system-acceptance.yml --ref main
+          RUN_ID=''
+          for i in $(seq 1 40); do
+            RUN_ID=$(gh run list --workflow current-system-acceptance.yml --branch main --limit 10 --json databaseId,headSha,status --jq ".[] | select(.headSha == \"$SOURCE_HEAD\") | .databaseId" | head -n1)
+            if [ -n "$RUN_ID" ]; then break; fi
+            sleep 5
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo 'Live acceptance run not found for source HEAD' >&2
+            exit 1
+          fi
+          echo "LIVE_ACCEPTANCE_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          gh run watch "$RUN_ID" --exit-status
+
+      - name: Read-only Turso quota snapshot
+        env:
+          TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+          TURSO_ORG: flashdevnak
+          TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const token=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!token) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
+            const headers={Authorization:`Bearer ${token}`};
+            async function get(path){
+              const r=await fetch(`https://api.turso.tech${path}`,{headers});
+              const j=await r.json();
+              if(!r.ok) throw new Error(`${path} HTTP ${r.status}`);
+              return j;
+            }
+            const [org,usage,stats]=await Promise.all([
+              get(`/v1/organizations/${process.env.TURSO_ORG}`),
+              get(`/v1/organizations/${process.env.TURSO_ORG}/usage`),
+              get(`/v1/organizations/${process.env.TURSO_ORG}/databases/${process.env.TURSO_DATABASE}/stats`),
+            ]);
+            const detail=org.organization||org;
+            const u=usage.organization?.usage||{};
+            console.log(`TURSO_PLAN=${detail.plan_id||detail.plan||'-'}`);
+            console.log(`TURSO_BLOCKED_READS=${Boolean(detail.blocked_reads)}`);
+            console.log(`TURSO_BLOCKED_WRITES=${Boolean(detail.blocked_writes)}`);
+            console.log(`TURSO_BILLING_ROWS_READ=${Number(u.rows_read||0)}`);
+            console.log(`TURSO_BILLING_ROWS_WRITTEN=${Number(u.rows_written||0)}`);
+            const top=(stats.top_queries||[]).slice(0,10).map((q,i)=>({rank:i+1,rowsRead:Number(q.rows_read||0),rowsWritten:Number(q.rows_written||0),query:String(q.query||'').replace(/'[^']*'/g,"'?'").replace(/\\b\\d+\\b/g,'?').slice(0,180)}));
+            console.log(`TURSO_TOP_QUERIES=${JSON.stringify(top)}`);
+            console.log('TURSO_QUOTA_SNAPSHOT=PASS');
+          })().catch((e)=>{console.error(e);process.exit(1);});
+          NODE
+
+      - name: Final checkpoint
+        run: |
+          echo "SOURCE_HEAD=$SOURCE_HEAD"
+          echo "DEV_DEPLOY_RUN_ID=$DEV_DEPLOY_RUN_ID"
+          echo "LIVE_ACCEPTANCE_RUN_ID=$LIVE_ACCEPTANCE_RUN_ID"
+          echo 'PRODUCTION_TOUCHED=NO'

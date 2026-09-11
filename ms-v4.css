@@ -220,9 +220,34 @@
 html body.ms-page .route-meta span:nth-child(1) .meta-chip { color: #ffffff !important; background: #202124 !important; border-color: #202124 !important; }
 html body.ms-page .route-meta span:nth-child(2) .meta-chip { color: #ffffff !important; background: #3a3a3a !important; border-color: #3a3a3a !important; }
 html body.ms-page .route-meta span:nth-child(3) .meta-chip { color: #151515 !important; background: #ffd400 !important; border-color: #e6bf00 !important; }
-html body.ms-page .attendance-cell .type-badge.inbound { color: #151515 !important; background: #ffd400 !important; border-color: #e6bf00 !important; }
-html body.ms-page .attendance-cell .type-badge.outbound { color: #ffffff !important; background: #202124 !important; border-color: #202124 !important; }
-html body.ms-page .attendance-cell .type-badge.drop { color: #202124 !important; background: #ffffff !important; border-color: #202124 !important; }
+@media (min-width: 1025px) {
+  html body.ms-page .attendance-cell .type-badge {
+    font-size: 0 !important;
+    line-height: 1.25 !important;
+  }
+  html body.ms-page .attendance-cell .type-badge::after {
+    font-size: 12px;
+    font-weight: 850;
+    line-height: 1.25;
+  }
+  html body.ms-page .attendance-cell .type-badge.inbound {
+    color: #151515 !important;
+    background: #ffd400 !important;
+    border-color: #e6bf00 !important;
+    box-shadow: none !important;
+  }
+  html body.ms-page .attendance-cell .type-badge.inbound::after { content: "เข้าปลายทาง"; }
+  html body.ms-page .attendance-cell .type-badge.outbound,
+  html body.ms-page .attendance-cell .type-badge.drop {
+    color: #202124 !important;
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+  html body.ms-page .attendance-cell .type-badge.outbound::after { content: "ออกต้นทาง"; }
+  html body.ms-page .attendance-cell .type-badge.drop::after { content: "ผ่านจุดดรอป"; }
+  html body.ms-page .attendance-cell .row-muted { display: none !important; }
+}
 html body.ms-page .schedule-stack.single .schedule-heading { color: #ffffff !important; background: #202124 !important; border-bottom-color: #151515 !important; }
 html body.ms-page .timing-chip.ontime { color: #126b32 !important; background: #eef8f0 !important; border-color: #8cc59b !important; }
 html body.ms-page .timing-chip.late { color: #c51f2c !important; background: #fdecef !important; border-color: #e8aeb5 !important; }
@@ -297,7 +322,6 @@ html body.ms-page .operation-compact .classic-status-chip {
 @media (max-width: 1024px) {
   html body.ms-page .compact-card-tags .vehicle-chip { color: #151515 !important; background: #ffd400 !important; border-color: #e6bf00 !important; }
 }
-
 /* MS_MOBILE_ORIGIN_UNIFIED_CHARCOAL_V13 */
 @media (max-width: 1024px) {
   html body.ms-page .compact-card-tags .compact-work-type:has(.type-badge.outbound) { color: #ffffff !important; background: #202124 !important; border-color: #202124 !important; }
@@ -373,27 +397,8 @@ html body.ms-page .operation-compact .classic-status-chip {
 }
 
 /* MS_WORKTYPE_BLACK_LIGHT_STATUS_V15
-   Inbound/drop work-type blocks are unified charcoal; operation header becomes light gray.
+   Desktop work-type styling is owned by V9 above; mobile charcoal behavior and the light operation header remain unchanged.
    Presentation only: no route, queue, SLA, source, polling, or data logic changes. */
-html body.ms-page .attendance-cell:has(.type-badge.inbound),
-html body.ms-page .attendance-cell:has(.type-badge.drop) {
-  padding: 6px 8px;
-  border: 1px solid #202124;
-  border-radius: 8px;
-  background: #202124 !important;
-}
-html body.ms-page .attendance-cell:has(.type-badge.inbound) .type-badge.inbound,
-html body.ms-page .attendance-cell:has(.type-badge.drop) .type-badge.drop {
-  color: #ffffff !important;
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-}
-html body.ms-page .attendance-cell:has(.type-badge.inbound) .row-muted,
-html body.ms-page .attendance-cell:has(.type-badge.drop) .row-muted {
-  color: #ffffff !important;
-}
-
 html body.ms-page .operation-compact .classic-operation-center {
   background: #f1f3f2 !important;
   border-bottom-color: #d1d3d0 !important;

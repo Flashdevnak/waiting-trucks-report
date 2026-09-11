@@ -1,0 +1,110 @@
+name: Fix HBI manifest fallback v2 once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/fix-hbi-manifest-fallback-v2-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+
+      - name: Guard expected checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=8ac660f35cd307c43b8005197cb50885d33c7df4
+          PARENT=$(git rev-parse HEAD^)
+          test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
+
+      - name: Apply authoritative HBI fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          source = Path('.github/workflows/fix-hbi-manifest-fallback-once.yml').read_text(encoding='utf-8')
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "          PY\n\n          node --check ms.js"
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          script = textwrap.dedent(source[start:end])
+          Path('/tmp/apply_hbi_fix.py').write_text(script, encoding='utf-8')
+          PY
+          python3 /tmp/apply_hbi_fix.py
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 anchor, got {count}')
+              return text.replace(old, new, 1)
+
+          # The HBI fallback adds a third legitimate fresh-time use to the
+          # Origin Manifest session source. Keep the self-test aligned with the
+          # real source instead of treating the new safe helper as a regression.
+          test_file = Path('.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs')
+          text = test_file.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              '  assert.equal((patchedOrigin.match(/time: String\\(Date\\.now\\(\\)\\),/g) || []).length, 2);',
+              '  assert.equal((patchedOrigin.match(/time: String\\(Date\\.now\\(\\)\\),/g) || []).length, 3);\n  assert.ok(patchedOrigin.includes("HBI_PHOTO_MANIFEST_FALLBACK_V2"));',
+              'fresh-time self-test',
+          )
+          test_file.write_text(text, encoding='utf-8')
+
+          # Consolidate the staged Origin Manifest import instead of creating
+          # a second import declaration for the same module.
+          patch_file = Path('.github/dev-tools/patch-ms-durable-coordinator.mjs')
+          text = patch_file.read_text(encoding='utf-8')
+          text = replace_once(
+              text,
+              '  OriginManifestCoordinator,\n  originManifestLive,',
+              '  OriginManifestCoordinator,\n  originManifestHbiCredentials,\n  originManifestLive,',
+              'Origin Manifest helper in staged import',
+          )
+          old = '''  if (!output.includes("OriginManifestCoordinator")) {\n    const firstImport = `import { canonicalMsSource, planMsChanges } from "./sync-policy.js";\\n`;\n    output = replaceUnique(\n      output,\n      firstImport,\n      `${ORIGIN_IMPORT}${firstImport}`,\n      "origin manifest module import",\n    );\n  }'''
+          new = '''  if (!output.includes("OriginManifestCoordinator")) {\n    const helperImport = `import { originManifestHbiCredentials } from "./origin-manifest-v1.js";\\n`;\n    const firstImport = `import { canonicalMsSource, planMsChanges } from "./sync-policy.js";\\n`;\n    if (output.includes(helperImport)) {\n      output = replaceUnique(\n        output,\n        helperImport,\n        ORIGIN_IMPORT,\n        "merge Origin Manifest helper import",\n      );\n    } else {\n      output = replaceUnique(\n        output,\n        firstImport,\n        `${ORIGIN_IMPORT}${firstImport}`,\n        "origin manifest module import",\n      );\n    }\n  }'''
+          text = replace_once(text, old, new, 'consolidated Origin Manifest import')
+          patch_file.write_text(text, encoding='utf-8')
+          PY
+
+          node --check ms.js
+          node --check worker/src/index.js
+          node --check worker/src/origin-manifest-v1.js
+          node --check .github/dev-tools/patch-ms-durable-coordinator.mjs
+          node --check .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs
+          cd worker
+          npm ci
+          node --test tests/hbi-truck-photos.test.mjs
+          cd ..
+          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+          node .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs --self-test
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          git diff --check
+
+      - name: Commit safe source and clean one-time workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name Flashdevnak
+          git config user.email 26nak.testdev@gmail.com
+          git rm .github/workflows/fix-hbi-manifest-fallback-once.yml
+          git rm .github/workflows/fix-hbi-manifest-fallback-v2-once.yml
+          git add ms.js ms-v4.css worker/src/index.js worker/src/origin-manifest-v1.js worker/tests/hbi-truck-photos.test.mjs .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs
+          git diff --cached --check
+          git commit -m "fix(ms): reuse LH Manifest session for truck photos"
+          git push origin HEAD:main

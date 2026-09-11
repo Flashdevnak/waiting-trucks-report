@@ -9,7 +9,7 @@ test("staged runtime keeps Route status authority and accepts Schedule provenanc
   const staged = stageWorker(worker);
   assert.match(staged, /MS_SCHEDULE_COMPLETION_TRUTH_V4/);
   assert.match(staged, /completionTruth = resolveCompletionTruth/);
-  assert.match(staged, /json_extract\(h2\.payload_json,'\$\.completionSource'\)='SCHEDULE'/);
+  assert.match(staged, /COALESCE\(json_extract\(payload_json,'\$\.completionSource'\),''\) AS completion_source[\s\S]*completion_source='SCHEDULE'/);
   assert.match(staged, /readBusTimeData\(env, branch\)/);
   assert.doesNotMatch(staged, /Schedule.*unloadingState\s*=/i);
 });

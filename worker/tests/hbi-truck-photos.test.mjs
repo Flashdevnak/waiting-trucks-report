@@ -47,6 +47,15 @@ test("worker keeps HBI out of live refresh and caps each cold click at one page"
   assert.doesNotMatch(read, /Promise\.all|for \(let page|page \+/);
 });
 
+test("LH Manifest HBI fallback preserves the captured auth time", () => {
+  const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
+  const start = manifest.indexOf("export async function originManifestHbiCredentials");
+  const end = manifest.indexOf("export async function readManifestPage", start);
+  const fallback = manifest.slice(start, end);
+  assert.match(fallback, /time: credentialValue\(credentials\.time, 100\)/);
+  assert.doesNotMatch(fallback, /time: String\(Date\.now\(\)\)/);
+});
+
 test("HBI schema is migration-owned and never created from request runtime", () => {
   const worker = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
   const migration = fs.readFileSync(new URL("../migrations/0011_hbi_truck_photos.sql", import.meta.url), "utf8");

@@ -75,6 +75,7 @@ jobs:
           mkdir -p worker/.dev-assets
           cp ms.js worker/.dev-assets/ms.js
           cp style.css worker/.dev-assets/style.css
+          cp ms.html proof.html waiting.html ms-report.html worker/.dev-assets/
           node .github/dev-tools/stage-dev-runtime.mjs worker/.dev-assets/ms.js worker/src/index.js
           node .github/dev-tools/patch-dev-origin-manifest-session-v2.mjs worker/.dev-assets/ms.js worker/src/origin-manifest-v1.js
           node --check worker/.dev-assets/ms.js

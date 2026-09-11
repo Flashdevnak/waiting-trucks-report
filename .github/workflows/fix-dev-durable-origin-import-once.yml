@@ -1,0 +1,88 @@
+name: Fix staged Origin Manifest import contract once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/fix-dev-durable-origin-import-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Guard exact parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=8014db346f76d9e08872420ba492f2adb4ed2b4a
+          PARENT=$(git rev-parse HEAD^)
+          test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
+
+      - name: Remove obsolete HBI helper from authoritative DEV staging patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 anchor, got {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          patch = Path('.github/dev-tools/patch-ms-durable-coordinator.mjs')
+          replace_once(
+              patch,
+              '''const ORIGIN_IMPORT = `import {\\n  OriginManifestCoordinator,\\n  originManifestHbiCredentials,\\n  originManifestLive,\\n  originManifestStatus,\\n  saveOriginManifestConnection,\\n  wrapOriginManifestAssets,\\n} from "./origin-manifest-v1.js";\\n`;''',
+              '''const ORIGIN_IMPORT = `import {\\n  OriginManifestCoordinator,\\n  originManifestLive,\\n  originManifestStatus,\\n  saveOriginManifestConnection,\\n  wrapOriginManifestAssets,\\n} from "./origin-manifest-v1.js";\\n`;''',
+              'Origin Manifest staged import list',
+          )
+          replace_once(
+              patch,
+              '''  if (!output.includes("OriginManifestCoordinator")) {\n    const helperImport = `import { originManifestHbiCredentials } from "./origin-manifest-v1.js";\\n`;\n    const firstImport = `import { canonicalMsSource, planMsChanges } from "./sync-policy.js";\\n`;\n    if (output.includes(helperImport)) {\n      output = replaceUnique(\n        output,\n        helperImport,\n        ORIGIN_IMPORT,\n        "merge Origin Manifest helper import",\n      );\n    } else {\n      output = replaceUnique(\n        output,\n        firstImport,\n        `${ORIGIN_IMPORT}${firstImport}`,\n        "origin manifest module import",\n      );\n    }\n  }\n''',
+              '''  if (!output.includes("OriginManifestCoordinator")) {\n    const firstImport = `import { canonicalMsSource, planMsChanges } from "./sync-policy.js";\\n`;\n    output = replaceUnique(\n      output,\n      firstImport,\n      `${ORIGIN_IMPORT}${firstImport}`,\n      "origin manifest module import",\n    );\n  }\n''',
+              'remove obsolete helper-import compatibility branch',
+          )
+
+          test_file = Path('.github/dev-tools/ms-durable-coordinator.test.mjs')
+          replace_once(
+              test_file,
+              '''  assert.match(worker, /MS_REFRESH_COORDINATOR\\.idFromName\\(branch\\)/);\n  assert.doesNotMatch(worker, /d1_databases|origin_manifest_cache|manifest_history/i);\n});''',
+              '''  assert.match(worker, /MS_REFRESH_COORDINATOR\\.idFromName\\(branch\\)/);\n  assert.doesNotMatch(worker, /originManifestHbiCredentials/);\n  assert.doesNotMatch(worker, /d1_databases|origin_manifest_cache|manifest_history/i);\n});''',
+              'staged import regression assertion',
+          )
+          PY
+
+          node --check .github/dev-tools/patch-ms-durable-coordinator.mjs
+          node --check .github/dev-tools/stage-dev-runtime.mjs
+          cd worker
+          npm ci
+          node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
+          node --test tests/hbi-truck-photos.test.mjs
+          npm run check
+          cd ..
+          git diff --check
+
+      - name: Commit staging root fix and remove one-time workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name Flashdevnak
+          git config user.email 26nak.testdev@gmail.com
+          git rm .github/workflows/fix-dev-durable-origin-import-once.yml
+          git add .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/ms-durable-coordinator.test.mjs
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m "fix(dev): remove stale HBI helper from staging"
+          git push origin HEAD:main

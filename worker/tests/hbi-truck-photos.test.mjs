@@ -31,35 +31,37 @@ test("frontend keeps photo loading strictly click-only and single-shot", () => {
 test("worker keeps HBI out of live refresh and caps each cold click at one page", () => {
   const worker = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(worker, /HBI_PHOTO_ON_DEMAND_V1/);
-  assert.match(worker, /page_size: "20"/);
-  assert.match(worker, /HBI_PHOTO_MANIFEST_FALLBACK_V2/);
-  assert.match(worker, /originManifestHbiCredentials\(env, actor, hub\)/);
+  assert.match(worker, /page_size: "100"/);
+  assert.match(worker, /HBI_PHOTO_DEDICATED_SESSION_V3/);
+  assert.doesNotMatch(worker, /originManifestHbiCredentials/);
   const clickPath = worker.slice(worker.indexOf("async function msTruckPhotos"), worker.indexOf("async function readHbiTruckPhotos"));
   assert.doesNotMatch(clickPath, /INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM/i);
   const refresh = worker.slice(worker.indexOf("async function runMsRefresh"), worker.indexOf("async function readMsLiveCache"));
   assert.doesNotMatch(refresh, /Hbi|hbi|TruckPhotos/);
   const read = worker.slice(worker.indexOf("async function readHbiTruckPhotos"), worker.indexOf("async function readBusTimeData"));
   assert.equal((read.match(/await fetch\(/g) || []).length, 1);
-  assert.match(read, /const value = credentials\?\.\[key\];/);
-  assert.doesNotMatch(read, /key === "time" \? String\(Date\.now\(\)\)/);
+  assert.match(read, /key === "time" \? String\(Date\.now\(\)\) : credentials\?\.\[key\]/);
   assert.match(read, /"BI-PLATFORM": ""/);
   assert.match(read, /"Accept-Language": credentials\?\.lang \|\| "th"/);
   assert.doesNotMatch(read, /Promise\.all|for \(let page|page \+/);
 });
 
-test("LH Manifest HBI photo fallback replays the captured HBI time without extra polling", () => {
-  const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
-  const start = manifest.indexOf("export async function originManifestHbiCredentials");
-  const end = manifest.indexOf("export async function readManifestPage", start);
-  const fallback = manifest.slice(start, end);
-  assert.match(fallback, /time: credentialValue\(credentials\.time, 100\)/);
-  assert.doesNotMatch(fallback, /Date\.now/);
-});
 
 test("mobile origin manifest keeps shipped parcels and weight on the same row", () => {
+  const html = fs.readFileSync(new URL("../../ms.html", import.meta.url), "utf8");
+  const manifestStart = html.indexOf("/* Origin LH Manifest only");
+  const manifestEnd = html.indexOf("</style>", manifestStart);
+  const manifestCss = html.slice(manifestStart, manifestEnd);
+  assert.match(manifestCss, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) !important/);
+  assert.doesNotMatch(manifestCss, /origin-manifest-badge \{ grid-template-columns: 1fr !important; \}/);
+});
+
+test("LH Manifest never marks HBI photos ready and worker never falls back to its session", () => {
   const manifest = fs.readFileSync(new URL("../src/origin-manifest-v1.js", import.meta.url), "utf8");
-  assert.match(manifest, /@media\(max-width:700px\)\{\.origin-manifest-badge\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\)/);
-  assert.match(manifest, /origin-manifest-badge span\{display:flex;align-items:center;justify-content:center;min-width:0;gap:4px\}/);
+  const front = fs.readFileSync(new URL("../../ms.js", import.meta.url), "utf8");
+  assert.doesNotMatch(manifest, /originManifestHbiCredentials|__MS_ORIGIN_MANIFEST_HBI_FALLBACK__/);
+  assert.doesNotMatch(front, /manifestPhotoFallback|พร้อมใช้งานผ่าน LH Manifest/);
+  assert.match(front, /ยังไม่ได้อัปโหลด HAR รูปท้ายรถ/);
 });
 
 test("HBI schema is migration-owned and never created from request runtime", () => {

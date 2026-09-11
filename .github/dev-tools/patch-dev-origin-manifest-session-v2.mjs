@@ -75,11 +75,6 @@ async function selfTest() {
   assert.ok(patchedOrigin.includes("authorization: manifestRequestHeader(routeEntry, 'authorization') || params.get('auth') || ''"));
   assert.ok(patchedOrigin.includes("requestHeaders.Authorization = credentials.authorization"));
   assert.equal((patchedOrigin.match(/time: String\(Date\.now\(\)\),/g) || []).length, 2);
-  const photoFallbackStart = patchedOrigin.indexOf("export async function originManifestHbiCredentials");
-  const photoFallbackEnd = patchedOrigin.indexOf("export async function readManifestPage", photoFallbackStart);
-  const photoFallback = patchedOrigin.slice(photoFallbackStart, photoFallbackEnd);
-  assert.match(photoFallback, /time: credentialValue\(credentials\.time, 100\)/);
-  assert.ok(patchedOrigin.includes("HBI_PHOTO_MANIFEST_FALLBACK_V2"));
   assert.ok(!patchedOrigin.includes("time: credentials.time,"));
   assert.equal(patchOriginManifestSessionReplay(patchedOrigin), patchedOrigin);
 

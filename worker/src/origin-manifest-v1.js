@@ -294,21 +294,6 @@ async function loadCredentials(env, hub) {
   }
 }
 
-// HBI_PHOTO_MANIFEST_FALLBACK_V2: server-only reuse of the existing HBI SSO
-// session. No credential is returned to the browser and no persistence write occurs.
-export async function originManifestHbiCredentials(env, actor, wantedHub) {
-  const hub = requireAccess(wantedHub, actor);
-  const credentials = await loadCredentials(env, hub);
-  if (!credentials?.auth || !credentials?.fbid) return null;
-  return {
-    auth: credentialValue(credentials.auth),
-    lang: credentialValue(credentials.lang || "th", 20),
-    fbid: credentialValue(credentials.fbid, 100),
-    time: credentialValue(credentials.time, 100),
-    webSign: credentialValue(credentials.webSign || "hbi", 50),
-    _from: credentialValue(credentials._from, 100),
-  };
-}
 
 export async function readManifestPage(credentials, day, page = 1, fetchImpl = fetch) {
   const url = new URL("https://hbi-common.flashexpress.com/api/route/route_outhouse");
@@ -692,16 +677,10 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     if (!hubInput || !node || !state?.auth) return;
     try {
       const result = await apiGet('msOriginManifestStatus', { branch: hubInput.value.trim().toUpperCase() });
-      globalThis.__MS_ORIGIN_MANIFEST_HBI_FALLBACK__ = Boolean(result?.configured);
       node.className = result?.configured ? 'source-ok' : 'source-missing';
       node.textContent = result?.configured
         ? 'พร้อมใช้งาน · Shared refresh ทุก 5 นาที · 0 data writes'
         : 'ยังไม่ได้อัปโหลด';
-      const hbiNode = document.querySelector('[data-source-status="hbiPhotos"] span');
-      if (result?.configured && hbiNode && !hbiNode.classList.contains('source-ok')) {
-        hbiNode.className = 'source-ok';
-        hbiNode.textContent = 'พร้อมใช้งานผ่าน LH Manifest · รูปโหลดเฉพาะเมื่อกดดูรูปท้ายรถ';
-      }
     } catch (error) {
       node.className = 'source-error';
       node.textContent = 'ตรวจสถานะไม่ได้ · ' + error.message;

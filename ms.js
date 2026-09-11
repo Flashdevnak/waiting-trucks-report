@@ -2291,15 +2291,12 @@ async function loadMsConnectionStatus() {
       const node = document.querySelector(`[data-source-status="${key}"] span`);
       const item = status[key];
       if (!node) continue;
-      const manifestPhotoFallback = key === "hbiPhotos" && globalThis.__MS_ORIGIN_MANIFEST_HBI_FALLBACK__ === true;
       node.className = item?.configured
         ? (item.lastError ? "source-error" : "source-ok")
-        : manifestPhotoFallback
-          ? "source-ok"
-          : "source-missing";
+        : "source-missing";
       node.textContent = !item?.configured
-        ? manifestPhotoFallback
-          ? "พร้อมใช้งานผ่าน LH Manifest · รูปโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"
+        ? key === "hbiPhotos"
+          ? "ยังไม่ได้อัปโหลด HAR รูปท้ายรถ"
           : "ยังไม่ได้อัปโหลด"
         : key === "hbiPhotos"
           ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"

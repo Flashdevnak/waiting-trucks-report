@@ -584,58 +584,7 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     if (document.getElementById('origin-manifest-style-v1')) return;
     const style = document.createElement('style');
     style.id = 'origin-manifest-style-v1';
-    style.textContent = `
-.origin-manifest-badge {
-  width: min(100%, 390px);
-  max-width: 100%;
-  margin: 8px auto 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: #62676d;
-  font-size: 12px;
-  line-height: 1.25;
-}
-.origin-manifest-badge > span {
-  min-width: 0;
-  min-height: 36px;
-  padding: 7px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  white-space: normal;
-  text-align: center;
-  border: 1px solid #c8cac6;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #62676d;
-}
-.origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400; }
-.origin-manifest-badge > span:last-child { border-top: 3px solid #252525; }
-.origin-manifest-badge strong { color: #151515; font-weight: 900; }
-.compact-card-head .origin-manifest-badge { margin-top: 8px; }
-@media (max-width: 700px) {
-  .origin-manifest-badge {
-    width: 100%;
-    max-width: none;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    justify-self: stretch;
-  }
-  .origin-manifest-badge > span {
-    flex-direction: column;
-    gap: 2px;
-    padding: 7px 6px;
-    white-space: nowrap;
-  }
-  .origin-manifest-badge > span strong { white-space: nowrap; }
-}
-`;
+    style.textContent = "\n.origin-manifest-badge {\n  width: min(100%, 390px);\n  max-width: 100%;\n  margin: 8px auto 0;\n  padding: 0;\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));\n  gap: 7px;\n  border: 0;\n  border-radius: 0;\n  background: transparent;\n  color: #62676d;\n  font-size: 12px;\n  line-height: 1.25;\n}\n.origin-manifest-badge > span {\n  min-width: 0;\n  min-height: 36px;\n  padding: 7px 10px;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  gap: 5px;\n  white-space: normal;\n  text-align: center;\n  border: 1px solid #c8cac6;\n  border-radius: 7px;\n  background: #ffffff;\n  color: #62676d;\n}\n.origin-manifest-badge > span:first-child { border-top: 3px solid #ffd400; }\n.origin-manifest-badge > span:last-child { border-top: 3px solid #252525; }\n.origin-manifest-badge strong { color: #151515; font-weight: 900; }\n.compact-card-head .origin-manifest-badge { margin-top: 8px; }\n@media (max-width: 700px) {\n  .origin-manifest-badge {\n    width: 100%;\n    max-width: none;\n    grid-template-columns: repeat(2, minmax(0, 1fr));\n    gap: 8px;\n    justify-self: stretch;\n  }\n  .origin-manifest-badge > span {\n    flex-direction: column;\n    gap: 2px;\n    padding: 7px 6px;\n    white-space: nowrap;\n  }\n  .origin-manifest-badge > span strong { white-space: nowrap; }\n}\n";
     document.head.appendChild(style);
   }
 

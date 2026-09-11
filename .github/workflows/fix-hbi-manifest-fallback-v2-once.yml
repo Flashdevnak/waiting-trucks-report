@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=8ac660f35cd307c43b8005197cb50885d33c7df4
+          EXPECTED=bb0b8a93289113ef6edf9f80b5247fc952da7d4f
           PARENT=$(git rev-parse HEAD^)
           test "$PARENT" = "$EXPECTED" || { echo "Unexpected parent $PARENT"; exit 1; }
 
@@ -72,8 +72,8 @@ jobs:
           text = patch_file.read_text(encoding='utf-8')
           text = replace_once(
               text,
-              '  OriginManifestCoordinator,\n  originManifestLive,',
-              '  OriginManifestCoordinator,\n  originManifestHbiCredentials,\n  originManifestLive,',
+              r'  OriginManifestCoordinator,\n  originManifestLive,',
+              r'  OriginManifestCoordinator,\n  originManifestHbiCredentials,\n  originManifestLive,',
               'Origin Manifest helper in staged import',
           )
           old = '''  if (!output.includes("OriginManifestCoordinator")) {\n    const firstImport = `import { canonicalMsSource, planMsChanges } from "./sync-policy.js";\\n`;\n    output = replaceUnique(\n      output,\n      firstImport,\n      `${ORIGIN_IMPORT}${firstImport}`,\n      "origin manifest module import",\n    );\n  }'''

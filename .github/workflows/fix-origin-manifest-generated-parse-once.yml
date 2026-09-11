@@ -1,0 +1,96 @@
+name: Repair origin manifest generated parse once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-origin-manifest-generated-parse-once.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Guard latest clean main
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "ecdcd2b0603557f27204916fcc1cd0c8ada9ec09"
+
+      - name: Repair authoritative generated UI source and permanent check
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          source = Path('worker/src/origin-manifest-v1.js')
+          text = source.read_text(encoding='utf-8')
+          fn = text.index('  function installStyle() {')
+          start = text.index('    style.textContent = `\n', fn)
+          end_marker = '`;\n    document.head.appendChild(style);'
+          end = text.index(end_marker, start)
+          css = text[start + len('    style.textContent = `'):end]
+          replacement = '    style.textContent = ' + json.dumps(css, ensure_ascii=False) + ';\n    document.head.appendChild(style);'
+          text = text[:start] + replacement + text[end + len(end_marker):]
+          source.write_text(text, encoding='utf-8')
+
+          package = Path('worker/package.json')
+          data = json.loads(package.read_text(encoding='utf-8'))
+          check = data['scripts']['check']
+          if 'node --check src/origin-manifest-v1.js' not in check:
+              anchor = 'node --check src/index.js && '
+              if check.count(anchor) != 1:
+                  raise SystemExit('npm check anchor changed')
+              check = check.replace(anchor, 'node --check src/index.js && node --check src/origin-manifest-v1.js && ', 1)
+              data['scripts']['check'] = check
+          package.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Focused parse and quota regressions
+        run: |
+          set -euo pipefail
+          cd worker
+          node --check src/origin-manifest-v1.js
+          node --input-type=module -e "import('./src/origin-manifest-v1.js').then(m=>{new Function(m.originManifestFrontendSource()); console.log('ORIGIN_MANIFEST_GENERATED_PARSE=PASS')})"
+          npm ci
+          npm run check
+          node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
+          node <<'NODE'
+          const fs=require('node:fs');
+          const html=fs.readFileSync('../ms.html','utf8');
+          const manifest=fs.readFileSync('src/origin-manifest-v1.js','utf8');
+          const worker=fs.readFileSync('src/index.js','utf8');
+          const front=fs.readFileSync('../ms.js','utf8');
+          if(html.includes('.ms-page .origin-manifest-badge')) throw new Error('duplicate manifest selector returned');
+          if(!manifest.includes('width: 100%;')||!manifest.includes('max-width: none;')||!manifest.includes('grid-template-columns: repeat(2, minmax(0, 1fr));')||!manifest.includes('white-space: nowrap;')) throw new Error('mobile manifest contract missing');
+          if(!worker.includes('const value = credentials?.[key];')) throw new Error('captured HBI session replay missing');
+          if(worker.includes('key === "time" ? String(Date.now())')) throw new Error('HBI time synthesis returned');
+          if(!front.includes('pollMs: 4000')) throw new Error('Route polling changed');
+          console.log('MOBILE_MANIFEST_50_50_FULL_WIDTH=PASS');
+          console.log('HBI_CAPTURED_SESSION_REPLAY=PASS');
+          console.log('ROUTE_POLL_MS=4000');
+          NODE
+
+      - name: Commit source repair cleanly
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/fix-origin-manifest-generated-parse-once.yml
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add worker/src/origin-manifest-v1.js worker/package.json
+          git commit -m "fix(dev): make origin manifest generated UI parse-safe"
+          git push origin HEAD:main
+
+      - name: Dispatch existing DEV-only pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-worker-dev.yml --repo Flashdevnak/waiting-trucks-report --ref main

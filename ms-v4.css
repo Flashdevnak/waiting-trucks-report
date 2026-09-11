@@ -280,7 +280,7 @@
   .ms-page .route-meta span:nth-child(2) .meta-chip { color: #674d0b !important; background: #fff1c7 !important; border-color: #d9bd63 !important; }
   .ms-page .route-meta span:nth-child(3) .meta-chip { color: #4e4008 !important; background: #f7e4a0 !important; border-color: #caa72f !important; }
   .ms-page .operation-compact { border-color: #cfd5d1 !important; background: #f9faf9 !important; box-shadow: 0 2px 7px rgba(31,38,34,.055); }
-  .ms-page .operation-compact .classic-operation-center { background: #f1f3f2; border-bottom-color: #cfd5d1; }
+  .ms-page .operation-compact .classic-operation-center { background: #696969; border-bottom-color: #696969; }
   .ms-page .operation-compact .classic-status-chip { border-color: #bdc7c1 !important; background: #e8ece9 !important; color: #303a34 !important; font-weight: 850; }
   .ms-page .operation-compact.destination.is-working .classic-operation-center { background: #fff5d4; }
   .ms-page .operation-compact.destination.is-working .classic-status-chip { border-color: #d5b84f !important; background: #ffedac !important; color: #674e08 !important; }

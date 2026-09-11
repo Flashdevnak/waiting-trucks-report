@@ -36,7 +36,7 @@ jobs:
         working-directory: worker
         run: npm ci
 
-      - name: Syntax and focused quota regression
+      - name: Syntax checks
         run: |
           node --check ms.js
           node --check worker/src/index.js
@@ -44,13 +44,28 @@ jobs:
           node --check worker/src/turso-index.js
           node --check .github/dev-tools/patch-ms-durable-coordinator.mjs
           node --check .github/dev-tools/stage-dev-runtime.mjs
-          node --test .github/dev-tools/realtime-quota-hardening.test.mjs
-          node --test .github/dev-tools/ms-durable-coordinator.test.mjs
-          node --test .github/dev-tools/ms-quota-safe-live.test.mjs
-          node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
-          node --test worker/tests/hbi-truck-photos.test.mjs
-          (cd worker && npm run check)
-          git diff --check
+
+      - name: Quota hardening regression
+        run: node --test .github/dev-tools/realtime-quota-hardening.test.mjs
+
+      - name: Durable coordinator regression
+        run: node --test .github/dev-tools/ms-durable-coordinator.test.mjs
+
+      - name: Quota-safe live regression
+        run: node --test .github/dev-tools/ms-quota-safe-live.test.mjs
+
+      - name: Multiclient dedupe regression
+        run: node --test .github/dev-tools/ms-multiclient-dedupe.test.mjs
+
+      - name: HBI regression
+        run: node --test worker/tests/hbi-truck-photos.test.mjs
+
+      - name: Worker full check
+        working-directory: worker
+        run: npm run check
+
+      - name: Diff check
+        run: git diff --check
 
       - name: Verify staged runtime parses
         run: |
@@ -71,7 +86,7 @@ jobs:
           git rm .github/workflows/apply-realtime-quota-hardening.yml .tmp/realtime_quota_hardening.py .tmp/fix_realtime_quota_transform.py .tmp/fix_stage_root_anchor.py
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add ms.js worker/src/index.js worker/src/proof-control.js worker/src/turso-index.js .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/realtime-quota-hardening.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/current-system-acceptance.yml
+          git add ms.js worker/src/index.js worker/src/proof-control.js worker/src/turso-index.js .github/dev-tools/patch-ms-durable-coordinator.mjs .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/realtime-quota-hardening.test.mjs .github/workflows/deploy-worker-dev.yml .github/workflows/current-system-acceptance.yml worker/tests/hbi-truck-photos.test.mjs
           git diff --cached --check
           git commit -m 'perf(dev): harden realtime quota without reducing cadence'
           git push origin HEAD:main

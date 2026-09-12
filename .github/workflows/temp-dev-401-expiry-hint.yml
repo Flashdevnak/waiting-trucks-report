@@ -38,3 +38,5 @@ jobs:
           git add .github/dev-tools/patch-ms-self-healing-supervisor.mjs ms.js ms.css
           git commit -m 'feat(dev): explain MS 401 expiry in connection dialog'
           git push origin HEAD:main
+
+# trigger: backend anchor aligned

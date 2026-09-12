@@ -1,0 +1,210 @@
+name: TEMP DEV MS Connection Layout V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/temp-fix-ms-connection-layout-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Apply guarded three-layer modal layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          # 1) HTML: full-screen dialog shell -> centering stage -> white card.
+          p = Path('ms.html')
+          s = p.read_text()
+          start_anchor = '''    <dialog id="ms-connection-dialog" class="connector-dialog">\n      <form class="dialog-card connector-setup-card" id="ms-connection-form">'''
+          if s.count(start_anchor) != 1:
+              raise SystemExit(f'ms.html start anchor count={s.count(start_anchor)}')
+          s = s.replace(
+              start_anchor,
+              '''    <dialog id="ms-connection-dialog" class="connector-dialog">\n      <div class="connector-dialog-stage">\n        <form class="dialog-card connector-setup-card" id="ms-connection-form">''',
+              1,
+          )
+          dialog_start = s.index('    <dialog id="ms-connection-dialog" class="connector-dialog">')
+          dialog_end = s.index('    <dialog id="pending-parcels-dialog"', dialog_start)
+          block = s[dialog_start:dialog_end]
+          close_anchor = '      </form>\n    </dialog>\n\n'
+          if block.count(close_anchor) != 1:
+              raise SystemExit(f'ms.html close anchor count={block.count(close_anchor)}')
+          block = block.replace(
+              close_anchor,
+              '        </form>\n      </div>\n    </dialog>\n\n',
+              1,
+          )
+          s = s[:dialog_start] + block + s[dialog_end:]
+          p.write_text(s)
+
+          # 2) CSS: beat native dialog sizing explicitly, make the viewport shell
+          # the ONLY vertical scroll owner, and center the card with a dedicated stage.
+          p = Path('style.css')
+          s = p.read_text()
+          marker = '/* MS_CONNECTION_OUTER_SCROLL_V1'
+          end_marker = '.setup-steps {'
+          if s.count(marker) != 1:
+              raise SystemExit(f'old outer-scroll marker count={s.count(marker)}')
+          start = s.index(marker)
+          end = s.index(end_marker, start)
+          new_block = '''/* MS_CONNECTION_OUTER_SCROLL_V2
+   Three-layer contract: viewport dialog owns scroll, stage owns centering,
+   white card owns content only. Native dialog sizing is overridden explicitly. */
+dialog.connector-dialog {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  box-sizing: border-box !important;
+}
+dialog.connector-dialog[open] {
+  display: block !important;
+}
+.connector-dialog::backdrop {
+  background: rgba(15, 15, 15, 0.62);
+}
+.connector-dialog-stage {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px max(16px, env(safe-area-inset-right)) 24px max(16px, env(safe-area-inset-left));
+  box-sizing: border-box;
+}
+.connector-dialog-stage > .connector-setup-card {
+  position: relative;
+  flex: 0 1 720px;
+  width: min(720px, 100%);
+  max-width: 720px;
+  margin: 0;
+  overflow: visible;
+  border: 1px solid #9aa4ad;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  box-sizing: border-box;
+}
+html:has(.connector-dialog[open]),
+body:has(.connector-dialog[open]) {
+  overflow: hidden;
+}
+'''
+          s = s[:start] + new_block + s[end:]
+
+          old_mobile = '''@media (max-width: 700px) {
+  .connector-dialog {
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    padding: 10px max(6px, env(safe-area-inset-right)) 10px max(6px, env(safe-area-inset-left));
+  }
+  .connector-dialog .dialog-card { padding: 18px 15px; }
+  .setup-steps { padding-left: 22px; }
+  .setup-link { width: 100%; justify-content: center; text-align: center; }
+}'''
+          new_mobile = '''@media (max-width: 700px) {
+  .connector-dialog-stage {
+    padding: 10px max(8px, env(safe-area-inset-right)) 16px max(8px, env(safe-area-inset-left));
+  }
+  .connector-dialog .dialog-card { padding: 18px 15px; }
+  .setup-steps { padding-left: 22px; }
+  .setup-link { width: 100%; justify-content: center; text-align: center; }
+}'''
+          if s.count(old_mobile) != 1:
+              raise SystemExit(f'old mobile connector block count={s.count(old_mobile)}')
+          s = s.replace(old_mobile, new_mobile, 1)
+          p.write_text(s)
+          PY
+
+      - name: Validate modal ownership and no JS layout override
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          html = Path('ms.html').read_text()
+          css = Path('style.css').read_text()
+          js = Path('ms.js').read_text()
+
+          assert html.count('class="connector-dialog-stage"') == 1
+          assert '<dialog id="ms-connection-dialog" class="connector-dialog">\n      <div class="connector-dialog-stage">\n        <form class="dialog-card connector-setup-card" id="ms-connection-form">' in html
+          assert 'MS_CONNECTION_OUTER_SCROLL_V2' in css
+          assert 'MS_CONNECTION_OUTER_SCROLL_V1' not in css
+          for token in [
+              'dialog.connector-dialog {',
+              'inset: 0 !important;',
+              'width: 100% !important;',
+              'max-width: none !important;',
+              'height: 100dvh !important;',
+              'overflow-y: auto !important;',
+              'overflow-x: hidden !important;',
+              '.connector-dialog-stage {',
+              'justify-content: center;',
+              'flex: 0 1 720px;',
+              'width: min(720px, 100%);',
+          ]:
+              assert token in css, token
+          assert '.connector-setup-card {\n  width: min(100%, 720px);' not in css
+          assert 'max-height: 92vh;' not in css[css.index('MS_CONNECTION_OUTER_SCROLL_V2'):css.index('.setup-steps {')]
+          # JS should only open/close the dialog; no inline sizing/position overrides.
+          assert 'el("ms-connection-dialog").showModal();' in js
+          assert 'el("ms-connection-close").onclick = () => el("ms-connection-dialog").close();' in js
+          assert 'ms-connection-dialog").style.' not in js
+          print('MS_CONNECTION_LAYOUT_V2=PASS')
+          print('SCROLL_OWNER=VIEWPORT_DIALOG')
+          print('CENTER_OWNER=CONNECTOR_DIALOG_STAGE')
+          print('WHITE_CARD_SCROLL_OWNER=NO')
+          print('MS_JS_LAYOUT_OVERRIDE=0')
+          PY
+          node --check ms.js
+          git diff --check
+
+      - name: Run canonical and staging regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd worker
+          npm ci
+          npm run check
+          node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
+          node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
+
+      - name: Commit tested layout fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ms.html style.css
+          git commit -m 'fix(dev): center MS connection modal with viewport scroll shell'
+          git push origin HEAD:main

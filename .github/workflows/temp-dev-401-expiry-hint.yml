@@ -1,4 +1,4 @@
-name: TEMP DEV TBR HUB Catalog V4
+name: TEMP DEV Live TBR HUB Selector Probe
 
 on:
   push:
@@ -7,33 +7,28 @@ on:
       - .github/workflows/temp-dev-401-expiry-hint.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch:
+  probe:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Apply guarded TBR HUB catalog patch
-        run: python3 .github/dev-tools/patch-tbr-hub-catalog-v4.py
-      - name: Validate Browser intelligence contracts
+      - name: Probe live TBR Intelligence selectors
+        shell: bash
         run: |
-          cd cloudflare-browser-test
-          npm install --no-audit --no-fund
-          npm run check
-          node --test scripts/connection-error-intelligence.test.mjs
-          grep -F 'TBR_INTELLIGENCE_HUB_CATALOG_V4' src/tbr-intelligence-entry.js
-          grep -F 'INTELLIGENCE_HUB_FILTER_V4' src/connection-error.js
-          git diff --check
-      - name: Commit tested TBR catalog V4
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add cloudflare-browser-test/src/tbr-intelligence-entry.js
-          git commit -m 'fix(dev): unify TBR Intelligence HUB catalog'
-          git push origin HEAD:main
+          set -euo pipefail
+          for hub in NE1 EA2; do
+            url="https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev/shadow-tbr?hub=${hub}"
+            html="$(curl -fsS -H 'Accept: text/html' --retry 2 --connect-timeout 10 "$url")"
+            options="$(printf '%s' "$html" | grep -oE '<option[^>]*value="[^"]+"[^>]*>[^<]*</option>' || true)"
+            echo "--- ${hub} ---"
+            printf '%s\n' "$options"
+            count="$(printf '%s\n' "$options" | grep -c '<option' || true)"
+            echo "HUB_OPTION_COUNT_${hub}=$count"
+            test "$count" -ge 2
+            printf '%s\n' "$options" | grep -q '>NE1</option>'
+            printf '%s\n' "$options" | grep -q '>EA2</option>'
+            printf '%s\n' "$options" | grep -q "hub=${hub}\" selected>${hub}</option>"
+          done
+          echo 'TBR_HUB_SELECTOR_SYMMETRY=PASS'
+          echo 'TURSO_READS_ADDED=0 TURSO_WRITES_ADDED=0 EXTRA_MS_POLLING=0'

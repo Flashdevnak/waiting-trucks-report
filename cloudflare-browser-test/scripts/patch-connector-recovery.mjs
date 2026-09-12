@@ -5,6 +5,7 @@ const SHADOW_MARKER = "TBR_SHADOW_OBSERVER_V1";
 const SHADOW_REPORT_MARKER = "TBR_SHADOW_REPORT_V1";
 const CONNECTION_ERROR_MARKER = "MS_CONNECTION_ERROR_KV_V1";
 const DEV_SERVICE_BINDING_MARKER = "BROWSER_DEV_SERVICE_BINDING_V1";
+const BUS_DIAGNOSTICS_MARKER = "BROWSER_BUS_DIAGNOSTICS_V1";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -12,6 +13,14 @@ function replaceUnique(output, from, to, label) {
   if (first < 0 || first !== last)
     throw new Error(`Browser connector patch failed: ${label}`);
   return output.replace(from, to);
+}
+
+function ensureBusDiagnosticsRoute(source) {
+  let output = String(source || "");
+  if (output.includes(BUS_DIAGNOSTICS_MARKER)) return output;
+  const anchor = `    if (url.pathname === "/api/config")\n      return reply({ ok: true, pinConfigured: Boolean(env.TEST_PIN) });`;
+  const replacement = `${anchor}\n    // ${BUS_DIAGNOSTICS_MARKER}: DEV-only safe proxy. Connector token stays inside Browser KV.\n    // Response contains counters/quota evidence only; no connector secret is exposed.\n    if (url.pathname === "/api/bus-diagnostics") {\n      const hub = String(url.searchParams.get("hub") || "NE1").trim().toUpperCase();\n      if (!/^[A-Z0-9_-]{2,20}$/.test(hub))\n        return reply({ ok: false, code: "INVALID_HUB", message: "HUB ไม่ถูกต้อง" }, 400);\n      const connectorToken = await env.STATE.get(\`connector:\${hub}\`);\n      if (!connectorToken)\n        return reply({ ok: false, code: "CONNECTOR_NOT_READY", message: \`ยังไม่มี connector ของ \${hub}\` }, 404);\n      const response = await mainApiFetch(env, {\n        action: "connectorBusDiagnostics",\n        hub,\n        connectorToken,\n      });\n      const payload = await response.json().catch(() => ({}));\n      if (!response.ok || payload?.ok === false)\n        return reply({\n          ok: false,\n          code: payload?.code || \`DEV_DIAGNOSTICS_HTTP_\${response.status}\`,\n          message: payload?.message || "DEV diagnostics ไม่สำเร็จ",\n        }, response.status || 502);\n      return reply({ ok: true, data: payload?.data || payload });\n    }`;
+  return replaceUnique(output, anchor, replacement, "add safe BusTime diagnostics proxy");
 }
 
 function ensureConnectionErrorRoute(source) {
@@ -128,7 +137,9 @@ export function patchConnectorRecovery(source) {
     output = output.replace(oldBlock, newBlock);
   }
 
-  return patchDevServiceBinding(patchTbrShadowObserver(output));
+  output = patchDevServiceBinding(patchTbrShadowObserver(output));
+  output = ensureBusDiagnosticsRoute(output);
+  return output;
 }
 
 export async function patchConnectorRecoveryFile(target) {

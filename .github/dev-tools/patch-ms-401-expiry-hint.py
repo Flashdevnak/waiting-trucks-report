@@ -87,7 +87,7 @@ if 'ผ่าน QR' in s and 'source-expiry-hint' in s:
 p.write_text(s)
 
 # 3) Small bottom-right visual helper.
-p = Path('ms.css')
+p = Path('style.css')
 s = p.read_text()
 if '.source-expiry-hint' not in s:
     anchor = '.connection-source-status .source-missing { color: #6b6b66; }\n'

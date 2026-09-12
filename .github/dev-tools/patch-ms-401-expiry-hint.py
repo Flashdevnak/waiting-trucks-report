@@ -1,21 +1,24 @@
 from pathlib import Path
 
-# DEV staged backend: authenticated, branch-scoped repair status.
+bsnl = chr(92) + "\n"
+
+# DEV staged backend: expose only repair changedAt in the already-sanitized
+# read-only diagnostic. No credential/message/Turso/upstream access is added.
 p = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
 s = p.read_text()
-anchor = '''  const actor = await verify(url.searchParams.get("token"), env);\n  if (action === "msOriginManifestStatus")'''
-replacement = '''  const actor = await verify(url.searchParams.get("token"), env);\n  if (action === "msRepairStatus") {\n    const branch = pickBranch(actor, url.searchParams.get("branch"));\n    if (!env.MS_REFRESH_COORDINATOR) fail("coordinator unavailable", "MS_COORDINATOR_UNAVAILABLE", 503);\n    const id = env.MS_REFRESH_COORDINATOR.idFromName(branch);\n    const stub = env.MS_REFRESH_COORDINATOR.get(id);\n    const target = new URL("https://ms-refresh.internal/repair-health");\n    target.searchParams.set("branch", branch);\n    const response = await stub.fetch(new Request(target));\n    const payload = await response.json().catch(() => ({}));\n    if (!response.ok) fail("repair status unavailable", "MS_REPAIR_STATUS_UNAVAILABLE", 503);\n    const repair = payload?.repair || {};\n    return ok({\n      branch,\n      repair: {\n        policyVersion: Number(repair.policyVersion || 0),\n        state: text(repair.state, 40),\n        failures: Number(repair.failures || 0),\n        nextRetryAt: Number(repair.nextRetryAt || 0),\n        code: text(repair.code, 80),\n        changedAt: text(repair.changedAt, 100),\n        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),\n      },\n      quota: { tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 },\n    });\n  }\n  if (action === "msOriginManifestStatus")'''
+anchor = '        code: text(repair.code, 80),' + bsnl + '        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),'
+replacement = '        code: text(repair.code, 80),' + bsnl + '        changedAt: text(repair.changedAt, 100),' + bsnl + '        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),'
 if s.count(anchor) != 1:
-    raise SystemExit(f'backend anchor count={s.count(anchor)}')
+    raise SystemExit(f'backend diagnostic anchor count={s.count(anchor)}')
 p.write_text(s.replace(anchor, replacement, 1))
 
-# Frontend: fetch repair state only when connection dialog is opened.
+# Frontend: read the sanitized repair probe only when the connection dialog opens.
 p = Path('ms.js')
 s = p.read_text()
 old = '    const status = await apiGet("msConnectionStatus", { branch: hub });\n'
 new = '''    const status = await apiGet("msConnectionStatus", { branch: hub });
     let repairStatus = null;
-    try { repairStatus = await apiGet("msRepairStatus", { branch: hub }); }
+    try { repairStatus = await apiGet("msRepairHealthDev", { branch: hub }); }
     catch { repairStatus = null; }
     const routeRepair = repairStatus?.repair || {};
 '''
@@ -82,7 +85,7 @@ if s.count(old) != 1:
     raise SystemExit(f'frontend text anchor count={s.count(old)}')
 p.write_text(s.replace(old, new, 1))
 
-# Small bottom-right hint.
+# Small bottom-right helper text.
 p = Path('ms.css')
 s = p.read_text()
 anchor = '.connection-source-status .source-missing { color: #6b6b66; }\n'

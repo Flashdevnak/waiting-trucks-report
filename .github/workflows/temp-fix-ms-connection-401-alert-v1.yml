@@ -41,7 +41,8 @@ jobs:
           cd worker
           rm -rf .tmp-401-assets .tmp-401-runtime
           mkdir -p .tmp-401-assets .tmp-401-runtime
-          cp ../ms.html ../ms.js ../style.css ../ms-v4.css .tmp-401-assets/
+          cp ../admin.html ../admin.js ../admin.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .tmp-401-assets/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .tmp-401-assets/
           cp -R src .tmp-401-runtime/src
           node ../.github/dev-tools/stage-dev-runtime.mjs .tmp-401-assets/ms.js .tmp-401-runtime/src/index.js
           node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .tmp-401-assets/ms.js .tmp-401-runtime/src/origin-manifest-v1.js

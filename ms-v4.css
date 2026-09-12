@@ -136,7 +136,7 @@
 .truck-photo-item img { display: block; width: 100%; height: 190px; object-fit: contain; border-radius: 7px; background: #f4f5f3; }
 .truck-photo-item.is-expanded { grid-column: 1 / -1; cursor: zoom-out; }
 .truck-photo-item.is-expanded img { width: auto; max-width: 100%; height: auto; max-height: 70vh; margin: 0 auto; }
-.truck-photo-empty { display: flex; min-height: 150px; align-items: center; justify-content: center; padding: 18px; text-align: center; color: #5b6064; }
+.truck-photo-empty { display: flex; min-height: 150px; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 18px; text-align: center; color: #5b6064; }
 .truck-photo-empty.is-error { color: #b3261e; }
 .truck-photo-note { display: block; padding: 0 18px 14px; color: #727874; text-align: center; }
 @media (min-width: 1025px) {
@@ -224,9 +224,29 @@
   }
   .ms-page .compact-card-tags .compact-work-type > small { color: #766627; text-align: center; }
   .ms-page .compact-route-name { font-size: 14px !important; line-height: 1.3 !important; font-weight: 850 !important; color: #252b2e !important; letter-spacing: .005em; }
-  .ms-page .compact-card-head .local-route-barcode:has(.local-barcode-panel:not(.hidden)) { grid-column: 1 / -1 !important; width: 100% !important; margin-top: 4px; }
-  .ms-page .compact-card-head .local-route-barcode:has(.local-barcode-panel:not(.hidden)) .local-barcode-toggle { width: min(100%, 220px); align-self: center; }
-  .ms-page .compact-card-head .local-barcode-panel { align-self: stretch; width: 100%; }
+  /* Keep the toggle in its original header cell; only the opened barcode panel spans the card. */
+  .ms-page .compact-card-head:has(.expected-parcels-badge) .local-route-barcode { display: contents; }
+  .ms-page .compact-card-head:has(.expected-parcels-badge) .local-route-barcode .local-barcode-toggle {
+    grid-column: 2;
+    width: 100%;
+    margin: 2px 0 0;
+    align-self: stretch;
+  }
+  .ms-page .compact-card-head:has(.expected-parcels-badge) .local-route-barcode .local-barcode-panel {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 7px;
+    align-self: stretch;
+  }
+  .ms-page .compact-card-head:not(:has(.expected-parcels-badge)) .local-route-barcode:has(.local-barcode-panel:not(.hidden)) {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    margin-top: 4px;
+  }
+  .ms-page .compact-card-head:not(:has(.expected-parcels-badge)) .local-route-barcode:has(.local-barcode-panel:not(.hidden)) .local-barcode-toggle {
+    width: min(100%, 220px);
+    align-self: center;
+  }
   .ms-page .compact-party { background: #f3f5f3 !important; border: 1px solid var(--ms-v4-line) !important; }
   .ms-page .compact-party > div {
     display: flex;

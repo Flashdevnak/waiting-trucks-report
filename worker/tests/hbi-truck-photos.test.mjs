@@ -25,11 +25,20 @@ test("frontend keeps photo loading strictly click-only and single-shot", () => {
   assert.doesNotMatch(desktopRow, /people-summary[\s\S]*truckPhotoButton\(row\)/);
   assert.match(front, /apiGetOnce\("msTruckPhotos"/);
   assert.doesNotMatch(front, /apiGet\("msTruckPhotos"/);
+  assert.match(front, /HBI_PHOTO_SESSION_EXPIRED/);
+  assert.match(front, /data-hbi-session-reconnect/);
   // HBI remains click-only; realtime Route transport is now WebSocket-first at
   // the same 4-second visible cadence instead of direct HTTP polling.
   assert.match(front, /pollMs:\s*4000/);
   assert.match(front, /setInterval\(realtimeTick, CONFIG\.pollMs\)/);
   assert.doesNotMatch(front, /setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/);
+});
+
+test("mobile barcode toggle stays in its original cell when panel opens", () => {
+  const style = fs.readFileSync(new URL("../../ms-v4.css", import.meta.url), "utf8");
+  assert.match(style, /compact-card-head:has\(\.expected-parcels-badge\) \.local-route-barcode \{ display: contents; \}/);
+  assert.match(style, /local-route-barcode \.local-barcode-toggle \{[\s\S]*?grid-column: 2;/);
+  assert.match(style, /local-route-barcode \.local-barcode-panel \{[\s\S]*?grid-column: 1 \/ -1;/);
 });
 
 test("worker keeps HBI out of live refresh and caps each cold click at one page", () => {

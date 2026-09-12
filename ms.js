@@ -2027,6 +2027,16 @@ async function openTruckPhotos(encodedProofId) {
     if (state.branch !== branch) return;
     body.replaceChildren(truckPhotoPanel(key, proofId, Array.isArray(result?.photos) ? result.photos : []));
   } catch (error) {
+    if (error?.code === "HBI_PHOTO_SESSION_EXPIRED") {
+      body.innerHTML = `<div class="truck-photo-empty is-error"><strong>Session รูปท้ายรถหมดอายุ</strong><span>ต้องเชื่อมต่อ HBI ใหม่ก่อนดูรูป · Route และข้อมูลเรียลไทม์ยังทำงานตามปกติ</span><button type="button" class="btn btn-accent" data-hbi-session-reconnect>เชื่อมต่อรูปท้ายรถใหม่</button></div>`;
+      const reconnect = body.querySelector("[data-hbi-session-reconnect]");
+      if (reconnect) reconnect.onclick = () => {
+        if (dialog.open) dialog.close();
+        openMsConnection();
+        setTimeout(() => el("ms-har-hbi-photos")?.focus(), 0);
+      };
+      return;
+    }
     body.innerHTML = `<div class="truck-photo-empty is-error">${esc(error.message || "โหลดรูปท้ายรถไม่สำเร็จ")}</div>`;
   }
 }

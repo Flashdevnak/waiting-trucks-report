@@ -1,0 +1,45 @@
+name: TEMP DEV Supervisor TBR Compatibility Fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/temp-fix-supervisor-tbr-ownership.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove duplicate runMsRefresh errorCode ownership
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
+          text = path.read_text()
+          block = '''  output = replaceOnce(
+            output,
+            `    const result = {\\n      status: "error",\\n      error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",\\n    };`,
+            `    const result = {\\n      status: "error",\\n      errorCode: error.code || "MS_SYNC_FAILED",\\n      error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",\\n    };`,
+            "preserve refresh error code",
+          );
+
+          '''
+          if text.count(block) != 1:
+              raise SystemExit(f'expected one compatibility block, found {text.count(block)}')
+          path.write_text(text.replace(block, ''))
+          PY
+          node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
+          git diff --check
+      - name: Commit compatibility fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/dev-tools/patch-ms-self-healing-supervisor.mjs
+          git commit -m "fix(dev): keep TBR error-code ownership"
+          git push origin HEAD:main

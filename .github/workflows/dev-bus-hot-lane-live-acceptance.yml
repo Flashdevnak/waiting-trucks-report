@@ -1,0 +1,103 @@
+name: DEV BusTime Live Acceptance
+
+on:
+  workflow_run:
+    workflows: ["Deploy Worker DEV"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  accept:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      HUB: NE1
+    steps:
+      - name: Controlled BusTime hot-lane live probe
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
+            const apiToken=process.env.CLOUDFLARE_API_TOKEN;
+            const origin=process.env.WORKER_ORIGIN;
+            const hub=String(process.env.HUB||'NE1').toUpperCase();
+            if(!account||!apiToken) throw new Error('Cloudflare credentials missing');
+            const cfHeaders={Authorization:`Bearer ${apiToken}`};
+            const base=`https://api.cloudflare.com/client/v4/accounts/${account}`;
+            const settingsRes=await fetch(`${base}/workers/scripts/waiting-trucks-ms-browser-test/settings`,{headers:cfHeaders});
+            const settings=await settingsRes.json();
+            if(!settingsRes.ok||settings.success===false) throw new Error(`Browser settings HTTP ${settingsRes.status}`);
+            const bindings=Array.isArray(settings.result?.bindings)?settings.result.bindings:[];
+            const state=bindings.find(x=>x.name==='STATE'&&x.type==='kv_namespace');
+            if(!state?.namespace_id) throw new Error('Browser STATE KV binding missing');
+            const key=encodeURIComponent(`connector:${hub}`);
+            const valueRes=await fetch(`${base}/storage/kv/namespaces/${state.namespace_id}/values/${key}`,{headers:cfHeaders});
+            if(!valueRes.ok) throw new Error(`Connector token ${hub} unavailable HTTP ${valueRes.status}`);
+            const connectorToken=(await valueRes.text()).trim();
+            if(connectorToken.length<20) throw new Error(`Connector token ${hub} invalid`);
+            console.log(`::add-mask::${connectorToken}`);
+
+            const samples=[];
+            for(let i=0;i<4;i++){
+              const started=Date.now();
+              const response=await fetch(`${origin}/api`,{
+                method:'POST',
+                headers:{'content-type':'application/json','accept':'application/json'},
+                body:JSON.stringify({action:'connectorBusDiagnostics',hub,connectorToken}),
+              });
+              const body=await response.json().catch(()=>({}));
+              if(!response.ok||body?.ok===false) throw new Error(`Probe ${i+1} HTTP ${response.status}: ${JSON.stringify(body)}`);
+              const data=body.data||body;
+              const d=data.busDiagnostics||{};
+              const q=data.acceptanceQuota||{};
+              if(d.mode!=='BUS_TIME_HOT_LANE_V14') throw new Error(`Probe ${i+1}: unexpected mode ${d.mode}`);
+              if(Number(d.maxCallsPerCycle)!==3) throw new Error(`Probe ${i+1}: maxCallsPerCycle=${d.maxCallsPerCycle}`);
+              if(Number(d.busPagesLastCycle)>3) throw new Error(`Probe ${i+1}: busPagesLastCycle=${d.busPagesLastCycle}`);
+              if(Number(q.routeUpstreamCalls)!==0||Number(q.preEntryUpstreamCalls)!==0) throw new Error(`Probe ${i+1}: non-Bus upstream call detected`);
+              if(Number(q.tursoWrites)!==0||Number(q.telemetryWrites)!==0) throw new Error(`Probe ${i+1}: write-free contract broken`);
+              if(Number(d.busRateLimitCount)>0&&!d.busCooldownUntil) throw new Error(`Probe ${i+1}: rate limit without cooldown`);
+              const sample={
+                n:i+1,
+                latencyMs:Date.now()-started,
+                hot:Number(d.busHotCalls||0),
+                background:Number(d.busBackgroundCalls||0),
+                callsLastMinute:Number(d.busCallsLastMinute||0),
+                pagesLastCycle:Number(d.busPagesLastCycle||0),
+                cacheHits:Number(d.busCacheHits||0),
+                cacheMisses:Number(d.busCacheMisses||0),
+                rateLimits:Number(d.busRateLimitCount||0),
+                cooldownUntil:d.busCooldownUntil||'',
+                lastSuccessAt:d.busLastSuccessAt||'',
+                lastError:d.busLastError||'',
+                activeRows:Number(d.busActiveRows||0),
+                knownRows:Number(d.busTotalKnownRows||0),
+              };
+              samples.push(sample);
+              console.log(`BUS_LIVE_SAMPLE_${i+1}=${JSON.stringify(sample)}`);
+              if(i<3) await new Promise(resolve=>setTimeout(resolve,4000));
+            }
+            const maxCalls=Math.max(...samples.map(x=>x.callsLastMinute));
+            const maxCycle=Math.max(...samples.map(x=>x.pagesLastCycle));
+            const totalRateLimits=Math.max(...samples.map(x=>x.rateLimits));
+            const latencies=samples.map(x=>x.latencyMs).sort((a,b)=>a-b);
+            const p50=latencies[Math.floor((latencies.length-1)*0.5)];
+            const p95=latencies[Math.floor((latencies.length-1)*0.95)];
+            console.log(`BUS_LIVE_HUB=${hub}`);
+            console.log(`BUS_LIVE_SAMPLES=${samples.length}`);
+            console.log(`BUS_LIVE_MAX_CALLS_LAST_MINUTE=${maxCalls}`);
+            console.log(`BUS_LIVE_MAX_PAGES_PER_CYCLE=${maxCycle}`);
+            console.log(`BUS_LIVE_RATE_LIMIT_COUNT=${totalRateLimits}`);
+            console.log(`BUS_LIVE_LATENCY_P50_MS=${p50}`);
+            console.log(`BUS_LIVE_LATENCY_P95_MS=${p95}`);
+            console.log('BUS_LIVE_ROUTE_UPSTREAM_CALLS=0');
+            console.log('BUS_LIVE_PREENTRY_UPSTREAM_CALLS=0');
+            console.log('BUS_LIVE_TURSO_WRITES=0');
+            console.log('BUS_LIVE_TELEMETRY_WRITES=0');
+            console.log('BUS_TIME_LIVE_ACCEPTANCE=PASS');
+          })().catch(error=>{console.error(error);process.exit(1);});
+          NODE

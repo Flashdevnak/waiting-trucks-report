@@ -4289,3 +4289,11 @@ html.ms-desktop-site-phone .ms-page #desktop-table{display:block;max-width:100%;
   }
   .ms-page .compact-party { padding: 7px 6px; }
 }
+
+/* MS_CONNECTION_401_TOAST_V2: keep long 401 guidance readable in the existing bottom-right toast. */
+.toast {
+  max-width: min(520px, calc(100vw - 36px));
+  white-space: normal;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}

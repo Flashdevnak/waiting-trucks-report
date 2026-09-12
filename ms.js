@@ -2544,27 +2544,15 @@ async function loadMsConnectionStatus() {
       }
     }
 
-    const statusBox = el("connection-source-status");
-    let sessionAlert = el("ms-session-401-alert");
-    if (!sessionAlert && statusBox) {
-      sessionAlert = document.createElement("div");
-      sessionAlert.id = "ms-session-401-alert";
-      sessionAlert.className = "ms-session-401-alert hidden";
-      sessionAlert.setAttribute("role", "alert");
-      statusBox.insertAdjacentElement("afterend", sessionAlert);
-    }
-    if (sessionAlert) {
-      if (!session401Sources.length) {
-        sessionAlert.classList.add("hidden");
-        sessionAlert.replaceChildren();
-      } else {
-        const title = document.createElement("strong");
-        title.textContent = `MS ตอบกลับ 401${session401DetectedAt ? ` · ${shortDateTime(session401DetectedAt)}` : ""}`;
-        const detail = document.createElement("span");
-        detail.textContent = `Session ปัจจุบันถูกปฏิเสธ · กระทบ: ${session401Sources.join(" / ")} · กรุณาเชื่อมต่อ MS ใหม่ แล้วอัปโหลด HAR ของแหล่งที่ขึ้น 401 ใหม่`;
-        sessionAlert.replaceChildren(title, detail);
-        sessionAlert.classList.remove("hidden");
-      }
+    // MS_CONNECTION_401_TOAST_V2: reuse the page's native bottom-right toast; never render 401 guidance inside the modal.
+    el("ms-session-401-alert")?.remove();
+    if (session401Sources.length) {
+      const detectedAt = session401DetectedAt ? ` · ${shortDateTime(session401DetectedAt)}` : "";
+      toast(
+        `MS ตอบกลับ 401${detectedAt} · Session ปัจจุบันถูกปฏิเสธ · กระทบ: ${session401Sources.join(" / ")} · กรุณาเชื่อมต่อ MS ใหม่ แล้วอัปโหลด HAR ของแหล่งที่ขึ้น 401 ใหม่`,
+        true,
+        10000,
+      );
     }
   } catch (error) {
     const box = el("ms-connection-error");
@@ -3006,10 +2994,11 @@ const esc = (value) =>
       ],
   );
 let toastTimer;
-function toast(message, error = false) {
+function toast(message, error = false, durationMs = 4000) {
   clearTimeout(toastTimer);
   el("toast").textContent = message;
   el("toast").style.background = error ? "var(--red)" : "var(--navy)";
   el("toast").classList.remove("hidden");
-  toastTimer = setTimeout(() => el("toast").classList.add("hidden"), 4000);
+  const duration = Math.max(1000, Number(durationMs) || 4000);
+  toastTimer = setTimeout(() => el("toast").classList.add("hidden"), duration);
 }

@@ -33,10 +33,13 @@ jobs:
         run: |
           set -euo pipefail
           url='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev/api/connection-error?hub=NE1'
-          html="$(curl -fsS --retry 2 --connect-timeout 10 "$url")"
+          html="$(curl -fsS -H 'Accept: text/html' --retry 2 --connect-timeout 10 "$url")"
           options="$(printf '%s' "$html" | grep -oE '<option[^>]*value="[^"]+"[^>]*>[^<]*</option>' || true)"
           printf '%s\n' "$options"
           count="$(printf '%s\n' "$options" | grep -c '<option' || true)"
           echo "HUB_OPTION_COUNT=$count"
           test "$count" -ge 2
-          printf '%s\n' "$options" | grep -q 'value="NE1"'
+          printf '%s\n' "$options" | grep -q '>NE1</option>'
+          other="$(printf '%s\n' "$options" | grep -v '>NE1</option>' | head -n 1 || true)"
+          test -n "$other"
+          echo "OTHER_HUB_OPTION=$other"

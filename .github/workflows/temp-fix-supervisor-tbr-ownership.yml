@@ -1,4 +1,4 @@
-name: TEMP DEV Route Auth Classifier Fix
+name: TEMP DEV Repair State Probe
 
 on:
   push:
@@ -8,65 +8,20 @@ on:
       - .github/workflows/temp-fix-supervisor-tbr-ownership.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fix:
+  probe:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Apply DEV-only auth classifier correction
+      - name: Probe sanitized DEV repair state read-only
         shell: bash
         run: |
           set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
-
-          tbr = Path('cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs')
-          s = tbr.read_text()
-          old = 'if ([401, 403].includes(Number(httpStatus)) || /session|token|auth|login|expired|unauthor/i.test(value))'
-          new = 'if ([401, 403].includes(Number(httpStatus)))'
-          if s.count(old) != 1:
-              raise SystemExit(f'auth classifier anchor count={s.count(old)}')
-          tbr.write_text(s.replace(old, new, 1))
-
-          supervisor = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
-          s = supervisor.read_text()
-          old = 'const MS_REPAIR_POLICY_VERSION = 3;'
-          if s.count(old) != 1:
-              raise SystemExit(f'policy anchor count={s.count(old)}')
-          supervisor.write_text(s.replace(old, 'const MS_REPAIR_POLICY_VERSION = 4;', 1))
-
-          test = Path('.github/dev-tools/ms-self-healing-supervisor.test.mjs')
-          s = test.read_text()
-          old = 'MS_REPAIR_POLICY_VERSION = 3'
-          if s.count(old) != 1:
-              raise SystemExit(f'policy test anchor count={s.count(old)}')
-          test.write_text(s.replace(old, 'MS_REPAIR_POLICY_VERSION = 4', 1))
-          PY
-
-          grep -F 'if ([401, 403].includes(Number(httpStatus)))' cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
-          if grep -Fq '|| /session|token|auth|login|expired|unauthor/i.test(value)' cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs; then
-            echo 'message-text auth heuristic still present' >&2
-            exit 1
-          fi
-          grep -F 'const MS_REPAIR_POLICY_VERSION = 4;' .github/dev-tools/patch-ms-self-healing-supervisor.mjs
-          node --check cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
-          node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
-          node --test .github/dev-tools/ms-self-healing-supervisor.test.mjs
-          node --test .github/dev-tools/stage-dev-runtime.test.mjs
-          git diff --check
-      - name: Commit tested DEV fix
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs .github/dev-tools/patch-ms-self-healing-supervisor.mjs .github/dev-tools/ms-self-healing-supervisor.test.mjs
-          git commit -m 'fix(dev): require HTTP auth proof for MS session expiry'
-          git push origin HEAD:main
+          base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=msRepairHealthDev&branch='
+          for hub in EA2 NE1; do
+            echo "=== ${hub} ==="
+            body="$(curl -fsS --retry 2 --connect-timeout 10 "${base}${hub}")"
+            echo "$body" | jq -c '{ok:.ok,branch:.data.branch,repair:.data.repair,quota:.data.quota}'
+            echo "$body" | jq -e '.ok == true and .data.quota.tursoReads == 0 and .data.quota.tursoWrites == 0 and .data.quota.upstreamCalls == 0' >/dev/null
+          done

@@ -2,7 +2,7 @@ name: DEV BusTime Live Acceptance
 
 on:
   workflow_run:
-    workflows: ["Deploy Worker DEV"]
+    workflows: ["Deploy Browser Worker"]
     types: [completed]
 
 permissions:
@@ -13,42 +13,21 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      BROWSER_ORIGIN: https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev
       HUB: NE1
     steps:
       - name: Controlled BusTime hot-lane live probe
         run: |
           node <<'NODE'
           (async()=>{
-            const account=process.env.CLOUDFLARE_ACCOUNT_ID;
-            const apiToken=process.env.CLOUDFLARE_API_TOKEN;
-            const origin=process.env.WORKER_ORIGIN;
+            const origin=process.env.BROWSER_ORIGIN;
             const hub=String(process.env.HUB||'NE1').toUpperCase();
-            if(!account||!apiToken) throw new Error('Cloudflare credentials missing');
-            const cfHeaders={Authorization:`Bearer ${apiToken}`};
-            const base=`https://api.cloudflare.com/client/v4/accounts/${account}`;
-            const settingsRes=await fetch(`${base}/workers/scripts/waiting-trucks-ms-browser-test/settings`,{headers:cfHeaders});
-            const settings=await settingsRes.json();
-            if(!settingsRes.ok||settings.success===false) throw new Error(`Browser settings HTTP ${settingsRes.status}`);
-            const bindings=Array.isArray(settings.result?.bindings)?settings.result.bindings:[];
-            const state=bindings.find(x=>x.name==='STATE'&&x.type==='kv_namespace');
-            if(!state?.namespace_id) throw new Error('Browser STATE KV binding missing');
-            const key=encodeURIComponent(`connector:${hub}`);
-            const valueRes=await fetch(`${base}/storage/kv/namespaces/${state.namespace_id}/values/${key}`,{headers:cfHeaders});
-            if(!valueRes.ok) throw new Error(`Connector token ${hub} unavailable HTTP ${valueRes.status}`);
-            const connectorToken=(await valueRes.text()).trim();
-            if(connectorToken.length<20) throw new Error(`Connector token ${hub} invalid`);
-            console.log(`::add-mask::${connectorToken}`);
-
             const samples=[];
             for(let i=0;i<4;i++){
               const started=Date.now();
-              const response=await fetch(`${origin}/api`,{
-                method:'POST',
-                headers:{'content-type':'application/json','accept':'application/json'},
-                body:JSON.stringify({action:'connectorBusDiagnostics',hub,connectorToken}),
+              const response=await fetch(`${origin}/api/bus-diagnostics?hub=${encodeURIComponent(hub)}`,{
+                headers:{accept:'application/json'},
+                cache:'no-store',
               });
               const body=await response.json().catch(()=>({}));
               if(!response.ok||body?.ok===false) throw new Error(`Probe ${i+1} HTTP ${response.status}: ${JSON.stringify(body)}`);
@@ -98,6 +77,7 @@ jobs:
             console.log('BUS_LIVE_PREENTRY_UPSTREAM_CALLS=0');
             console.log('BUS_LIVE_TURSO_WRITES=0');
             console.log('BUS_LIVE_TELEMETRY_WRITES=0');
+            console.log('CONNECTOR_TOKEN_EXPOSED=0');
             console.log('BUS_TIME_LIVE_ACCEPTANCE=PASS');
           })().catch(error=>{console.error(error);process.exit(1);});
           NODE

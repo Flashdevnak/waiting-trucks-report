@@ -1,0 +1,37 @@
+name: DEV Admin Check Diagnostics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-admin-check-diagnostics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - name: Capture npm check failure locally
+        run: |
+          set +e
+          npm run check > ../admin-check.log 2>&1
+          code=$?
+          echo "CHECK_EXIT=$code" >> ../admin-check.log
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admin-check-diagnostics
+          path: admin-check.log
+          retention-days: 1

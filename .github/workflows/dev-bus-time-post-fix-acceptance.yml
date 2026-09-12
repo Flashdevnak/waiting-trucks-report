@@ -1,0 +1,188 @@
+name: DEV BusTime Post Fix Acceptance
+
+on:
+  push:
+    branches: [dev/bus-time-post-fix-acceptance]
+    paths: [.github/workflows/dev-bus-time-post-fix-acceptance.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      ACCEPT_HUB: NE1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Install
+        working-directory: worker
+        run: npm ci
+      - name: Stage clean latest DEV runtime
+        working-directory: worker
+        run: |
+          rm -rf .diag-assets .diag-clean .diag-runtime
+          mkdir -p .diag-assets .diag-clean
+          cp -R src .diag-clean/src
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .diag-assets/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .diag-assets/
+          cp ../.github/dev-tools/safe-parity.html .diag-assets/safe-parity.html
+          node ../.github/dev-tools/stage-dev-runtime.mjs .diag-assets/ms.js .diag-clean/src/index.js
+          node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .diag-assets/ms.js .diag-clean/src/origin-manifest-v1.js
+          node --check .diag-clean/src/index.js
+          node --check .diag-clean/src/bus-time-hot-lane-v14.js
+          grep -q 'previousActiveKeys' .diag-clean/src/bus-time-hot-lane-v14.js
+          cp -R .diag-clean .diag-runtime
+      - name: Add guarded post-fix diagnostic route
+        working-directory: worker
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const file='.diag-runtime/src/index.js';
+          let source=fs.readFileSync(file,'utf8');
+          const post='async function post(body, env) {\n  const action = String(body.action || "");';
+          if(!source.includes(post)) throw new Error('POST anchor missing');
+          source=source.replace(post,`async function post(body, env) {
+            const action = String(body.action || "");
+            if (action === "devBusPostFixReady" || action === "devBusPostFixAcceptance") {
+              const expected=String(env.DEV_BUS_DIAG_TOKEN||"");
+              const supplied=String(body.diagToken||"");
+              if(!expected||!supplied||supplied!==expected) fail("Forbidden","FORBIDDEN",403);
+              if(action === "devBusPostFixReady") return ok({ready:true,marker:"BUS_POST_FIX_READY_V1"});
+              const hub=String(body.hub||"").trim().toUpperCase();
+              if(!/^[A-Z0-9]{2,10}$/.test(hub)) fail("Invalid HUB","INVALID_HUB",400);
+              const actor={username:"DEV_BUS_POST_FIX",role:"admin",branches:["*"]};
+              const live=await refreshMsIfStale(env,actor,hub);
+              let diagnostics=busTimeDiagnostics(hub);
+              if(env.MS_REFRESH_COORDINATOR){
+                const id=env.MS_REFRESH_COORDINATOR.idFromName(hub);
+                const stub=env.MS_REFRESH_COORDINATOR.get(id);
+                const target=new URL("https://ms-refresh.internal/diagnostics");
+                target.searchParams.set("branch",hub);
+                const response=await stub.fetch(new Request(target));
+                if(response.ok) diagnostics=await response.json();
+              }
+              return ok({hub,syncStatus:String(live?.status||""),syncErrorPresent:Boolean(live?.error),diagnostics});
+            }`);
+          const doAnchor='    const branch = String(url.searchParams.get("branch") || "").trim().toUpperCase();\n    if (url.pathname === "/stream") return this.openStream(request, branch);';
+          if(!source.includes(doAnchor)) throw new Error('DO anchor missing');
+          source=source.replace(doAnchor,'    const branch = String(url.searchParams.get("branch") || "").trim().toUpperCase();\n    if (url.pathname === "/diagnostics") return Response.json(busTimeDiagnostics(branch));\n    if (url.pathname === "/stream") return this.openStream(request, branch);');
+          fs.writeFileSync(file,source);
+          NODE
+          node --check .diag-runtime/src/index.js
+      - name: Install temporary diagnostic secret
+        id: secret
+        working-directory: worker
+        run: |
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          printf '%s' "$TOKEN" | npx wrangler secret put DEV_BUS_DIAG_TOKEN --config wrangler.dev.jsonc
+      - name: Deploy temporary DEV diagnostic runtime
+        working-directory: worker
+        run: |
+          rm -rf .dev-assets .dev-runtime
+          cp -R .diag-assets .dev-assets
+          cp -R .diag-runtime .dev-runtime
+          npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
+      - name: Wait for diagnostic propagation
+        env:
+          DIAG_TOKEN: ${{ steps.secret.outputs.token }}
+        run: |
+          node <<'NODE'
+          const base=process.env.WORKER_ORIGIN,token=process.env.DIAG_TOKEN;
+          let last='';
+          for(let i=1;i<=20;i++){
+            try{
+              const r=await fetch(`${base}/api`,{method:'POST',headers:{'content-type':'application/json','cache-control':'no-cache'},body:JSON.stringify({action:'devBusPostFixReady',diagToken:token}),cache:'no-store'});
+              const j=await r.json();
+              if(r.ok&&j?.ok&&(j.data||j)?.marker==='BUS_POST_FIX_READY_V1'){console.log(`DIAG_READY_ATTEMPT=${i}`);process.exit(0);}
+              last=`HTTP ${r.status} ${JSON.stringify(j)}`;
+            }catch(e){last=e.message||String(e);}
+            await new Promise(r=>setTimeout(r,1000));
+          }
+          throw new Error(`diagnostic route not ready: ${last}`);
+          NODE
+      - name: Measure provider after fix
+        env:
+          DIAG_TOKEN: ${{ steps.secret.outputs.token }}
+        run: |
+          node <<'NODE'
+          const base=process.env.WORKER_ORIGIN,hub=process.env.ACCEPT_HUB,token=process.env.DIAG_TOKEN;
+          async function cycle(index){
+            const started=Date.now();
+            const response=await fetch(`${base}/api`,{method:'POST',headers:{'content-type':'application/json','cache-control':'no-cache'},body:JSON.stringify({action:'devBusPostFixAcceptance',hub,diagToken:token}),cache:'no-store'});
+            const payload=await response.json().catch(()=>({}));
+            if(!response.ok||!payload?.ok) throw new Error(`cycle ${index} HTTP ${response.status}: ${JSON.stringify(payload)}`);
+            const data=payload.data||payload,d=data.diagnostics||{};
+            return {index,latencyMs:Date.now()-started,syncStatus:data.syncStatus||'',syncError:Boolean(data.syncErrorPresent),mode:d.mode||'',calls:Number(d.busCallsLastMinute||0),hot:Number(d.busHotCalls||0),bg:Number(d.busBackgroundCalls||0),pages:Number(d.busPagesLastCycle||0),rate:Number(d.busRateLimitCount||0),success:d.busLastSuccessAt||'',error:d.busLastError||'',active:Number(d.busActiveRows||0),known:Number(d.busTotalKnownRows||0)};
+          }
+          const rows=[];
+          for(let i=1;i<=8;i++){
+            const r=await cycle(i); rows.push(r);
+            console.log(`POST_FIX_CYCLE=${i} LATENCY_MS=${r.latencyMs} STATUS=${r.syncStatus||'-'} CALLS_1M=${r.calls} HOT=${r.hot} BG=${r.bg} PAGES=${r.pages} ACTIVE=${r.active} KNOWN=${r.known} RATE_LIMITS=${r.rate} SUCCESS_AT=${r.success||'-'} ERROR=${r.error||'-'}`);
+            if(i<8) await new Promise(resolve=>setTimeout(resolve,4000));
+          }
+          const first=rows[0],last=rows.at(-1),lat=rows.map(r=>r.latencyMs).sort((a,b)=>a-b);
+          const avg=Math.round(rows.reduce((s,r)=>s+r.latencyMs,0)/rows.length);
+          const p95=lat[Math.min(lat.length-1,Math.floor(lat.length*.95))];
+          console.log(`POST_FIX_HUB=${hub}`);
+          console.log(`POST_FIX_BUS_MODE=${last.mode||'-'}`);
+          console.log(`POST_FIX_PROVIDER_CALL_DELTA=${(last.hot-first.hot)+(last.bg-first.bg)}`);
+          console.log(`POST_FIX_HOT_CALL_DELTA=${last.hot-first.hot}`);
+          console.log(`POST_FIX_BACKGROUND_CALL_DELTA=${last.bg-first.bg}`);
+          console.log(`POST_FIX_CALLS_LAST_MINUTE=${last.calls}`);
+          console.log(`POST_FIX_ACTIVE_ROWS=${last.active}`);
+          console.log(`POST_FIX_KNOWN_ROWS=${last.known}`);
+          console.log(`POST_FIX_RATE_LIMIT_DELTA=${last.rate-first.rate}`);
+          console.log(`POST_FIX_LATENCY_AVG_MS=${avg}`);
+          console.log(`POST_FIX_LATENCY_P95_MS=${p95}`);
+          console.log(`POST_FIX_SYNC_ERRORS=${rows.filter(r=>r.syncError).length}`);
+          if(last.mode!=='BUS_TIME_HOT_LANE_V14') throw new Error(`unexpected mode ${last.mode}`);
+          if(!last.success) throw new Error('no live BusTime success observed');
+          if(last.rate-first.rate>0||last.error==='BUS_TIME_RATE_LIMIT') throw new Error('rate limit observed');
+          if(rows.some(r=>r.pages>3)) throw new Error('BusTime call cap exceeded');
+          if(last.calls>48) throw new Error(`provider amplification ${last.calls}/min`);
+          NODE
+      - name: Remove temporary diagnostic secret
+        if: always()
+        working-directory: worker
+        run: yes | npx wrangler secret delete DEV_BUS_DIAG_TOKEN --config wrangler.dev.jsonc || true
+      - name: Restore clean DEV runtime
+        if: always()
+        working-directory: worker
+        run: |
+          rm -rf .dev-assets .dev-runtime
+          cp -R .diag-assets .dev-assets
+          cp -R .diag-clean .dev-runtime
+          npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
+      - name: Verify cleanup
+        if: always()
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const base=process.env.WORKER_ORIGIN;
+            const health=await fetch(`${base}/api?action=health`,{cache:'no-store'}),body=await health.json();
+            if(!health.ok||!body?.ok) throw new Error('DEV health failed after acceptance');
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID,token=process.env.CLOUDFLARE_API_TOKEN,headers={Authorization:`Bearer ${token}`},name='waiting-trucks-report-api-dev';
+            const sr=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/script-settings`,{headers}),settings=await sr.json();
+            if(!sr.ok||!settings.success) throw new Error('settings read failed');
+            if((settings.result?.bindings||[]).some(x=>x.type==='d1'||x.type==='d1_database')) throw new Error('D1 binding reappeared');
+            const xr=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/secrets`,{headers}),secrets=await xr.json();
+            if(!xr.ok||!secrets.success) throw new Error('secrets read failed');
+            if((secrets.result||[]).some(x=>x.name==='DEV_BUS_DIAG_TOKEN')) throw new Error('diagnostic secret survived');
+            console.log('POST_FIX_DEV_HEALTH=PASS');
+            console.log('POST_FIX_DIAGNOSTIC_SECRET=0');
+            console.log('POST_FIX_D1_BINDING=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1);});
+          NODE

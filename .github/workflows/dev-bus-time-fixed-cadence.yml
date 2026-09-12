@@ -1,0 +1,252 @@
+name: DEV BusTime Fixed Cadence
+
+on:
+  push:
+    branches:
+      - dev/bus-time-live-acceptance
+    paths:
+      - .github/workflows/dev-bus-time-fixed-cadence.yml
+
+permissions:
+  contents: read
+
+jobs:
+  fixed-cadence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+      ACCEPT_HUB: NE1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Stage clean DEV runtime
+        working-directory: worker
+        run: |
+          rm -rf .diag-assets .diag-clean .diag-runtime
+          mkdir -p .diag-assets .diag-clean
+          cp -R src .diag-clean/src
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .diag-assets/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .diag-assets/
+          cp ../.github/dev-tools/safe-parity.html .diag-assets/safe-parity.html
+          node ../.github/dev-tools/stage-dev-runtime.mjs .diag-assets/ms.js .diag-clean/src/index.js
+          node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .diag-assets/ms.js .diag-clean/src/origin-manifest-v1.js
+          node --check .diag-clean/src/index.js
+          node --check .diag-clean/src/bus-time-hot-lane-v14.js
+          cp -R .diag-clean .diag-runtime
+
+      - name: Add guarded cadence diagnostics
+        working-directory: worker
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const file = '.diag-runtime/src/index.js';
+          let source = fs.readFileSync(file, 'utf8');
+          const postAnchor = 'async function post(body, env) {\n  const action = String(body.action || "");';
+          if (!source.includes(postAnchor)) throw new Error('POST anchor missing');
+          const postReplacement = `async function post(body, env) {
+          const action = String(body.action || "");
+          if (action === "devBusCadenceAcceptance") {
+            const expected = String(env.DEV_BUS_DIAG_TOKEN || "");
+            const supplied = String(body.diagToken || "");
+            if (!expected || !supplied || supplied !== expected)
+              fail("Forbidden", "FORBIDDEN", 403);
+            const hub = String(body.hub || "").trim().toUpperCase();
+            if (!/^[A-Z0-9]{2,10}$/.test(hub)) fail("Invalid HUB", "INVALID_HUB", 400);
+            const actor = { username: "DEV_BUS_CADENCE", role: "admin", branches: ["*"] };
+            const live = await refreshMsIfStale(env, actor, hub);
+            const routeRows = Array.isArray(live?.rows) ? live.rows : [];
+            const routeSummary = routeRows.reduce((acc, row) => {
+              const type = String(row?.attendanceType || "UNKNOWN").trim() || "UNKNOWN";
+              const state = String(row?.unloadingState ?? "UNKNOWN");
+              acc.total += 1;
+              acc.byAttendance[type] = (acc.byAttendance[type] || 0) + 1;
+              acc.byState[state] = (acc.byState[state] || 0) + 1;
+              return acc;
+            }, { total: 0, byAttendance: {}, byState: {} });
+            let diagnostics = busTimeDiagnostics(hub);
+            if (env.MS_REFRESH_COORDINATOR) {
+              const id = env.MS_REFRESH_COORDINATOR.idFromName(hub);
+              const stub = env.MS_REFRESH_COORDINATOR.get(id);
+              const target = new URL("https://ms-refresh.internal/diagnostics");
+              target.searchParams.set("branch", hub);
+              const response = await stub.fetch(new Request(target));
+              if (response.ok) diagnostics = await response.json();
+            }
+            return ok({ hub, syncStatus: String(live?.status || ""), syncErrorPresent: Boolean(live?.error), routeSummary, diagnostics });
+          }`;
+          source = source.replace(postAnchor, postReplacement);
+          const doAnchor = '    const branch = String(url.searchParams.get("branch") || "").trim().toUpperCase();\n    if (url.pathname === "/stream") return this.openStream(request, branch);';
+          if (!source.includes(doAnchor)) throw new Error('DO anchor missing');
+          source = source.replace(doAnchor, '    const branch = String(url.searchParams.get("branch") || "").trim().toUpperCase();\n    if (url.pathname === "/diagnostics") return Response.json(busTimeDiagnostics(branch));\n    if (url.pathname === "/stream") return this.openStream(request, branch);');
+          fs.writeFileSync(file, source);
+          NODE
+          node --check .diag-runtime/src/index.js
+
+      - name: Install temporary diagnostic secret
+        id: diag-secret
+        working-directory: worker
+        run: |
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          printf '%s' "$TOKEN" | npx wrangler secret put DEV_BUS_DIAG_TOKEN --config wrangler.dev.jsonc
+
+      - name: Deploy temporary diagnostic runtime
+        working-directory: worker
+        run: |
+          rm -rf .dev-assets .dev-runtime
+          cp -R .diag-assets .dev-assets
+          cp -R .diag-runtime .dev-runtime
+          npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
+
+      - name: Measure fixed wall-clock 4-second cadence
+        env:
+          DIAG_TOKEN: ${{ steps.diag-secret.outputs.token }}
+        run: |
+          node <<'NODE'
+          const base = process.env.WORKER_ORIGIN;
+          const hub = process.env.ACCEPT_HUB;
+          const token = process.env.DIAG_TOKEN;
+          const count = 16;
+          const cadenceMs = 4000;
+          const testStarted = Date.now();
+
+          async function cycle(index) {
+            const scheduledAt = testStarted + (index - 1) * cadenceMs;
+            const wait = Math.max(0, scheduledAt - Date.now());
+            if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+            const started = Date.now();
+            const response = await fetch(`${base}/api`, {
+              method: 'POST',
+              headers: {'content-type':'application/json','cache-control':'no-cache'},
+              body: JSON.stringify({action:'devBusCadenceAcceptance', hub, diagToken:token}),
+              cache: 'no-store',
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || !payload?.ok)
+              throw new Error(`cycle ${index} HTTP ${response.status}: ${JSON.stringify(payload)}`);
+            const data = payload.data || payload;
+            const d = data.diagnostics || {};
+            return {
+              index,
+              scheduledOffsetMs: scheduledAt - testStarted,
+              startedOffsetMs: started - testStarted,
+              completedOffsetMs: Date.now() - testStarted,
+              latencyMs: Date.now() - started,
+              syncStatus: data.syncStatus || '',
+              syncErrorPresent: Boolean(data.syncErrorPresent),
+              routeSummary: data.routeSummary || {},
+              mode: d.mode || '',
+              busCallsLastMinute: Number(d.busCallsLastMinute || 0),
+              busHotCalls: Number(d.busHotCalls || 0),
+              busBackgroundCalls: Number(d.busBackgroundCalls || 0),
+              busPagesLastCycle: Number(d.busPagesLastCycle || 0),
+              busRateLimitCount: Number(d.busRateLimitCount || 0),
+              busLastSuccessAt: d.busLastSuccessAt || '',
+              busLastError: d.busLastError || '',
+              busActiveRows: Number(d.busActiveRows || 0),
+              busTotalKnownRows: Number(d.busTotalKnownRows || 0),
+            };
+          }
+
+          const rows = await Promise.all(Array.from({length: count}, (_, i) => cycle(i + 1)));
+          rows.sort((a,b)=>a.index-b.index);
+          for (const row of rows) {
+            console.log(`CYCLE=${row.index} SCHEDULED_MS=${row.scheduledOffsetMs} STARTED_MS=${row.startedOffsetMs} COMPLETED_MS=${row.completedOffsetMs} LATENCY_MS=${row.latencyMs} CALLS_1M=${row.busCallsLastMinute} HOT=${row.busHotCalls} BG=${row.busBackgroundCalls} PAGES=${row.busPagesLastCycle} ACTIVE=${row.busActiveRows} RATE_LIMITS=${row.busRateLimitCount} SUCCESS_AT=${row.busLastSuccessAt || '-'} ERROR=${row.busLastError || '-'}`);
+          }
+
+          const startJitter = rows.map(r => Math.abs(r.startedOffsetMs-r.scheduledOffsetMs));
+          const successIso = [...new Set(rows.map(r=>r.busLastSuccessAt).filter(Boolean))];
+          const successMs = successIso.map(Date.parse).filter(Number.isFinite).sort((a,b)=>a-b);
+          const gaps = successMs.slice(1).map((v,i)=>v-successMs[i]);
+          const lat = rows.map(r=>r.latencyMs).sort((a,b)=>a-b);
+          const p95 = values => values.length ? values[Math.min(values.length-1, Math.floor(values.length*0.95))] : 0;
+          const last = rows.at(-1);
+          const first = rows[0];
+          const hotDelta = last.busHotCalls-first.busHotCalls;
+          const bgDelta = last.busBackgroundCalls-first.busBackgroundCalls;
+          const rateDelta = last.busRateLimitCount-first.busRateLimitCount;
+          const summary = last.routeSummary || {};
+
+          console.log(`FIXED_CADENCE_MS=${cadenceMs}`);
+          console.log(`FIXED_CADENCE_START_JITTER_MAX_MS=${Math.max(...startJitter)}`);
+          console.log(`BUS_MODE=${last.mode || '-'}`);
+          console.log(`BUS_PROVIDER_CALL_DELTA=${hotDelta+bgDelta}`);
+          console.log(`BUS_HOT_CALL_DELTA=${hotDelta}`);
+          console.log(`BUS_BACKGROUND_CALL_DELTA=${bgDelta}`);
+          console.log(`BUS_CALLS_LAST_MINUTE_FINAL=${last.busCallsLastMinute}`);
+          console.log(`BUS_RATE_LIMIT_DELTA=${rateDelta}`);
+          console.log(`BUS_LAST_ERROR=${last.busLastError || '-'}`);
+          console.log(`BUS_SUCCESS_OBSERVATIONS=${successMs.length}`);
+          console.log(`BUS_SUCCESS_GAP_AVG_MS=${gaps.length?Math.round(gaps.reduce((a,b)=>a+b,0)/gaps.length):0}`);
+          console.log(`BUS_SUCCESS_GAP_MAX_MS=${gaps.length?Math.max(...gaps):0}`);
+          console.log(`RESPONSE_LATENCY_P95_MS=${p95(lat)}`);
+          console.log(`ROUTE_ROWS_TOTAL=${Number(summary.total||0)}`);
+          console.log(`ROUTE_BY_ATTENDANCE=${JSON.stringify(summary.byAttendance||{})}`);
+          console.log(`ROUTE_BY_STATE=${JSON.stringify(summary.byState||{})}`);
+          console.log(`BUS_ACTIVE_ROWS_FINAL=${last.busActiveRows}`);
+          console.log(`BUS_KNOWN_ROWS_FINAL=${last.busTotalKnownRows}`);
+          console.log(`SYNC_ERROR_RESPONSES=${rows.filter(r=>r.syncErrorPresent).length}`);
+
+          if (Math.max(...startJitter) > 1000) throw new Error('caller 4s cadence drifted by more than 1 second');
+          if (last.mode !== 'BUS_TIME_HOT_LANE_V14') throw new Error(`unexpected mode ${last.mode}`);
+          if (!successMs.length) throw new Error('no live BusTime success observed');
+          if (rateDelta > 0 || last.busLastError === 'BUS_TIME_RATE_LIMIT') throw new Error('rate limit observed');
+          if (rows.some(r=>r.busPagesLastCycle>3)) throw new Error('per-cycle BusTime hard cap exceeded');
+          if (last.busCallsLastMinute > 48) throw new Error(`provider amplification ${last.busCallsLastMinute}/min`);
+          NODE
+
+      - name: Remove temporary diagnostic secret
+        if: always()
+        working-directory: worker
+        run: yes | npx wrangler secret delete DEV_BUS_DIAG_TOKEN --config wrangler.dev.jsonc || true
+
+      - name: Restore clean DEV runtime
+        if: always()
+        working-directory: worker
+        run: |
+          rm -rf .dev-assets .dev-runtime
+          cp -R .diag-assets .dev-assets
+          cp -R .diag-clean .dev-runtime
+          npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
+
+      - name: Verify cleanup
+        if: always()
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const health=await fetch(`${process.env.WORKER_ORIGIN}/api?action=health`,{cache:'no-store'});
+            const body=await health.json();
+            if(!health.ok||!body?.ok) throw new Error('DEV health failed after cadence test');
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID, token=process.env.CLOUDFLARE_API_TOKEN;
+            const headers={Authorization:`Bearer ${token}`};
+            const name='waiting-trucks-report-api-dev';
+            const settingsRes=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/script-settings`,{headers});
+            const settings=await settingsRes.json();
+            if(!settingsRes.ok||!settings.success) throw new Error('Cloudflare settings read failed');
+            const d1=(settings.result?.bindings||[]).filter(x=>x.type==='d1'||x.type==='d1_database');
+            if(d1.length) throw new Error('D1 binding reappeared');
+            const secretsRes=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${name}/secrets`,{headers});
+            const secrets=await secretsRes.json();
+            if(!secretsRes.ok||!secrets.success) throw new Error('Cloudflare secrets read failed');
+            if((secrets.result||[]).some(x=>x.name==='DEV_BUS_DIAG_TOKEN')) throw new Error('temporary diagnostic secret survived cleanup');
+            console.log('DEV_HEALTH_AFTER_FIXED_CADENCE=PASS');
+            console.log('DEV_DIAGNOSTIC_SECRET_AFTER_FIXED_CADENCE=0');
+            console.log('DEV_D1_BINDING_AFTER_FIXED_CADENCE=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1);});
+          NODE

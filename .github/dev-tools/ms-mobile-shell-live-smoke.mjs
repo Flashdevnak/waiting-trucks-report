@@ -181,7 +181,7 @@ function assertMenu(label,result,width,height,mobile,isSystem){
     assert.ok(result.menu.bottom<=height+2,`${label}: dropdown exceeds viewport height ${JSON.stringify(result.menu)}`);
   }
   if(isSystem){
-    assert.equal(result.linkCount,4,`${label}: system menu must contain four pages`);
+    assert.equal(result.linkCount,3,`${label}: system menu must contain the three active user pages`);
     for(const pair of result.contrasts){
       assert.ok(pair.b>=4.5,`${label}: menu title contrast too low ${pair.b}`);
       assert.ok(pair.small>=4.5,`${label}: menu detail contrast too low ${pair.small}`);

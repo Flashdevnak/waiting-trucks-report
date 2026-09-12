@@ -171,10 +171,17 @@ jobs:
             const dbToken=tokenJson.jwt;
             if(!tokenRes.ok||!dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
             console.log(`::add-mask::${dbToken}`);
+            const encodeArg=(value)=>{
+              if(value===null||value===undefined) return {type:'null'};
+              if(typeof value==='number'&&Number.isInteger(value)) return {type:'integer',value:String(value)};
+              if(typeof value==='number') return {type:'float',value};
+              if(typeof value==='boolean') return {type:'integer',value:value?'1':'0'};
+              return {type:'text',value:String(value)};
+            };
             async function query(sql,args=[]){
               const response=await fetch(`https://${hostname}/v2/pipeline`,{
                 method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
-                body:JSON.stringify({requests:[{type:'execute',stmt:{sql,args}},{type:'close'}]}),
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql,args:args.map(encodeArg)}},{type:'close'}]}),
               });
               const payload=await response.json();
               const item=payload?.results?.[0];

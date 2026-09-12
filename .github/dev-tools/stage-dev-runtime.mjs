@@ -56,6 +56,10 @@ const devTbrReadonlyPatch = fileURLToPath(
 const devTbrSplitV2Patch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs", import.meta.url),
 );
+// BUS_TIME_HOT_LANE_V14_STAGE: normal DEV staging always applies the BusTime hot lane.
+const devBusTimeHotLaneV14Patch = fileURLToPath(
+  new URL("./patch-bus-time-hot-lane-v14.mjs", import.meta.url),
+);
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const DEV_USER_PAGES = ["ms.html", "proof.html", "ms-report.html"];
@@ -444,9 +448,18 @@ if (invokedPath) {
   execFileSync(process.execPath, [devTbrSplitV2Patch, workerTarget], {
     stdio: "inherit",
   });
+  execFileSync(process.execPath, [devBusTimeHotLaneV14Patch, workerTarget], {
+    stdio: "inherit",
+  });
+  const busTimeHotLaneWorker = await readFile(workerTarget, "utf8");
+  if (!busTimeHotLaneWorker.includes("BUS_TIME_HOT_LANE_V14"))
+    throw new Error("DEV BusTime hot-lane marker missing after staging");
+  if (busTimeHotLaneWorker.includes("BUS_TIME_SOURCE_TTL_MS = 60 * 1000"))
+    throw new Error("DEV BusTime reverted to fake 60-second source TTL");
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");
   console.log("STAGED_DEV_UNIFIED_HEADER_V2=PASS");
   console.log("Staged DEV TBR Shadow runtime: SHADOW_READONLY_SPLIT_V2");
+  console.log("Staged DEV BusTime runtime: BUS_TIME_HOT_LANE_V14");
 }

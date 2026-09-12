@@ -108,4 +108,4 @@ jobs:
           })().catch(error=>{console.error(error);process.exit(1);});
           NODE
 
-# 2026-09-13: read-only rerun marker after HTTP-only auth classifier v4.
+# 2026-09-13: read-only rerun marker after BusTime Hot Lane V14 live acceptance.

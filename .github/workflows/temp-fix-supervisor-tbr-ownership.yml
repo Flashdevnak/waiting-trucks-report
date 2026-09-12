@@ -2,7 +2,8 @@ name: TEMP DEV Route Auth Classifier Fix
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - .github/workflows/temp-fix-supervisor-tbr-ownership.yml
 
@@ -18,53 +19,54 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - name: Stop application text from impersonating expired MS session
+          node-version: 22
+      - name: Apply DEV-only auth classifier correction
         shell: bash
         run: |
           set -euo pipefail
           python3 <<'PY'
           from pathlib import Path
 
-          patch = Path('cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs')
-          text = patch.read_text()
-          old = '''  if ([401, 403].includes(Number(httpStatus)) || /session|token|auth|login|expired|unauthor/i.test(value))\\
-    return { code: \\"MS_SESSION_EXPIRED\\", status: 502 };'''
-          new = '''  // Only an HTTP auth status is authoritative proof that the Route session is rejected.\\
-  // Application-level text/code can be transient and must never force NEED_LOGIN by itself.\\
-  if ([401, 403].includes(Number(httpStatus)))\\
-    return { code: \\"MS_SESSION_EXPIRED\\", status: 502 };'''
-          if text.count(old) != 1:
-              raise SystemExit(f'route classifier anchor count={text.count(old)}')
-          patch.write_text(text.replace(old, new, 1))
+          tbr = Path('cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs')
+          s = tbr.read_text()
+          old = 'if ([401, 403].includes(Number(httpStatus)) || /session|token|auth|login|expired|unauthor/i.test(value))'
+          new = 'if ([401, 403].includes(Number(httpStatus)))'
+          if s.count(old) != 1:
+              raise SystemExit(f'auth classifier anchor count={s.count(old)}')
+          tbr.write_text(s.replace(old, new, 1))
+
+          supervisor = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
+          s = supervisor.read_text()
+          old = 'const MS_REPAIR_POLICY_VERSION = 3;'
+          if s.count(old) != 1:
+              raise SystemExit(f'policy anchor count={s.count(old)}')
+          supervisor.write_text(s.replace(old, 'const MS_REPAIR_POLICY_VERSION = 4;', 1))
 
           test = Path('.github/dev-tools/ms-self-healing-supervisor.test.mjs')
-          t = test.read_text()
-          import_anchor = 'const staged = stageWorker(workerSource);\n'
-          if t.count(import_anchor) != 1:
-              raise SystemExit(f'test import anchor count={t.count(import_anchor)}')
-          addition = '''const tbrSplitPatch = await readFile(\n  new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs", import.meta.url),\n  "utf8",\n);\n'''
-          if 'const tbrSplitPatch = await readFile(' not in t:
-              t = t.replace(import_anchor, import_anchor + addition, 1)
-          test_anchor = 'test("manual admin repair is role-gated, bounded and never touches HBI", () => {'
-          if t.count(test_anchor) != 1:
-              raise SystemExit(f'test anchor count={t.count(test_anchor)}')
-          regression = '''test("Route session expiry requires authoritative HTTP auth status", () => {\n  assert.match(tbrSplitPatch, /Only an HTTP auth status is authoritative proof/);\n  assert.match(tbrSplitPatch, /if \\(\\[401, 403\\]\\.includes\\(Number\\(httpStatus\\)\\)\\)/);\n  assert.doesNotMatch(tbrSplitPatch, /\\[401, 403\\]\\.includes\\(Number\\(httpStatus\\)\\) \\|\\| \\/session\\|token\\|auth\\|login\\|expired\\|unauthor/);\n  assert.match(tbrSplitPatch, /const failure = classifyMsRouteFailure\\(message\\);/);\n  assert.match(tbrSplitPatch, /return \\{ code: \\"MS_ROUTE_SOURCE_ERROR\\", status: 502 \\};/);\n});\n\n'''
-          if 'Route session expiry requires authoritative HTTP auth status' not in t:
-              t = t.replace(test_anchor, regression + test_anchor, 1)
-          test.write_text(t)
+          s = test.read_text()
+          old = 'MS_REPAIR_POLICY_VERSION = 3'
+          if s.count(old) != 1:
+              raise SystemExit(f'policy test anchor count={s.count(old)}')
+          test.write_text(s.replace(old, 'MS_REPAIR_POLICY_VERSION = 4', 1))
           PY
+
+          grep -F 'if ([401, 403].includes(Number(httpStatus)))' cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
+          if grep -Fq '|| /session|token|auth|login|expired|unauthor/i.test(value)' cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs; then
+            echo 'message-text auth heuristic still present' >&2
+            exit 1
+          fi
+          grep -F 'const MS_REPAIR_POLICY_VERSION = 4;' .github/dev-tools/patch-ms-self-healing-supervisor.mjs
           node --check cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
+          node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
           node --test .github/dev-tools/ms-self-healing-supervisor.test.mjs
           node --test .github/dev-tools/stage-dev-runtime.test.mjs
           git diff --check
-          git diff -- cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs .github/dev-tools/ms-self-healing-supervisor.test.mjs
-      - name: Commit safe DEV Route classifier fix
+      - name: Commit tested DEV fix
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs .github/dev-tools/ms-self-healing-supervisor.test.mjs
-          git commit -m "fix(dev): require HTTP auth proof for MS session expiry"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs .github/dev-tools/patch-ms-self-healing-supervisor.mjs .github/dev-tools/ms-self-healing-supervisor.test.mjs
+          git commit -m 'fix(dev): require HTTP auth proof for MS session expiry'
           git push origin HEAD:main

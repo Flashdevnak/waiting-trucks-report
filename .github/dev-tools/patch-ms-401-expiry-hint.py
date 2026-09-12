@@ -3,35 +3,8 @@ from pathlib import Path
 # DEV staged backend: authenticated, branch-scoped repair status.
 p = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
 s = p.read_text()
-anchor = '''  const actor = await verify(url.searchParams.get(\"token\"), env);\\
-  if (action === \"msOriginManifestStatus\")'''
-replacement = '''  const actor = await verify(url.searchParams.get(\"token\"), env);\\
-  if (action === \"msRepairStatus\") {\\
-    const branch = pickBranch(actor, url.searchParams.get(\"branch\"));\\
-    if (!env.MS_REFRESH_COORDINATOR) fail(\"coordinator unavailable\", \"MS_COORDINATOR_UNAVAILABLE\", 503);\\
-    const id = env.MS_REFRESH_COORDINATOR.idFromName(branch);\\
-    const stub = env.MS_REFRESH_COORDINATOR.get(id);\\
-    const target = new URL(\"https://ms-refresh.internal/repair-health\");\\
-    target.searchParams.set(\"branch\", branch);\\
-    const response = await stub.fetch(new Request(target));\\
-    const payload = await response.json().catch(() => ({}));\\
-    if (!response.ok) fail(\"repair status unavailable\", \"MS_REPAIR_STATUS_UNAVAILABLE\", 503);\\
-    const repair = payload?.repair || {};\\
-    return ok({\\
-      branch,\\
-      repair: {\\
-        policyVersion: Number(repair.policyVersion || 0),\\
-        state: text(repair.state, 40),\\
-        failures: Number(repair.failures || 0),\\
-        nextRetryAt: Number(repair.nextRetryAt || 0),\\
-        code: text(repair.code, 80),\\
-        changedAt: text(repair.changedAt, 100),\\
-        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),\\
-      },\\
-      quota: { tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 },\\
-    });\\
-  }\\
-  if (action === \"msOriginManifestStatus\")'''
+anchor = '''  const actor = await verify(url.searchParams.get("token"), env);\n  if (action === "msOriginManifestStatus")'''
+replacement = '''  const actor = await verify(url.searchParams.get("token"), env);\n  if (action === "msRepairStatus") {\n    const branch = pickBranch(actor, url.searchParams.get("branch"));\n    if (!env.MS_REFRESH_COORDINATOR) fail("coordinator unavailable", "MS_COORDINATOR_UNAVAILABLE", 503);\n    const id = env.MS_REFRESH_COORDINATOR.idFromName(branch);\n    const stub = env.MS_REFRESH_COORDINATOR.get(id);\n    const target = new URL("https://ms-refresh.internal/repair-health");\n    target.searchParams.set("branch", branch);\n    const response = await stub.fetch(new Request(target));\n    const payload = await response.json().catch(() => ({}));\n    if (!response.ok) fail("repair status unavailable", "MS_REPAIR_STATUS_UNAVAILABLE", 503);\n    const repair = payload?.repair || {};\n    return ok({\n      branch,\n      repair: {\n        policyVersion: Number(repair.policyVersion || 0),\n        state: text(repair.state, 40),\n        failures: Number(repair.failures || 0),\n        nextRetryAt: Number(repair.nextRetryAt || 0),\n        code: text(repair.code, 80),\n        changedAt: text(repair.changedAt, 100),\n        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),\n      },\n      quota: { tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 },\n    });\n  }\n  if (action === "msOriginManifestStatus")'''
 if s.count(anchor) != 1:
     raise SystemExit(f'backend anchor count={s.count(anchor)}')
 p.write_text(s.replace(anchor, replacement, 1))

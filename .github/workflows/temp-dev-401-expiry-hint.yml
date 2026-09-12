@@ -27,7 +27,7 @@ jobs:
           node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
           node --test .github/dev-tools/ms-self-healing-supervisor.test.mjs
           node --test .github/dev-tools/stage-dev-runtime.test.mjs
-          grep -F 'action === "msRepairStatus"' .github/dev-tools/patch-ms-self-healing-supervisor.mjs
+          grep -F 'changedAt: text(repair.changedAt, 100)' .github/dev-tools/patch-ms-self-healing-supervisor.mjs
           grep -F 'MS_SESSION_HTTP_401' ms.js
           grep -F 'source-expiry-hint' ms.css
           git diff --check
@@ -39,4 +39,4 @@ jobs:
           git commit -m 'feat(dev): explain MS 401 expiry in connection dialog'
           git push origin HEAD:main
 
-# trigger: backend anchor aligned
+# trigger: sanitized probe aligned

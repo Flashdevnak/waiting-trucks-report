@@ -25,18 +25,22 @@ jobs:
         run: |
           node --check ms.js
           node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
+          node --check cloudflare-browser-test/src/connection-error.js
           node --test .github/dev-tools/ms-self-healing-supervisor.test.mjs
           node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          node --test cloudflare-browser-test/scripts/connection-error-intelligence.test.mjs
           grep -F 'changedAt: text(repair.changedAt, 100)' .github/dev-tools/patch-ms-self-healing-supervisor.mjs
-          grep -F 'MS_SESSION_HTTP_401' ms.js
+          grep -F 'กรุณาเชื่อมต่อ MS ใหม่ และอัปโหลด HAR' ms.js
+          ! grep -F 'กรุณาเชื่อมต่อ MS ผ่าน QR ใหม่ และอัปโหลด HAR' ms.js
           grep -F 'source-expiry-hint' ms.css
+          grep -F 'INTELLIGENCE_HUB_FILTER_V4' cloudflare-browser-test/src/connection-error.js
           git diff --check
       - name: Commit tested DEV feature
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/dev-tools/patch-ms-self-healing-supervisor.mjs ms.js ms.css
-          git commit -m 'feat(dev): explain MS 401 expiry in connection dialog'
+          git add .github/dev-tools/patch-ms-self-healing-supervisor.mjs ms.js ms.css cloudflare-browser-test/src/connection-error.js
+          git commit -m 'feat(dev): explain 401 and fix intelligence HUB selector'
           git push origin HEAD:main
 
-# trigger: sanitized probe aligned
+# trigger: 401 helper + multi-HUB catalog

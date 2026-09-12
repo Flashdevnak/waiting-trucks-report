@@ -1,9 +1,8 @@
-name: TEMP DEV HTTP Auth Status Diagnostic
+name: TEMP DEV Split 401 403 Auth Truth
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - .github/workflows/temp-fix-supervisor-tbr-ownership.yml
 
@@ -11,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  patch:
+  fix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,37 +19,56 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Add sanitized HTTP status to DEV repair diagnostic
+      - name: Split Route 401 from 403
         shell: bash
         run: |
           set -euo pipefail
           python3 <<'PY'
           from pathlib import Path
+
+          p = Path('cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs')
+          s = p.read_text()
+          old = '  if ([401, 403].includes(Number(httpStatus)))\\\n    return { code: \\"MS_SESSION_EXPIRED\\", status: 502 };'
+          new = '  if (Number(httpStatus) === 401)\\\n    return { code: \\"MS_SESSION_HTTP_401\\", status: 502 };\\\n  if (Number(httpStatus) === 403)\\\n    return { code: \\"MS_ROUTE_FORBIDDEN\\", status: 502 };'
+          if s.count(old) != 1:
+              raise SystemExit(f'HTTP classifier anchor count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+
           p = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
           s = p.read_text()
-          old = '''        code: text(repair.code, 80),\\
-        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),\\
-      },\\
-      quota: { tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 },'''
-          new = '''        code: text(repair.code, 80),\\
-        upstreamHttpStatus: Number(String(repair.message || "").match(/MS ตอบกลับ (401|403)/)?.[1] || 0),\\
-        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),\\
-      },\\
-      quota: { tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 },'''
+          if s.count('const MS_REPAIR_POLICY_VERSION = 4;') != 1:
+              raise SystemExit('policy anchor mismatch')
+          s = s.replace('const MS_REPAIR_POLICY_VERSION = 4;', 'const MS_REPAIR_POLICY_VERSION = 5;', 1)
+          old = 'const authSignal = resultCode === \\"MS_SESSION_EXPIRED\\" || resultCode === \\"INVALID_SESSION\\";'
+          new = 'const authSignal = resultCode === \\"MS_SESSION_HTTP_401\\" || resultCode === \\"INVALID_SESSION\\";'
           if s.count(old) != 1:
-              raise SystemExit(f'diagnostic anchor count={s.count(old)}')
+              raise SystemExit(f'auth signal anchor count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('.github/dev-tools/ms-self-healing-supervisor.test.mjs')
+          s = p.read_text()
+          if s.count('MS_REPAIR_POLICY_VERSION = 4') != 1:
+              raise SystemExit('policy test anchor mismatch')
+          s = s.replace('MS_REPAIR_POLICY_VERSION = 4', 'MS_REPAIR_POLICY_VERSION = 5', 1)
+          old = 'const authSignal = resultCode === "MS_SESSION_EXPIRED" \\|\\| resultCode === "INVALID_SESSION"'
+          new = 'const authSignal = resultCode === "MS_SESSION_HTTP_401" \\|\\| resultCode === "INVALID_SESSION"'
+          if s.count(old) != 1:
+              raise SystemExit(f'auth test anchor count={s.count(old)}')
           p.write_text(s.replace(old, new, 1))
           PY
+          node --check cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
           node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
           node --test .github/dev-tools/ms-self-healing-supervisor.test.mjs
           node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          grep -F 'MS_SESSION_HTTP_401' cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
+          grep -F 'MS_ROUTE_FORBIDDEN' cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
           git diff --check
-      - name: Commit sanitized diagnostic patch
+      - name: Commit tested truth-safe classifier
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/dev-tools/patch-ms-self-healing-supervisor.mjs
-          git commit -m 'chore(dev): expose sanitized MS auth HTTP status'
+          git add cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs .github/dev-tools/patch-ms-self-healing-supervisor.mjs .github/dev-tools/ms-self-healing-supervisor.test.mjs
+          git commit -m 'fix(dev): distinguish MS 401 from forbidden 403'
           git push origin HEAD:main

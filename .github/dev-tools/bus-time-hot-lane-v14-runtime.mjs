@@ -117,6 +117,7 @@ export function createBusTimeHotLane(deps) {
         busLastSuccessAt: "",
         busLastError: "",
         busActiveRows: 0,
+        previousActiveKeys: new Set(),
       });
     }
     return states.get(key);
@@ -132,9 +133,20 @@ export function createBusTimeHotLane(deps) {
   }
 
   function activeRows(routeRows) {
-    return (Array.isArray(routeRows) ? routeRows : []).filter((row) =>
-      normalizeProofId(row?.proofId) && Number(row?.unloadingState) !== 2,
-    );
+    return (Array.isArray(routeRows) ? routeRows : []).filter((row) => {
+      if (!normalizeProofId(row?.proofId) || Number(row?.unloadingState) === 2)
+        return false;
+      const attendance = String(normalizeAttendance(row?.attendanceType) || "")
+        .trim()
+        .toLowerCase();
+      return (
+        attendance === "ปลายทาง" ||
+        attendance === "จุดดรอป" ||
+        attendance === "destination" ||
+        attendance === "drop" ||
+        attendance === "drop point"
+      );
+    });
   }
 
   function bangkokDay(value) {
@@ -496,12 +508,18 @@ export function createBusTimeHotLane(deps) {
         await persistSuccess(env, key, state);
       }
 
-      const missing = missingActive(state, routes);
+      const activeKeys = new Set(routes.map(cacheKey).filter(Boolean));
+      const missingKeys = [...activeKeys].filter((key) => !state.cache.has(key));
+      const newlyMissing = missingKeys.some(
+        (key) => !state.previousActiveKeys.has(key),
+      );
+      state.previousActiveKeys = activeKeys;
+      const missing = missingKeys.length;
       if (missing > 0) state.busCacheMisses += missing;
       else state.busCacheHits += 1;
 
       const backgroundDue =
-        missing > 0 ||
+        newlyMissing ||
         now() - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS;
       let backgroundCalls = 0;
       if (

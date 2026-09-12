@@ -4,13 +4,14 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");
-const seedPatch = path.join(here, "patch-bus-time-hot-lane-v14.mjs");
-const seedTest = path.join(here, "bus-time-hot-lane-v14.test.mjs");
 const devTools = path.join(repoRoot, ".github/dev-tools");
-const targetPatch = path.join(devTools, "patch-bus-time-hot-lane-v14.mjs");
-const targetTest = path.join(devTools, "bus-time-hot-lane-v14.test.mjs");
 const stageFile = path.join(devTools, "stage-dev-runtime.mjs");
 const INSTALL_MARKER = "BUS_TIME_HOT_LANE_V14_STAGE";
+const files = [
+  "patch-bus-time-hot-lane-v14.mjs",
+  "bus-time-hot-lane-v14-runtime.mjs",
+  "bus-time-hot-lane-v14.test.mjs",
+];
 
 function replaceUnique(input, from, to, label) {
   const first = input.indexOf(from);
@@ -20,13 +21,13 @@ function replaceUnique(input, from, to, label) {
   return input.slice(0, first) + to + input.slice(first + from.length);
 }
 
-fs.copyFileSync(seedPatch, targetPatch);
-fs.copyFileSync(seedTest, targetTest);
+for (const name of files)
+  fs.copyFileSync(path.join(here, name), path.join(devTools, name));
 
 let stage = fs.readFileSync(stageFile, "utf8");
 if (!stage.includes(INSTALL_MARKER)) {
   const constAnchor = `const repoRoot = fileURLToPath(new URL("../../", import.meta.url));`;
-  const constReplacement = `// ${INSTALL_MARKER}: standard DEV staging must always apply the BusTime hot lane.
+  const constReplacement = `// ${INSTALL_MARKER}: normal DEV staging always applies the BusTime hot lane.
 const devBusTimeHotLaneV14Patch = fileURLToPath(
   new URL("./patch-bus-time-hot-lane-v14.mjs", import.meta.url),
 );
@@ -56,5 +57,4 @@ ${constAnchor}`;
 
 fs.writeFileSync(stageFile, stage);
 console.log(`${INSTALL_MARKER}=PASS`);
-console.log(`HOT_PATCH=${path.relative(repoRoot, targetPatch)}`);
-console.log(`HOT_TEST=${path.relative(repoRoot, targetTest)}`);
+for (const name of files) console.log(`INSTALLED=${path.join(".github/dev-tools", name)}`);

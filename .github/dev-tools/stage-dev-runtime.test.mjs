@@ -45,7 +45,7 @@ test("live polling stays live-only while explicit history search uses the daily 
     first,
     /state\.rows = state\.archiveView \? state\.archiveRows : state\.currentRows/,
   );
-  assert.match(first, /DEV: archive stays lazy; live polling must never auto-read msArchive/);
+  assert.match(first, /DEV: archive stays lazy; realtime transport never auto-reads msArchive/);
   assert.match(first, /const useArchive =\s*queueMode === "completed" \|\|\s*\(queueMode === "all" && state\.archiveView\)/);
   assert.match(first, /const result = await apiGet\("msDailyArchive", \{/);
   assert.doesNotMatch(first, /const result = await apiGet\("msRange"/);
@@ -199,7 +199,11 @@ test("DEV staging still assembles all backend runtime patches from clean source"
 test("DEV deploy uses the idempotent staging entrypoint and daily-history gate", () => {
   assert.match(workflow, /stage-dev-runtime\.test\.mjs/);
   assert.match(workflow, /daily-history\.test\.mjs/);
-  assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
+  assert.match(workflow, /cp -R src \.dev-runtime\/src/);
+  assert.match(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js \.dev-runtime\/src\/index\.js/);
+  assert.match(workflow, /node --check \.dev-runtime\/src\/index\.js/);
+  assert.match(workflow, /node --check src\/index\.js/);
+  assert.doesNotMatch(workflow, /stage-dev-runtime\.mjs \.dev-assets\/ms\.js src\/index\.js/);
   assert.doesNotMatch(
     workflow,
     /node scripts\/patch-dev-ms-archive\.mjs \.dev-assets\/ms\.js src\/index\.js/,

@@ -100,7 +100,7 @@ export function patchMsFirstSourceQueueFrontend(source) {
   output = replaceUnique(
     output,
     `  // MS_SLA_EARLIEST_ARRIVAL_V2: Route confirms arrival; SLA uses earliest matched Route/KIT/TBR.\n  const arrival = confirmedEffectiveArrival(row);`,
-    `  // First-source queue: TBR can start the live queue/SLA clock immediately.\n  // Once Route appears, queueAdmissionArrival reuses the existing merged timing.\n  const arrival = queueAdmissionArrival(row);`,
+    `  // MS_SLA_EARLIEST_ARRIVAL_V2 / ${FIRST_SOURCE_MARKER}: TBR can start\n  // the live queue/SLA clock immediately. Once Route appears, the existing\n  // effective-arrival merge remains in force for the same trip.\n  const arrival = queueAdmissionArrival(row);`,
     "SLA timer follows first queue admission instead of waiting for Route",
   );
 

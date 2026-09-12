@@ -620,13 +620,38 @@ dialog::backdrop {
   gap: 7px;
   margin-top: 16px;
 }
+/* MS_CONNECTION_OUTER_SCROLL_V1
+   The modal shell owns viewport scrolling so the scrollbar stays at the far-right
+   browser edge instead of living inside the white connection card. */
 .connector-setup-card {
+  width: min(100%, 720px);
   max-width: 720px;
+  margin: 0 auto;
+  border: 1px solid #9aa4ad;
+  border-radius: 5px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
 }
 .connector-dialog {
-  width: min(94vw, 760px);
-  max-height: 92vh;
-  overflow: auto;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 18px max(10px, env(safe-area-inset-right)) 18px max(10px, env(safe-area-inset-left));
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+html:has(.connector-dialog[open]),
+body:has(.connector-dialog[open]) {
+  overflow: hidden;
 }
 .setup-steps {
   display: grid;
@@ -710,8 +735,10 @@ dialog::backdrop {
 
 @media (max-width: 700px) {
   .connector-dialog {
-    width: calc(100vw - 20px);
-    max-height: calc(100vh - 20px);
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    padding: 10px max(6px, env(safe-area-inset-right)) 10px max(6px, env(safe-area-inset-left));
   }
   .connector-dialog .dialog-card { padding: 18px 15px; }
   .setup-steps { padding-left: 22px; }

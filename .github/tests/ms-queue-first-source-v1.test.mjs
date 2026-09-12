@@ -78,10 +78,15 @@ function inboundBus(overrides = {}) {
   };
 }
 
-test("staged DEV contains the first-source queue contract without changing Route actual-arrival authority", () => {
+test("staged DEV treats reached TBR and Route as peer queue-admission sources", () => {
   assert.match(stagedWorker, /MS_QUEUE_FIRST_SOURCE_V1/);
   assert.match(stagedFrontend, /MS_QUEUE_FIRST_SOURCE_V1/);
-  assert.match(stagedFrontend, /TBR เข้าคิว · รอ Route ยืนยัน/);
+  assert.match(stagedFrontend, /เข้าคิวแล้วจาก TBR/);
+  assert.doesNotMatch(stagedFrontend, /TBR เข้าคิว · รอ Route ยืนยัน/);
+  assert.doesNotMatch(stagedWorker, /TBR เข้าคิว · รอ Route ยืนยัน/);
+  assert.match(stagedFrontend, /function queueAdmissionArrival\(row\)/);
+  assert.match(stagedFrontend, /const start = queueAdmissionArrival\(row\)/);
+  assert.match(stagedFrontend, /const arrival = queueAdmissionArrival\(row\)/);
   assert.match(stagedFrontend, /active = Boolean\(arrival\) && !done && !cancelled && ageHours <= 12/);
   assert.match(
     stagedFrontend,
@@ -89,13 +94,15 @@ test("staged DEV contains the first-source queue contract without changing Route
   );
 });
 
-test("TBR-first inbound vehicle becomes one provisional queue row with no fabricated Route arrival", () => {
+test("TBR-first inbound vehicle becomes a full queue row immediately with no fabricated Route actual-arrival", () => {
   const { queueRows } = firstSourceRuntime();
   const rows = queueRows([], busMap([inboundBus()]), "NE1", NOW);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].proofId, "NE1TEST001");
   assert.equal(rows[0].attendanceType, "ปลายทาง");
-  assert.equal(rows[0].queueProvisional, true);
+  assert.equal(rows[0].queueAdmissionSource, "TBR");
+  assert.equal(rows[0].queueProvisional, undefined);
+  assert.equal(rows[0].vehicleStatus, "เข้าคิวแล้วจาก TBR");
   assert.equal(rows[0].actualArrivalAt, "");
   assert.equal(rows[0].unloadingState, null);
   assert.equal(rows[0].scheduleTbrArrivalAt, RECENT_TBR);
@@ -114,7 +121,7 @@ test("Route-first wins immediately and TBR does not duplicate the same proof+att
   const rows = queueRows([route], busMap([inboundBus()]), "NE1", NOW);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].id, "route-real-1");
-  assert.equal(rows[0].queueProvisional, undefined);
+  assert.equal(rows[0].queueAdmissionSource, undefined);
 });
 
 test("TBR-first followed by Route merges to one real Route row on the next shared snapshot", () => {
@@ -122,7 +129,7 @@ test("TBR-first followed by Route merges to one real Route row on the next share
   const bus = busMap([inboundBus()]);
   const first = queueRows([], bus, "NE1", NOW);
   assert.equal(first.length, 1);
-  assert.equal(first[0].queueProvisional, true);
+  assert.equal(first[0].queueAdmissionSource, "TBR");
 
   const route = {
     id: "route-real-2",
@@ -148,7 +155,7 @@ test("TBR-first admits drop point independently but never admits origin", () => 
     "NE1",
     NOW,
   );
-  assert.equal(Array.from(rows, (row) => row.proofId).join(","), "DROP001");
+  assert.deepEqual([...rows].map((row) => row.proofId), ["DROP001"]);
   assert.equal(rows[0].attendanceType, "จุดดรอป");
 });
 
@@ -176,10 +183,7 @@ test("TBR shadow feed preserves attendance identity and dedupes only exact proof
     inboundBus({ proofId: "SAME001", attendanceType: "จุดดรอป" }),
   ]));
   assert.equal(feed.length, 2);
-  assert.equal(
-    Array.from(feed, (row) => row.attendanceType).sort().join("|"),
-    ["จุดดรอป", "ปลายทาง"].sort().join("|"),
-  );
+  assert.deepEqual(new Set(feed.map((row) => row.attendanceType)), new Set(["ปลายทาง", "จุดดรอป"]));
 });
 
 test("first-source live-view composition adds no DB write or extra upstream call path", () => {

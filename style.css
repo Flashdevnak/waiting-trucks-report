@@ -667,6 +667,19 @@ dialog::backdrop {
 .connection-source-status .source-ok { color: #087443; font-weight: 700; }
 .connection-source-status .source-error { color: #b42318; font-weight: 700; }
 .connection-source-status .source-missing { color: #6b6b66; }
+.connection-source-status .source-stale { color: #8a5a00; font-weight: 700; }
+.connection-source-status > div.has-source-expiry-hint { position: relative; padding-bottom: 34px; }
+.connection-source-status .source-expiry-hint {
+  position: absolute;
+  right: 12px;
+  bottom: 7px;
+  max-width: calc(100% - 24px);
+  color: #8a4b00;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: right;
+}
 .setup-source-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .har-source-list { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; align-items: end; margin-top: 14px; }
 .har-source-list label { margin: 0; }

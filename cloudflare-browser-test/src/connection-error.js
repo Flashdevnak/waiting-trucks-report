@@ -342,7 +342,10 @@ function wantsHtml(request) {
   return String(request.headers.get("accept") || "").toLowerCase().includes("text/html");
 }
 
-// INTELLIGENCE_HUB_FILTER_V3: HUB selector is a Browser-KV read-only catalog. It never enrolls a HUB, writes KV, calls Turso, or calls MS.
+// INTELLIGENCE_HUB_FILTER_V4: merge every Browser-KV-known HUB without Turso/MS reads.
+// The discovery list is cached in-memory for 10 minutes; the page remains read-only.
+const HUB_CATALOG_CACHE_MS = 10 * 60 * 1000;
+let hubCatalogCache = { until: 0, hubs: [] };
 async function connectedHubCatalog(env, currentHub = "") {
   const hubs = [];
   const add = (value) => {
@@ -350,10 +353,25 @@ async function connectedHubCatalog(env, currentHub = "") {
     if (hub && !hubs.includes(hub)) hubs.push(hub);
   };
   add(currentHub);
+  const now = Date.now();
+  if (hubCatalogCache.until > now) {
+    for (const value of hubCatalogCache.hubs) add(value);
+    return hubs.sort((a, b) => a.localeCompare(b));
+  }
   try {
     const stored = parseJson((await env.STATE.get("hubs")) || "[]", []);
     for (const value of Array.isArray(stored) ? stored : []) add(value);
   } catch {}
+  for (const value of String(env?.CONNECTOR_BOOTSTRAP_HUBS || "").split(",")) add(value);
+  try {
+    const prefixes = ["connector:", "connection:error:v1:", "connection:history:v2:", "shadow:tbr:v1:"];
+    const pages = await Promise.all(prefixes.map((prefix) => env.STATE.list({ prefix, limit: 1000 })));
+    pages.forEach((page, index) => {
+      const prefix = prefixes[index];
+      for (const item of page?.keys || []) add(String(item?.name || "").slice(prefix.length));
+    });
+  } catch {}
+  hubCatalogCache = { until: now + HUB_CATALOG_CACHE_MS, hubs: [...hubs] };
   return hubs.sort((a, b) => a.localeCompare(b));
 }
 

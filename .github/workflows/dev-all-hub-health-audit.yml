@@ -1,0 +1,109 @@
+name: DEV All-HUB Health Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-all-hub-health-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Read-only all-HUB source audit
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            const org=process.env.TURSO_ORG;
+            const db=process.env.TURSO_DATABASE;
+            if(!platform) throw new Error('Turso platform token missing');
+            const headers={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('Turso hostname missing');
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json();
+            const dbToken=tokenJson.jwt;
+            if(!tokenRes.ok||!dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
+            console.log(`::add-mask::${dbToken}`);
+            const sql=[
+              `SELECT hub,updated_at,updated_by,last_success_at,last_error,length(session_cipher),length(device_cipher) FROM ms_connections ORDER BY hub`,
+              `SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache ORDER BY hub`,
+              `SELECT hub,updated_at,updated_by,last_success_at,last_error FROM ms_preentry_connections ORDER BY hub`,
+              `SELECT hub,updated_at,updated_by,last_success_at,last_error FROM ms_bus_connections ORDER BY hub`,
+              `SELECT hub,active,last_used_at FROM ms_connector_tokens ORDER BY hub`,
+            ];
+            const requests=[];
+            for(const statement of sql) requests.push({type:'execute',stmt:{sql:statement,args:[]}});
+            requests.push({type:'close'});
+            const response=await fetch(`https://${hostname}/v2/pipeline`,{
+              method:'POST',
+              headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+              body:JSON.stringify({requests}),
+            });
+            const payload=await response.json();
+            if(!response.ok) throw new Error(`Turso pipeline HTTP ${response.status}`);
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const resultRows=index=>{
+              const item=payload?.results?.[index];
+              if(item?.type==='error') throw new Error(`Turso query ${index+1} failed: ${JSON.stringify(item.error)}`);
+              return (item?.response?.result?.rows||[]).map(row=>row.map(decode));
+            };
+            const routeRows=resultRows(0), liveRows=resultRows(1), preRows=resultRows(2), busRows=resultRows(3), connectorRows=resultRows(4);
+            const mapByHub=rows=>new Map(rows.map(row=>[String(row[0]||'').trim().toUpperCase(),row]));
+            const routes=mapByHub(routeRows), live=mapByHub(liveRows), pre=mapByHub(preRows), bus=mapByHub(busRows), connectors=mapByHub(connectorRows);
+            const hubs=[...routes.keys()].sort();
+            if(!hubs.length) throw new Error('No configured HUB connection found');
+            const age=value=>{
+              const parsed=Date.parse(String(value||''));
+              return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
+            };
+            const fresh=(value,error)=>Boolean(value)&&!String(error||'')&&age(value)>=0&&age(value)<=20*60;
+            const failures=[];
+            for(const hub of hubs){
+              const route=routes.get(hub)||[];
+              const snapshot=live.get(hub)||[];
+              const p=pre.get(hub)||[];
+              const b=bus.get(hub)||[];
+              const c=connectors.get(hub)||[];
+              const routeFresh=fresh(route[3],route[4]);
+              const preConfigured=pre.has(hub), busConfigured=bus.has(hub);
+              const preFresh=!preConfigured||fresh(p[3],p[4]);
+              const busFresh=!busConfigured||fresh(b[3],b[4]);
+              const cachePresent=live.has(hub);
+              const sessionCipherPresent=Number(route[5]||0)>0;
+              const deviceCipherPresent=Number(route[6]||0)>0;
+              const connectorActive=Number(c[1]||0)===1;
+              const reasons=[];
+              if(!sessionCipherPresent||!deviceCipherPresent) reasons.push('ROUTE_CREDENTIAL_MISSING');
+              if(!cachePresent) reasons.push('LIVE_CACHE_MISSING');
+              if(!routeFresh) reasons.push(String(route[4]||'')?'ROUTE_ERROR':'ROUTE_STALE_SILENT');
+              if(!preFresh) reasons.push(String(p[4]||'')?'PREENTRY_ERROR':'PREENTRY_STALE_SILENT');
+              if(!busFresh) reasons.push(String(b[4]||'')?'BUS_ERROR':'BUS_STALE_SILENT');
+              if(!connectorActive) reasons.push('CONNECTOR_INACTIVE');
+              console.log(`HUB=${hub} ROUTE_CREDENTIALS=${sessionCipherPresent&&deviceCipherPresent?'PRESENT':'MISSING'} ROUTE_UPDATED=${route[1]||'-'} ROUTE_BY=${route[2]||'-'} ROUTE_LAST_SUCCESS=${route[3]||'-'} ROUTE_AGE=${age(route[3])} ROUTE_ERROR=${route[4]||'-'}`);
+              console.log(`HUB=${hub} LIVE_CACHE=${cachePresent?'PRESENT':'MISSING'} LIVE_AT=${snapshot[1]||'-'} LIVE_ROWS=${Number(snapshot[2]||0)} PREENTRY_CONFIGURED=${preConfigured} PREENTRY_LAST_SUCCESS=${p[3]||'-'} PREENTRY_AGE=${age(p[3])} PREENTRY_ERROR=${p[4]||'-'}`);
+              console.log(`HUB=${hub} BUS_CONFIGURED=${busConfigured} BUS_LAST_SUCCESS=${b[3]||'-'} BUS_AGE=${age(b[3])} BUS_ERROR=${b[4]||'-'} CONNECTOR_ACTIVE=${connectorActive} CONNECTOR_LAST_USED=${c[2]||'-'} STATE=${reasons.length?reasons.join(','):'HEALTHY'}`);
+              if(reasons.some(reason=>reason!=='CONNECTOR_INACTIVE')) failures.push({hub,reasons});
+            }
+            console.log(`ALL_HUB_AUDIT_COUNT=${hubs.length}`);
+            console.log(`ALL_HUB_AUDIT_HUBS=${hubs.join(',')}`);
+            console.log(`ALL_HUB_AUDIT_QUERY_COUNT=${sql.length}`);
+            console.log('ALL_HUB_AUDIT_WRITES=0');
+            console.log('ALL_HUB_AUDIT_UPSTREAM_CALLS=0');
+            if(failures.length) throw new Error(`Unhealthy HUBs: ${failures.map(x=>`${x.hub}[${x.reasons.join('|')}]`).join(', ')}`);
+            console.log('ALL_HUB_SOURCE_HEALTH=PASS');
+          })().catch(error=>{console.error(error);process.exit(1);});
+          NODE

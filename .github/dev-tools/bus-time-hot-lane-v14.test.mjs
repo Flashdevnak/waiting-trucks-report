@@ -274,6 +274,39 @@ test("two HUBs keep isolated state and each gets only its own shared reader", as
   assert.equal(h.lane.diagnostics("EA2").busHotCalls, 1);
 });
 
+test("origin routes never enter BusTime active scope or force yesterday hot reads", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ total: 50, items: [item("P-DST")] }),
+  });
+  const routes = [
+    { proofId: "P-ORG", attendanceType: "ต้นทาง", unloadingState: 0, estimatedArrivalAt: "2026-09-12T14:00:00.000Z" },
+    { proofId: "P-DST", attendanceType: "ปลายทาง", unloadingState: 0, estimatedArrivalAt: "2026-09-13T01:00:00.000Z" },
+    { proofId: "P-DROP-DONE", attendanceType: "จุดดรอป", unloadingState: 2, estimatedArrivalAt: "2026-09-12T15:00:00.000Z" },
+  ];
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.deepEqual(h.calls.map((call) => call.day), ["2026-09-13"]);
+  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
+});
+
+test("persistent deep-page misses respect 12s cadence while a newly active proof gets immediate priority", async () => {
+  const h = harness({
+    fetchHandler: async ({ page }) => page === 1
+      ? response({ total: 300, items: [item("P1")] })
+      : response({ total: 300, items: [item("P" + page)] }),
+  });
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P2", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
+  h.advance(4000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.deepEqual(h.calls.slice(-2).map((call) => call.page), [1, 3]);
+  const callsAfterNewActive = h.calls.length;
+  h.advance(4000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.equal(h.calls.length, callsAfterNewActive + 1);
+  h.advance(8000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.equal(h.calls.length, callsAfterNewActive + 3);
+});
 test("cross-midnight active route adds at most yesterday page 1; completed route does not", async () => {
   const h1 = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),

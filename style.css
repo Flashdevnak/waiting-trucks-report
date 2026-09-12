@@ -714,18 +714,28 @@ body:has(.connector-dialog[open]) {
 .connection-source-status .source-error { color: #b42318; font-weight: 700; }
 .connection-source-status .source-missing { color: #6b6b66; }
 .connection-source-status .source-stale { color: #8a5a00; font-weight: 700; }
-.connection-source-status > div.has-source-expiry-hint { position: relative; padding-bottom: 34px; }
-.connection-source-status .source-expiry-hint {
-  position: absolute;
-  right: 12px;
-  bottom: 7px;
-  max-width: calc(100% - 24px);
-  color: #8a4b00;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.35;
-  text-align: right;
+/* MS_CONNECTION_401_ALERT_V1: 401 explanation is one shared alert outside the source cards. */
+.connection-source-status > div.has-source-expiry-hint { padding-bottom: 11px; }
+.connection-source-status .source-expiry-hint { display: none !important; }
+.ms-session-401-alert {
+  display: grid;
+  gap: 4px;
+  margin: -2px 0 14px;
+  padding: 11px 13px;
+  border: 1px solid #e5b6b1;
+  border-left: 4px solid #b42318;
+  border-radius: 8px;
+  background: #fff4f2;
+  color: #6f211a;
+  font-size: 12px;
+  line-height: 1.45;
 }
+.ms-session-401-alert strong {
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 900;
+}
+.ms-session-401-alert span { display: block; }
 .setup-source-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .har-source-list { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; align-items: end; margin-top: 14px; }
 .har-source-list label { margin: 0; }

@@ -2498,6 +2498,9 @@ async function loadMsConnectionStatus() {
     try { repairStatus = await apiGet("msRepairHealthDev", { branch: hub }); }
     catch { repairStatus = null; }
     const routeRepair = repairStatus?.repair || {};
+    // MS_CONNECTION_401_ALERT_V1: aggregate all current 401 sources into one alert outside the source cards.
+    const session401Sources = [];
+    const session401DetectedAt = routeRepair?.changedAt || "";
     for (const key of ["routes", "preEntry", "busTime", "hbiPhotos"]) {
       const node = document.querySelector(`[data-source-status="${key}"] span`);
       const item = status[key];
@@ -2524,28 +2527,43 @@ async function loadMsConnectionStatus() {
               : `พร้อมใช้งาน · อัปเดตล่าสุด ${shortDateTime(item.lastSuccessAt || item.updatedAt)}`;
 
       if (row) {
-        let hint = row.querySelector(".source-expiry-hint");
-        if (!hint) {
-          hint = document.createElement("small");
-          hint.className = "source-expiry-hint";
-          row.appendChild(hint);
-        }
+        row.querySelector(".source-expiry-hint")?.remove();
+        row.classList.remove("has-source-expiry-hint");
+      }
+      if (source401) {
         const sourceNames = {
           routes: "สถานะเส้นทางเดินรถ",
           preEntry: "พัสดุที่คาดว่าจะเข้าคลัง",
           busTime: "การจัดการตารางเวลา (KIT/TBR)",
           hbiPhotos: "รูปท้ายรถ (HBI)",
+          proof: "ปริ้นบาร์โค้ดรถ",
+          originManifest: "LH Manifest",
         };
-        const detectedAt = key === "routes" ? routeRepair?.changedAt : "";
-        if (source401) {
-          hint.textContent = `ตรวจพบ 401${detectedAt ? ` · ${shortDateTime(detectedAt)}` : ""} — MS ปฏิเสธ Session ปัจจุบัน · กรุณาเชื่อมต่อ MS ใหม่ และอัปโหลด HAR “${sourceNames[key] || "แหล่งข้อมูลนี้"}” ใหม่อีกครั้ง`;
-          hint.hidden = false;
-          row.classList.add("has-source-expiry-hint");
-        } else {
-          hint.textContent = "";
-          hint.hidden = true;
-          row.classList.remove("has-source-expiry-hint");
-        }
+        const sourceName = sourceNames[key] || "แหล่งข้อมูลนี้";
+        if (!session401Sources.includes(sourceName)) session401Sources.push(sourceName);
+      }
+    }
+
+    const statusBox = el("connection-source-status");
+    let sessionAlert = el("ms-session-401-alert");
+    if (!sessionAlert && statusBox) {
+      sessionAlert = document.createElement("div");
+      sessionAlert.id = "ms-session-401-alert";
+      sessionAlert.className = "ms-session-401-alert hidden";
+      sessionAlert.setAttribute("role", "alert");
+      statusBox.insertAdjacentElement("afterend", sessionAlert);
+    }
+    if (sessionAlert) {
+      if (!session401Sources.length) {
+        sessionAlert.classList.add("hidden");
+        sessionAlert.replaceChildren();
+      } else {
+        const title = document.createElement("strong");
+        title.textContent = `MS ตอบกลับ 401${session401DetectedAt ? ` · ${shortDateTime(session401DetectedAt)}` : ""}`;
+        const detail = document.createElement("span");
+        detail.textContent = `Session ปัจจุบันถูกปฏิเสธ · กระทบ: ${session401Sources.join(" / ")} · กรุณาเชื่อมต่อ MS ใหม่ แล้วอัปโหลด HAR ของแหล่งที่ขึ้น 401 ใหม่`;
+        sessionAlert.replaceChildren(title, detail);
+        sessionAlert.classList.remove("hidden");
       }
     }
   } catch (error) {

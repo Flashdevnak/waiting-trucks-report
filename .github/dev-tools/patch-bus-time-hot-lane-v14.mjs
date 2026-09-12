@@ -61,6 +61,7 @@ const busTimeHotLane = createBusTimeHotLane({
   markError: markConnectionError,
   classifyFailure: classifyBusTimeFailure,
   connectionHeartbeatMs: CONNECTION_HEARTBEAT_MS,
+  fetchFn: fetchWithTimeout,
 });
 async function readBusTimeData(
   env,
@@ -68,7 +69,11 @@ async function readBusTimeData(
   wantedDays = liveSourceDays(),
   routeRows = [],
 ) {
-  return busTimeHotLane.readBusTimeData(env, hub, wantedDays, routeRows);
+  const data = await busTimeHotLane.readBusTimeData(env, hub, wantedDays, routeRows);
+  // Reuse the existing DEV realtime-recovery contract so degraded BusTime
+  // preserves the accepted live-cache enrichment instead of clearing it.
+  data.sourceFailed = Boolean(data.sourceStale);
+  return data;
 }
 function busTimeDiagnostics(hub) {
   return busTimeHotLane.diagnostics(hub);
@@ -76,20 +81,54 @@ function busTimeDiagnostics(hub) {
 
 source = source.slice(0, legacyStart) + adapter + source.slice(busEnd);
 
-const refreshAnchor = `    const rows = await readMsRoutes(credentials);
+const stagedRefreshAnchor = `    const rows = await readMsRoutes(credentials);
+    const [parcelCounts, busData] = await Promise.all([
+      readPreEntryCounts(env, branch),
+      readBusTimeData(env, branch),
+    ]);`;
+const stagedRefreshReplacement = `    const rows = await readMsRoutes(credentials);
+    const routeRows = rows.map(mapMsRow);
+    const [parcelCounts, busData] = await Promise.all([
+      readPreEntryCounts(env, branch),
+      readBusTimeData(env, branch, liveSourceDays(), routeRows),
+    ]);`;
+
+if (source.includes(stagedRefreshAnchor)) {
+  source = replaceUnique(
+    source,
+    stagedRefreshAnchor,
+    stagedRefreshReplacement,
+    "runMsRefresh staged optional-enrichment block",
+  );
+  source = replaceUnique(
+    source,
+    `    const mappedRows = rows.map((row) => {
+      const mapped = enrichMsRow(mapMsRow(row), parcelCounts, busData);`,
+    `    const mappedRows = routeRows.map((row) => {
+      const mapped = enrichMsRow(row, parcelCounts, busData);`,
+    "runMsRefresh staged route mapping",
+  );
+} else {
+  const canonicalRefreshAnchor = `    const rows = await readMsRoutes(credentials);
     const parcelCounts = await readPreEntryCounts(env, branch);
     const busData = await readBusTimeData(env, branch);
     const mappedRows = rows.map((row) =>
       enrichMsRow(mapMsRow(row), parcelCounts, busData),
     );`;
-const refreshReplacement = `    const rows = await readMsRoutes(credentials);
+  const canonicalRefreshReplacement = `    const rows = await readMsRoutes(credentials);
     const routeRows = rows.map(mapMsRow);
     const parcelCounts = await readPreEntryCounts(env, branch);
     const busData = await readBusTimeData(env, branch, liveSourceDays(), routeRows);
     const mappedRows = routeRows.map((row) =>
       enrichMsRow(row, parcelCounts, busData),
     );`;
-source = replaceUnique(source, refreshAnchor, refreshReplacement, "runMsRefresh");
+  source = replaceUnique(
+    source,
+    canonicalRefreshAnchor,
+    canonicalRefreshReplacement,
+    "runMsRefresh canonical block",
+  );
+}
 
 const saveAnchor =
   '  await audit(env, "SAVE_MS_BUS_CONNECTION", hub, `ทดสอบสำเร็จ ${test.total} รายการ`, actor.username);';
@@ -109,6 +148,10 @@ if (!source.includes("readBusTimeData(env, branch, liveSourceDays(), routeRows)"
   throw new Error(`${MARKER}: Route active-set handoff missing`);
 if (!source.includes("busDiagnostics: busTimeDiagnostics(hub)"))
   throw new Error(`${MARKER}: diagnostics exposure missing`);
+if (!source.includes("fetchFn: fetchWithTimeout"))
+  throw new Error(`${MARKER}: staged upstream timeout contract missing`);
+if (!source.includes("data.sourceFailed = Boolean(data.sourceStale)"))
+  throw new Error(`${MARKER}: staged degraded-cache preservation contract missing`);
 
 fs.writeFileSync(file, source);
 console.log(`${MARKER}=PASS`);
@@ -118,3 +161,4 @@ console.log("BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE=1");
 console.log("BUS_TIME_MAX_CALLS_PER_CYCLE=3");
 console.log("BUS_TIME_TELEMETRY_DB_WRITES=0");
 console.log("BUS_TIME_UNVERIFIED_UPSTREAM_FILTERS_ADDED=0");
+console.log("BUS_TIME_STAGED_RECOVERY_CONTRACT=PASS");

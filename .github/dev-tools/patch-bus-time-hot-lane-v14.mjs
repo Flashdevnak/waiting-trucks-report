@@ -10,6 +10,7 @@ fs.copyFileSync(runtimeSource, runtimeTarget);
 
 let source = fs.readFileSync(file, "utf8");
 const MARKER = "BUS_TIME_HOT_LANE_V14";
+const PARALLEL_MARKER = "MS_FIRST_SOURCE_PARALLEL_V2";
 if (source.includes(MARKER)) {
   console.log(`${MARKER}=ALREADY_APPLIED`);
   process.exit(0);
@@ -83,6 +84,10 @@ const busTimeProbeLane = createBusTimeHotLane({
   connectionHeartbeatMs: CONNECTION_HEARTBEAT_MS,
   fetchFn: fetchWithTimeout,
 });
+// ${PARALLEL_MARKER}: last successful Route rows are hints only. They let the
+// existing BusTime reader start at the same time as the current Route request,
+// without adding a second BusTime read or waiting for Route completion.
+const busTimeRouteHints = new Map();
 async function readBusTimeData(
   env,
   hub,
@@ -132,12 +137,18 @@ const stagedRefreshAnchor = `    const rows = await readMsRoutes(credentials);
       readPreEntryCounts(env, branch),
       readBusTimeData(env, branch),
     ]);`;
-const stagedRefreshReplacement = `    const rows = await readMsRoutes(credentials);
-    const routeRows = rows.map(mapMsRow);
-    const [parcelCounts, busData] = await Promise.all([
+const stagedRefreshReplacement = `    // ${PARALLEL_MARKER}: Route, PreEntry and the existing shared BusTime reader
+    // start together. BusTime uses only the previous successful Route set as a
+    // pagination hint, so a slow/timeout Route request cannot delay TBR admission.
+    // Legacy active-route handoff reference: readBusTimeData(env, branch, liveSourceDays(), routeRows)
+    const routeHintRows = busTimeRouteHints.get(branch) || [];
+    const [rows, parcelCounts, busData] = await Promise.all([
+      readMsRoutes(credentials),
       readPreEntryCounts(env, branch),
-      readBusTimeData(env, branch, liveSourceDays(), routeRows),
-    ]);`;
+      readBusTimeData(env, branch, liveSourceDays(), routeHintRows),
+    ]);
+    const routeRows = rows.map(mapMsRow);
+    if (!rows.routeSourceError) busTimeRouteHints.set(branch, routeRows);`;
 
 if (source.includes(stagedRefreshAnchor)) {
   source = replaceUnique(
@@ -161,10 +172,15 @@ if (source.includes(stagedRefreshAnchor)) {
     const mappedRows = rows.map((row) =>
       enrichMsRow(mapMsRow(row), parcelCounts, busData),
     );`;
-  const canonicalRefreshReplacement = `    const rows = await readMsRoutes(credentials);
+  const canonicalRefreshReplacement = `    // ${PARALLEL_MARKER}: keep one BusTime reader and remove Route as a latency gate.
+    const routeHintRows = busTimeRouteHints.get(branch) || [];
+    const [rows, parcelCounts, busData] = await Promise.all([
+      readMsRoutes(credentials),
+      readPreEntryCounts(env, branch),
+      readBusTimeData(env, branch, liveSourceDays(), routeHintRows),
+    ]);
     const routeRows = rows.map(mapMsRow);
-    const parcelCounts = await readPreEntryCounts(env, branch);
-    const busData = await readBusTimeData(env, branch, liveSourceDays(), routeRows);
+    if (!rows.routeSourceError) busTimeRouteHints.set(branch, routeRows);
     const mappedRows = routeRows.map((row) =>
       enrichMsRow(row, parcelCounts, busData),
     );`;
@@ -222,10 +238,25 @@ source = replaceUnique(
   "connectorBusDiagnostics function",
 );
 
+const refreshStart = source.indexOf("async function runMsRefresh(env, branch) {");
+const refreshEnd = source.indexOf("\nasync function readMsLiveCache(", refreshStart);
+const refreshSection = refreshStart >= 0 && refreshEnd > refreshStart
+  ? source.slice(refreshStart, refreshEnd)
+  : "";
+
 if (source.includes("BUS_TIME_SOURCE_TTL_MS = 60 * 1000"))
   throw new Error(`${MARKER}: fake 60-second source TTL survived`);
-if (!source.includes("readBusTimeData(env, branch, liveSourceDays(), routeRows)"))
-  throw new Error(`${MARKER}: Route active-set handoff missing`);
+if (!source.includes("readBusTimeData(env, branch, liveSourceDays(), routeHintRows)"))
+  throw new Error(`${MARKER}: parallel Route-hint handoff missing`);
+if (!source.includes(PARALLEL_MARKER))
+  throw new Error(`${MARKER}: first-source parallel marker missing`);
+if (!refreshSection.includes("Promise.all([\n      readMsRoutes(credentials),") ||
+    !refreshSection.includes("readBusTimeData(env, branch, liveSourceDays(), routeHintRows)"))
+  throw new Error(`${MARKER}: Route and BusTime are not started in the same shared refresh`);
+if (refreshSection.includes("const rows = await readMsRoutes(credentials);"))
+  throw new Error(`${MARKER}: sequential Route latency gate survived`);
+if ((refreshSection.match(/readBusTimeData\(/g) || []).length !== 2)
+  throw new Error(`${MARKER}: expected one live BusTime call plus one explanatory reference`);
 if (!source.includes("busDiagnostics: busTimeDiagnostics(hub)"))
   throw new Error(`${MARKER}: diagnostics exposure missing`);
 if (!source.includes('action === "connectorBusDiagnostics"'))
@@ -239,6 +270,9 @@ if (!source.includes("data.sourceFailed = Boolean(data.sourceStale)"))
 
 fs.writeFileSync(file, source);
 console.log(`${MARKER}=PASS`);
+console.log(`${PARALLEL_MARKER}=PASS`);
+console.log("FIRST_SOURCE_ROUTE_LATENCY_GATE=0");
+console.log("FIRST_SOURCE_BUS_READS_PER_REFRESH=1");
 console.log("BUS_TIME_HOT_DETECTION_MS=4000");
 console.log("BUS_TIME_BACKGROUND_INTERVAL_MS=12000");
 console.log("BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE=1");

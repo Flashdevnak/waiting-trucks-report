@@ -27,10 +27,10 @@ test("healthy state adds no Turso or upstream probe and repair state avoids Turs
 });
 
 test("transient failures back off and session expiry requires confirmation before needs_login", () => {
-  assert.match(staged, /MS_REPAIR_POLICY_VERSION = 4/);
+  assert.match(staged, /MS_REPAIR_POLICY_VERSION = 5/);
   assert.match(staged, /\[60_000, 2 \* 60_000, 5 \* 60_000, 10 \* 60_000\]/);
   assert.match(staged, /MS_REPAIR_SESSION_COOLDOWN_MS = 60 \* 60_000/);
-  assert.match(staged, /const authSignal = resultCode === "MS_SESSION_EXPIRED" \|\| resultCode === "INVALID_SESSION"/);
+  assert.match(staged, /const authSignal = resultCode === "MS_SESSION_HTTP_401" \|\| resultCode === "INVALID_SESSION"/);
   assert.match(staged, /const confirmedAuthTerminal = authSignal && this\.repair\?\.code === resultCode && previousFailures >= 1/);
   assert.match(staged, /const terminal = credentialTerminal \|\| confirmedAuthTerminal/);
   assert.match(staged, /terminal \? "needs_login" : "retry_wait"/);

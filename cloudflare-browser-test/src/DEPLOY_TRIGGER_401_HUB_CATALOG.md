@@ -1,7 +1,7 @@
 # Browser DEV validation trigger
 
-Triggers the Browser TEST Worker deployment after the tested Connection Intelligence HUB selector V4 change and V3 compatibility marker.
+Triggers the Browser TEST Worker deployment after commit 3409ea0f6b771587fc1c4b357049cce98e2a4107.
 
-Validation target: NE1 and every other Connection Intelligence page use the same Browser-known HUB catalog. Selector discovery remains read-only, cached, and adds zero Turso reads/writes and zero MS upstream polling.
+Validation target: Error Intelligence and TBR Intelligence use the same Browser-known HUB catalog on every HUB, including NE1. Catalog discovery remains read-only, cached for 10 minutes, and adds zero Turso reads/writes and zero MS upstream polling.
 
 Scope: Browser TEST only. No Production cutover.

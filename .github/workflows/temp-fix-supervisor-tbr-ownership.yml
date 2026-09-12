@@ -1,4 +1,4 @@
-name: TEMP DEV Repair State Probe
+name: TEMP DEV HTTP Auth Status Diagnostic
 
 on:
   push:
@@ -8,20 +8,49 @@ on:
       - .github/workflows/temp-fix-supervisor-tbr-ownership.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  probe:
+  patch:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe sanitized DEV repair state read-only
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Add sanitized HTTP status to DEV repair diagnostic
         shell: bash
         run: |
           set -euo pipefail
-          base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=msRepairHealthDev&branch='
-          for hub in EA2 NE1; do
-            echo "=== ${hub} ==="
-            body="$(curl -fsS --retry 2 --connect-timeout 10 "${base}${hub}")"
-            echo "$body" | jq -c '{ok:.ok,branch:.data.branch,repair:.data.repair,quota:.data.quota}'
-            echo "$body" | jq -e '.ok == true and .data.quota.tursoReads == 0 and .data.quota.tursoWrites == 0 and .data.quota.upstreamCalls == 0' >/dev/null
-          done
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
+          s = p.read_text()
+          old = '''        code: text(repair.code, 80),\\
+        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),\\
+      },\\
+      quota: { tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 },'''
+          new = '''        code: text(repair.code, 80),\\
+        upstreamHttpStatus: Number(String(repair.message || "").match(/MS ตอบกลับ (401|403)/)?.[1] || 0),\\
+        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),\\
+      },\\
+      quota: { tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 },'''
+          if s.count(old) != 1:
+              raise SystemExit(f'diagnostic anchor count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
+          node --test .github/dev-tools/ms-self-healing-supervisor.test.mjs
+          node --test .github/dev-tools/stage-dev-runtime.test.mjs
+          git diff --check
+      - name: Commit sanitized diagnostic patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/dev-tools/patch-ms-self-healing-supervisor.mjs
+          git commit -m 'chore(dev): expose sanitized MS auth HTTP status'
+          git push origin HEAD:main

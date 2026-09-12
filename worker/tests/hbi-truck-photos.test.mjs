@@ -27,6 +27,7 @@ test("frontend keeps photo loading strictly click-only and single-shot", () => {
   assert.doesNotMatch(front, /apiGet\("msTruckPhotos"/);
   assert.match(front, /HBI_PHOTO_SESSION_EXPIRED/);
   assert.match(front, /data-hbi-session-reconnect/);
+  assert.match(front, /reconnect\.onclick = \(\) => \{[\s\S]{0,220}openMsConnection\(\)/);
   // HBI remains click-only; realtime Route transport is now WebSocket-first at
   // the same 4-second visible cadence instead of direct HTTP polling.
   assert.match(front, /pollMs:\s*4000/);

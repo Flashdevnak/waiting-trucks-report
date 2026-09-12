@@ -250,6 +250,7 @@ jobs:
           NODE
 
       - name: Read-only sanitized Turso quota snapshot
+        if: ${{ always() }}
         run: |
           node <<'NODE'
           (async()=>{

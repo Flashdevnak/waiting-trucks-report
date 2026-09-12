@@ -11,11 +11,18 @@ def patch_worker():
         print(f'{marker}=ALREADY_PRESENT')
         return
 
+    # Preserve the exact connectorSync -> verify adjacency owned by
+    # patch-ms-connector-adoption.mjs. Put the catalog action before connectorSync.
     post_anchor = '''  if (action === "completeMsPairing") return ok(await completeMsPairing(body, env));\n  if (action === "connectorSync") return ok(await connectorSync(body, env));\n  const actor = await verify(body.token, env);\n'''
-    post_repl = '''  if (action === "completeMsPairing") return ok(await completeMsPairing(body, env));\n  if (action === "connectorSync") return ok(await connectorSync(body, env));\n  // BROWSER_HUB_CATALOG_AUTH_V1: connector-authenticated, read-only HUB discovery for Browser TEST.\n  if (action === "connectorHubCatalog") return ok(await connectorHubCatalog(body, env));\n  const actor = await verify(body.token, env);\n'''
+    post_repl = '''  if (action === "completeMsPairing") return ok(await completeMsPairing(body, env));\n  // BROWSER_HUB_CATALOG_AUTH_V1: connector-authenticated, read-only HUB discovery for Browser TEST.\n  if (action === "connectorHubCatalog") return ok(await connectorHubCatalog(body, env));\n  if (action === "connectorSync") return ok(await connectorSync(body, env));\n  const actor = await verify(body.token, env);\n'''
     if s.count(post_anchor) != 1:
         raise SystemExit(f'worker post anchor count={s.count(post_anchor)}')
     s = s.replace(post_anchor, post_repl, 1)
+
+    # Staging compatibility invariant: connector adoption must still own this exact anchor.
+    adoption_anchor = '''  if (action === "connectorSync") return ok(await connectorSync(body, env));\n  const actor = await verify(body.token, env);'''
+    if s.count(adoption_anchor) != 1:
+        raise SystemExit('connector adoption route anchor was not preserved')
 
     fn_anchor = '''async function connectorSync(body, env) {\n  const hub = text(body.hub, 80).toUpperCase(), tokenHash = await sha256(text(body.connectorToken, 500));\n'''
     fn_repl = '''// BROWSER_HUB_CATALOG_AUTH_V1\n// Called at most once/hour by Browser cron. It never calls MS and never writes Turso.\nasync function connectorHubCatalog(body, env) {\n  const hub = text(body.hub, 80).toUpperCase();\n  const tokenHash = await sha256(text(body.connectorToken, 500));\n  const row = await env.DB.prepare(\n    "SELECT hub FROM ms_connector_tokens WHERE hub=? AND token_hash=? AND active=1",\n  ).bind(hub, tokenHash).first();\n  if (!row) fail("ตัวเชื่อมต่อไม่ถูกต้อง", "INVALID_CONNECTOR", 401);\n  const hubs = [...new Set((await knownMsBranches(env)).map((value) => text(value, 80).toUpperCase()).filter(Boolean))].sort();\n  return {\n    hub,\n    hubs,\n    quota: { tursoStatementsMax: 2, tursoWrites: 0, upstreamMsCalls: 0 },\n  };\n}\n\nasync function connectorSync(body, env) {\n  const hub = text(body.hub, 80).toUpperCase(), tokenHash = await sha256(text(body.connectorToken, 500));\n'''

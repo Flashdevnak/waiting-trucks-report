@@ -13,6 +13,7 @@ import {
 } from "./patch-ms-realtime-recovery.mjs";
 import { patchDevSummaryFilter } from "./patch-ms-summary-filter.mjs";
 import { patchDevDurableCoordinator } from "./patch-ms-durable-coordinator.mjs";
+import { patchMsSelfHealingSupervisor } from "./patch-ms-self-healing-supervisor.mjs";
 import { patchDevConnectorAdoption } from "./patch-ms-connector-adoption.mjs";
 import { patchDevMultiClientWorker } from "./patch-ms-multiclient-dedupe.mjs";
 import {
@@ -387,6 +388,7 @@ export function stageWorker(source) {
   let output = patchDevWorkerCompletedSummary(String(source || ""));
   output = patchDevRealtimeWorker(output);
   output = patchDevDurableCoordinator(output);
+  output = patchMsSelfHealingSupervisor(output);
   output = patchDevConnectorAdoption(output);
   output = patchDevMultiClientWorker(output);
   output = patchMsRouteCancellationWorker(output);

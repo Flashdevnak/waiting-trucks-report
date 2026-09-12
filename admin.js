@@ -4,6 +4,7 @@ const API_URL = location.hostname.endsWith(".workers.dev")
   ? `${location.origin}/api`
   : "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 const AUTH_KEY = "bnak_operator_auth_v2";
+const SOURCE_STALE_MS = 20 * 60 * 1000;
 const state = { auth: null, overview: null, settings: null, branch: "", busy: false };
 const el = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
@@ -49,6 +50,7 @@ function sourceState(source, hbi = false) {
   if (hbi && source.sessionState === "expired") return { key: "bad", label: "Session หมดอายุ" };
   if (hbi && !source.lastCheckedAt) return { key: "warn", label: "ยังไม่มีผลตรวจล่าสุด" };
   if (!source.lastSuccessAt && !hbi) return { key: "warn", label: "รอข้อมูลสำเร็จ" };
+  if (!hbi) { const lastSuccess = Date.parse(source.lastSuccessAt); if (!Number.isFinite(lastSuccess) || Date.now() - lastSuccess > SOURCE_STALE_MS) return { key: "warn", label: "ข้อมูลไม่สด" }; }
   return { key: "ok", label: hbi ? "ตั้งค่าแล้ว" : "ปกติ" };
 }
 function allSources(hub) { return [hub.routes, hub.preEntry, hub.busTime, hub.hbiPhotos]; }
@@ -135,6 +137,24 @@ async function loadOverview() {
     else showGate("เปิดหน้า Admin ไม่สำเร็จ", { error: error.message, back: true });
   } finally { state.busy = false; el("refresh-btn").disabled = false; }
 }
+async function repairAllHubs() {
+  if (state.busy) return;
+  const hubs = state.overview?.hubs?.length || 0;
+  if (!hubs || !confirm(`ตรวจและซ่อม Route ของ HUB ที่ตั้งค่าไว้ทั้งหมด ${hubs} HUB ตอนนี้หรือไม่?\n\nระบบจะเรียก source สูงสุดหนึ่งรอบต่อ HUB และไม่แตะ HBI`)) return;
+  state.busy = true;
+  const button = el("repair-all-btn"), resultBox = el("repair-result");
+  button.disabled = true; button.textContent = "กำลังตรวจและซ่อม…";
+  try {
+    const result = await request("adminRepairAll", { method: "POST" });
+    const rows = Array.isArray(result.results) ? result.results : [];
+    resultBox.classList.remove("hidden");
+    resultBox.innerHTML = `<h3>ผลตรวจและซ่อม ${esc(result.total)} HUB</h3><p><b>ปกติ ${esc(result.healthy)}</b> · ต้องตรวจต่อ ${esc(result.needsAttention)}</p><div class="repair-list">${rows.map((item) => `<span><b>${esc(item.hub)}</b><i class="status ${item.ok ? "ok" : "bad"}">${esc(item.ok ? "ซ่อม/ตรวจสำเร็จ" : item.status || "ผิดปกติ")}</i><small>${esc(item.error || item.repair?.message || "")}</small></span>`).join("")}</div><p class="muted">โหมด ${esc(result.quota?.mode || "manual")} · ไม่ตรวจ HBI เบื้องหลัง · HUB ปกติไม่มีงาน background เพิ่ม</p>`;
+    toast(`ตรวจครบ ${result.total} HUB · ปกติ ${result.healthy} · ต้องตรวจต่อ ${result.needsAttention}`, result.needsAttention > 0);
+    state.busy = false;
+    await loadOverview();
+  } catch (error) { toast(error.message, true); }
+  finally { state.busy = false; button.disabled = false; button.textContent = "ตรวจและซ่อมทุก HUB ตอนนี้"; }
+}
 async function login(event) {
   event.preventDefault();
   try {
@@ -149,7 +169,7 @@ async function changePassword(event) {
   try { await request("changePassword", { method: "POST", payload: { currentPassword, newPassword } }); event.currentTarget.reset(); logout(); toast("เปลี่ยนรหัสแล้ว กรุณาเข้าสู่ระบบใหม่"); } catch (error) { toast(error.message, true); }
 }
 function bind() {
-  el("login-form").addEventListener("submit", login); el("logout-btn").addEventListener("click", logout); el("refresh-btn").addEventListener("click", loadOverview);
+  el("login-form").addEventListener("submit", login); el("logout-btn").addEventListener("click", logout); el("refresh-btn").addEventListener("click", loadOverview); el("repair-all-btn").addEventListener("click", repairAllHubs);
   el("hub-select").addEventListener("change", () => { state.branch = el("hub-select").value; renderSources(); loadSettings(); });
   document.querySelector(".tabs").addEventListener("click", (event) => { const button = event.target.closest("[data-tab]"); if (!button) return; document.querySelectorAll("[data-tab]").forEach((x) => x.classList.toggle("active", x === button)); document.querySelectorAll("[data-panel]").forEach((x) => x.classList.toggle("hidden", x.dataset.panel !== button.dataset.tab)); });
   el("add-user-btn").addEventListener("click", () => addUserRow()); el("save-standards-btn").addEventListener("click", saveSettings); el("password-form").addEventListener("submit", changePassword);

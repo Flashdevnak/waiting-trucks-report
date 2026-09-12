@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow">
   <title>จัดการระบบ MS</title>
   <link rel="icon" href="favicon.svg">
-  <link rel="stylesheet" href="admin.css?v=20260912-01">
+  <link rel="stylesheet" href="admin.css?v=20260912-02">
 </head>
 <body>
   <header class="admin-header">
@@ -52,7 +52,8 @@
       </nav>
 
       <section class="tab-panel" data-panel="overview">
-        <div class="section-head"><div><p class="eyebrow">OVERVIEW</p><h2>สถานะทุก HUB</h2></div><span class="muted">ข้อมูลอ่านเมื่อเปิดหน้า/กดรีเฟรชเท่านั้น</span></div>
+        <div class="section-head"><div><p class="eyebrow">OVERVIEW</p><h2>สถานะทุก HUB</h2></div><div class="repair-actions"><span class="muted">ข้อมูลอ่านเมื่อเปิดหน้า/กดรีเฟรชเท่านั้น</span><button id="repair-all-btn" class="primary" type="button">ตรวจและซ่อมทุก HUB ตอนนี้</button></div></div>
+        <div id="repair-result" class="card repair-result hidden" role="status"></div>
         <div id="hub-overview" class="hub-list"></div>
       </section>
 
@@ -102,6 +103,6 @@
     </form>
   </template>
   <div id="toast" class="toast hidden" role="status"></div>
-  <script src="admin.js?v=20260912-01" defer></script>
+  <script src="admin.js?v=20260912-02" defer></script>
 </body>
 </html>

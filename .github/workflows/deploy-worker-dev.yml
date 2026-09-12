@@ -63,6 +63,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-summary-filter.test.mjs
       - run: node --test ../.github/dev-tools/ms-multiclient-dedupe.test.mjs
       - run: node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
+      - run: node --test ../.github/dev-tools/ms-self-healing-supervisor.test.mjs
       - run: node --test ../.github/dev-tools/safe-parity.test.mjs
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
       - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs

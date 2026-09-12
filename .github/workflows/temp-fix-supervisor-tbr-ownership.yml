@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Split Route 401 from 403
+      - name: Split Route 401 from 403 safely
         shell: bash
         run: |
           set -euo pipefail
@@ -28,33 +28,47 @@ jobs:
 
           p = Path('cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs')
           s = p.read_text()
-          old = '  if ([401, 403].includes(Number(httpStatus)))\\\n    return { code: \\"MS_SESSION_EXPIRED\\", status: 502 };'
-          new = '  if (Number(httpStatus) === 401)\\\n    return { code: \\"MS_SESSION_HTTP_401\\", status: 502 };\\\n  if (Number(httpStatus) === 403)\\\n    return { code: \\"MS_ROUTE_FORBIDDEN\\", status: 502 };'
-          if s.count(old) != 1:
-              raise SystemExit(f'HTTP classifier anchor count={s.count(old)}')
-          p.write_text(s.replace(old, new, 1))
+          marker = '  if ([401, 403].includes(Number(httpStatus)))'
+          if s.count(marker) != 1:
+              raise SystemExit(f'HTTP classifier marker count={s.count(marker)}')
+          start = s.index(marker)
+          tail = '  return { code: \\"MS_ROUTE_SOURCE_ERROR\\", status: 502 };'
+          end = s.index(tail, start)
+          segment = s[start:end]
+          if segment.count('MS_SESSION_EXPIRED') != 1:
+              raise SystemExit('HTTP classifier segment mismatch')
+          bs = chr(92)
+          new = (
+              '  if (Number(httpStatus) === 401)' + bs + '\n'
+              '    return { code: ' + bs + '"MS_SESSION_HTTP_401' + bs + '", status: 502 };' + bs + '\n'
+              '  if (Number(httpStatus) === 403)' + bs + '\n'
+              '    return { code: ' + bs + '"MS_ROUTE_FORBIDDEN' + bs + '", status: 502 };' + bs + '\n'
+          )
+          p.write_text(s[:start] + new + s[end:])
 
           p = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
           s = p.read_text()
           if s.count('const MS_REPAIR_POLICY_VERSION = 4;') != 1:
               raise SystemExit('policy anchor mismatch')
           s = s.replace('const MS_REPAIR_POLICY_VERSION = 4;', 'const MS_REPAIR_POLICY_VERSION = 5;', 1)
-          old = 'const authSignal = resultCode === \\"MS_SESSION_EXPIRED\\" || resultCode === \\"INVALID_SESSION\\";'
-          new = 'const authSignal = resultCode === \\"MS_SESSION_HTTP_401\\" || resultCode === \\"INVALID_SESSION\\";'
-          if s.count(old) != 1:
-              raise SystemExit(f'auth signal anchor count={s.count(old)}')
-          p.write_text(s.replace(old, new, 1))
+          marker = 'const authSignal = resultCode === '
+          start = s.index(marker)
+          end = s.index(';', start) + 1
+          line = s[start:end]
+          if line.count('MS_SESSION_EXPIRED') != 1:
+              raise SystemExit('auth signal line mismatch')
+          line = line.replace('MS_SESSION_EXPIRED', 'MS_SESSION_HTTP_401', 1)
+          p.write_text(s[:start] + line + s[end:])
 
           p = Path('.github/dev-tools/ms-self-healing-supervisor.test.mjs')
           s = p.read_text()
           if s.count('MS_REPAIR_POLICY_VERSION = 4') != 1:
-              raise SystemExit('policy test anchor mismatch')
+              raise SystemExit('policy test mismatch')
           s = s.replace('MS_REPAIR_POLICY_VERSION = 4', 'MS_REPAIR_POLICY_VERSION = 5', 1)
-          old = 'const authSignal = resultCode === "MS_SESSION_EXPIRED" \\|\\| resultCode === "INVALID_SESSION"'
-          new = 'const authSignal = resultCode === "MS_SESSION_HTTP_401" \\|\\| resultCode === "INVALID_SESSION"'
-          if s.count(old) != 1:
-              raise SystemExit(f'auth test anchor count={s.count(old)}')
-          p.write_text(s.replace(old, new, 1))
+          if s.count('MS_SESSION_EXPIRED') != 1:
+              raise SystemExit(f'auth test code count={s.count("MS_SESSION_EXPIRED")}')
+          s = s.replace('MS_SESSION_EXPIRED', 'MS_SESSION_HTTP_401', 1)
+          p.write_text(s)
           PY
           node --check cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
           node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs

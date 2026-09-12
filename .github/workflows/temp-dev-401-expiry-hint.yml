@@ -1,4 +1,4 @@
-name: TEMP DEV 401 Expiry Hint
+name: TEMP DEV Intelligence Gate Compat
 
 on:
   push:
@@ -19,30 +19,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply guarded patch
+      - name: Add compatibility marker
+        run: python3 .github/dev-tools/patch-intelligence-v3-compat.py
+      - name: Validate Browser gate
         run: |
-          python3 .github/dev-tools/patch-repair-changed-at.py
-          python3 .github/dev-tools/patch-ms-401-expiry-hint.py
-      - name: Test
-        run: |
-          node --check ms.js
-          node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
-          node --check cloudflare-browser-test/src/connection-error.js
-          node --test .github/dev-tools/ms-self-healing-supervisor.test.mjs
-          node --test .github/dev-tools/stage-dev-runtime.test.mjs
-          node --test cloudflare-browser-test/scripts/connection-error-intelligence.test.mjs
-          grep -F 'changedAt: text(repair.changedAt, 100)' .github/dev-tools/patch-ms-self-healing-supervisor.mjs
-          grep -F 'กรุณาเชื่อมต่อ MS ใหม่ และอัปโหลด HAR' ms.js
-          ! grep -F 'กรุณาเชื่อมต่อ MS ผ่าน QR ใหม่ และอัปโหลด HAR' ms.js
-          grep -F 'source-expiry-hint' style.css
-          grep -F 'INTELLIGENCE_HUB_FILTER_V4' cloudflare-browser-test/src/connection-error.js
+          cd cloudflare-browser-test
+          npm install --no-audit --no-fund
+          npm run check
+          node --test scripts/connection-error-intelligence.test.mjs
+          grep -F 'INTELLIGENCE_HUB_FILTER_V3' src/connection-error.js
+          grep -F 'INTELLIGENCE_HUB_FILTER_V4' src/connection-error.js
           git diff --check
-      - name: Commit tested DEV feature
+      - name: Commit tested compatibility marker
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .github/dev-tools/patch-ms-self-healing-supervisor.mjs ms.js style.css cloudflare-browser-test/src/connection-error.js
-          git commit -m 'feat(dev): explain 401 and fix intelligence HUB selector'
+          git add cloudflare-browser-test/src/connection-error.js
+          git commit -m 'fix(dev): preserve intelligence V3 deploy gate marker'
           git push origin HEAD:main
 
-# trigger: exact changedAt anchor
+# trigger: compatibility gate only

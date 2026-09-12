@@ -148,7 +148,7 @@ test("TBR-first admits drop point independently but never admits origin", () => 
     "NE1",
     NOW,
   );
-  assert.deepEqual(rows.map((row) => row.proofId), ["DROP001"]);
+  assert.equal(Array.from(rows, (row) => row.proofId).join(","), "DROP001");
   assert.equal(rows[0].attendanceType, "จุดดรอป");
 });
 
@@ -176,7 +176,10 @@ test("TBR shadow feed preserves attendance identity and dedupes only exact proof
     inboundBus({ proofId: "SAME001", attendanceType: "จุดดรอป" }),
   ]));
   assert.equal(feed.length, 2);
-  assert.deepEqual(new Set(feed.map((row) => row.attendanceType)), new Set(["ปลายทาง", "จุดดรอป"]));
+  assert.equal(
+    Array.from(feed, (row) => row.attendanceType).sort().join("|"),
+    ["จุดดรอป", "ปลายทาง"].sort().join("|"),
+  );
 });
 
 test("first-source live-view composition adds no DB write or extra upstream call path", () => {

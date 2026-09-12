@@ -41,13 +41,6 @@ export function patchMsSelfHealingSupervisor(source) {
 
   output = replaceOnce(
     output,
-    `    const result = {\n      status: "error",\n      error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",\n    };`,
-    `    const result = {\n      status: "error",\n      errorCode: error.code || "MS_SYNC_FAILED",\n      error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",\n    };`,
-    "preserve refresh error code",
-  );
-
-  output = replaceOnce(
-    output,
     `    this.lastSourceAt = 0;\n    this.originManifest = new OriginManifestCoordinator(ctx, env);`,
     `    this.repairLoaded = false;\n    this.repair = { policyVersion: MS_REPAIR_POLICY_VERSION, state: "unknown", failures: 0, nextRetryAt: 0, code: "", message: "", changedAt: "" };\n    this.lastSourceAt = 0;\n    this.originManifest = new OriginManifestCoordinator(ctx, env);`,
     "coordinator repair state",

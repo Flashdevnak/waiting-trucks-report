@@ -1,0 +1,29 @@
+name: DEV Queue First Source V1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/dev-queue-first-source-v1.yml
+      - .github/tests/ms-queue-first-source-v1.test.mjs
+      - .github/dev-tools/patch-ms-route-cancellation-compat.mjs
+      - .github/dev-tools/patch-ms-tbr-shadow-feed.mjs
+      - .github/dev-tools/stage-dev-runtime.mjs
+      - ms.js
+      - worker/src/**
+
+permissions:
+  contents: read
+
+jobs:
+  first-source-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify TBR-first Route-first queue merge without upstream or DB I/O
+        run: node --test .github/tests/ms-queue-first-source-v1.test.mjs

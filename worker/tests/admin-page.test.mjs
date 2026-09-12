@@ -53,3 +53,29 @@ test("HBI remains click-only and Admin overview performs no HBI request", async 
   assert.match(worker, /no status heartbeat writes/);
   assert.doesNotMatch(admin, /msTruckPhotos|readHbiTruckPhotos|loadInfoList/);
 });
+
+
+test("Admin HUB catalog accepts only canonical short HUB codes", async () => {
+  const [admin, worker, selfHeal] = await Promise.all([
+    read("admin.js"),
+    read("worker/src/index.js"),
+    read(".github/dev-tools/patch-ms-self-healing-supervisor.mjs"),
+  ]);
+  const canonical = (value) => {
+    const hub = String(value ?? "").trim().toUpperCase();
+    return /^(?=.*[A-Z])[A-Z0-9]{2,12}$/.test(hub) ? hub : "";
+  };
+  assert.equal(canonical("EA2"), "EA2");
+  assert.equal(canonical("ne1"), "NE1");
+  assert.equal(canonical("BAG4"), "BAG4");
+  assert.equal(canonical("02 NE1_HUB-นครราชสีมา"), "");
+  assert.equal(canonical("__LH_MANIFEST__:NE1"), "");
+  assert.equal(canonical("NE1_HUB"), "");
+  assert.match(worker, /ADMIN_CANONICAL_HUB_V1/);
+  assert.match(worker, /filter\(\(row\) => Boolean\(canonicalHubCode\(row\?\.hub\)\)\)/);
+  assert.match(worker, /rows\.map\(canonicalHubCode\)\.filter\(Boolean\)/);
+  assert.match(admin, /ADMIN_CANONICAL_HUB_V1/);
+  assert.match(admin, /const hubs = adminHubs\(\);/);
+  assert.match(selfHeal, /ADMIN_CANONICAL_REPAIR_HUB_V1/);
+  assert.match(selfHeal, /const hub = canonicalHubCode\(row\?\.hub\)/);
+});

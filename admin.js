@@ -9,6 +9,23 @@ const state = { auth: null, overview: null, settings: null, branch: "", busy: fa
 const el = (id) => document.getElementById(id);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 
+// ADMIN_CANONICAL_HUB_V1: defense-in-depth for Admin. Backend is authoritative,
+// but the UI also refuses technical keys/full labels instead of displaying or guessing them.
+function canonicalAdminHubCode(value) {
+  const hub = String(value ?? "").trim().toUpperCase();
+  return /^(?=.*[A-Z])[A-Z0-9]{2,12}$/.test(hub) ? hub : "";
+}
+function adminHubs() {
+  const seen = new Set(), result = [];
+  for (const item of state.overview?.hubs || []) {
+    const hub = canonicalAdminHubCode(item?.hub);
+    if (!hub || seen.has(hub)) continue;
+    seen.add(hub);
+    result.push({ ...item, hub });
+  }
+  return result;
+}
+
 function readAuth() {
   try {
     const auth = JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
@@ -55,7 +72,7 @@ function sourceState(source, hbi = false) {
 }
 function allSources(hub) { return [hub.routes, hub.preEntry, hub.busTime, hub.hbiPhotos]; }
 function renderSummary() {
-  const hubs = state.overview.hubs || [], sources = hubs.flatMap(allSources).filter((x) => x?.configured);
+  const hubs = adminHubs(), sources = hubs.flatMap(allSources).filter((x) => x?.configured);
   const normal = sources.filter((x) => sourceState(x, x.source === "hbiPhotos").key === "ok").length;
   const warning = sources.filter((x) => ["bad", "warn"].includes(sourceState(x, x.source === "hbiPhotos").key)).length;
   const reconnect = sources.filter((x) => sourceState(x, x.source === "hbiPhotos").key === "bad").length;
@@ -65,9 +82,9 @@ function renderSummary() {
 }
 function sourceCell(source, hbi = false) { const status = sourceState(source, hbi); return `<span class="status ${status.key}">${esc(status.label)}</span><small>${esc(source?.lastSuccessAt ? age(source.lastSuccessAt) : source?.updatedAt ? `ตั้งค่า ${age(source.updatedAt)}ก่อน` : "ไม่มีข้อมูล")}</small>`; }
 function renderHubOverview() {
-  el("hub-overview").innerHTML = (state.overview.hubs || []).map((hub) => `<article class="hub-row" data-hub="${esc(hub.hub)}"><strong>${esc(hub.hub)}</strong><div><b>Route</b>${sourceCell(hub.routes)}</div><div><b>FBI</b>${sourceCell(hub.preEntry)}</div><div><b>KIT/TBR</b>${sourceCell(hub.busTime)}</div><div><b>HBI</b>${sourceCell(hub.hbiPhotos, true)}</div></article>`).join("") || '<div class="card">ไม่พบ HUB ที่ตั้งค่าไว้</div>';
+  el("hub-overview").innerHTML = adminHubs().map((hub) => `<article class="hub-row" data-hub="${esc(hub.hub)}"><strong>${esc(hub.hub)}</strong><div><b>Route</b>${sourceCell(hub.routes)}</div><div><b>FBI</b>${sourceCell(hub.preEntry)}</div><div><b>KIT/TBR</b>${sourceCell(hub.busTime)}</div><div><b>HBI</b>${sourceCell(hub.hbiPhotos, true)}</div></article>`).join("") || '<div class="card">ไม่พบ HUB ที่ตั้งค่าไว้</div>';
 }
-function selectedHub() { return (state.overview?.hubs || []).find((hub) => hub.hub === state.branch); }
+function selectedHub() { return adminHubs().find((hub) => hub.hub === state.branch); }
 function renderSources() {
   const hub = selectedHub(); el("source-title").textContent = `สถานะแหล่งข้อมูล ${state.branch}`;
   if (!hub) { el("source-grid").innerHTML = '<div class="card">ไม่มีข้อมูล HUB นี้</div>'; return; }
@@ -123,7 +140,7 @@ function renderQuota() {
 }
 function renderAll() {
   el("checked-at").textContent = `ตรวจล่าสุด ${fmt(state.overview.checkedAt)}`;
-  const hubs = state.overview.hubs || []; if (!hubs.some((x) => x.hub === state.branch)) state.branch = hubs[0]?.hub || "";
+  const hubs = adminHubs(); if (!hubs.some((x) => x.hub === state.branch)) state.branch = hubs[0]?.hub || "";
   el("hub-select").innerHTML = hubs.map((x) => `<option value="${esc(x.hub)}">${esc(x.hub)}</option>`).join(""); el("hub-select").value = state.branch;
   renderSummary(); renderHubOverview(); renderSources(); renderUsers(); renderQuota(); loadSettings();
 }
@@ -139,7 +156,7 @@ async function loadOverview() {
 }
 async function repairAllHubs() {
   if (state.busy) return;
-  const hubs = state.overview?.hubs?.length || 0;
+  const hubs = adminHubs().length;
   if (!hubs || !confirm(`ตรวจและซ่อม Route ของ HUB ที่ตั้งค่าไว้ทั้งหมด ${hubs} HUB ตอนนี้หรือไม่?\n\nระบบจะเรียก source สูงสุดหนึ่งรอบต่อ HUB และไม่แตะ HBI`)) return;
   state.busy = true;
   const button = el("repair-all-btn"), resultBox = el("repair-result");

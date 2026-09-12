@@ -916,10 +916,12 @@ async function adminOverview(env) {
     lastError: lastError || "",
     ...extra,
   });
-  const hubs = (hubResult.results || []).map((row) => {
+  const hubs = (hubResult.results || [])
+    .filter((row) => Boolean(canonicalHubCode(row?.hub)))
+    .map((row) => {
     const hbiRuntime = hbiPhotoDiagnostics.get(String(row.hub || "").toUpperCase()) || null;
     return {
-      hub: row.hub,
+      hub: canonicalHubCode(row.hub),
       snapshotSyncedAt: row.snapshot_synced_at || "",
       routes: source("routes", row.route_updated_at, row.route_updated_at, row.route_updated_by, row.route_last_success_at, row.route_last_error, { connectorActive: Number(row.connector_active) === 1, lastUsedAt: row.connector_last_used_at || "" }),
       preEntry: source("preEntry", row.pre_updated_at, row.pre_updated_at, row.pre_updated_by, row.pre_last_success_at, row.pre_last_error),
@@ -1502,7 +1504,7 @@ async function readMsPage(credentials, page, start, end) {
 }
 
 async function saveMsConnection(body, actor, env) {
-  const hub = text(body.hub, 80).toUpperCase(),
+  const hub = canonicalHubCode(body.hub),
     sessionId = text(body.sessionId, 2000),
     deviceId = text(body.deviceId, 500);
   if (!hub || !sessionId || !deviceId)
@@ -1513,7 +1515,7 @@ async function saveMsConnection(body, actor, env) {
 }
 
 async function saveMsPreEntryConnection(body, actor, env) {
-  const hub = text(body.hub, 80).toUpperCase();
+  const hub = canonicalHubCode(body.hub);
   if (!hub || !access(hub, actor))
     fail("บัญชีนี้ไม่มีสิทธิ์เชื่อมต่อ HUB ที่เลือก", "FORBIDDEN", 403);
   const credentials = {};
@@ -1673,7 +1675,7 @@ function numberOrNull(value) {
 }
 
 async function saveMsBusConnection(body, actor, env) {
-  const hub = text(body.hub, 80).toUpperCase();
+  const hub = canonicalHubCode(body.hub);
   if (!hub || !access(hub, actor))
     fail("บัญชีนี้ไม่มีสิทธิ์เชื่อมต่อ HUB ที่เลือก", "FORBIDDEN", 403);
   const credentials = {};
@@ -1699,7 +1701,7 @@ function isMissingTableError(error, table) {
 }
 
 async function saveMsHbiConnection(body, actor, env) {
-  const hub = text(body.hub, 80).toUpperCase();
+  const hub = canonicalHubCode(body.hub);
   if (!hub || !access(hub, actor))
     fail("บัญชีนี้ไม่มีสิทธิ์เชื่อมต่อ HUB ที่เลือก", "FORBIDDEN", 403);
   const credentials = {};
@@ -2162,7 +2164,7 @@ async function persistMsConnection(hub, sessionId, deviceId, updatedBy, env) {
 }
 
 async function createMsPairing(body, actor, env) {
-  const hub = text(body.hub, 80).toUpperCase();
+  const hub = canonicalHubCode(body.hub);
   if (!hub || !access(hub, actor)) fail("ไม่มีสิทธิ์เชื่อมต่อ HUB นี้", "FORBIDDEN", 403);
   const pairing = randomToken(24), now = new Date(), expires = new Date(now.getTime() + 10 * 60000);
   await env.DB.prepare("DELETE FROM ms_pairings WHERE expires_at<? OR (hub=? AND status='PENDING')").bind(now.toISOString(), hub).run();
@@ -2179,7 +2181,7 @@ async function msPairingStatus(pairing, actor, env) {
 }
 
 async function completeMsPairing(body, env) {
-  const pairing = text(body.pairing, 200), requestedHub = text(body.hub, 80).toUpperCase();
+  const pairing = text(body.pairing, 200), requestedHub = canonicalHubCode(body.hub);
   const row = await env.DB.prepare("SELECT * FROM ms_pairings WHERE code_hash=?").bind(await sha256(pairing)).first();
   if (!row || row.status !== "PENDING" || row.hub !== requestedHub || Date.parse(row.expires_at) < Date.now())
     fail("รหัสเชื่อมต่อหมดอายุ กรุณาเริ่มจากหน้าเว็บหลักอีกครั้ง", "PAIRING_EXPIRED", 401);
@@ -2196,7 +2198,7 @@ async function completeMsPairing(body, env) {
 // BROWSER_HUB_CATALOG_AUTH_V1
 // Called at most once/hour by Browser cron. It never calls MS and never writes Turso.
 async function connectorHubCatalog(body, env) {
-  const hub = text(body.hub, 80).toUpperCase();
+  const hub = canonicalHubCode(body.hub);
   const tokenHash = await sha256(text(body.connectorToken, 500));
   const row = await env.DB.prepare(
     "SELECT hub FROM ms_connector_tokens WHERE hub=? AND token_hash=? AND active=1",
@@ -2211,7 +2213,7 @@ async function connectorHubCatalog(body, env) {
 }
 
 async function connectorSync(body, env) {
-  const hub = text(body.hub, 80).toUpperCase(), tokenHash = await sha256(text(body.connectorToken, 500));
+  const hub = canonicalHubCode(body.hub), tokenHash = await sha256(text(body.connectorToken, 500));
   const row = await env.DB.prepare("SELECT hub FROM ms_connector_tokens WHERE hub=? AND token_hash=? AND active=1").bind(hub, tokenHash).first();
   if (!row) fail("ตัวเชื่อมต่อไม่ถูกต้อง", "INVALID_CONNECTOR", 401);
   const result = await refreshMsIfStale(env, { username: "MS_CRON", role: "admin", branches: ["*"] }, hub);
@@ -2297,7 +2299,7 @@ async function knownMsBranches(env) {
   ).results.map((x) => x.hub);
   const fallback = text(env.MS_BRANCH || "", 80).toUpperCase();
   if (fallback) rows.push(fallback);
-  return [...new Set(rows)].sort();
+  return [...new Set(rows.map(canonicalHubCode).filter(Boolean))].sort();
 }
 async function msHistory(env, actor, hub, offset) {
   if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
@@ -2643,11 +2645,19 @@ function output(r) {
   for (const [k, v] of Object.entries(r)) o[names[k] || k] = v;
   return o;
 }
+// ADMIN_CANONICAL_HUB_V1: user-facing HUB identity is always the short code (EA2, NE1, BAG4, ...).
+// Technical storage keys, full branch labels, spaces, underscores, colons and guessed aliases
+// are not HUB identities and must never enter Admin/selector contracts.
+function canonicalHubCode(value) {
+  const hub = String(value ?? "").trim().toUpperCase();
+  return /^(?=.*[A-Z])[A-Z0-9]{2,12}$/.test(hub) ? hub : "";
+}
+
 function pickBranch(actor, wanted) {
-  const b = text(
+  const b = canonicalHubCode(
     wanted || (actor.role === "admin" ? "NE1" : actor.branches[0]),
-    80,
-  ).toUpperCase();
+  );
+  if (!b) fail("รหัส HUB ไม่ถูกต้อง ต้องใช้ชื่อย่อ HUB เท่านั้น", "INVALID_BRANCH", 400);
   if (actor.role !== "admin" && !access(b, actor))
     fail("ไม่มีสิทธิ์ดูสาขานี้", "FORBIDDEN", 403);
   return b;

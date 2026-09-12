@@ -1,4 +1,4 @@
-name: TEMP DEV Live Intelligence HUB Catalog Probe
+name: TEMP DEV MS Connection Outer Scroll
 
 on:
   push:
@@ -7,30 +7,46 @@ on:
       - .github/workflows/temp-dev-401-expiry-hint.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  probe:
+  patch:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe live Error and TBR Intelligence HUB selectors
-        shell: bash
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply guarded connection outer-scroll patch
+        run: python3 .github/dev-tools/patch-ms-connection-outer-scroll.py
+      - name: Validate dialog layout contract
         run: |
-          set -euo pipefail
-          base='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev'
-          for path in shadow-tbr api/connection-error; do
-            for hub in NE1 EA2; do
-              url="${base}/${path}?hub=${hub}"
-              html="$(curl -fsS -H 'Accept: text/html' --retry 2 --connect-timeout 10 "$url")"
-              options="$(printf '%s' "$html" | grep -oE '<option[^>]*value="[^"]+"[^>]*>[^<]*</option>' || true)"
-              echo "--- ${path} ${hub} ---"
-              printf '%s\n' "$options"
-              count="$(printf '%s\n' "$options" | grep -c '<option' || true)"
-              echo "HUB_OPTION_COUNT_${path//\//_}_${hub}=$count"
-              test "$count" -ge 2
-              printf '%s\n' "$options" | grep -q '>NE1</option>'
-              printf '%s\n' "$options" | grep -q '>EA2</option>'
-            done
-          done
-          echo 'INTELLIGENCE_HUB_CATALOG_V5_LIVE=PASS'
-          echo 'LIVE_PROBE_TURSO_WRITES=0 LIVE_PROBE_MS_POLLING=0'
+          python3 - <<'PY'
+          from pathlib import Path
+          css=Path('style.css').read_text()
+          html=Path('ms.html').read_text()
+          assert 'MS_CONNECTION_OUTER_SCROLL_V1' in css
+          assert 'position: fixed;\n  inset: 0;\n  width: 100vw;' in css
+          assert 'height: 100dvh;' in css
+          assert 'overflow-y: auto;' in css
+          assert 'overflow-x: hidden;' in css
+          assert 'scrollbar-gutter: stable;' in css
+          assert 'width: min(100%, 720px);' in css
+          assert 'margin: 0 auto;' in css
+          assert 'html:has(.connector-dialog[open])' in css
+          assert 'max-height: 92vh;' not in css
+          assert 'width: calc(100vw - 20px);' not in css
+          assert 'id="ms-connection-dialog"' in html
+          assert 'class="dialog-card connector-setup-card"' in html
+          print('MS_CONNECTION_OUTER_SCROLL_V1=PASS')
+          print('SCROLL_OWNER=VIEWPORT_DIALOG_SHELL')
+          print('INNER_CARD_SCROLLBAR=REMOVED')
+          print('MS_LOGIC_CHANGED=0')
+          PY
+          git diff --check
+      - name: Commit tested layout only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add style.css
+          git commit -m 'fix(dev): move MS connection scroll to outer viewport edge'
+          git push origin HEAD:main

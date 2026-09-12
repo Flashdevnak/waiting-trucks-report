@@ -1,0 +1,47 @@
+name: Validate BusTime Active Scope Latest Main
+
+on:
+  push:
+    branches: [fix/bus-time-active-scope-latest-main]
+    paths: [.github/workflows/validate-bus-time-active-scope-latest-main.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Install
+        working-directory: worker
+        run: npm ci
+      - name: Full regression
+        working-directory: worker
+        run: npm run check
+      - name: BusTime focused regression
+        run: node --test .github/dev-tools/bus-time-hot-lane-v14.test.mjs
+      - name: Exact latest-main DEV staging
+        working-directory: worker
+        run: |
+          rm -rf .stage-assets .stage-runtime
+          mkdir -p .stage-assets .stage-runtime
+          cp -R src .stage-runtime/src
+          cp ../ms.js .stage-assets/ms.js
+          cp ../style.css .stage-assets/style.css
+          cp ../ms.html ../proof.html ../ms-report.html .stage-assets/
+          node ../.github/dev-tools/stage-dev-runtime.mjs .stage-assets/ms.js .stage-runtime/src/index.js
+          node --check .stage-assets/ms.js
+          node --check .stage-runtime/src/index.js
+          node --check .stage-runtime/src/bus-time-hot-lane-v14.js
+          grep -q 'BUS_TIME_HOT_LANE_V14' .stage-runtime/src/index.js
+          grep -q 'previousActiveKeys' .stage-runtime/src/bus-time-hot-lane-v14.js
+          grep -q 'attendance === "ปลายทาง"' .stage-runtime/src/bus-time-hot-lane-v14.js
+          grep -q 'newlyMissing' .stage-runtime/src/bus-time-hot-lane-v14.js
+          echo LATEST_MAIN_ACTIVE_SCOPE_STAGE=PASS
+          echo PRODUCTION_TOUCHED=NO

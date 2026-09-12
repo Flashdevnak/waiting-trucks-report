@@ -24,12 +24,13 @@ jobs:
           text = path.read_text()
           if 'msRepairHealthDev' in text:
               raise SystemExit('diagnostic already present')
-          anchor = '''  output = replaceOnce(
-            output,
-            `  if (action === "saveSettings") {`,
-          '''
-          if text.count(anchor) != 1:
-              raise SystemExit(f'expected one admin route insertion anchor, found {text.count(anchor)}')
+          marker = '"admin repair route",'
+          if text.count(marker) != 1:
+              raise SystemExit(f'expected one admin route marker, found {text.count(marker)}')
+          marker_at = text.index(marker)
+          insert_at = text.rfind('  output = replaceOnce(\n', 0, marker_at)
+          if insert_at < 0:
+              raise SystemExit('admin route block boundary not found')
           diagnostic = r'''  output = replaceOnce(
             output,
             `  const actor = await verify(url.searchParams.get("token"), env);\n  if (action === "msOriginManifestStatus")`,
@@ -38,7 +39,7 @@ jobs:
           );
 
           '''
-          path.write_text(text.replace(anchor, diagnostic + anchor))
+          path.write_text(text[:insert_at] + diagnostic + text[insert_at:])
           PY
           node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
           git diff --check

@@ -42,7 +42,8 @@ jobs:
           cd worker
           rm -rf .tmp-toast-assets .tmp-toast-runtime
           mkdir -p .tmp-toast-assets .tmp-toast-runtime
-          cp ../ms.html ../ms.js ../style.css ../ms-v4.css ../proof.html .tmp-toast-assets/
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .tmp-toast-assets/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .tmp-toast-assets/
           cp -R src .tmp-toast-runtime/src
           node ../.github/dev-tools/stage-dev-runtime.mjs .tmp-toast-assets/ms.js .tmp-toast-runtime/src/index.js
           node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .tmp-toast-assets/ms.js .tmp-toast-runtime/src/origin-manifest-v1.js

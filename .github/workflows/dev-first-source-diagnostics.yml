@@ -19,38 +19,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Capture local-only staging and queue test diagnostics
+      - name: Capture local-only fully staged refresh diagnostics
         shell: bash
         run: |
           set +e
+          rm -rf /tmp/first-source-stage
+          mkdir -p /tmp/first-source-stage/frontend /tmp/first-source-stage/worker/src
+          cp ms.js style.css /tmp/first-source-stage/frontend/
+          cp worker/src/index.js /tmp/first-source-stage/worker/src/index.js
           {
             echo "HEAD=$(git rev-parse HEAD)"
-            echo "=== dev-archive-patch ==="
-            node --test worker/tests/dev-archive-patch.test.mjs
-            echo "DEV_ARCHIVE_EXIT=$?"
-            echo "=== first-source-queue ==="
+            echo "=== queue-regression ==="
             node --test .github/tests/ms-queue-first-source-v1.test.mjs
-            echo "FIRST_SOURCE_EXIT=$?"
-            echo "=== direct-stage ==="
+            echo "QUEUE_EXIT=$?"
+            echo "=== full-stage ==="
+            node .github/dev-tools/stage-dev-runtime.mjs /tmp/first-source-stage/frontend/ms.js /tmp/first-source-stage/worker/src/index.js
+            echo "FULL_STAGE_EXIT=$?"
+            echo "=== staged-runMsRefresh ==="
             node --input-type=module <<'NODE'
           import { readFile } from 'node:fs/promises';
-          import { stageFrontend, stageWorker } from './.github/dev-tools/stage-dev-runtime.mjs';
-          const front = await readFile('./ms.js','utf8');
-          const worker = await readFile('./worker/src/index.js','utf8');
-          try {
-            const stagedFront = stageFrontend(front);
-            console.log('STAGE_FRONTEND=PASS', stagedFront.includes('MS_QUEUE_FIRST_SOURCE_V1'));
-          } catch (error) {
-            console.log('STAGE_FRONTEND=FAIL');
-            console.log(error?.stack || error);
+          const worker = await readFile('/tmp/first-source-stage/worker/src/index.js','utf8');
+          const start = worker.indexOf('async function runMsRefresh(env, branch) {');
+          const end = worker.indexOf('\nasync function readMsLiveCache(', start);
+          if (start < 0 || end <= start) {
+            console.log('RUN_MS_REFRESH_SECTION=NOT_FOUND');
+            process.exit(0);
           }
-          try {
-            const stagedWorker = stageWorker(worker);
-            console.log('STAGE_WORKER=PASS', stagedWorker.includes('MS_QUEUE_FIRST_SOURCE_V1'));
-          } catch (error) {
-            console.log('STAGE_WORKER=FAIL');
-            console.log(error?.stack || error);
-          }
+          console.log(worker.slice(start, end));
+          console.log('HAS_HOT_LANE=', worker.includes('BUS_TIME_HOT_LANE_V14'));
+          console.log('HAS_FIRST_SOURCE=', worker.includes('MS_QUEUE_FIRST_SOURCE_V1'));
           NODE
           } 2>&1 | tee first-source-diagnostics.txt
           exit 0

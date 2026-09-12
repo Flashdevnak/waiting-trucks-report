@@ -72,6 +72,13 @@ export function patchMsSelfHealingSupervisor(source) {
   );
 
   output = replaceOnce(
+  output,
+  `  const actor = await verify(url.searchParams.get("token"), env);\n  if (action === "msOriginManifestStatus")`,
+  `  if (action === "msRepairHealthDev") {\n    const branch = text(url.searchParams.get("branch"), 80).toUpperCase();\n    if (!branch) fail("missing branch", "INVALID_BRANCH", 400);\n    if (!env.MS_REFRESH_COORDINATOR) fail("coordinator unavailable", "MS_COORDINATOR_UNAVAILABLE", 503);\n    const id = env.MS_REFRESH_COORDINATOR.idFromName(branch);\n    const stub = env.MS_REFRESH_COORDINATOR.get(id);\n    const target = new URL("https://ms-refresh.internal/repair-health");\n    target.searchParams.set("branch", branch);\n    const response = await stub.fetch(new Request(target));\n    const data = await response.json().catch(() => ({}));\n    if (!response.ok) fail("repair state unavailable", "MS_REPAIR_STATE_UNAVAILABLE", 503);\n    const repair = data?.repair || {};\n    return ok({\n      branch,\n      repair: {\n        policyVersion: Number(repair.policyVersion || 0),\n        state: text(repair.state, 40),\n        failures: Number(repair.failures || 0),\n        nextRetryAt: Number(repair.nextRetryAt || 0),\n        code: text(repair.code, 80),\n        retryInMs: Math.max(0, Number(repair.retryInMs || 0)),\n      },\n      quota: { tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 },\n    });\n  }\n  const actor = await verify(url.searchParams.get("token"), env);\n  if (action === "msOriginManifestStatus")`,
+  "sanitized DEV repair health diagnostic",
+);
+
+  output = replaceOnce(
     output,
     `  if (action === "saveSettings") {`,
     `  if (action === "adminRepairAll") {\n    mustAdmin(actor);\n    return ok(await adminRepairAll(env));\n  }\n  if (action === "saveSettings") {`,

@@ -1,4 +1,4 @@
-name: TEMP DEV Live UI Probe
+name: TEMP DEV TBR HUB Catalog V4
 
 on:
   push:
@@ -7,39 +7,33 @@ on:
       - .github/workflows/temp-dev-401-expiry-hint.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  probe:
+  patch:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe DEV 401 repair time
-        shell: bash
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply guarded TBR HUB catalog patch
+        run: python3 .github/dev-tools/patch-tbr-hub-catalog-v4.py
+      - name: Validate Browser intelligence contracts
         run: |
-          set -euo pipefail
-          url='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=msRepairHealthDev&branch=EA2'
-          body="$(curl -fsS --retry 2 --connect-timeout 10 "$url")"
-          echo "$body" | jq -c '{branch:.data.branch,repair:.data.repair,quota:.data.quota}'
-          echo "$body" | jq -e '
-            .ok == true and
-            .data.repair.code == "MS_SESSION_HTTP_401" and
-            ((.data.repair.changedAt // "") | length) > 0 and
-            .data.quota.tursoReads == 0 and
-            .data.quota.tursoWrites == 0 and
-            .data.quota.upstreamCalls == 0
-          ' >/dev/null
-      - name: Probe Connection Intelligence NE1 selector
-        shell: bash
+          cd cloudflare-browser-test
+          npm install --no-audit --no-fund
+          npm run check
+          node --test scripts/connection-error-intelligence.test.mjs
+          grep -F 'TBR_INTELLIGENCE_HUB_CATALOG_V4' src/tbr-intelligence-entry.js
+          grep -F 'INTELLIGENCE_HUB_FILTER_V4' src/connection-error.js
+          git diff --check
+      - name: Commit tested TBR catalog V4
         run: |
-          set -euo pipefail
-          url='https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev/api/connection-error?hub=NE1'
-          html="$(curl -fsS -H 'Accept: text/html' --retry 2 --connect-timeout 10 "$url")"
-          options="$(printf '%s' "$html" | grep -oE '<option[^>]*value="[^"]+"[^>]*>[^<]*</option>' || true)"
-          printf '%s\n' "$options"
-          count="$(printf '%s\n' "$options" | grep -c '<option' || true)"
-          echo "HUB_OPTION_COUNT=$count"
-          test "$count" -ge 2
-          printf '%s\n' "$options" | grep -q '>NE1</option>'
-          other="$(printf '%s\n' "$options" | grep -v '>NE1</option>' | head -n 1 || true)"
-          test -n "$other"
-          echo "OTHER_HUB_OPTION=$other"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare-browser-test/src/tbr-intelligence-entry.js
+          git commit -m 'fix(dev): unify TBR Intelligence HUB catalog'
+          git push origin HEAD:main

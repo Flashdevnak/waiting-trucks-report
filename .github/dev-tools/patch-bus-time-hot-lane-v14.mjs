@@ -63,6 +63,26 @@ const busTimeHotLane = createBusTimeHotLane({
   connectionHeartbeatMs: CONNECTION_HEARTBEAT_MS,
   fetchFn: fetchWithTimeout,
 });
+// BUS_TIME_LIVE_ACCEPTANCE_V1: connector-authenticated probe lane for DEV acceptance only.
+// It executes the same hot-lane algorithm but intentionally suppresses status writes,
+// so acceptance cannot burn Turso writes or mutate source-health timestamps.
+const busTimeProbeLane = createBusTimeHotLane({
+  liveSourceDays,
+  thaiDayOffset,
+  normalizeProofId,
+  normalizeAttendance: normalizeMsAttendance,
+  matchHub: scheduleStoreMatchesHub,
+  msDate,
+  parseUnloadingStart: parseScheduleUnloadingStart,
+  parseUnloadingEnd: parseScheduleUnloadingEnd,
+  decryptMs,
+  safeStatusWrite: async () => null,
+  markSuccess: () => null,
+  markError: () => null,
+  classifyFailure: classifyBusTimeFailure,
+  connectionHeartbeatMs: CONNECTION_HEARTBEAT_MS,
+  fetchFn: fetchWithTimeout,
+});
 async function readBusTimeData(
   env,
   hub,
@@ -77,6 +97,32 @@ async function readBusTimeData(
 }
 function busTimeDiagnostics(hub) {
   return busTimeHotLane.diagnostics(hub);
+}
+async function probeBusTimeDiagnostics(env, hub) {
+  const row = await env.DB.prepare(
+    "SELECT rows_json FROM ms_live_cache WHERE hub=?",
+  ).bind(hub).first();
+  let routeRows = [];
+  try {
+    const parsed = JSON.parse(row?.rows_json || "[]");
+    routeRows = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.rows)
+        ? parsed.rows
+        : [];
+  } catch {}
+  await busTimeProbeLane.readBusTimeData(env, hub, liveSourceDays(), routeRows);
+  return {
+    hub,
+    busDiagnostics: busTimeProbeLane.diagnostics(hub),
+    acceptanceQuota: {
+      routeUpstreamCalls: 0,
+      preEntryUpstreamCalls: 0,
+      busUpstreamCallsMaxPerProbe: 3,
+      tursoWrites: 0,
+      telemetryWrites: 0,
+    },
+  };
 }`;
 
 source = source.slice(0, legacyStart) + adapter + source.slice(busEnd);
@@ -133,6 +179,7 @@ if (source.includes(stagedRefreshAnchor)) {
 const saveAnchor =
   '  await audit(env, "SAVE_MS_BUS_CONNECTION", hub, `ทดสอบสำเร็จ ${test.total} รายการ`, actor.username);';
 const saveReplacement = `  busTimeHotLane.resetCredentials(hub, credentials);
+  busTimeProbeLane.resetCredentials(hub, credentials);
   await audit(env, "SAVE_MS_BUS_CONNECTION", hub, \`ทดสอบสำเร็จ \${test.total} รายการ\`, actor.username);`;
 source = replaceUnique(source, saveAnchor, saveReplacement, "saveMsBusConnection");
 
@@ -142,12 +189,49 @@ const statusReplacement =
   "  return { hub, routes: source(routes), preEntry: source(preEntry), busTime: source(busTime), busDiagnostics: busTimeDiagnostics(hub), hbiPhotos: hbiSource };";
 source = replaceUnique(source, statusAnchor, statusReplacement, "msConnectionStatus");
 
+const connectorActionAnchor =
+  '  if (action === "connectorSync") return ok(await connectorSync(body, env));';
+const connectorActionReplacement = `${connectorActionAnchor}
+  if (action === "connectorBusDiagnostics") return ok(await connectorBusDiagnostics(body, env));`;
+source = replaceUnique(
+  source,
+  connectorActionAnchor,
+  connectorActionReplacement,
+  "connectorBusDiagnostics action",
+);
+
+const connectorFunctionAnchor = `function randomToken(size) {
+  const bytes = crypto.getRandomValues(new Uint8Array(size));`;
+const connectorFunctionReplacement = `// BUS_TIME_LIVE_ACCEPTANCE_V1: connector-authenticated, DEV-staged diagnostics probe.
+// No Route/PreEntry upstream reads and no Turso writes are performed by the probe lane.
+async function connectorBusDiagnostics(body, env) {
+  const hub = text(body.hub, 80).toUpperCase();
+  const tokenHash = await sha256(text(body.connectorToken, 500));
+  const row = await env.DB.prepare(
+    "SELECT hub FROM ms_connector_tokens WHERE hub=? AND token_hash=? AND active=1",
+  ).bind(hub, tokenHash).first();
+  if (!row) fail("ตัวเชื่อมต่อไม่ถูกต้อง", "INVALID_CONNECTOR", 401);
+  return probeBusTimeDiagnostics(env, hub);
+}
+
+${connectorFunctionAnchor}`;
+source = replaceUnique(
+  source,
+  connectorFunctionAnchor,
+  connectorFunctionReplacement,
+  "connectorBusDiagnostics function",
+);
+
 if (source.includes("BUS_TIME_SOURCE_TTL_MS = 60 * 1000"))
   throw new Error(`${MARKER}: fake 60-second source TTL survived`);
 if (!source.includes("readBusTimeData(env, branch, liveSourceDays(), routeRows)"))
   throw new Error(`${MARKER}: Route active-set handoff missing`);
 if (!source.includes("busDiagnostics: busTimeDiagnostics(hub)"))
   throw new Error(`${MARKER}: diagnostics exposure missing`);
+if (!source.includes('action === "connectorBusDiagnostics"'))
+  throw new Error(`${MARKER}: connector diagnostics action missing`);
+if (!source.includes("tursoWrites: 0") || !source.includes("routeUpstreamCalls: 0") || !source.includes("preEntryUpstreamCalls: 0"))
+  throw new Error(`${MARKER}: zero-write diagnostics quota contract missing`);
 if (!source.includes("fetchFn: fetchWithTimeout"))
   throw new Error(`${MARKER}: staged upstream timeout contract missing`);
 if (!source.includes("data.sourceFailed = Boolean(data.sourceStale)"))
@@ -160,5 +244,8 @@ console.log("BUS_TIME_BACKGROUND_INTERVAL_MS=12000");
 console.log("BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE=1");
 console.log("BUS_TIME_MAX_CALLS_PER_CYCLE=3");
 console.log("BUS_TIME_TELEMETRY_DB_WRITES=0");
+console.log("BUS_TIME_LIVE_ACCEPTANCE_ROUTE_CALLS=0");
+console.log("BUS_TIME_LIVE_ACCEPTANCE_PREENTRY_CALLS=0");
+console.log("BUS_TIME_LIVE_ACCEPTANCE_TURSO_WRITES=0");
 console.log("BUS_TIME_UNVERIFIED_UPSTREAM_FILTERS_ADDED=0");
 console.log("BUS_TIME_STAGED_RECOVERY_CONTRACT=PASS");

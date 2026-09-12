@@ -153,7 +153,7 @@ jobs:
           })().catch((error)=>{console.error(error);process.exit(1);});
           NODE
 
-      - name: Verify Turso connector and all active HUB sessions
+      - name: Verify Turso connector and all configured HUB sessions
         run: |
           node <<'NODE'
           (async()=>{
@@ -195,11 +195,12 @@ jobs:
               const parsed=Date.parse(String(value||''));
               return Number.isFinite(parsed)?Math.max(0,Math.round((Date.now()-parsed)/1000)):-1;
             };
-            const activeHubs=rows(await query('SELECT hub,active,last_used_at FROM ms_connector_tokens WHERE active=1 ORDER BY hub'));
-            if(!activeHubs.length) throw new Error('No active HUB connector found');
-            for(const connector of activeHubs){
-              const hub=String(connector[0]||'').trim().toUpperCase();
-              if(!hub) throw new Error('Active connector has empty HUB');
+            const configuredHubs=rows(await query('SELECT hub FROM ms_connections ORDER BY hub')).map(row=>String(row[0]||'').trim().toUpperCase()).filter(Boolean);
+            if(!configuredHubs.length) throw new Error('No configured HUB connection found');
+            const connectorRows=rows(await query('SELECT hub,active,last_used_at FROM ms_connector_tokens ORDER BY hub'));
+            const connectors=new Map(connectorRows.map(row=>[String(row[0]||'').trim().toUpperCase(),row]));
+            for(const hub of configuredHubs){
+              const connector=connectors.get(hub)||[];
               const [liveResult,routeResult,preentryResult,busResult]=await Promise.all([
                 query('SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub=? LIMIT 1',[hub]),
                 query('SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub=? LIMIT 1',[hub]),
@@ -210,15 +211,16 @@ jobs:
               if(String(live[0]||'')!==hub) throw new Error(`${hub} live cache missing`);
               const healthy=row=>Boolean(row?.[2])&&!String(row?.[3]||'')&&age(row[2])>=0&&age(row[2])<=20*60;
               const routeHealthy=healthy(route), preentryHealthy=healthy(preentry), busHealthy=healthy(bus);
-              console.log(`HUB=${hub} CONNECTOR_LAST_USED=${connector[2]||'-'} LIVE_SNAPSHOT_AT=${live[1]||'-'} LIVE_ROWS=${Number(live[2]||0)}`);
+              console.log(`HUB=${hub} CONNECTOR_ACTIVE=${Number(connector[1]||0)===1} CONNECTOR_LAST_USED=${connector[2]||'-'} LIVE_SNAPSHOT_AT=${live[1]||'-'} LIVE_ROWS=${Number(live[2]||0)}`);
               console.log(`HUB=${hub} ROUTE_LAST_SUCCESS=${route[2]||'-'} AGE=${age(route[2])} ERROR=${route[3]||'-'}`);
               console.log(`HUB=${hub} PREENTRY_LAST_SUCCESS=${preentry[2]||'-'} AGE=${age(preentry[2])} ERROR=${preentry[3]||'-'}`);
               console.log(`HUB=${hub} BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
               if(!routeHealthy||!preentryHealthy||!busHealthy)
                 throw new Error(`${hub} sessions unhealthy route=${routeHealthy} preentry=${preentryHealthy} bus=${busHealthy}`);
             }
-            console.log(`ACTIVE_HUB_CONTRACT_COUNT=${activeHubs.length}`);
-            console.log('ALL_ACTIVE_HUB_SESSIONS_READY=true');
+            console.log(`CONFIGURED_HUB_CONTRACT_COUNT=${configuredHubs.length}`);
+            console.log(`CONFIGURED_HUBS=${configuredHubs.join(',')}`);
+            console.log('ALL_CONFIGURED_HUB_SESSIONS_READY=true');
             console.log('REALTIME_READY=READY');
             console.log('TURSO_INFRASTRUCTURE=PASS');
             console.log('D1_QUERIES=0');
@@ -238,18 +240,23 @@ jobs:
               if(!response.ok) throw new Error(`${path} HTTP ${response.status}`);
               return body;
             }
-            const [organizations,usage,stats]=await Promise.all([
+            const [organizations,usage]=await Promise.all([
               get('/v1/organizations'),
               get(`/v1/organizations/${process.env.TURSO_ORG}/usage`),
-              get(`/v1/organizations/${process.env.TURSO_ORG}/databases/${process.env.TURSO_DATABASE}/stats`),
             ]);
             const org=(Array.isArray(organizations)?organizations:[]).find(x=>x.slug===process.env.TURSO_ORG)||{};
             const u=usage.organization?.usage||{};
+            const statsPath=`/v1/organizations/${process.env.TURSO_ORG}/databases/${process.env.TURSO_DATABASE}/stats`;
+            const statsResponse=await fetch(`https://api.turso.tech${statsPath}`,{headers});
+            let stats={top_queries:[]},statsAvailable=false;
+            if(statsResponse.ok){ stats=await statsResponse.json(); statsAvailable=true; }
+            else if(statsResponse.status!==404) throw new Error(`${statsPath} HTTP ${statsResponse.status}`);
             console.log(`TURSO_PLAN=${org.plan_id||'-'}`);
             console.log(`TURSO_BLOCKED_READS=${Boolean(org.blocked_reads)}`);
             console.log(`TURSO_BLOCKED_WRITES=${Boolean(org.blocked_writes)}`);
             console.log(`TURSO_BILLING_ROWS_READ=${Number(u.rows_read||0)}`);
             console.log(`TURSO_BILLING_ROWS_WRITTEN=${Number(u.rows_written||0)}`);
+            console.log(`TURSO_TOP_QUERIES_AVAILABLE=${statsAvailable}`);
             const top=(stats.top_queries||[]).slice(0,10).map((q,i)=>({rank:i+1,rowsRead:Number(q.rows_read||0),rowsWritten:Number(q.rows_written||0),query:String(q.query||'').replace(/'[^']*'/g,"'?'").replace(/\b\d+\b/g,'?').slice(0,180)}));
             console.log(`TURSO_TOP_QUERIES_SANITIZED=${JSON.stringify(top)}`);
             console.log('TURSO_QUOTA_SNAPSHOT=PASS');

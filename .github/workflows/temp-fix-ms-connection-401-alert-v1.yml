@@ -1,0 +1,60 @@
+name: TEMP DEV MS Connection 401 Alert V1
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/temp-fix-ms-connection-401-alert-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply guarded 401 alert patch
+        run: python3 .github/dev-tools/patch-ms-connection-401-alert-v1.py
+      - name: Validate syntax and diff
+        run: |
+          node --check ms.js
+          git diff --check
+          grep -q 'MS_CONNECTION_401_ALERT_V1' ms.js
+          grep -q 'MS_CONNECTION_401_ALERT_V1' style.css
+      - name: Run focused regressions
+        run: |
+          cd worker
+          npm ci
+          npm run check
+          node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
+          node --test ../.github/dev-tools/ms-self-healing-supervisor.test.mjs
+          node --test ../.github/dev-tools/realtime-quota-hardening.test.mjs
+      - name: Verify staged six-source UI keeps one 401 alert
+        run: |
+          cd worker
+          rm -rf .tmp-401-assets .tmp-401-runtime
+          mkdir -p .tmp-401-assets .tmp-401-runtime
+          cp ../ms.html ../ms.js ../style.css ../ms-v4.css .tmp-401-assets/
+          cp -R src .tmp-401-runtime/src
+          node ../.github/dev-tools/stage-dev-runtime.mjs .tmp-401-assets/ms.js .tmp-401-runtime/src/index.js
+          node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .tmp-401-assets/ms.js .tmp-401-runtime/src/origin-manifest-v1.js
+          node --check .tmp-401-assets/ms.js
+          grep -q 'MS_CONNECTION_401_ALERT_V1' .tmp-401-assets/ms.js
+          grep -q 'proof: "ปริ้นบาร์โค้ดรถ"' .tmp-401-assets/ms.js
+          grep -q 'originManifest: "LH Manifest"' .tmp-401-assets/ms.js
+          test "$(grep -o 'id = "ms-session-401-alert"' .tmp-401-assets/ms.js | wc -l)" -eq 1
+          rm -rf .tmp-401-assets .tmp-401-runtime
+      - name: Commit tested source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ms.js style.css
+          git commit -m 'fix(dev): move MS 401 guidance outside source cards'
+          git push origin HEAD:main

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>จัดการระบบ MS</title>
+  <link rel="icon" href="favicon.svg">
+  <link rel="stylesheet" href="admin.css?v=20260912-01">
+</head>
+<body>
+  <header class="admin-header">
+    <a class="brand" href="ms.html" aria-label="กลับหน้าติดตาม MS"><span>F</span><strong>ADMIN<br><small>ศูนย์จัดการระบบ MS</small></strong></a>
+    <nav aria-label="ทางลัด">
+      <a href="ms.html">กลับหน้าติดตาม MS</a>
+      <a href="ms-report.html">สรุปรายวัน</a>
+      <button id="refresh-btn" type="button">รีเฟรชข้อมูล</button>
+      <button id="logout-btn" type="button">ออกจากระบบ</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="gate" class="gate card">
+      <div id="gate-copy">
+        <p class="eyebrow">ADMIN ACCESS</p>
+        <h1>กำลังตรวจสอบสิทธิ์ผู้ดูแลระบบ</h1>
+        <p>หน้านี้ตรวจสิทธิ์กับ Worker ทุกครั้ง ไม่ได้อาศัยการซ่อนปุ่มจากหน้าเว็บ</p>
+      </div>
+      <form id="login-form" class="login-form hidden">
+        <label>Username<input id="login-username" autocomplete="username" required></label>
+        <label>รหัสผ่าน / PIN<input id="login-password" type="password" autocomplete="current-password" minlength="6" required></label>
+        <button class="primary" type="submit">เข้าสู่ระบบ</button>
+      </form>
+      <p id="gate-error" class="error hidden" role="alert"></p>
+      <a id="back-link" class="secondary hidden" href="ms.html">กลับหน้าติดตาม MS</a>
+    </section>
+
+    <section id="admin-app" class="hidden">
+      <div class="title-row">
+        <div><p class="eyebrow">SYSTEM CONTROL</p><h1>ภาพรวมและการตั้งค่าระบบ</h1><p id="checked-at" class="muted"></p></div>
+        <label class="hub-select">HUB ที่จัดการ<select id="hub-select"></select></label>
+      </div>
+
+      <section id="summary-cards" class="summary-grid" aria-label="สรุประบบ"></section>
+
+      <nav class="tabs" aria-label="ส่วนจัดการ">
+        <button class="active" data-tab="overview" type="button">ภาพรวม</button>
+        <button data-tab="sources" type="button">HUB &amp; Source</button>
+        <button data-tab="users" type="button">Users</button>
+        <button data-tab="standards" type="button">Standards</button>
+        <button data-tab="quota" type="button">Quota / System Health</button>
+      </nav>
+
+      <section class="tab-panel" data-panel="overview">
+        <div class="section-head"><div><p class="eyebrow">OVERVIEW</p><h2>สถานะทุก HUB</h2></div><span class="muted">ข้อมูลอ่านเมื่อเปิดหน้า/กดรีเฟรชเท่านั้น</span></div>
+        <div id="hub-overview" class="hub-list"></div>
+      </section>
+
+      <section class="tab-panel hidden" data-panel="sources">
+        <div class="section-head"><div><p class="eyebrow">SOURCE HEALTH</p><h2 id="source-title">สถานะแหล่งข้อมูล</h2></div><a class="secondary" href="ms.html#connection">ต่อ Session / อัปโหลด HAR</a></div>
+        <div id="source-grid" class="source-grid"></div>
+        <div class="card compact"><h3>การกู้คืน Session</h3><p id="recovery-status" class="muted"></p></div>
+      </section>
+
+      <section class="tab-panel hidden" data-panel="users">
+        <div class="section-head"><div><p class="eyebrow">ACCESS</p><h2>ผู้ใช้และสิทธิ์ HUB</h2></div><button id="add-user-btn" class="primary" type="button">เพิ่มผู้ใช้</button></div>
+        <div id="user-list" class="user-list"></div>
+        <form id="password-form" class="card form-grid password-card">
+          <div><h3>เปลี่ยนรหัสของบัญชีปัจจุบัน</h3><p class="muted">เมื่อสำเร็จ ระบบจะออกจากระบบเพื่อให้เข้าสู่ระบบใหม่</p></div>
+          <label>รหัสปัจจุบัน<input id="current-password" type="password" autocomplete="current-password" required></label>
+          <label>รหัสใหม่<input id="new-password" type="password" autocomplete="new-password" minlength="6" required></label>
+          <label>ยืนยันรหัสใหม่<input id="confirm-password" type="password" autocomplete="new-password" minlength="6" required></label>
+          <button class="primary" type="submit">เปลี่ยนรหัส</button>
+        </form>
+      </section>
+
+      <section class="tab-panel hidden" data-panel="standards">
+        <div class="section-head"><div><p class="eyebrow">HUB RULES</p><h2 id="standards-title">กติกาเฉพาะ HUB</h2></div><button id="save-standards-btn" class="primary" type="button">บันทึก HUB นี้</button></div>
+        <div class="standards-grid">
+          <section class="card"><div class="row-head"><h3>Pause windows</h3><button data-add="pause" type="button">เพิ่มช่วง</button></div><div id="pause-list"></div></section>
+          <section class="card"><div class="row-head"><h3>Waiting vehicle limits</h3><button data-add="vehicle" type="button">เพิ่มประเภท</button></div><div id="vehicle-list"></div></section>
+          <section class="card"><div class="row-head"><h3>MS unloading standards</h3><button data-add="msVehicle" type="button">เพิ่มประเภท</button></div><div id="ms-vehicle-list"></div></section>
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" data-panel="quota">
+        <div class="section-head"><div><p class="eyebrow">QUOTA HEALTH</p><h2>พฤติกรรมการใช้ทรัพยากร</h2></div><span class="read-only">READ ONLY · ไม่มี polling</span></div>
+        <div id="quota-grid" class="quota-grid"></div>
+        <section class="card"><h3>Runtime diagnostics ล่าสุด</h3><div id="runtime-diagnostics"></div><p class="muted">ตัวนับ Runtime เป็นข้อมูลของ Worker isolate ที่ตอบคำขอนี้ ไม่ใช่ยอดรวมบัญชี Turso ทั้งหมด หากไม่มีหลักฐานระบบจะแสดง “ไม่มีข้อมูล”</p></section>
+      </section>
+    </section>
+  </main>
+
+  <template id="user-template">
+    <form class="card user-row form-grid">
+      <label>Username<input name="username" maxlength="30" required></label>
+      <label>Role<select name="role"><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
+      <label class="wide">HUB memberships<input name="branches" placeholder="NE1, EA2"></label>
+      <label>รหัสผ่าน / PIN<input name="password" type="password" minlength="6" placeholder="เว้นว่างเมื่อไม่เปลี่ยน"></label>
+      <label class="check"><input name="active" type="checkbox" checked> Active</label>
+      <button class="primary" type="submit">บันทึก</button>
+    </form>
+  </template>
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="admin.js?v=20260912-01" defer></script>
+</body>
+</html>

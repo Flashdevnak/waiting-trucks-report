@@ -12,7 +12,7 @@ p = Path('proof.html')
 s = p.read_text()
 nav = """<nav class='topbar-actions' aria-label='เมนูหลัก'>
           <span id='connection-badge' class='badge badge-neutral'>กำลังเชื่อมต่อ</span>
-          <details class='app-nav'><summary><span class='nav-grid-icon'>▦</span><span>เมนูระบบ</span><small>หน้าปริ้นบาร์โค้ดรถ</small></summary><div class='app-nav-menu'><a href='ms.html'><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href='proof.html' class='is-current'><span>🧾</span><b>ปริ้นบาร์โค้ดรถ</b><small>ตรวจข้อมูล แก้ไขตามสิทธิ์ MS และปริ้น PDF</small></a><a href='waiting.html'><span>⏱</span><b>รถรอลงงาน</b><small>จัดการคิวและเวลารอลงงาน</small></a><a href='ms-report.html'><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a></div></details>
+          <details class='app-nav'><summary><span class='nav-grid-icon'>▦</span><span>เมนูระบบ</span><small>หน้าปริ้นบาร์โค้ดรถ</small></summary><div class='app-nav-menu'><a href='ms.html'><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href='proof.html' class='is-current'><span>🧾</span><b>ปริ้นบาร์โค้ดรถ</b><small>ตรวจข้อมูล แก้ไขตามสิทธิ์ MS และปริ้น PDF</small></a><a href='ms-report.html'><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a></div></details>
           <a id='connect-ms-btn' class='btn btn-accent hidden' href='https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance' target='_blank' rel='noopener'>เปิด MS</a>
           <button id='proof-session-btn' class='btn btn-header hidden' type='button'>ตั้งค่าการเชื่อมต่อ</button>
           <button id='refresh-btn' class='btn btn-header' type='button'>รีเฟรช</button>

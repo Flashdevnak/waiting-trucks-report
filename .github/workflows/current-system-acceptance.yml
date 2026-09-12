@@ -40,6 +40,9 @@ jobs:
             const urls={
               workerHtml:`${worker}/ms.html?v=${stamp}`,
               workerJs:`${worker}/ms.js?v=${stamp}`,
+              adminHtml:`${worker}/admin.html?v=${stamp}`,
+              adminJs:`${worker}/admin.js?v=${stamp}`,
+              waitingHtml:`${worker}/waiting.html?v=${stamp}`,
               pagesHtml:`${pages}/ms.html?v=${stamp}`,
               pagesJs:`${pages}/ms.js?v=${stamp}`,
               health:`${worker}/api?action=health`,
@@ -55,10 +58,20 @@ jobs:
             const workerJs=await map.workerJs.text();
             const pagesHtml=await map.pagesHtml.text();
             const pagesJs=await map.pagesJs.text();
+            const adminHtml=await map.adminHtml.text();
+            const adminJs=await map.adminJs.text();
+            const waitingHtml=await map.waitingHtml.text();
             const health=await map.health.json();
             const browserBody=await map.browser.json();
             for(const [name,html] of [['worker',workerHtml],['pages',pagesHtml]])
               if(!html.includes('ms.js')) throw new Error(`${name} ms.html does not load ms.js`);
+            if(workerHtml.includes('href="waiting.html"')) throw new Error('Worker MS navigation still exposes waiting.html');
+            if(!workerHtml.includes('href="admin.html"')) throw new Error('Worker MS central management does not target admin.html');
+            if(!adminHtml.includes('admin.js')) throw new Error('Standalone Admin HTML missing');
+            if(!adminJs.includes('ADMIN_STANDALONE_V1')) throw new Error('Standalone Admin JS marker missing');
+            if(/setInterval\s*\(|new WebSocket\s*\(|EventSource\s*\(/.test(adminJs)) throw new Error('Admin introduced background polling/transport');
+            if(adminJs.includes('waiting.html')) throw new Error('Admin flow points to waiting.html');
+            if(!waitingHtml.includes('location.replace("ms.html")')) throw new Error('Retired waiting page does not redirect to MS');
             for(const [name,js] of [['worker',workerJs],['pages',pagesJs]]){
               if(!/pollMs:\s*4000/.test(js)) throw new Error(`${name} visible cadence is not 4000 ms`);
               if(!js.includes('MS_REALTIME_WS_V1')) throw new Error(`${name} WebSocket-first marker missing`);
@@ -71,6 +84,10 @@ jobs:
             if(!health?.ok) throw new Error(`Worker health failed: ${JSON.stringify(health)}`);
             if(!browserBody?.ok) throw new Error(`Browser health failed: ${JSON.stringify(browserBody)}`);
             console.log('WORKER_MS_PAGE=PASS');
+            console.log('WORKER_ADMIN_PAGE=PASS');
+            console.log('WORKER_ADMIN_BACKGROUND_POLLING=0');
+            console.log('WAITING_USER_FLOW_LINKS=0');
+            console.log('WAITING_DIRECT_ROUTE=REDIRECT_MS');
             console.log('GITHUB_PAGES_MS_PAGE=PASS');
             console.log('PROMOTED_DEV_API_ROUTE=PASS');
             console.log('OLD_API_REFERENCE=0');

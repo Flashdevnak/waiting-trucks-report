@@ -255,15 +255,15 @@ test("auth read classifier distinguishes provider limits from generic outages", 
 
 test("source contract remains 180 days and clients only purge on INVALID_SESSION", () => {
   const workerSource = fsRead("../src/index.js");
-  const mainSource = fsRead("../../main.js");
   const msSource = fsRead("../../ms.js");
+  const adminSource = fsRead("../../admin.js");
   assert.match(workerSource, /const SESSION_MS = 180 \* 86400000;/);
   assert.match(workerSource, /AUTH_SESSION_RESILIENCE_V1/);
   assert.match(workerSource, /AUTH_PROVIDER_LIMIT_V3/);
   assert.match(workerSource, /AUTH_PROVIDER_LIMIT/);
   assert.match(workerSource, /AUTH_VERIFY_UNAVAILABLE/);
-  assert.match(mainSource, /if \(j\.code === \"INVALID_SESSION\"\) invalidateSession\(\)/);
   assert.match(msSource, /if \(error\.code === \"INVALID_SESSION\"\) invalidateSession\(\)/);
+  assert.match(adminSource, /error\.code === \"INVALID_SESSION\"/);
 });
 
 function fsRead(relative) {

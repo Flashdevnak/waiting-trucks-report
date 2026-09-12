@@ -9,6 +9,36 @@ const TURSO_HEAVY_READ_COOLDOWN_MS = 5 * 60 * 1000;
 const TURSO_HEAVY_READ_ROWS = 100000;
 let tursoProviderReadBlockedUntil = 0;
 const tursoHeavyReadUntil = new Map();
+const tursoRuntimeStartedAt = new Date().toISOString();
+const tursoRuntimeCounters = {
+  httpRequests: 0,
+  statements: 0,
+  rowsRead: 0,
+  rowsWritten: 0,
+  errors: 0,
+  providerLimitErrors: 0,
+  heavyReadEvents: 0,
+  lastObservedAt: "",
+};
+
+// TURSO_RUNTIME_DIAGNOSTICS_V1: sanitized, isolate-local evidence only.
+// It never issues a database/provider request and deliberately exposes no SQL,
+// URL, token, credential, user or HUB identifier.
+export function tursoRuntimeDiagnostics() {
+  return {
+    scope: "current-worker-isolate",
+    since: tursoRuntimeStartedAt,
+    ...tursoRuntimeCounters,
+    providerReadCircuitOpen: tursoProviderReadBlockedUntil > Date.now(),
+  };
+}
+
+function observeStatementResult(result) {
+  tursoRuntimeCounters.statements += 1;
+  tursoRuntimeCounters.rowsRead += Math.max(0, Number(result?.rows_read) || 0);
+  tursoRuntimeCounters.rowsWritten += Math.max(0, Number(result?.rows_written) || 0);
+  tursoRuntimeCounters.lastObservedAt = new Date().toISOString();
+}
 
 function isReadSql(sql) {
   return /^\s*(?:WITH\b[\s\S]*?\bSELECT\b|SELECT\b|PRAGMA\b|EXPLAIN\b)/i.test(String(sql || ''));
@@ -35,11 +65,13 @@ function observeTursoRead(sql, result, now = Date.now()) {
   if (rowsRead < TURSO_HEAVY_READ_ROWS) return;
   const fingerprint = sqlFingerprint(sql);
   tursoHeavyReadUntil.set(fingerprint, now + TURSO_HEAVY_READ_COOLDOWN_MS);
+  tursoRuntimeCounters.heavyReadEvents += 1;
   console.error(JSON.stringify({ event: 'turso_heavy_read_guard', rowsRead, cooldownMs: TURSO_HEAVY_READ_COOLDOWN_MS, sql: fingerprint }));
 }
 function noteProviderReadBlock(error, now = Date.now()) {
   if (!isProviderReadBlockMessage(error?.message || error)) return;
   tursoProviderReadBlockedUntil = Math.max(tursoProviderReadBlockedUntil, now + TURSO_PROVIDER_READ_BLOCK_MS);
+  tursoRuntimeCounters.providerLimitErrors += 1;
 }
 
 export function databaseEnv(env) {
@@ -55,6 +87,7 @@ export function databaseEnv(env) {
   return new Proxy(env, {
     get(target, property, receiver) {
       if (property === "DB") return db;
+      if (property === "QUOTA_DIAGNOSTICS") return tursoRuntimeDiagnostics;
       return Reflect.get(target, property, receiver);
     },
   });
@@ -100,7 +133,11 @@ export class TursoD1Database {
       throw wrapError(error, "TURSO_COMMIT_ERROR");
     }
 
-    return statementResults.map((result) => d1Result(executeResult(result)));
+    return statementResults.map((result) => {
+      const value = executeResult(result);
+      observeStatementResult(value);
+      return d1Result(value);
+    });
   }
 
   async _execute(sql, args = []) {
@@ -111,9 +148,12 @@ export class TursoD1Database {
       { type: "close" },
     ]);
     const result = executeResult(payload.results?.[0]);
+    observeStatementResult(result);
     observeTursoRead(sql, result);
     return result;
   } catch (error) {
+    tursoRuntimeCounters.errors += 1;
+    tursoRuntimeCounters.lastObservedAt = new Date().toISOString();
     noteProviderReadBlock(error);
     throw error;
   }
@@ -138,6 +178,8 @@ export class TursoD1Database {
     if (baton) body.baton = baton;
 
     let response;
+    tursoRuntimeCounters.httpRequests += 1;
+    tursoRuntimeCounters.lastObservedAt = new Date().toISOString();
     try {
       response = await this.fetchImpl(endpoint, {
         method: "POST",

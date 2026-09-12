@@ -28,26 +28,25 @@ test('shared DEV mobile shell v7 fixes dropdown anchoring, contrast and utility 
   assert.equal(patchDevMsMobileStyle(patched), patched, 'mobile style staging must stay idempotent');
 });
 
-test('central admin management entry exists on every user page and stays role-gated', () => {
+test('central admin management uses standalone page and stays role-gated', () => {
   const ms = read('ms.js');
-  const waiting = read('main.js');
   const proof = read('proof-v2-core.js');
   const report = read('ms-report.js');
+  const admin = read('admin.js');
 
   assert.ok(ms.includes('central-settings-btn'));
   assert.ok(ms.includes('state.auth?.role !== "admin"'));
-  assert.ok(waiting.includes('settings-btn'));
-  assert.ok(waiting.includes('state.auth?.role !== "admin"'));
-
   const proofAdmin = tailFrom(proof, ";(()=>{const KEY='bnak_operator_auth_v2'");
-  assert.ok(proofAdmin.includes("link.href='waiting.html#settings'"));
+  assert.ok(proofAdmin.includes("link.href='admin.html'"));
   assert.ok(proofAdmin.includes("read()?.role!=='admin'"));
   assert.doesNotMatch(proofAdmin, /\bfetch\b|\bsetInterval\b|\bsetTimeout\b/);
 
   const reportAdmin = tailFrom(report, ";(()=>{const read=()=>");
-  assert.ok(reportAdmin.includes("link.href='waiting.html#settings'"));
+  assert.ok(reportAdmin.includes("link.href='admin.html'"));
   assert.ok(reportAdmin.includes("read()?.role!=='admin'"));
   assert.doesNotMatch(reportAdmin, /\bfetch\b|\bsetInterval\b|\bsetTimeout\b/);
+  assert.match(admin, /ADMIN_STANDALONE_V1/);
+  assert.doesNotMatch(admin, /setInterval\s*\(|new WebSocket\s*\(/);
 });
 
 test('admin entry additions preserve shared auth and do not add MS mutations', () => {

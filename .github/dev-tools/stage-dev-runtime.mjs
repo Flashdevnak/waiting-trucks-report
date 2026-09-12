@@ -57,14 +57,13 @@ const devTbrSplitV2Patch = fileURLToPath(
 );
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
-const DEV_USER_PAGES = ["ms.html", "proof.html", "waiting.html", "ms-report.html"];
+const DEV_USER_PAGES = ["ms.html", "proof.html", "ms-report.html"];
 const LEGACY_REDIRECTS = ["index.html", "scan.html", "warehouse.html"];
 const DEV_STYLE_HREF = "style.css?v=20260905-dev-shell-v3";
 const DEV_SHELL_MARKER = "DEV_UNIFIED_HEADER_V2";
 const DEV_NAV = [
   ["ms.html", `<svg class="dev-nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h10.5v9H3.5zM14 9h4l2.5 3v3.5H14z"/><circle cx="7" cy="17.5" r="1.6"/><circle cx="17.5" cy="17.5" r="1.6"/></svg>`, "ติดตามรถ MS", "คิวรถเข้า–ออกและสถานะปัจจุบัน"],
   ["proof.html", `<svg class="dev-nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8V4h10v4M6 17H4.5V9h15v8H18M7 14h10v6H7z"/><path d="M16.5 11h.01"/></svg>`, "ปริ้นบาร์โค้ดรถ", "ตรวจข้อมูล แก้ไขตามสิทธิ์ MS และปริ้น PDF"],
-  ["waiting.html", `<svg class="dev-nav-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.8 1.8M9 3h6"/></svg>`, "รถรอลงงาน", "จัดการคิวและเวลารอลงงาน"],
   ["ms-report.html", `<svg class="dev-nav-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9h3v10M10.5 19V5h3v14M16 19v-7h3v7M4 19h16"/></svg>`, "สรุปรายวัน", "เปรียบเทียบรถจบงานตามวันและเวลา"],
 ];
 
@@ -76,13 +75,12 @@ const DEV_PAGE_META = {
     clock: '<span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span>',
     status: '<span id="connection-badge" class="badge badge-neutral">กำลังเชื่อมต่อ</span>',
     tools:
-      '<a id="central-settings-btn" class="btn btn-header header-link hidden" href="waiting.html#settings">จัดการกลาง</a>' +
+      '<a id="central-settings-btn" class="btn btn-header header-link hidden" href="admin.html">จัดการกลาง</a>' +
       '<a id="connect-ms-btn" class="btn btn-accent header-link hidden" href="https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance" target="_blank" rel="noopener">เปิด MS</a>' +
       '<button id="ms-connection-btn" class="btn btn-header hidden" type="button">การเชื่อมต่อ MS (QR/HAR)</button>',
     refresh: '<button id="refresh-btn" class="btn btn-header" type="button">รีเฟรช</button>',
     account:
       '<button id="login-btn" class="btn btn-accent" type="button">เข้าสู่ระบบ</button>' +
-      '<a class="btn btn-header header-link dev-change-password" href="waiting.html#password">เปลี่ยนรหัสผ่าน</a>' +
       '<button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>',
   },
   "proof.html": {
@@ -97,23 +95,6 @@ const DEV_PAGE_META = {
     refresh: '<button id="refresh-btn" class="btn btn-header" type="button">รีเฟรช</button>',
     account:
       '<button id="login-btn" class="btn btn-accent" type="button">เข้าสู่ระบบ</button>' +
-      '<a class="btn btn-header header-link dev-change-password" href="waiting.html#password">เปลี่ยนรหัสผ่าน</a>' +
-      '<button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>',
-  },
-  "waiting.html": {
-    title: "ระบบรถรอลงงาน",
-    detail: "จัดการคิวและเวลารอลงงาน",
-    titleId: "site-title",
-    clock: '<span id="live-clock">กำลังอ่านเวลาปัจจุบัน…</span>',
-    status: '<span id="connection-badge" class="badge badge-neutral">กำลังเชื่อมต่อ</span>',
-    tools:
-      '<button id="settings-btn" class="btn btn-header hidden" type="button">จัดการกลาง</button>' +
-      '<button id="import-btn" class="btn btn-accent" type="button">นำเข้า Excel</button>' +
-      '<input id="file-input" type="file" accept=".xlsx,.xls" hidden />',
-    refresh: '<button id="refresh-btn" class="btn btn-header" type="button">รีเฟรช</button>',
-    account:
-      '<button id="unlock-btn" class="btn btn-accent" type="button">เข้าสู่ระบบ</button>' +
-      '<button id="password-btn" class="btn btn-header hidden" type="button">เปลี่ยนรหัสผ่าน</button>' +
       '<button id="logout-btn" class="btn btn-header hidden" type="button">ออกจากระบบ</button>',
   },
   "ms-report.html": {
@@ -124,7 +105,7 @@ const DEV_PAGE_META = {
     status: '<span class="badge badge-online">พร้อมใช้งาน</span>',
     tools: '<span class="dev-tools-empty">ตัวกรองและ Export อยู่ในหน้ารายงาน</span>',
     refresh: '<button id="report-header-refresh" class="btn btn-header" type="button" onclick="location.reload()">รีเฟรช</button>',
-    account: '<a class="btn btn-header header-link dev-change-password" href="waiting.html#password">เปลี่ยนรหัสผ่าน</a><a class="btn btn-header header-link" href="ms.html">บัญชีผู้ใช้</a>',
+    account: '<a class="btn btn-header header-link" href="ms.html">บัญชีผู้ใช้</a>',
   },
 };
 
@@ -257,8 +238,8 @@ export async function stageDevUiShell(frontendTarget) {
     const redirect = await readFile(join(assetDir, name), "utf8");
     if (!redirect.includes("ms.html")) throw new Error(`DEV legacy redirect ${name} does not point to ms.html`);
   }
-  console.log("STAGED_DEV_UI_MENU_PAGES=4");
-  console.log("STAGED_DEV_UI_MENU_ITEMS=4");
+  console.log("STAGED_DEV_UI_MENU_PAGES=3");
+  console.log("STAGED_DEV_UI_MENU_ITEMS=3");
   console.log("STAGED_DEV_UI_HEADER_SLOTS=5");
   console.log(`STAGED_DEV_UI_SHELL=${DEV_SHELL_MARKER}`);
   console.log(`STAGED_DEV_UI_STYLE=${DEV_STYLE_HREF}`);

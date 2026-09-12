@@ -15,7 +15,9 @@ on:
       - cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs
       - cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
       - waiting.html
-      - main.js
+      - admin.html
+      - admin.js
+      - admin.css
       - ms-report.html
       - ms-report.js
       - ms.html
@@ -92,12 +94,12 @@ jobs:
           rm -rf .dev-assets .dev-runtime
           mkdir -p .dev-assets .dev-runtime
           cp -R src .dev-runtime/src
-          cp ../waiting.html ../main.js ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
           node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js .dev-runtime/src/origin-manifest-v1.js
-          node --check .dev-assets/main.js
+          node --check .dev-assets/admin.js
           node --check .dev-assets/ms-report.js
           node --check .dev-assets/ms.js
           node --check .dev-assets/proof.js
@@ -113,7 +115,7 @@ jobs:
           node --check src/index.js
           node <<'NODE'
           const fs=require('node:fs');
-          const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
+          const pages=['ms.html','proof.html','ms-report.html'];
           const front=fs.readFileSync('.dev-assets/ms.js','utf8');
           const proofFront=fs.readFileSync('.dev-assets/proof.js','utf8');
           const proofHtml=fs.readFileSync('.dev-assets/proof.html','utf8');
@@ -160,7 +162,7 @@ jobs:
             if(!html.includes('data-dev-shell="20260905-v2"')) throw new Error(`${page} unified header marker missing`);
             if(!html.includes('style.css?v=20260905-dev-shell-v3')) throw new Error(`${page} style v3 missing`);
             if((html.match(/dev-shell-slot/g)||[]).length!==5) throw new Error(`${page} must have five header slots`);
-            if(!html.includes('เปลี่ยนรหัสผ่าน')) throw new Error(`${page} account password entry missing`);
+            if(html.includes('href="waiting.html"')) throw new Error(`${page} exposes waiting.html in navigation`);
           }
           const msHtml=fs.readFileSync('.dev-assets/ms.html','utf8');
           if(!msHtml.includes('ms-v4.css?v=20260910-01')) throw new Error('staged MS UI V4 link missing');
@@ -231,7 +233,7 @@ jobs:
           sleep 3
           node <<'NODE'
           const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
-          const pages=['ms.html','proof.html','waiting.html','ms-report.html'];
+          const pages=['ms.html','proof.html','ms-report.html'];
           const style='style.css?v=20260905-dev-shell-v3';
           const msV4Style='ms-v4.css?v=20260910-01';
           async function get(path){
@@ -248,17 +250,22 @@ jobs:
             if(!html.includes('data-dev-shell="20260905-v2"')) throw new Error(`${page} header marker missing`);
             if((html.match(/dev-shell-slot/g)||[]).length!==5) throw new Error(`${page} header slot count mismatch`);
             if(!html.includes(`href="${style}"`)) throw new Error(`${page} shared style v3 missing`);
-            if(!html.includes('เปลี่ยนรหัสผ่าน')) throw new Error(`${page} password account entry missing`);
             const menuStart=html.indexOf('<div class="app-nav-menu">');
             const menuEnd=menuStart<0?-1:html.indexOf('</div></details>',menuStart);
             if(menuStart<0||menuEnd<0) throw new Error(`${page} system menu missing`);
             const menu=html.slice(menuStart,menuEnd);
+            if(menu.includes('waiting.html')) throw new Error(`${page} exposes waiting.html in system menu`);
             for(const href of pages) if(menu.split(`href="${href}"`).length-1!==1) throw new Error(`${page} menu missing ${href}`);
             if(!menu.includes(`href="${page}" class="is-current"`)) throw new Error(`${page} current menu wrong`);
           }
           const ms=await get('ms.html');
           if(!ms.includes(`href="${msV4Style}"`)) throw new Error('live MS UI V4 link missing');
           const proof=await get('proof.html');
+          const admin=await get('admin.html');
+          const adminJs=await get('admin.js');
+          if(!admin.includes('ADMIN_STANDALONE_V1')&&!adminJs.includes('ADMIN_STANDALONE_V1')) throw new Error('standalone Admin marker missing');
+          if(/setInterval\s*\(|new WebSocket\s*\(/.test(adminJs)) throw new Error('Admin page introduced background transport');
+          if(adminJs.includes('waiting.html')) throw new Error('Admin flow points back to waiting.html');
           const msJs=await get('ms.js');
           if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');
           if(!proof.includes('ms.html#connection')) throw new Error('Proof shared connection link missing');
@@ -276,11 +283,11 @@ jobs:
           for(const legacy of ['index.html','scan.html','warehouse.html']) if(!(await get(legacy)).includes('ms.html')) throw new Error(`${legacy} redirect missing`);
           if(!(await get('')).includes('ms.html')) throw new Error('DEV root entry missing');
           console.log('DEV_HEALTH=PASS');
-          console.log('DEV_UI_PAGES=4');
-          console.log('DEV_UI_MENU_ITEMS_PER_PAGE=4');
+          console.log('DEV_UI_PAGES=3');
+          console.log('DEV_UI_MENU_ITEMS_PER_PAGE=3');
           console.log('DEV_UI_VISIBLE_ORDER=STATUS>REFRESH>SYSTEM_MENU>TOOLS>ACCOUNT');
           console.log(`DEV_UI_SHARED_STYLE=${style}`);
-          console.log('DEV_UI_PASSWORD_ACCOUNT=PASS');
+          console.log('DEV_ADMIN_STANDALONE=PASS');
           console.log('DEV_UI_HAR_SHARED_ENTRY=PASS');
           console.log('DEV_HAR_COMPACT_ACTIONS_V3=PASS');
           console.log('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2=PASS');

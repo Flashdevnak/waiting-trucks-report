@@ -133,7 +133,7 @@ jobs:
           npm ci --no-audit --no-fund
           rm -rf .dev-assets
           mkdir -p .dev-assets
-          cp ../waiting.html ../main.js ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js src/index.js
@@ -149,7 +149,7 @@ jobs:
           grep -q 'todayStartBangkok + 86400000 - 1000' src/index.js
           grep -q 'shadowPart = text(body.shadowPart' src/index.js
           grep -q 'tursoPointReadsPerCron: 4' src/index.js
-          for page in ms.html proof.html waiting.html ms-report.html; do
+          for page in ms.html proof.html ms-report.html; do
             grep -q 'data-dev-shell="20260905-v2"' ".dev-assets/$page"
             grep -q 'style.css?v=20260905-dev-shell-v3' ".dev-assets/$page"
             grep -q 'dev-shell-status' ".dev-assets/$page"
@@ -158,6 +158,8 @@ jobs:
             grep -q 'dev-shell-refresh' ".dev-assets/$page"
             grep -q 'dev-account-menu' ".dev-assets/$page"
           done
+          grep -q 'ADMIN_STANDALONE_V1' .dev-assets/admin.js
+          ! grep -q 'waiting.html' .dev-assets/admin.js
           grep -q 'DEV_UNIFIED_HEADER_V2' .dev-assets/style.css
           grep -q 'DEV_HEADER_POLISH_V3' .dev-assets/style.css
           ! grep -q 'd1_databases' wrangler.dev.jsonc

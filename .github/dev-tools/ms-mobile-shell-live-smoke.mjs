@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 const VERSION = '20260907-mobile-shell-v7-diag3';
 const ORIGIN = process.env.MOBILE_SHELL_DEV_ORIGIN || 'https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
-const PAGES = ['ms.html','proof.html','waiting.html','ms-report.html'];
+const PAGES = ['ms.html','proof.html','ms-report.html'];
 const VIEWPORTS = [
   ['mobile360',360,800,true],
   ['mobile390',390,844,true],

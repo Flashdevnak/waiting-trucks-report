@@ -12,6 +12,7 @@ const HBI_EMPTY_CACHE_MS = 30 * 60 * 1000;
 const HBI_PHOTO_CACHE_MAX = 400;
 const hbiPhotoCache = new Map();
 const activeHbiPhotoReads = new Map();
+const hbiPhotoDiagnostics = new Map();
 // AUTH_VERIFY_READ_CACHE_V2: remove repeated identical user reads from 4-second polling.
 const AUTH_VERIFY_CACHE_MS = 60 * 1000;
 const authVerifyCache = new Map();
@@ -201,6 +202,10 @@ async function get(url, env) {
   if (action === "users") {
     mustAdmin(actor);
     return ok(await users(env));
+  }
+  if (action === "adminOverview") {
+    mustAdmin(actor);
+    return ok(await adminOverview(env));
   }
   if (action === "settings")
     return ok(
@@ -868,6 +873,90 @@ async function users(env) {
     updatedAt: x.updated_at,
     updatedBy: x.updated_by,
   }));
+}
+
+// ADMIN_OVERVIEW_V1: one manual, read-only overview request. It does not call
+// MS/FBI/KIT/TBR/HBI, does not refresh accepted snapshots and has no timer.
+async function adminOverview(env) {
+  const [hubResult, userRows] = await Promise.all([
+    env.DB.prepare(`
+      WITH hubs AS (
+        SELECT hub FROM ms_connections
+        UNION SELECT hub FROM ms_preentry_connections
+        UNION SELECT hub FROM ms_bus_connections
+        UNION SELECT hub FROM ms_hbi_connections
+        UNION SELECT hub FROM ms_routes
+        UNION SELECT branch AS hub FROM hub_settings
+      )
+      SELECT h.hub,
+        r.updated_at AS route_updated_at,r.updated_by AS route_updated_by,r.last_success_at AS route_last_success_at,r.last_error AS route_last_error,
+        p.updated_at AS pre_updated_at,p.updated_by AS pre_updated_by,p.last_success_at AS pre_last_success_at,p.last_error AS pre_last_error,
+        b.updated_at AS bus_updated_at,b.updated_by AS bus_updated_by,b.last_success_at AS bus_last_success_at,b.last_error AS bus_last_error,
+        hi.updated_at AS hbi_updated_at,hi.updated_by AS hbi_updated_by,
+        c.active AS connector_active,c.last_used_at AS connector_last_used_at,l.synced_at AS snapshot_synced_at
+      FROM hubs h
+      LEFT JOIN ms_connections r ON r.hub=h.hub
+      LEFT JOIN ms_preentry_connections p ON p.hub=h.hub
+      LEFT JOIN ms_bus_connections b ON b.hub=h.hub
+      LEFT JOIN ms_hbi_connections hi ON hi.hub=h.hub
+      LEFT JOIN ms_connector_tokens c ON c.hub=h.hub AND c.active=1
+      LEFT JOIN ms_live_cache l ON l.hub=h.hub
+      WHERE h.hub IS NOT NULL AND h.hub<>'' ORDER BY h.hub
+    `).all(),
+    users(env),
+  ]);
+  const source = (name, configured, updatedAt, updatedBy, lastSuccessAt, lastError, extra = {}) => ({
+    source: name,
+    configured: Boolean(configured),
+    updatedAt: updatedAt || "",
+    updatedBy: updatedBy || "",
+    lastSuccessAt: lastSuccessAt || "",
+    lastError: lastError || "",
+    ...extra,
+  });
+  const hubs = (hubResult.results || []).map((row) => {
+    const hbiRuntime = hbiPhotoDiagnostics.get(String(row.hub || "").toUpperCase()) || null;
+    return {
+      hub: row.hub,
+      snapshotSyncedAt: row.snapshot_synced_at || "",
+      routes: source("routes", row.route_updated_at, row.route_updated_at, row.route_updated_by, row.route_last_success_at, row.route_last_error, { connectorActive: Number(row.connector_active) === 1, lastUsedAt: row.connector_last_used_at || "" }),
+      preEntry: source("preEntry", row.pre_updated_at, row.pre_updated_at, row.pre_updated_by, row.pre_last_success_at, row.pre_last_error),
+      busTime: source("busTime", row.bus_updated_at, row.bus_updated_at, row.bus_updated_by, row.bus_last_success_at, row.bus_last_error),
+      hbiPhotos: source("hbiPhotos", row.hbi_updated_at, row.hbi_updated_at, row.hbi_updated_by, "", "", {
+        sessionState: hbiRuntime?.state || "unknown",
+        lastCheckedAt: hbiRuntime?.checkedAt || "",
+        lastErrorCode: hbiRuntime?.errorCode || "",
+      }),
+    };
+  });
+  const runtime = typeof env.QUOTA_DIAGNOSTICS === "function"
+    ? env.QUOTA_DIAGNOSTICS()
+    : null;
+  return {
+    checkedAt: new Date().toISOString(),
+    hubs,
+    users: userRows,
+    quota: {
+      databaseBackend: String(env.DB_BACKEND || "unknown"),
+      expectedD1Bindings: 0,
+      d1BindingCount: null,
+      accountUsageTrend: null,
+      anomalyState: runtime?.providerLimitErrors || runtime?.heavyReadEvents ? "warning" : null,
+      protections: {
+        realtimeTransport: "WebSocket-first / shared per HUB",
+        visibleCadenceMs: 4000,
+        httpFallback: "เฉพาะ WebSocket unavailable/stale",
+        databaseProtection: "4s client cadence ไม่เท่ากับ 4s Turso read",
+        authCacheMs: AUTH_VERIFY_CACHE_MS,
+        hubSettingsCacheMs: HUB_SETTINGS_CACHE_MS,
+        connectionHeartbeatMs: CONNECTION_HEARTBEAT_MS,
+        connectorHeartbeatMs: CONNECTOR_HEARTBEAT_MS,
+        proofUnchangedWrites: "0 เมื่อ source hash ไม่เปลี่ยน",
+        hbiMode: "click-only / no background poll",
+      },
+      runtime,
+    },
+  };
 }
 
 async function saveUser(input, actor, env) {
@@ -1621,6 +1710,7 @@ async function saveMsHbiConnection(body, actor, env) {
     "INSERT INTO ms_hbi_connections(hub,credentials_cipher,updated_at,updated_by) VALUES(?,?,?,?) ON CONFLICT(hub) DO UPDATE SET credentials_cipher=excluded.credentials_cipher,updated_at=excluded.updated_at,updated_by=excluded.updated_by",
   ).bind(hub, await encryptMs(JSON.stringify(credentials), env), now, actor.username).run();
   for (const key of [...hbiPhotoCache.keys()]) if (key.startsWith(`${hub}|`)) hbiPhotoCache.delete(key);
+  hbiPhotoDiagnostics.set(hub, { state: "configured", checkedAt: "", errorCode: "" });
   await audit(env, "SAVE_MS_HBI_CONNECTION", hub, "บันทึก Session รูปท้ายรถแบบ on-demand; upstream calls=0", actor.username);
   return { hub, updatedAt: now, source: "hbiPhotos", upstreamCalls: 0 };
 }
@@ -1709,9 +1799,19 @@ async function msTruckPhotos(env, actor, hub, wantedProofId) {
     if (!credentials)
       fail(`HUB ${hub} ยังไม่ได้อัปโหลด HAR รูปท้ายรถ (HBI) · เปิด Fleet Load Info แล้วบันทึกที่แหล่ง 4`, "HBI_PHOTOS_NOT_CONFIGURED", 409);
 
-    const value = await readHbiTruckPhotos(credentials, proofId, route.estimated_arrival_at);
-    rememberHbiPhoto(cacheKey, value);
-    return { ...value, upstreamCalls: 1, cache: "miss", credentialSource: "HBI_HAR" };
+    try {
+      const value = await readHbiTruckPhotos(credentials, proofId, route.estimated_arrival_at);
+      rememberHbiPhoto(cacheKey, value);
+      hbiPhotoDiagnostics.set(hub, { state: "ready", checkedAt: new Date().toISOString(), errorCode: "" });
+      return { ...value, upstreamCalls: 1, cache: "miss", credentialSource: "HBI_HAR" };
+    } catch (error) {
+      hbiPhotoDiagnostics.set(hub, {
+        state: error?.code === "HBI_PHOTO_SESSION_EXPIRED" ? "expired" : "error",
+        checkedAt: new Date().toISOString(),
+        errorCode: error?.code || "HBI_PHOTO_ERROR",
+      });
+      throw error;
+    }
   })().finally(() => activeHbiPhotoReads.delete(cacheKey));
   activeHbiPhotoReads.set(cacheKey, task);
   return task;

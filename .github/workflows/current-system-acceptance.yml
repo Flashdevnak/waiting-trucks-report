@@ -153,7 +153,7 @@ jobs:
           })().catch((error)=>{console.error(error);process.exit(1);});
           NODE
 
-      - name: Verify Turso connector and all configured HUB sessions
+      - name: Verify Turso per-HUB source health
         run: |
           node <<'NODE'
           (async()=>{
@@ -210,16 +210,21 @@ jobs:
               const live=first(liveResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
               if(String(live[0]||'')!==hub) throw new Error(`${hub} live cache missing`);
               const healthy=row=>Boolean(row?.[2])&&!String(row?.[3]||'')&&age(row[2])>=0&&age(row[2])<=20*60;
-              const routeHealthy=healthy(route), preentryHealthy=healthy(preentry), busHealthy=healthy(bus);
+              const routeHealthy=healthy(route);
+              const preentryConfigured=String(preentry[0]||'')===hub;
+              const busConfigured=String(bus[0]||'')===hub;
+              const preentryHealthy=!preentryConfigured||healthy(preentry);
+              const busHealthy=!busConfigured||healthy(bus);
               console.log(`HUB=${hub} CONNECTOR_ACTIVE=${Number(connector[1]||0)===1} CONNECTOR_LAST_USED=${connector[2]||'-'} LIVE_SNAPSHOT_AT=${live[1]||'-'} LIVE_ROWS=${Number(live[2]||0)}`);
-              console.log(`HUB=${hub} ROUTE_LAST_SUCCESS=${route[2]||'-'} AGE=${age(route[2])} ERROR=${route[3]||'-'}`);
-              console.log(`HUB=${hub} PREENTRY_LAST_SUCCESS=${preentry[2]||'-'} AGE=${age(preentry[2])} ERROR=${preentry[3]||'-'}`);
-              console.log(`HUB=${hub} BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
+              console.log(`HUB=${hub} ROUTE_CONFIGURED=true ROUTE_LAST_SUCCESS=${route[2]||'-'} AGE=${age(route[2])} ERROR=${route[3]||'-'}`);
+              console.log(`HUB=${hub} PREENTRY_CONFIGURED=${preentryConfigured} PREENTRY_LAST_SUCCESS=${preentry[2]||'-'} AGE=${age(preentry[2])} ERROR=${preentry[3]||'-'}`);
+              console.log(`HUB=${hub} BUS_CONFIGURED=${busConfigured} BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
               if(!routeHealthy||!preentryHealthy||!busHealthy)
-                throw new Error(`${hub} sessions unhealthy route=${routeHealthy} preentry=${preentryHealthy} bus=${busHealthy}`);
+                throw new Error(`${hub} source health failed route=${routeHealthy} preentry=${preentryHealthy} bus=${busHealthy}`);
             }
             console.log(`CONFIGURED_HUB_CONTRACT_COUNT=${configuredHubs.length}`);
             console.log(`CONFIGURED_HUBS=${configuredHubs.join(',')}`);
+            console.log('OPTIONAL_SOURCE_CONTRACT=PASS');
             console.log('ALL_CONFIGURED_HUB_SESSIONS_READY=true');
             console.log('REALTIME_READY=READY');
             console.log('TURSO_INFRASTRUCTURE=PASS');

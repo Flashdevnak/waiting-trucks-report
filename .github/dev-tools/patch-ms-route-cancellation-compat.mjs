@@ -93,15 +93,29 @@ export function patchMsFirstSourceQueueFrontend(source) {
   output = replaceUnique(
     output,
     `function arrivalSources(row) {\n  if (!isDestination(row) && !isOrigin(row) && !isDrop(row)) return "";\n  const effective = confirmedEffectiveArrival(row);\n  return \`<div class="arrival-system-row\${effective ? "" : " is-empty"}"><div><span><em>KIT</em>\${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>\${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ถึงจริงที่ใช้</em>\${arrivalSourceDateTime(effective)}</span></div></div>\`;\n}`,
-    `function arrivalSources(row) {\n  if (!isDestination(row) && !isOrigin(row) && !isDrop(row)) return "";\n  const admitted = queueAdmissionArrival(row);\n  return \`<div class="arrival-system-row\${admitted ? "" : " is-empty"}"><div><span><em>KIT</em>\${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>\${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>เวลาเข้าคิวที่ใช้</em>\${arrivalSourceDateTime(admitted)}</span></div></div>\`;\n}`,
-    "show first-source admission time explicitly",
+    `function arrivalSources(row) {\n  if (!isDestination(row) && !isOrigin(row) && !isDrop(row)) return "";\n  const effective = confirmedEffectiveArrival(row);\n  const admitted = queueAdmissionArrival(row);\n  return \`<div class="arrival-system-row\${admitted ? "" : " is-empty"}"><div><span><em>KIT</em>\${arrivalSourceDateTime(row.scheduleKitArrivalAt)}</span><span><em>TBR</em>\${arrivalSourceDateTime(row.scheduleTbrArrivalAt)}</span><span><em>ถึงจริงที่ใช้</em>\${arrivalSourceDateTime(effective)}</span><span><em>เวลาเข้าคิวที่ใช้</em>\${arrivalSourceDateTime(admitted)}</span></div></div>\`;\n}`,
+    "show both Route-confirmed truth and first-source queue admission time",
   );
 
   output = replaceUnique(
     output,
-    `  // MS_SLA_EARLIEST_ARRIVAL_V2: Route confirms arrival; SLA uses earliest matched Route/KIT/TBR.\n  const arrival = confirmedEffectiveArrival(row);`,
-    `  // MS_SLA_EARLIEST_ARRIVAL_V2 / ${FIRST_SOURCE_MARKER}: TBR can start\n  // the live queue/SLA clock immediately. Once Route appears, the existing\n  // effective-arrival merge remains in force for the same trip.\n  const arrival = queueAdmissionArrival(row);`,
-    "SLA timer follows first queue admission instead of waiting for Route",
+    `  // MS_SLA_EARLIEST_ARRIVAL_V2: Route confirms arrival; SLA uses earliest matched Route/KIT/TBR.\n  const arrival = confirmedEffectiveArrival(row);\n  const workEnd = finish || (Number(row.unloadingState) === 1 && start ? now : null);`,
+    `  // MS_SLA_EARLIEST_ARRIVAL_V2 / ${FIRST_SOURCE_MARKER}: keep Route-confirmed\n  // arrival truth separate, while a reached TBR can start the queue/SLA clock.\n  const arrival = confirmedEffectiveArrival(row);\n  const queueArrival = arrival || ((isDestination(row) || isDrop(row)) ? parseDate(row.scheduleTbrArrivalAt) : null);\n  const workEnd = finish || (Number(row.unloadingState) === 1 && start ? now : null);`,
+    "add TBR fallback to SLA without fabricating Route arrival",
+  );
+
+  output = replaceUnique(
+    output,
+    `  // Route confirms arrival; SLA starts from the earliest matched Route/KIT/TBR time.\n  const slaEnd = finish || (!completed && arrival ? now : null);\n  const slaMinutes = arrival && slaEnd && slaEnd >= arrival\n    ? Math.floor((slaEnd - arrival) / 60000)\n    : null;`,
+    `  // Queue/SLA starts from whichever accepted inbound source admitted first.\n  const slaEnd = finish || (!completed && queueArrival ? now : null);\n  const slaMinutes = queueArrival && slaEnd && slaEnd >= queueArrival\n    ? Math.floor((slaEnd - queueArrival) / 60000)\n    : null;`,
+    "calculate SLA from first queue admission",
+  );
+
+  output = replaceUnique(
+    output,
+    `  return {\n    arrival,\n    start,\n    finish,`,
+    `  return {\n    arrival: queueArrival,\n    routeConfirmedArrival: arrival,\n    start,\n    finish,`,
+    "expose queue arrival while retaining Route-confirmed arrival",
   );
 
   output = replaceUnique(
@@ -114,15 +128,15 @@ export function patchMsFirstSourceQueueFrontend(source) {
   output = replaceUnique(
     output,
     `      classicOperationFact("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row))),`,
-    `      classicOperationFact(parseDate(row.actualArrivalAt) ? "ถึงคลังจริง" : parseDate(row.scheduleTbrArrivalAt) ? "เข้าคิวจาก TBR" : "ถึงคลังจริง", shortDateTime(queueAdmissionArrival(row))),`,
-    "destination operation shows TBR admission without pretending Route actual-arrival",
+    `      classicOperationFact(\n        parseDate(row.actualArrivalAt) ? "ถึงคลังจริง" : parseDate(row.scheduleTbrArrivalAt) ? "เข้าคิวจาก TBR" : "ถึงคลังจริง",\n        parseDate(row.actualArrivalAt)\n          ? shortDateTime(confirmedEffectiveArrival(row))\n          : shortDateTime(queueAdmissionArrival(row)),\n      ),`,
+    "destination operation separates Route truth from TBR admission",
   );
 
   output = replaceUnique(
     output,
     `      classicOperationFact("ถึงจุดดรอปจริง", shortDateTime(confirmedEffectiveArrival(row))),`,
-    `      classicOperationFact(parseDate(row.actualArrivalAt) ? "ถึงจุดดรอปจริง" : parseDate(row.scheduleTbrArrivalAt) ? "เข้าคิวจาก TBR" : "ถึงจุดดรอปจริง", shortDateTime(queueAdmissionArrival(row))),`,
-    "drop operation shows TBR admission without pretending Route actual-arrival",
+    `      classicOperationFact(\n        parseDate(row.actualArrivalAt) ? "ถึงจุดดรอปจริง" : parseDate(row.scheduleTbrArrivalAt) ? "เข้าคิวจาก TBR" : "ถึงจุดดรอปจริง",\n        parseDate(row.actualArrivalAt)\n          ? shortDateTime(confirmedEffectiveArrival(row))\n          : shortDateTime(queueAdmissionArrival(row)),\n      ),`,
+    "drop operation separates Route truth from TBR admission",
   );
 
   return output;

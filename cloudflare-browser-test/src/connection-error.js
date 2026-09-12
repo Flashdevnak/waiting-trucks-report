@@ -342,6 +342,7 @@ function wantsHtml(request) {
   return String(request.headers.get("accept") || "").toLowerCase().includes("text/html");
 }
 
+// INTELLIGENCE_HUB_FILTER_V3: compatibility marker; V4 below is the active implementation.
 // INTELLIGENCE_HUB_FILTER_V4: merge every Browser-KV-known HUB without Turso/MS reads.
 // The discovery list is cached in-memory for 10 minutes; the page remains read-only.
 const HUB_CATALOG_CACHE_MS = 10 * 60 * 1000;

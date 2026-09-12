@@ -1,4 +1,4 @@
-name: TEMP DEV Repair State Probe
+name: TEMP DEV Truth Safe Connection Status UI
 
 on:
   push:
@@ -7,20 +7,80 @@ on:
       - .github/workflows/temp-fix-supervisor-tbr-ownership.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  probe:
+  fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe sanitized DEV repair state
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Make saved connection status freshness-aware
         shell: bash
         run: |
           set -euo pipefail
-          base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=msRepairHealthDev&branch='
-          for hub in EA2 NE1; do
-            echo "=== ${hub} ==="
-            body="$(curl -fsS --retry 2 --connect-timeout 10 "${base}${hub}")"
-            echo "$body" | jq -c '{ok:.ok,branch:.data.branch,repair:.data.repair,quota:.data.quota}'
-            echo "$body" | jq -e '.ok == true and .data.quota.tursoReads == 0 and .data.quota.tursoWrites == 0 and .data.quota.upstreamCalls == 0' >/dev/null
-          done
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path('ms.js')
+          s = p.read_text()
+          old = '''      node.className = item?.configured
+        ? (item.lastError ? "source-error" : "source-ok")
+        : "source-missing";
+      node.textContent = !item?.configured
+        ? key === "hbiPhotos"
+          ? "ยังไม่ได้อัปโหลด HAR รูปท้ายรถ"
+          : "ยังไม่ได้อัปโหลด"
+        : key === "hbiPhotos"
+          ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"
+          : item.lastError
+            ? `เชื่อมต่อมีปัญหา · ${item.lastError}`
+            : `พร้อมใช้งาน · อัปเดตล่าสุด ${shortDateTime(item.lastSuccessAt || item.updatedAt)}`;'''
+          new = '''      const lastSuccessAt = item?.lastSuccessAt || "";
+      const lastSuccessMs = Date.parse(lastSuccessAt);
+      const sourceFresh = Number.isFinite(lastSuccessMs) && Date.now() - lastSuccessMs <= 20 * 60 * 1000;
+      node.className = item?.configured
+        ? (item.lastError ? "source-error" : key === "hbiPhotos" || sourceFresh ? "source-ok" : "source-stale")
+        : "source-missing";
+      node.textContent = !item?.configured
+        ? key === "hbiPhotos"
+          ? "ยังไม่ได้อัปโหลด HAR รูปท้ายรถ"
+          : "ยังไม่ได้อัปโหลด"
+        : key === "hbiPhotos"
+          ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"
+          : item.lastError
+            ? `เชื่อมต่อมีปัญหา · ${item.lastError}`
+            : sourceFresh
+              ? `พร้อมใช้งาน · สำเร็จล่าสุด ${shortDateTime(lastSuccessAt)}`
+              : lastSuccessAt
+                ? `มีการเชื่อมต่อที่บันทึกไว้ · สำเร็จล่าสุด ${shortDateTime(lastSuccessAt)} · สถานะปัจจุบันยังไม่ยืนยัน`
+                : `มีการเชื่อมต่อที่บันทึกไว้ · ยังไม่มีผลสำเร็จล่าสุด`;'''
+          if s.count(old) != 1:
+              raise SystemExit(f'connection status UI anchor count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('style.css')
+          s = p.read_text()
+          old = '.connection-source-status .source-error { color: #b42318; font-weight: 700; }\n.connection-source-status .source-missing { color: #6b6b66; }'
+          new = '.connection-source-status .source-error { color: #b42318; font-weight: 700; }\n.connection-source-status .source-stale { color: #9a6100; font-weight: 700; }\n.connection-source-status .source-missing { color: #6b6b66; }'
+          if s.count(old) != 1:
+              raise SystemExit(f'source status CSS anchor count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          node --check ms.js
+          grep -F 'สถานะปัจจุบันยังไม่ยืนยัน' ms.js
+          grep -F '.source-stale' style.css
+          git diff --check
+      - name: Commit truth-safe connection UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ms.js style.css
+          git commit -m 'fix(dev): make MS connection readiness freshness-aware'
+          git push origin HEAD:main

@@ -1,0 +1,61 @@
+name: DEV First Source Diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/dev-first-source-diagnostics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Capture local-only staging and queue test diagnostics
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "HEAD=$(git rev-parse HEAD)"
+            echo "=== dev-archive-patch ==="
+            node --test worker/tests/dev-archive-patch.test.mjs
+            echo "DEV_ARCHIVE_EXIT=$?"
+            echo "=== first-source-queue ==="
+            node --test .github/tests/ms-queue-first-source-v1.test.mjs
+            echo "FIRST_SOURCE_EXIT=$?"
+            echo "=== direct-stage ==="
+            node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          import { stageFrontend, stageWorker } from './.github/dev-tools/stage-dev-runtime.mjs';
+          const front = await readFile('./ms.js','utf8');
+          const worker = await readFile('./worker/src/index.js','utf8');
+          try {
+            const stagedFront = stageFrontend(front);
+            console.log('STAGE_FRONTEND=PASS', stagedFront.includes('MS_QUEUE_FIRST_SOURCE_V1'));
+          } catch (error) {
+            console.log('STAGE_FRONTEND=FAIL');
+            console.log(error?.stack || error);
+          }
+          try {
+            const stagedWorker = stageWorker(worker);
+            console.log('STAGE_WORKER=PASS', stagedWorker.includes('MS_QUEUE_FIRST_SOURCE_V1'));
+          } catch (error) {
+            console.log('STAGE_WORKER=FAIL');
+            console.log(error?.stack || error);
+          }
+          NODE
+          } 2>&1 | tee first-source-diagnostics.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: first-source-diagnostics
+          path: first-source-diagnostics.txt
+          if-no-files-found: error

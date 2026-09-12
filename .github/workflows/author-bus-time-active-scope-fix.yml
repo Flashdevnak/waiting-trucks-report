@@ -1,0 +1,175 @@
+name: Author BusTime Active Scope Fix
+
+on:
+  push:
+    branches: [fix/bus-time-active-scope-latency]
+    paths: [.github/workflows/author-bus-time-active-scope-fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  author:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/bus-time-active-scope-latency
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch runtime and regression tests
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const runtimePath = '.github/dev-tools/bus-time-hot-lane-v14-runtime.mjs';
+          const testPath = '.github/dev-tools/bus-time-hot-lane-v14.test.mjs';
+          let runtime = fs.readFileSync(runtimePath, 'utf8');
+          let tests = fs.readFileSync(testPath, 'utf8');
+
+          const stateFrom = `        busLastError: "",
+                  busActiveRows: 0,
+                });`;
+          const stateTo = `        busLastError: "",
+                  busActiveRows: 0,
+                  previousActiveKeys: new Set(),
+                });`;
+          if (!runtime.includes(stateFrom)) throw new Error('state anchor missing');
+          runtime = runtime.replace(stateFrom, stateTo);
+
+          const activeFrom = `  function activeRows(routeRows) {
+              return (Array.isArray(routeRows) ? routeRows : []).filter((row) =>
+                normalizeProofId(row?.proofId) && Number(row?.unloadingState) !== 2,
+              );
+            }`;
+          const activeTo = `  function activeRows(routeRows) {
+              return (Array.isArray(routeRows) ? routeRows : []).filter((row) => {
+                if (!normalizeProofId(row?.proofId) || Number(row?.unloadingState) === 2)
+                  return false;
+                const attendance = String(normalizeAttendance(row?.attendanceType) || "")
+                  .trim()
+                  .toLowerCase();
+                return (
+                  attendance === "ปลายทาง" ||
+                  attendance === "จุดดรอป" ||
+                  attendance === "destination" ||
+                  attendance === "drop" ||
+                  attendance === "drop point"
+                );
+              });
+            }`;
+          if (!runtime.includes(activeFrom)) throw new Error('activeRows anchor missing');
+          runtime = runtime.replace(activeFrom, activeTo);
+
+          const missingFrom = `      const missing = missingActive(state, routes);
+                if (missing > 0) state.busCacheMisses += missing;
+                else state.busCacheHits += 1;
+            
+                const backgroundDue =
+                  missing > 0 ||
+                  now() - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS;`;
+          const missingTo = `      const activeKeys = new Set(routes.map(cacheKey).filter(Boolean));
+                const missingKeys = [...activeKeys].filter((key) => !state.cache.has(key));
+                const newlyMissing = missingKeys.some(
+                  (key) => !state.previousActiveKeys.has(key),
+                );
+                state.previousActiveKeys = activeKeys;
+                const missing = missingKeys.length;
+                if (missing > 0) state.busCacheMisses += missing;
+                else state.busCacheHits += 1;
+            
+                const backgroundDue =
+                  newlyMissing ||
+                  now() - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS;`;
+          if (!runtime.includes(missingFrom)) throw new Error('background anchor missing');
+          runtime = runtime.replace(missingFrom, missingTo);
+
+          const testAnchor = `test("cross-midnight active route adds at most yesterday page 1; completed route does not", async () => {`;
+          const insert = `test("origin routes never enter BusTime active scope or force yesterday hot reads", async () => {
+            const h = harness({
+              fetchHandler: async () => response({ total: 50, items: [item("P-DST")] }),
+            });
+            const routes = [
+              {
+                proofId: "P-ORG",
+                attendanceType: "ต้นทาง",
+                unloadingState: 0,
+                estimatedArrivalAt: "2026-09-12T14:00:00.000Z",
+              },
+              {
+                proofId: "P-DST",
+                attendanceType: "ปลายทาง",
+                unloadingState: 0,
+                estimatedArrivalAt: "2026-09-13T01:00:00.000Z",
+              },
+              {
+                proofId: "P-DROP-DONE",
+                attendanceType: "จุดดรอป",
+                unloadingState: 2,
+                estimatedArrivalAt: "2026-09-12T15:00:00.000Z",
+              },
+            ];
+            await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+            assert.deepEqual(h.calls.map((call) => call.day), ["2026-09-13"]);
+            assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
+          });
+          
+          test("persistent deep-page misses respect 12s background cadence while a newly active proof gets immediate priority", async () => {
+            const h = harness({
+              fetchHandler: async ({ page }) => page === 1
+                ? response({ total: 300, items: [item("P1")] })
+                : response({ total: 300, items: [item(`P${page}`)] }),
+            });
+            await h.lane.readBusTimeData(
+              h.env,
+              "NE1",
+              undefined,
+              [{ proofId: "P2", attendanceType: "ปลายทาง", unloadingState: 0 }],
+            );
+            assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
+            h.advance(4000);
+            await h.lane.readBusTimeData(
+              h.env,
+              "NE1",
+              undefined,
+              [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }],
+            );
+            assert.deepEqual(h.calls.slice(-2).map((call) => call.page), [1, 3]);
+            const callsAfterNewActive = h.calls.length;
+            h.advance(4000);
+            await h.lane.readBusTimeData(
+              h.env,
+              "NE1",
+              undefined,
+              [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }],
+            );
+            assert.equal(h.calls.length, callsAfterNewActive + 1, "persistent miss must not force background every 4s");
+            h.advance(8000);
+            await h.lane.readBusTimeData(
+              h.env,
+              "NE1",
+              undefined,
+              [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }],
+            );
+            assert.equal(h.calls.length, callsAfterNewActive + 3, "12s background cadence must still reconcile deep pages");
+          });
+          
+          `;
+          if (!tests.includes(testAnchor)) throw new Error('test insertion anchor missing');
+          tests = tests.replace(testAnchor, insert + testAnchor);
+
+          fs.writeFileSync(runtimePath, runtime);
+          fs.writeFileSync(testPath, tests);
+          NODE
+          node --check .github/dev-tools/bus-time-hot-lane-v14-runtime.mjs
+          node --check .github/dev-tools/bus-time-hot-lane-v14.test.mjs
+          node --test .github/dev-tools/bus-time-hot-lane-v14.test.mjs
+      - name: Commit authored fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/dev-tools/bus-time-hot-lane-v14-runtime.mjs .github/dev-tools/bus-time-hot-lane-v14.test.mjs
+          git diff --cached --check
+          git commit -m "fix(dev): scope BusTime hot lane to active inbound routes"
+          git push origin HEAD:fix/bus-time-active-scope-latency

@@ -21,7 +21,7 @@ jobs:
           node-version: 22
       - name: Apply guarded authoritative HUB catalog patch
         run: python3 .github/dev-tools/patch-browser-authoritative-hub-catalog-v5.py
-      - name: Validate canonical DEV Worker
+      - name: Validate canonical DEV Worker and staging composition
         working-directory: worker
         run: |
           npm ci
@@ -29,6 +29,8 @@ jobs:
           node --check src/index.js
           grep -F 'BROWSER_HUB_CATALOG_AUTH_V1' src/index.js
           grep -F 'upstreamMsCalls: 0' src/index.js
+          node ../.github/dev-tools/patch-ms-connector-adoption.mjs /tmp/catalog-anchor-check.js 2>/dev/null && exit 99 || true
+          node --test ../.github/dev-tools/ms-completion-burst-truth.test.mjs
       - name: Validate Browser Worker
         working-directory: cloudflare-browser-test
         run: |
@@ -47,10 +49,12 @@ jobs:
           b=Path('cloudflare-browser-test/src/index.js').read_text()
           assert 'connectorHubCatalog' in w
           assert 'tursoWrites: 0, upstreamMsCalls: 0' in w
+          assert 'if (action === "connectorSync") return ok(await connectorSync(body, env));\n  const actor = await verify(body.token, env);' in w
           block=b.split('// BROWSER_AUTHORITATIVE_HUB_CATALOG_V5',1)[1].split('async function saveToMain',1)[0]
           assert 'EA2' not in block and 'NE1' not in block
           assert 'expirationTtl: HUB_CATALOG_LEASE_SECONDS' in block
           assert 'action: "connectorHubCatalog"' in block
+          print('CONNECTOR_ADOPTION_ANCHOR=PASS')
           print('AUTHORITATIVE_HUB_CATALOG_GENERIC=PASS')
           print('CATALOG_REFRESH_MAX=1_PER_HOUR')
           print('CATALOG_MS_POLLING_ADDED=0')

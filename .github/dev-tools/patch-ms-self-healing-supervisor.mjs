@@ -28,7 +28,7 @@ export function patchMsSelfHealingSupervisor(source) {
   output = replaceOnce(
     output,
     `    this.lastSourceAt = 0;\n    this.originManifest = new OriginManifestCoordinator(ctx, env);`,
-    `    this.lastSourceAt = 0;\n    this.repairLoaded = false;\n    this.repair = { state: "unknown", failures: 0, nextRetryAt: 0, code: "", message: "", changedAt: "" };\n    this.originManifest = new OriginManifestCoordinator(ctx, env);`,
+    `    this.repairLoaded = false;\n    this.repair = { state: "unknown", failures: 0, nextRetryAt: 0, code: "", message: "", changedAt: "" };\n    this.lastSourceAt = 0;\n    this.originManifest = new OriginManifestCoordinator(ctx, env);`,
     "coordinator repair state",
   );
 
@@ -53,7 +53,7 @@ export function patchMsSelfHealingSupervisor(source) {
   output = replaceOnce(
     output,
     `    const task = runMsRefresh(this.env, branch)\n      .then((result) => {\n        this.lastResult = result;\n        this.lastSourceAt = Date.now();\n        this.recentUntil = Date.now() + MS_SYNC_TTL;\n        return result;\n      })`,
-    `    const task = runMsRefresh(this.env, branch)\n      .then(async (result) => {\n        this.lastResult = result;\n        this.lastSourceAt = Date.now();\n        this.recentUntil = Date.now() + MS_SYNC_TTL;\n        await this.recordRepairResult(result, this.lastSourceAt);\n        return { ...result, repair: this.repairView(this.lastSourceAt) };\n      })`,
+    `    const task = runMsRefresh(this.env, branch)\n      .then((result) => {\n        this.lastResult = result;\n        this.lastSourceAt = Date.now();\n        this.recentUntil = Date.now() + MS_SYNC_TTL;\n        return result;\n      })\n      .then(async (result) => {\n        const repairAt = this.lastSourceAt || Date.now();\n        await this.recordRepairResult(result, repairAt);\n        return { ...result, repair: this.repairView(repairAt) };\n      })`,
     "record repair outcome",
   );
 

@@ -326,6 +326,8 @@ async function post(body, env) {
   const action = String(body.action || "");
   if (action === "login") return ok(await login(body, env));
   if (action === "completeMsPairing") return ok(await completeMsPairing(body, env));
+  // BROWSER_HUB_CATALOG_AUTH_V1: connector-authenticated, read-only HUB discovery for Browser TEST.
+  if (action === "connectorHubCatalog") return ok(await connectorHubCatalog(body, env));
   if (action === "connectorSync") return ok(await connectorSync(body, env));
   const actor = await verify(body.token, env);
   if (action === "import") return ok(await importRows(body, actor, env));
@@ -2189,6 +2191,23 @@ async function completeMsPairing(body, env) {
   ]);
   await refreshMsIfStale(env, { username: "MS_QR", role: "admin", branches: ["*"] }, row.hub);
   return { ...result, connectorToken };
+}
+
+// BROWSER_HUB_CATALOG_AUTH_V1
+// Called at most once/hour by Browser cron. It never calls MS and never writes Turso.
+async function connectorHubCatalog(body, env) {
+  const hub = text(body.hub, 80).toUpperCase();
+  const tokenHash = await sha256(text(body.connectorToken, 500));
+  const row = await env.DB.prepare(
+    "SELECT hub FROM ms_connector_tokens WHERE hub=? AND token_hash=? AND active=1",
+  ).bind(hub, tokenHash).first();
+  if (!row) fail("ตัวเชื่อมต่อไม่ถูกต้อง", "INVALID_CONNECTOR", 401);
+  const hubs = [...new Set((await knownMsBranches(env)).map((value) => text(value, 80).toUpperCase()).filter(Boolean))].sort();
+  return {
+    hub,
+    hubs,
+    quota: { tursoStatementsMax: 2, tursoWrites: 0, upstreamMsCalls: 0 },
+  };
 }
 
 async function connectorSync(body, env) {

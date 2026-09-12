@@ -4,6 +4,23 @@ import {
   readTbrShadowReport,
   tbrShadowPage,
 } from "./tbr-shadow.js";
+// TBR_INTELLIGENCE_V1: Browser-KV-only rolling intelligence; no extra MS polling and no Turso writes.
+import {
+  readTbrIntelligenceReport,
+  recordTbrRepairEvent,
+  shouldAttemptTbrAutoRepair,
+  shouldUpdateTbrIntelligence,
+  tbrIntelligencePage,
+  updateTbrIntelligence,
+} from "./tbr-intelligence.js";
+
+// TBR_INTELLIGENCE_BOOTSTRAP_V2: one KV write at most on a new Intelligence state. Existing Shadow records are
+// backfilled idempotently so the dashboard never shows zero samples while confirmed Shadow rows exist.
+async function ensureTbrIntelligenceReport(env, hub, shadow) {
+  const current = await readTbrIntelligenceReport(env, hub, shadow);
+  if (current?.createdAt) return current;
+  return updateTbrIntelligence(env, hub, shadow, { bootstrap: true }, {}, { now: Date.now() });
+}
 import {
   handleConnectionErrorRequest,
   recordConnectionErrorKv,
@@ -30,15 +47,22 @@ export default {
     if (url.pathname === "/") return page(url);
     if (url.pathname === "/api/config")
       return reply({ ok: true, pinConfigured: Boolean(env.TEST_PIN) });
-    // TBR_SHADOW_REPORT_V1: KV-only readout for the hidden TBR shadow test.
-    if (url.pathname === "/shadow-tbr")
-      return tbrShadowPage(
-        await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),
-      );
+    // TBR_SHADOW_REPORT_V1: upgraded in-place to TBR Intelligence while keeping the read-only Shadow API.
+    if (url.pathname === "/shadow-tbr") {
+      const hub = url.searchParams.get("hub") || "NE1";
+      const shadow = await readTbrShadowReport(env, hub);
+      const intelligence = await ensureTbrIntelligenceReport(env, hub, shadow);
+      return tbrIntelligencePage(shadow, intelligence);
+    }
     if (url.pathname === "/api/shadow-tbr")
       return reply(
         await readTbrShadowReport(env, url.searchParams.get("hub") || "NE1"),
       );
+    if (url.pathname === "/api/tbr-intelligence") {
+      const hub = url.searchParams.get("hub") || "NE1";
+      const shadow = await readTbrShadowReport(env, hub);
+      return reply(await ensureTbrIntelligenceReport(env, hub, shadow));
+    }
     // MS_CONNECTION_ERROR_KV_V1: HAR/MS connection errors live in Browser KV only.
     if (url.pathname === "/api/connection-error")
       return handleConnectionErrorRequest(request, env, url);
@@ -176,6 +200,44 @@ async function mainApiFetch(env, payload) {
     body: JSON.stringify(payload),
   });
   return env.DEV_API.fetch(request);
+}
+
+// BROWSER_AUTHORITATIVE_HUB_CATALOG_V5
+// Refresh only from Browser cron, at most once/hour. This adds no MS polling and no Turso writes.
+const HUB_CATALOG_LEASE_KEY = "hub-catalog:lease:v1";
+const HUB_CATALOG_LEASE_SECONDS = 60 * 60;
+function normalizeCatalogHub(value) {
+  const hub = String(value || "").trim().toUpperCase();
+  return /^[A-Z0-9_-]{2,20}$/.test(hub) ? hub : "";
+}
+async function refreshAuthoritativeHubCatalog(env, storedHubs = []) {
+  if (!env?.STATE || !env?.DEV_API?.fetch) return storedHubs;
+  if (await env.STATE.get(HUB_CATALOG_LEASE_KEY)) return storedHubs;
+
+  const current = [...new Set((Array.isArray(storedHubs) ? storedHubs : []).map(normalizeCatalogHub).filter(Boolean))].sort();
+  for (const hub of current) {
+    const connectorToken = await env.STATE.get(`connector:${hub}`);
+    if (!connectorToken) continue;
+    try {
+      const response = await mainApiFetch(env, {
+        action: "connectorHubCatalog",
+        hub,
+        connectorToken,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 401 && payload?.code === "INVALID_CONNECTOR") continue;
+      if (!response.ok || payload?.ok === false) continue;
+      const discovered = (Array.isArray(payload?.data?.hubs) ? payload.data.hubs : [])
+        .map(normalizeCatalogHub)
+        .filter(Boolean);
+      const merged = [...new Set([...current, ...discovered])].sort();
+      if (JSON.stringify(merged) !== JSON.stringify(current))
+        await env.STATE.put("hubs", JSON.stringify(merged));
+      await env.STATE.put(HUB_CATALOG_LEASE_KEY, new Date().toISOString(), { expirationTtl: HUB_CATALOG_LEASE_SECONDS });
+      return merged;
+    } catch {}
+  }
+  return current;
 }
 
 async function saveToMain(env, pairing, hub, credentials) {
@@ -406,7 +468,8 @@ export async function sendConnectorSync(env, hub, connectorToken, nowMs = Date.n
 }
 
 async function syncConfiguredHubs(env) {
-  const storedHubs = JSON.parse((await env.STATE.get("hubs")) || "[]");
+  let storedHubs = JSON.parse((await env.STATE.get("hubs")) || "[]");
+  storedHubs = await refreshAuthoritativeHubCatalog(env, storedHubs);
   const bootstrapHubs = env.CONNECTOR_BOOTSTRAP_SECRET
     ? String(env.CONNECTOR_BOOTSTRAP_HUBS || "NE1")
         .split(",")
@@ -419,11 +482,12 @@ async function syncConfiguredHubs(env) {
     hubs.map(async (hub) => {
       try {
         let connectorToken = await env.STATE.get(`connector:${hub}`);
-        if (!connectorToken && env.CONNECTOR_BOOTSTRAP_SECRET) {
+        if (!connectorToken && env.CONNECTOR_BOOTSTRAP_SECRET && shouldAttemptTbrAutoRepair()) {
           const candidate = randomConnectorToken();
           if (await registerConnectorForCutover(env, hub, candidate)) {
             connectorToken = candidate;
             await rememberConnector(env, hub, connectorToken);
+            await recordTbrRepairEvent(env, hub, "connector_bootstrap");
           }
         }
         if (!connectorToken) return;
@@ -433,9 +497,11 @@ async function syncConfiguredHubs(env) {
         if (
           response.status === 401 &&
           env.CONNECTOR_BOOTSTRAP_SECRET &&
-          payload?.code === "INVALID_CONNECTOR"
+          payload?.code === "INVALID_CONNECTOR" &&
+          shouldAttemptTbrAutoRepair()
         ) {
           if (await registerConnectorForCutover(env, hub, connectorToken)) {
+            await recordTbrRepairEvent(env, hub, "connector_reregister");
             response = await sendConnectorSync(env, hub, connectorToken);
             payload = await response.clone().json().catch(() => ({}));
           }
@@ -467,6 +533,15 @@ async function syncConfiguredHubs(env) {
                 message: payload?.message || `DEV Shadow ตอบกลับ HTTP ${response.status}`,
               });
             }
+            if (shouldUpdateTbrIntelligence(failedShadow)) {
+              const shadowReport = await readTbrShadowReport(env, hub);
+              await updateTbrIntelligence(env, hub, shadowReport, failedShadow, {}, {
+                sourceError: {
+                  code: String(payload?.code || `HTTP_${response.status}`),
+                  message: String(payload?.message || "source unavailable"),
+                },
+              });
+            }
           } catch (healthError) {
             console.error(JSON.stringify({ event: "tbr_shadow_failure_health_error", hub, message: healthError?.message || String(healthError) }));
           }
@@ -484,6 +559,10 @@ async function syncConfiguredHubs(env) {
               console.warn(JSON.stringify({ event: "tbr_route_snapshot_fallback", hub, cachedAt: payload?.data?.routeFallbackAt || "" }));
             } else if (observedShadow?.sourceChanged || observedShadow?.routeFallbackChanged) {
               await recordConnectionRecoveredKv(env, { hub });
+            }
+            if (shouldUpdateTbrIntelligence(observedShadow)) {
+              const shadowReport = await readTbrShadowReport(env, hub);
+              await updateTbrIntelligence(env, hub, shadowReport, observedShadow, payload?.data || {});
             }
           } catch (shadowError) {
             console.error(

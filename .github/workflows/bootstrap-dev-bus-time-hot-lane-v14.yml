@@ -1,0 +1,93 @@
+name: Bootstrap DEV BusTime Hot Lane V14
+
+# One-time safe installer. It only writes DEV staging files to main.
+# The follow-up commit lands under .github/dev-tools/**, which triggers the
+# existing Deploy Worker DEV workflow. No production workflow is called here.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/bootstrap-dev-bus-time-hot-lane-v14.yml
+      - .github/bus-hot-lane-v14/**
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-dev-bus-time-hot-lane-v14
+  cancel-in-progress: false
+
+jobs:
+  install-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Verify bootstrap source syntax
+        run: |
+          node --check .github/bus-hot-lane-v14/patch-bus-time-hot-lane-v14.mjs
+          node --check .github/bus-hot-lane-v14/bus-time-hot-lane-v14-runtime.mjs
+          node --check .github/bus-hot-lane-v14/bus-time-hot-lane-v14.test.mjs
+          node --check .github/bus-hot-lane-v14/install.mjs
+
+      - name: Test hot-lane transform and behavior before installation
+        run: node --test .github/bus-hot-lane-v14/bus-time-hot-lane-v14.test.mjs
+
+      - name: Install into normal DEV staging path
+        run: node .github/bus-hot-lane-v14/install.mjs
+
+      - name: Verify installed syntax and focused BusTime tests
+        run: |
+          node --check .github/dev-tools/patch-bus-time-hot-lane-v14.mjs
+          node --check .github/dev-tools/bus-time-hot-lane-v14-runtime.mjs
+          node --check .github/dev-tools/stage-dev-runtime.mjs
+          node --test .github/dev-tools/bus-time-hot-lane-v14.test.mjs
+
+      - name: Run worker regression
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+          node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
+          node --test ../.github/dev-tools/realtime-quota-hardening.test.mjs
+          node --test ../.github/dev-tools/ms-multiclient-dedupe.test.mjs
+          node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
+          node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
+
+      - name: Audit diff before commit
+        run: |
+          git status --short
+          git diff --check
+          git diff -- .github/dev-tools/stage-dev-runtime.mjs \
+            .github/dev-tools/patch-bus-time-hot-lane-v14.mjs \
+            .github/dev-tools/bus-time-hot-lane-v14-runtime.mjs \
+            .github/dev-tools/bus-time-hot-lane-v14.test.mjs
+          ! git diff --name-only | grep -E '(^|/)(production|prod)(/|\.|$)' || {
+            echo "Production-looking path changed; refusing bootstrap commit."
+            exit 1
+          }
+
+      - name: Commit tested DEV staging change
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/dev-tools/stage-dev-runtime.mjs \
+            .github/dev-tools/patch-bus-time-hot-lane-v14.mjs \
+            .github/dev-tools/bus-time-hot-lane-v14-runtime.mjs \
+            .github/dev-tools/bus-time-hot-lane-v14.test.mjs
+          if git diff --cached --quiet; then
+            echo "BUS_TIME_HOT_LANE_V14_ALREADY_INSTALLED=1"
+            exit 0
+          fi
+          git commit -m 'fix(dev): add 4s BusTime hot lane'
+          git push origin HEAD:main

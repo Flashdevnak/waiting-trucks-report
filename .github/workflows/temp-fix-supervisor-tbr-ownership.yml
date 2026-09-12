@@ -1,4 +1,4 @@
-name: TEMP DEV Confirmed Session Classifier Fix
+name: TEMP DEV Repair State Probe
 
 on:
   push:
@@ -7,59 +7,20 @@ on:
       - .github/workflows/temp-fix-supervisor-tbr-ownership.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fix:
+  probe:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Require confirmed session expiry before NEED_LOGIN
+      - name: Probe sanitized DEV repair state (read-only)
         shell: bash
         run: |
           set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
-
-          patch = Path('.github/dev-tools/patch-ms-self-healing-supervisor.mjs')
-          text = patch.read_text()
-
-          old_policy = 'const MS_REPAIR_POLICY_VERSION = 2;'
-          if text.count(old_policy) != 1:
-              raise SystemExit(f'policy anchor count={text.count(old_policy)}')
-          text = text.replace(old_policy, 'const MS_REPAIR_POLICY_VERSION = 3;', 1)
-
-          old = r'''const terminal = resultCode === "MS_CREDENTIAL_ERROR" || /MS_SESSION_EXPIRED|INVALID_SESSION|401|403|หมดอายุ/i.test(\`\${resultCode} \${message}\`);\n    const terminalCode = resultCode === "MS_CREDENTIAL_ERROR" ? "MS_CREDENTIAL_ERROR" : "MS_SESSION_EXPIRED";\n    const failures = Math.min(20, Number(this.repair?.failures || 0) + 1);'''
-          new = r'''const previousFailures = Number(this.repair?.failures || 0);\n    const failures = Math.min(20, previousFailures + 1);\n    const credentialTerminal = resultCode === "MS_CREDENTIAL_ERROR" || resultCode === "MS_NOT_CONFIGURED";\n    const authSignal = resultCode === "MS_SESSION_EXPIRED" || resultCode === "INVALID_SESSION";\n    const confirmedAuthTerminal = authSignal && this.repair?.code === resultCode && previousFailures >= 1;\n    const terminal = credentialTerminal || confirmedAuthTerminal;\n    const terminalCode = resultCode || "MS_SESSION_EXPIRED";'''
-          if text.count(old) != 1:
-              raise SystemExit(f'classifier anchor count={text.count(old)}')
-          text = text.replace(old, new, 1)
-          patch.write_text(text)
-
-          test = Path('.github/dev-tools/ms-self-healing-supervisor.test.mjs')
-          t = test.read_text()
-          old_test = '''test("transient failures back off and expired sessions stop retrying for an hour", () => {\n  assert.match(staged, /\\[60_000, 2 \\* 60_000, 5 \\* 60_000, 10 \\* 60_000\\]/);\n  assert.match(staged, /MS_REPAIR_SESSION_COOLDOWN_MS = 60 \\* 60_000/);\n  assert.match(staged, /terminal \\? "needs_login" : "retry_wait"/);\n  assert.match(staged, /nextRetryAt: nowMs \\+ delay/);\n  assert.match(staged, /repairPaused: true/);\n});'''
-          new_test = '''test("transient failures back off and session expiry requires confirmation before needs_login", () => {\n  assert.match(staged, /MS_REPAIR_POLICY_VERSION = 3/);\n  assert.match(staged, /\\[60_000, 2 \\* 60_000, 5 \\* 60_000, 10 \\* 60_000\\]/);\n  assert.match(staged, /MS_REPAIR_SESSION_COOLDOWN_MS = 60 \\* 60_000/);\n  assert.match(staged, /const authSignal = resultCode === "MS_SESSION_EXPIRED" \\|\\| resultCode === "INVALID_SESSION"/);\n  assert.match(staged, /const confirmedAuthTerminal = authSignal && this\\.repair\\?\\.code === resultCode && previousFailures >= 1/);\n  assert.match(staged, /const terminal = credentialTerminal \\|\\| confirmedAuthTerminal/);\n  assert.match(staged, /terminal \\? "needs_login" : "retry_wait"/);\n  assert.match(staged, /nextRetryAt: nowMs \\+ delay/);\n  assert.match(staged, /repairPaused: true/);\n});'''
-          if t.count(old_test) != 1:
-              raise SystemExit(f'test anchor count={t.count(old_test)}')
-          test.write_text(t.replace(old_test, new_test, 1))
-          PY
-          node --check .github/dev-tools/patch-ms-self-healing-supervisor.mjs
-          node --test .github/dev-tools/ms-self-healing-supervisor.test.mjs
-          node --test .github/dev-tools/stage-dev-runtime.test.mjs
-          git diff --check
-          git diff -- .github/dev-tools/patch-ms-self-healing-supervisor.mjs .github/dev-tools/ms-self-healing-supervisor.test.mjs
-      - name: Commit safe DEV classifier fix
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/dev-tools/patch-ms-self-healing-supervisor.mjs .github/dev-tools/ms-self-healing-supervisor.test.mjs
-          git commit -m "fix(dev): require confirmed MS session expiry"
-          git push origin HEAD:main
+          base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api?action=msRepairHealthDev&branch='
+          for hub in EA2 NE1; do
+            echo "=== ${hub} ==="
+            body="$(curl -fsS --retry 2 --connect-timeout 10 "${base}${hub}")"
+            echo "$body" | jq -c '{ok:.ok,branch:.data.branch,repair:.data.repair,quota:.data.quota}'
+            echo "$body" | jq -e '.ok == true and .data.quota.tursoReads == 0 and .data.quota.tursoWrites == 0 and .data.quota.upstreamCalls == 0' >/dev/null
+          done

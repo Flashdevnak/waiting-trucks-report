@@ -1,6 +1,6 @@
 name: DEV NE1 Queue Readonly
 
-# One-shot DEV acceptance helper. Reads accepted Turso cache + Browser KV shadow only.
+# One-shot DEV acceptance helper. Reads accepted Turso cache + Browser KV shadow report only.
 # No MS/Route/TBR upstream request and no Turso/KV write.
 on:
   push:
@@ -16,8 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       TURSO_ORG: flashdevnak
       TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
     steps:
@@ -26,9 +24,9 @@ jobs:
           node <<'NODE'
           const hub = 'NE1';
           const tursoPlatform = process.env.TURSO_PLATFORM_API_TOKEN;
-          const cfToken = process.env.CLOUDFLARE_API_TOKEN;
-          const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
-          if (!tursoPlatform || !cfToken || !cfAccount) throw new Error('required DEV read credentials missing');
+          if (!tursoPlatform) throw new Error('required DEV Turso read credential missing');
+          const now = Date.now();
+          const MAX_QUEUE_AGE_MS = 12 * 60 * 60 * 1000;
 
           const normalizeAttendance = (value) => {
             const text = String(value || '').trim();
@@ -84,27 +82,21 @@ jobs:
           } catch {}
           const inbound = parsed.filter(isInbound);
           const current = inbound
-            .filter((row) => usedAt(row) !== null && Number(row?.unloadingState) !== 2 && !row?.actualDepartureAt && !row?.queueCancelledAt)
+            .filter((row) => {
+              const used = usedAt(row);
+              return used !== null && now - used <= MAX_QUEUE_AGE_MS && now - used >= -5 * 60 * 1000 && Number(row?.unloadingState) !== 2 && !row?.actualDepartureAt && !row?.queueCancelledAt;
+            })
             .sort((a,b) => (usedAt(a) ?? 0) - (usedAt(b) ?? 0))
             .map(safeRow);
           console.log(`NE1_ACCEPTED_CACHE_SYNCED_AT=${cache.synced_at || ''}`);
           console.log(`NE1_ACCEPTED_ROUTE_ROWS=${parsed.length}`);
           console.log(`NE1_CURRENT_INBOUND_ROUTE_QUEUE=${JSON.stringify(current)}`);
 
-          const cfHeaders = { Authorization:`Bearer ${cfToken}`, 'Content-Type':'application/json' };
-          const settingsResp = await fetch(`https://api.cloudflare.com/client/v4/accounts/${cfAccount}/workers/scripts/waiting-trucks-ms-browser-test/settings`, { headers:cfHeaders });
-          const settingsJson = await settingsResp.json();
-          if (!settingsResp.ok || settingsJson.success === false) throw new Error('Cloudflare settings read failed');
-          const bindings = Array.isArray(settingsJson.result?.bindings) ? settingsJson.result.bindings : [];
-          const state = bindings.find((x) => x.name === 'STATE' && x.type === 'kv_namespace');
-          if (!state?.namespace_id) throw new Error('Browser STATE KV binding missing');
-          const key = encodeURIComponent(`shadow:tbr:v1:${hub}`);
-          const shadowResp = await fetch(`https://api.cloudflare.com/client/v4/accounts/${cfAccount}/storage/kv/namespaces/${state.namespace_id}/values/${key}`, { headers:{ Authorization:`Bearer ${cfToken}` } });
-          const shadowText = shadowResp.status === 404 ? '' : await shadowResp.text();
-          if (!shadowResp.ok && shadowResp.status !== 404) throw new Error(`Browser KV read HTTP ${shadowResp.status}`);
-          let shadow = {};
-          try { shadow = JSON.parse(shadowText || '{}'); } catch {}
-          const records = Object.values(shadow.records || {}).map((item) => ({
+          const shadowResp = await fetch(`https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev/api/shadow-tbr?hub=${hub}`, { headers:{ accept:'application/json' }, cache:'no-store' });
+          const shadow = await shadowResp.json().catch(() => ({}));
+          if (!shadowResp.ok || shadow?.ok === false) throw new Error(`TBR shadow read HTTP ${shadowResp.status}`);
+          const records = (Array.isArray(shadow.records) ? shadow.records : []).map((item) => ({
+            id: String(item?.id || ''),
             attendanceType: normalizeAttendance(item?.attendanceType),
             status: String(item?.status || ''),
             tbrAt: String(item?.tbrAt || ''),
@@ -114,6 +106,7 @@ jobs:
             leadMinutes: item?.leadMinutes ?? null,
           })).filter((row) => ['ปลายทาง','จุดดรอป'].includes(row.attendanceType));
           const tbrFirstNow = records.filter((row) => row.tbrAt && !row.routeActualArrivalAt && row.status === 'pending');
+          console.log(`NE1_TBR_SHADOW_OBSERVER_STATUS=${shadow.observerStatus || ''}`);
           console.log(`NE1_TBR_SHADOW_LAST_ATTEMPT_AT=${shadow.lastAttemptAt || ''}`);
           console.log(`NE1_TBR_SHADOW_SOURCE_AVAILABLE=${String(shadow.sourceAvailable ?? '')}`);
           console.log(`NE1_TBR_SHADOW_FEED_COUNT=${shadow.feedCount ?? ''}`);

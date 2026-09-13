@@ -41,24 +41,25 @@ jobs:
               const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
               return (item?.response?.result?.rows||[]).map(row=>row.map(decode));
             }
-            const history=await query(`SELECT hub,snapshot_at,event_type,synced_by,CAST(COALESCE(json_extract(payload_json,'$.unloadingState'),-1) AS INTEGER),COALESCE(json_extract(payload_json,'$.scheduleUnloadingStartedAt'),''),COALESCE(json_extract(payload_json,'$.scheduleUnloadingCompletedAt'),''),COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),''),COALESCE(json_extract(payload_json,'$.completionSource'),''),COALESCE(json_extract(payload_json,'$.scheduleTbrArrivalAt'),''),COALESCE(json_extract(payload_json,'$.actualArrivalAt'),'') FROM ms_route_history WHERE route_id=? AND json_valid(payload_json)=1 ORDER BY snapshot_at DESC LIMIT 30`,[target]);
+            const history=await query(`SELECT hub,route_id,snapshot_at,event_type,synced_by,CAST(COALESCE(json_extract(payload_json,'$.unloadingState'),-1) AS INTEGER),COALESCE(json_extract(payload_json,'$.scheduleUnloadingStartedAt'),''),COALESCE(json_extract(payload_json,'$.scheduleUnloadingCompletedAt'),''),COALESCE(json_extract(payload_json,'$.unloadingCompletedAt'),''),COALESCE(json_extract(payload_json,'$.completionSource'),''),COALESCE(json_extract(payload_json,'$.scheduleTbrArrivalAt'),''),COALESCE(json_extract(payload_json,'$.actualArrivalAt'),'') FROM ms_route_history WHERE json_valid(payload_json)=1 AND (route_id=? OR json_extract(payload_json,'$.proofId')=?) ORDER BY snapshot_at DESC LIMIT 30`,[target,target]);
             console.log(`TARGET_HISTORY_ROWS=${history.length}`);
             let previous=null,transitionAt='';
             for(const row of [...history].reverse()){
-              const state=Number(row[4]);
-              if(state===1&&previous===0&&!transitionAt) transitionAt=String(row[1]||'');
+              const state=Number(row[5]);
+              if(state===1&&previous===0&&!transitionAt) transitionAt=String(row[2]||'');
               previous=state;
             }
             const latest=history[0]||[];
             console.log(`TARGET_HUB=${latest[0]||'-'}`);
-            console.log(`TARGET_LATEST_AT=${latest[1]||'-'}`);
-            console.log(`TARGET_STATE=${latest[4]??'-'}`);
-            console.log(`TARGET_SCHEDULE_START=${latest[5]||'-'}`);
-            console.log(`TARGET_SCHEDULE_END=${latest[6]||'-'}`);
-            console.log(`TARGET_COMPLETION=${latest[7]||'-'}`);
-            console.log(`TARGET_COMPLETION_SOURCE=${latest[8]||'-'}`);
-            console.log(`TARGET_TBR=${latest[9]||'-'}`);
-            console.log(`TARGET_ROUTE_ARRIVAL=${latest[10]||'-'}`);
+            console.log(`TARGET_INTERNAL_ROUTE_PRESENT=${latest[1]?'YES':'NO'}`);
+            console.log(`TARGET_LATEST_AT=${latest[2]||'-'}`);
+            console.log(`TARGET_STATE=${latest[5]??'-'}`);
+            console.log(`TARGET_SCHEDULE_START=${latest[6]||'-'}`);
+            console.log(`TARGET_SCHEDULE_END=${latest[7]||'-'}`);
+            console.log(`TARGET_COMPLETION=${latest[8]||'-'}`);
+            console.log(`TARGET_COMPLETION_SOURCE=${latest[9]||'-'}`);
+            console.log(`TARGET_TBR=${latest[10]||'-'}`);
+            console.log(`TARGET_ROUTE_ARRIVAL=${latest[11]||'-'}`);
             console.log(`TARGET_OBSERVED_0_TO_1=${transitionAt||'-'}`);
             console.log('TARGET_TURSO_READS=1');
             console.log('TARGET_TURSO_WRITES=0');

@@ -10,7 +10,7 @@ const FRONTEND_MARKER = "const preserveObservedCompletion =";
 const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
 const SLA_EARLIEST_MARKER = "MS_SLA_EARLIEST_ARRIVAL_V2";
 const TRUSTED_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
-const DROP_CARD_FLOW_MARKER = "MS_DROP_QUEUE_FLOW_V2";
+const DROP_CARD_FLOW_MARKER = "MS_DROP_QUEUE_FLOW_V3";
 const QUEUE_SOURCE_LABEL_MARKER = "MS_QUEUE_SOURCE_LABEL_V1";
 
 export function patchMsCompletedViewStabilityFrontend(source) {
@@ -96,7 +96,7 @@ export function patchMsCompletedViewStabilityFrontend(source) {
     output = replaceUnique(
       output,
       `  if (Number(row.unloadingState) === 2)\n    return {`,
-      `  // ${DROP_CARD_FLOW_MARKER}: schedule-management timing can advance the\n  // visible unload stage while Route is stale; actualDepartureAt alone releases\n  // a drop trip into the final จุดดรอป card.\n  if (\n    Number(row.unloadingState) === 2 ||\n    ((isDestination(row) || isDrop(row)) &&\n      Boolean(parseDate(row.scheduleUnloadingCompletedAt)))\n  )\n    return {`,
+      `  // ${DROP_CARD_FLOW_MARKER}: schedule-management timing can advance the\n  // visible unload stage while Route is stale. A completed Drop remains in the\n  // active unloading flow until Route supplies actualDepartureAt.\n  const unloadFinished =\n    Number(row.unloadingState) === 2 ||\n    ((isDestination(row) || isDrop(row)) &&\n      Boolean(parseDate(row.scheduleUnloadingCompletedAt)));\n  if (isDrop(row) && parseDate(row.actualDepartureAt))\n    return {\n      key: "drop",\n      label: "ปล่อยรถจากจุดดรอปแล้ว",\n      color: "#167044",\n      arrivalLate,\n      departureLate: false,\n    };\n  const dropAwaitingRelease = isDrop(row) && unloadFinished;\n  if (dropAwaitingRelease)\n    return {\n      key: "unloading",\n      label: "ลงของเสร็จ · รอปล่อยรถ",\n      color: "#9a6700",\n      arrivalLate,\n      departureLate: false,\n    };\n  if (unloadFinished)\n    return {`,
       "schedule completion advances visible unload state while Route is stale",
     );
 
@@ -117,15 +117,15 @@ export function patchMsCompletedViewStabilityFrontend(source) {
     output = replaceUnique(
       output,
       `        (state.summary === "waiting" && isDestination(row) && status.key === "arrived") ||\n        (state.summary === "unloading" && isDestination(row) && status.key === "unloading") ||\n        (state.summary === "completed" && isCompletedToday(row)) ||`,
-      `        (state.summary === "waiting" &&\n          (isDestination(row) || isDrop(row)) &&\n          queue.active &&\n          !queue.started &&\n          !queue.awaitingRelease) ||\n        (state.summary === "unloading" &&\n          (isDestination(row) || isDrop(row)) &&\n          queue.active &&\n          queue.started &&\n          !queue.awaitingRelease) ||\n        (state.summary === "completed" && isDestination(row) && isCompletedToday(row)) ||`,
-      "drop joins waiting and unloading cards before unload completion",
+      `        (state.summary === "waiting" &&\n          (isDestination(row) || isDrop(row)) &&\n          queue.active &&\n          !queue.started) ||\n        (state.summary === "unloading" &&\n          (isDestination(row) || isDrop(row)) &&\n          queue.active &&\n          queue.started) ||\n        (state.summary === "completed" && isDestination(row) && isCompletedToday(row)) ||`,
+      "drop remains in unloading through completion until real release",
     );
 
     output = replaceUnique(
       output,
       `        (state.summary === "origin" && isOrigin(row) && !queue.done && !queue.cancelled) ||`,
-      `        (state.summary === "origin" &&\n          ((isOrigin(row) && !queue.done && !queue.cancelled) ||\n            (isDrop(row) && queue.active && queue.awaitingRelease))) ||`,
-      "unloaded drop waits in release card until actual departure",
+      `        (state.summary === "origin" &&\n          isOrigin(row) &&\n          !queue.done &&\n          !queue.cancelled) ||`,
+      "origin card stays origin-only while Drop awaits release in unloading",
     );
 
     output = replaceUnique(
@@ -152,8 +152,8 @@ export function patchMsCompletedViewStabilityFrontend(source) {
     output = replaceUnique(
       output,
       `    const key = routeState(row).key;\n    const queue = queueInfo(row);\n    if (queue.active && isDestination(row) && key === "arrived") counts.waiting++;\n    if (queue.active && isDestination(row) && key === "unloading") counts.unloading++;\n    if (queue.active && isOrigin(row)) counts.origin++;\n    if (queue.active && isDrop(row)) counts.drop++;\n    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`,
-      `    const queue = queueInfo(row);\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      !queue.started &&\n      !queue.awaitingRelease\n    ) counts.waiting++;\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      queue.started &&\n      !queue.awaitingRelease\n    ) counts.unloading++;\n    if (\n      (queue.active && isOrigin(row)) ||\n      (queue.active && isDrop(row) && queue.awaitingRelease)\n    ) counts.origin++;\n    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`,
-      "summary counts follow wait unload release-wait then released-drop flow",
+      `    const queue = queueInfo(row);\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      !queue.started\n    ) counts.waiting++;\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      queue.started\n    ) counts.unloading++;\n    if (queue.active && isOrigin(row)) counts.origin++;\n    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`,
+      "summary counts keep unreleased Drop in active unloading",
     );
 
     output = replaceUnique(

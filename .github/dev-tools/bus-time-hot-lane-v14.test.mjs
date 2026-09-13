@@ -177,7 +177,16 @@ test("staging replaces the legacy 60s guard, adds the runtime module, and keeps 
   try {
     assert.match(staged.source, /BUS_TIME_HOT_LANE_V14/);
     assert.match(staged.source, /createBusTimeHotLane/);
-    assert.match(staged.source, /readBusTimeData\(env, branch, liveSourceDays\(\), routeRows\)/);
+    assert.match(staged.source, /readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\)/);
+    const refresh = staged.source.slice(
+      staged.source.indexOf("async function runMsRefresh(env, branch) {"),
+      staged.source.indexOf("\nasync function readMsLiveCache(", staged.source.indexOf("async function runMsRefresh(env, branch) {")),
+    );
+    assert.equal(
+      (refresh.match(/^\s*readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\),$/gm) || []).length,
+      1,
+      "one shared refresh must execute exactly one BusTime read",
+    );
     assert.match(staged.source, /busDiagnostics: busTimeDiagnostics\(hub\)/);
     assert.doesNotMatch(staged.source, /BUS_TIME_SOURCE_TTL_MS\s*=\s*60\s*\*\s*1000/);
     assert.equal(fs.existsSync(staged.runtime), true);

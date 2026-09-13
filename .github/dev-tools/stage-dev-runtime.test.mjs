@@ -65,7 +65,8 @@ test("upper metrics use today or the explicitly searched date range", () => {
   assert.match(first, /if \(state\.archiveLoaded\) return state\.archiveRows/);
   assert.match(first, /state\.currentRows\.filter\(\(row\) => rowBusinessDay\(row\) === today\)/);
   assert.match(first, /metricRows\.filter\(\(row\) => isCompletedAccumulated\(row\)\)\.length/);
-  assert.match(first, /state\.summary === "completed" && isCompletedToday\(row\)/);
+  assert.match(first, /state\.summary === "completed" && isDestination\(row\) && isCompletedToday\(row\)/);
+  assert.match(first, /state\.summary === "drop" &&[\s\S]*queue\.released/);
   assert.match(first, /return rowBusinessDay\(row\) === bangkokDateValue\(now\);/);
 });
 

@@ -236,11 +236,20 @@ test("stale, too-future, and already-completed TBR rows cannot resurrect queue m
       inboundBus({ proofId: "OLD001", scheduleTbrArrivalAt: old }),
       inboundBus({ proofId: "FUTURE001", scheduleTbrArrivalAt: future }),
       inboundBus({ proofId: "DONE001", scheduleUnloadingCompletedAt: RECENT_TBR }),
+      inboundBus({
+        proofId: "DROP-DONE001",
+        attendanceType: "จุดดรอป",
+        scheduleUnloadingCompletedAt: RECENT_TBR,
+      }),
     ]),
     "NE1",
     NOW,
   );
-  assert.equal(rows.length, 0);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].proofId, "DROP-DONE001");
+  assert.equal(rows[0].attendanceType, "จุดดรอป");
+  assert.equal(rows[0].actualDepartureAt, "");
+  assert.equal(rows[0].scheduleUnloadingCompletedAt, RECENT_TBR);
 });
 
 test("TBR shadow feed preserves attendance identity and dedupes only exact proof+attendance", () => {

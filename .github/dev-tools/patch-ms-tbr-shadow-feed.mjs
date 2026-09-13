@@ -9,10 +9,14 @@ function replaceUnique(output, from, to, label) {
 const MARKER = "MS_TBR_SHADOW_FEED_V1";
 const FIRST_SOURCE_MARKER = "MS_QUEUE_FIRST_SOURCE_V1";
 const INDEPENDENT_MARKER = "MS_FIRST_SOURCE_INDEPENDENT_V1";
+const DROP_COMPLETION_HOLD_MARKER = "MS_DROP_TBR_COMPLETION_HOLD_V1";
 
 export function patchMsTbrShadowFeedWorker(source) {
   let output = String(source || "");
-  if (output.includes(INDEPENDENT_MARKER)) return output;
+  if (
+    output.includes(INDEPENDENT_MARKER) &&
+    output.includes(DROP_COMPLETION_HOLD_MARKER)
+  ) return output;
 
   if (!output.includes(MARKER)) {
     output = replaceUnique(
@@ -37,6 +41,15 @@ export function patchMsTbrShadowFeedWorker(source) {
     );
   } else if (!output.includes(FIRST_SOURCE_MARKER)) {
     throw new Error("MS TBR shadow V1 already exists without first-source queue marker");
+  }
+
+  if (!output.includes(DROP_COMPLETION_HOLD_MARKER)) {
+    output = replaceUnique(
+      output,
+      `    if (Number.isFinite(Date.parse(String(item?.scheduleUnloadingCompletedAt || "")))) continue;`,
+      `    // ${DROP_COMPLETION_HOLD_MARKER}: Schedule completion closes a\n    // Destination, but Drop stays active until Route-owned actualDepartureAt.\n    if (\n      attendanceType === "ปลายทาง" &&\n      Number.isFinite(Date.parse(String(item?.scheduleUnloadingCompletedAt || "")))\n    ) continue;`,
+      "keep TBR-first Drop after schedule completion until Route release",
+    );
   }
 
   // ${INDEPENDENT_MARKER}: Route credential/source failure must not prevent the

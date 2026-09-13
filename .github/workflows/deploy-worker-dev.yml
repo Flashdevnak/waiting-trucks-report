@@ -61,6 +61,7 @@ jobs:
       - run: node --test tests/dev-archive-patch.test.mjs
       - run: node --test ../.github/dev-tools/ms-realtime-recovery.test.mjs
       - run: node --test ../.github/dev-tools/ms-summary-filter.test.mjs
+      - run: node --test ../.github/dev-tools/ms-drop-lifecycle.test.mjs
       - run: node --test ../.github/dev-tools/ms-multiclient-dedupe.test.mjs
       - run: node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
       - run: node --test ../.github/dev-tools/ms-self-healing-supervisor.test.mjs

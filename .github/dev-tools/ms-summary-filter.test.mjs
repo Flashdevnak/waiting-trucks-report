@@ -7,11 +7,12 @@ const root = new URL("../../", import.meta.url);
 const source = await readFile(new URL("ms.js", root), "utf8");
 const staged = stageFrontend(source);
 
-test("active inbound summary cards include Drop in waiting/unloading and hold completed Drop for release", () => {
+test("active inbound summary cards keep completed-but-unreleased Drop in unloading", () => {
   assert.match(staged, /state\.queue = "queue";\s*el\("queue-filter"\)\.value = "queue";/);
-  assert.match(staged, /state\.summary === "waiting" &&\s*\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*queue\.active &&\s*!queue\.started &&\s*!queue\.awaitingRelease/);
-  assert.match(staged, /state\.summary === "unloading" &&\s*\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*queue\.active &&\s*queue\.started &&\s*!queue\.awaitingRelease/);
-  assert.match(staged, /state\.summary === "origin" &&\s*\(\(isOrigin\(row\) && !queue\.done && !queue\.cancelled\) \|\|\s*\(isDrop\(row\) && queue\.active && queue\.awaitingRelease\)\)/);
+  assert.match(staged, /state\.summary === "waiting" &&\s*\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*queue\.active &&\s*!queue\.started/);
+  assert.match(staged, /state\.summary === "unloading" &&\s*\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*queue\.active &&\s*queue\.started/);
+  assert.match(staged, /state\.summary === "origin" &&\s*isOrigin\(row\) &&\s*!queue\.done &&\s*!queue\.cancelled/);
+  assert.doesNotMatch(staged, /state\.summary === "origin"[^;]+queue\.awaitingRelease/);
   assert.match(staged, /state\.summary === "drop" &&\s*isDrop\(row\) &&\s*queue\.done &&\s*queue\.released &&\s*!queue\.cancelled/);
 });
 

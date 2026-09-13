@@ -255,8 +255,11 @@ if (!refreshSection.includes("Promise.all([\n      readMsRoutes(credentials),") 
   throw new Error(`${MARKER}: Route and BusTime are not started in the same shared refresh`);
 if (refreshSection.includes("const rows = await readMsRoutes(credentials);"))
   throw new Error(`${MARKER}: sequential Route latency gate survived`);
-if ((refreshSection.match(/readBusTimeData\(/g) || []).length !== 2)
-  throw new Error(`${MARKER}: expected one live BusTime call plus one explanatory reference`);
+const liveBusCalls = (
+  refreshSection.match(/^\s*readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\),$/gm) || []
+).length;
+if (liveBusCalls !== 1)
+  throw new Error(`${MARKER}: expected exactly one executable shared BusTime call; got ${liveBusCalls}`);
 if (!source.includes("busDiagnostics: busTimeDiagnostics(hub)"))
   throw new Error(`${MARKER}: diagnostics exposure missing`);
 if (!source.includes('action === "connectorBusDiagnostics"'))

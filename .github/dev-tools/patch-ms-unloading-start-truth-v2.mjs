@@ -1,6 +1,7 @@
 const FRONTEND_MARKER = "MS_UNLOADING_OPERATIONAL_TRUTH_V2";
 const WORKER_MARKER = "MS_UNLOADING_START_TRUTH_V2";
 const PARSER_MARKER = "MS_SCHEDULE_UNLOAD_TIMING_PARSE_V2";
+const UPPER_METRIC_MARKER = "MS_UNLOADING_METRIC_TRUTH_V3";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -12,14 +13,15 @@ function replaceUnique(output, from, to, label) {
 
 export function patchMsUnloadingStartTruthFrontend(source) {
   let output = String(source || "");
-  if (output.includes(FRONTEND_MARKER)) return output;
+  if (output.includes(FRONTEND_MARKER) && output.includes(UPPER_METRIC_MARKER)) return output;
 
-  const start = output.indexOf("function inboundOperationalStage(row, now = new Date()) {");
-  const end = output.indexOf("\nfunction renderFilterSummary(rows) {", start);
-  if (start < 0 || end <= start)
-    throw new Error("MS unloading start truth V2 patch failed: inbound operational stage");
+  if (!output.includes(FRONTEND_MARKER)) {
+    const start = output.indexOf("function inboundOperationalStage(row, now = new Date()) {");
+    const end = output.indexOf("\nfunction renderFilterSummary(rows) {", start);
+    if (start < 0 || end <= start)
+      throw new Error("MS unloading start truth V2 patch failed: inbound operational stage");
 
-  const block = `// ${FRONTEND_MARKER}: Route unloadingState is the primary operational truth.
+    const block = `// ${FRONTEND_MARKER}: Route unloadingState is the primary operational truth.
 // KIT/TBR/arrival decides waiting admission only. Schedule S is a fallback when
 // Route status is stale, and Drop remains active until Route release/departure.
 function inboundOperationalStage(row, now = new Date()) {
@@ -57,17 +59,52 @@ function inboundOperationalStage(row, now = new Date()) {
   return "waiting";
 }
 `;
-  output = output.slice(0, start) + block + output.slice(end);
+    output = output.slice(0, start) + block + output.slice(end);
 
-  output = replaceUnique(
-    output,
-    `  const start = parseDate(row.scheduleUnloadingStartedAt);`,
-    `  const start =
+    output = replaceUnique(
+      output,
+      `  const start = parseDate(row.scheduleUnloadingStartedAt);`,
+      `  const start =
     parseDate(row.scheduleUnloadingStartedAt) ||
     parseDate(row.unloadingStartedAt) ||
     parseDate(row.unloadingStartedObservedAt);`,
-    "unload timing start truth fallback",
-  );
+      "unload timing start truth fallback",
+    );
+  }
+
+  if (!output.includes(UPPER_METRIC_MARKER)) {
+    output = replaceUnique(
+      output,
+      `  setMetric(
+    "metric-unloading",
+    active.filter((row) => Number(row.unloadingState) === 1).length,
+  );`,
+      `  // ${UPPER_METRIC_MARKER}: the upper and lower \"กำลังลงรถ\" cards must
+  // count the exact same operational truth. Do not re-gate Route state 1 or
+  // Schedule-start/Drop-awaiting-release through queueInfo.active.
+  setMetric(
+    "metric-unloading",
+    state.currentRows.filter(
+      (row) => inboundOperationalStage(row) === "unloading",
+    ).length,
+  );`,
+      "upper unloading metric shares operational stage truth",
+    );
+
+    output = replaceUnique(
+      output,
+      `  if (metric === "unloading") {
+    state.queue = "queue";
+    state.status = "unloading";
+  }`,
+      `  if (metric === "unloading") {
+    state.queue = "queue";
+    state.status = "all";
+    state.summary = "unloading";
+  }`,
+      "upper unloading metric opens the shared operational view",
+    );
+  }
 
   return output;
 }

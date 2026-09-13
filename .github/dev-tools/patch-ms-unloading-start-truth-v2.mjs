@@ -133,7 +133,7 @@ function patchOperationalExpiry12hFrontend(source) {
 
   for (const expected of [
     EXPIRY_MARKER,
-    'label: drop\\n      ? "จุดดรอป · หมดอายุ 12 ชม."',
+    '"จุดดรอป · หมดอายุ 12 ชม."',
     '"ลงรถเกินเวลา · หมดอายุ 12 ชม."',
     'queue.cancelled || queue.expired',
     'completedTodayWithExpired12hRows()',

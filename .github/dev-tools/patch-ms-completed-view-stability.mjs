@@ -57,15 +57,8 @@ export function patchMsCompletedViewStabilityFrontend(source) {
   if (!output.includes(DROP_CARD_FLOW_MARKER)) {
     output = replaceUnique(
       output,
-      `const DAILY_COUNTS_MARKER_RUNTIME = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";`,
-      `const DAILY_COUNTS_MARKER_RUNTIME = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";\n// ${DROP_CARD_FLOW_MARKER}: Drop trips share the inbound queue until the vehicle\n// is actually released. Flow: รอลงรถ -> กำลังลงรถ -> จุดดรอป.`,
-      "drop queue flow runtime marker",
-    );
-
-    output = replaceUnique(
-      output,
       `    started =\n      (isDestination(row) || isDrop(row)) &&\n      (unloadingState === 1 || unloadingState === 2),`,
-      `    started =\n      (isDestination(row) || isDrop(row)) &&\n      (unloadingState === 1 ||\n        unloadingState === 2 ||\n        Boolean(parseDate(row.scheduleUnloadingStartedAt))),`,
+      `    // ${DROP_CARD_FLOW_MARKER}: Drop trips share the inbound queue until the\n    // vehicle is actually released. Flow: รอลงรถ -> กำลังลงรถ -> จุดดรอป.\n    started =\n      (isDestination(row) || isDrop(row)) &&\n      (unloadingState === 1 ||\n        unloadingState === 2 ||\n        Boolean(parseDate(row.scheduleUnloadingStartedAt))),`,
       "schedule start moves inbound trip to unloading even when Route is stale",
     );
 

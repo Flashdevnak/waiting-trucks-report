@@ -25,54 +25,66 @@ jobs:
           git status --short
           git log -5 --oneline
 
-      - name: Wire unloading truth into normal DEV staging
+      - name: Wire forward fix into DEV staging
         run: |
           python3 <<'PY'
           from pathlib import Path
 
+          patch = Path('.github/dev-tools/patch-ms-unloading-start-truth-v2.mjs')
+          text = patch.read_text(encoding='utf-8')
+          old = '''    `    start = parseDate(row.scheduleUnloadingStartedAt),`,
+    `    start =
+      parseDate(row.scheduleUnloadingStartedAt) ||
+      parseDate(row.unloadingStartedAt) ||
+      parseDate(row.unloadingStartedObservedAt),`,'''
+          new = '''    `  const start = parseDate(row.scheduleUnloadingStartedAt);`,
+    `  const start =
+    parseDate(row.scheduleUnloadingStartedAt) ||
+    parseDate(row.unloadingStartedAt) ||
+    parseDate(row.unloadingStartedObservedAt);`,'''
+          if old not in text: raise SystemExit('unloadTiming anchor patch source missing')
+          text = text.replace(old, new, 1)
+          patch.write_text(text, encoding='utf-8')
+
           stage = Path('.github/dev-tools/stage-dev-runtime.mjs')
           text = stage.read_text(encoding='utf-8')
           import_anchor = 'import { patchMsLiveResilienceFrontend } from "./patch-ms-live-resilience.mjs";\n'
-          import_new = import_anchor + 'import {\n  patchMsUnloadingStartTruthFrontend,\n  patchMsUnloadingStartTruthWorker,\n} from "./patch-ms-unloading-start-truth-v2.mjs";\n'
+          import_block = import_anchor + 'import {\n  patchMsUnloadingStartTruthFrontend,\n  patchMsUnloadingStartTruthWorker,\n} from "./patch-ms-unloading-start-truth-v2.mjs";\n'
           if 'patchMsUnloadingStartTruthFrontend' not in text:
               if import_anchor not in text: raise SystemExit('stage import anchor missing')
-              text = text.replace(import_anchor, import_new, 1)
+              text = text.replace(import_anchor, import_block, 1)
           front_anchor = '  output = patchMsLiveResilienceFrontend(output);\n'
           front_call = '  output = patchMsUnloadingStartTruthFrontend(output);\n'
           if front_call not in text:
-              if front_anchor not in text: raise SystemExit('stage frontend anchor missing')
+              if front_anchor not in text: raise SystemExit('frontend staging anchor missing')
               text = text.replace(front_anchor, front_anchor + front_call, 1)
           worker_anchor = '  output = patchMsScheduleCompletionV4(output);\n'
           worker_call = '  output = patchMsUnloadingStartTruthWorker(output);\n'
           if worker_call not in text:
-              if worker_anchor not in text: raise SystemExit('stage worker anchor missing')
+              if worker_anchor not in text: raise SystemExit('worker staging anchor missing')
               text = text.replace(worker_anchor, worker_anchor + worker_call, 1)
           stage.write_text(text, encoding='utf-8')
 
-          workflow = Path('.github/workflows/deploy-worker-dev.yml')
-          text = workflow.read_text(encoding='utf-8')
-          anchor = '      - run: node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs\n'
+          deploy = Path('.github/workflows/deploy-worker-dev.yml')
+          text = deploy.read_text(encoding='utf-8')
+          test_anchor = '      - run: node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs\n'
           test_line = '      - run: node --test ../.github/dev-tools/ms-unloading-start-truth-v2.test.mjs\n'
           if test_line not in text:
-              if anchor not in text: raise SystemExit('deploy test anchor missing')
-              text = text.replace(anchor, anchor + test_line, 1)
-          worker_marker = "'MS_SCHEDULE_COMPLETION_TRUTH_V4'"
+              if test_anchor not in text: raise SystemExit('deploy test anchor missing')
+              text = text.replace(test_anchor, test_anchor + test_line, 1)
           if "'MS_UNLOADING_START_TRUTH_V2'" not in text:
-              if worker_marker not in text: raise SystemExit('deploy worker marker anchor missing')
-              text = text.replace(worker_marker, worker_marker + ",'MS_UNLOADING_START_TRUTH_V2'", 1)
-          front_marker = "'MS_UNLOAD_COMPLETION_UI_V1'"
+              text = text.replace("'MS_SCHEDULE_COMPLETION_TRUTH_V4'", "'MS_SCHEDULE_COMPLETION_TRUTH_V4','MS_UNLOADING_START_TRUTH_V2'", 1)
           if "'MS_UNLOADING_OPERATIONAL_TRUTH_V2'" not in text:
-              if front_marker not in text: raise SystemExit('deploy frontend marker anchor missing')
-              text = text.replace(front_marker, front_marker + ",'MS_UNLOADING_OPERATIONAL_TRUTH_V2'", 1)
-          workflow.write_text(text, encoding='utf-8')
+              text = text.replace("'MS_UNLOAD_COMPLETION_UI_V1'", "'MS_UNLOAD_COMPLETION_UI_V1','MS_UNLOADING_OPERATIONAL_TRUTH_V2'", 1)
+          deploy.write_text(text, encoding='utf-8')
 
           for p in [
               '.github/workflows/unloading-timing-readonly-diagnostic.yml',
               '.github/workflows/tmp-target-unloading-timing-readonly.yml',
               '.github/workflows/tmp-fix-unloading-state-v2.yml',
           ]:
-              path = Path(p)
-              if path.exists(): path.unlink()
+              f = Path(p)
+              if f.exists(): f.unlink()
           PY
           git diff --check
           git status --short
@@ -87,7 +99,7 @@ jobs:
           node --test .github/dev-tools/stage-dev-runtime.test.mjs
           node --test .github/dev-tools/ms-quota-safe-live.test.mjs
 
-      - name: Exact staged syntax
+      - name: Exact staged runtime syntax
         run: |
           rm -rf /tmp/unload-v2-assets /tmp/unload-v2-worker
           mkdir -p /tmp/unload-v2-assets /tmp/unload-v2-worker
@@ -101,7 +113,7 @@ jobs:
           grep -q 'MS_SCHEDULE_UNLOAD_TIMING_PARSE_V2' /tmp/unload-v2-worker/src/index.js
           echo 'UNLOADING_STATE_TRUTH_V2_STAGED=PASS'
 
-      - name: Commit safe forward fix
+      - name: Commit and push safe forward fix
         run: |
           git fetch origin main
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"

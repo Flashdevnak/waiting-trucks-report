@@ -2,6 +2,8 @@ const FRONTEND_MARKER = "MS_UNLOADING_OPERATIONAL_TRUTH_V2";
 const WORKER_MARKER = "MS_UNLOADING_START_TRUTH_V2";
 const PARSER_MARKER = "MS_SCHEDULE_UNLOAD_TIMING_PARSE_V2";
 const UPPER_METRIC_MARKER = "MS_UNLOADING_METRIC_TRUTH_V3";
+const HBI_DROP_PHOTO_FRONTEND_MARKER = "HBI_DROP_PHOTO_FRONTEND_V2";
+const HBI_DROP_PHOTO_WORKER_MARKER = "HBI_DROP_PHOTO_WORKER_V2";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -13,7 +15,11 @@ function replaceUnique(output, from, to, label) {
 
 export function patchMsUnloadingStartTruthFrontend(source) {
   let output = String(source || "");
-  if (output.includes(FRONTEND_MARKER) && output.includes(UPPER_METRIC_MARKER)) return output;
+  if (
+    output.includes(FRONTEND_MARKER) &&
+    output.includes(UPPER_METRIC_MARKER) &&
+    output.includes(HBI_DROP_PHOTO_FRONTEND_MARKER)
+  ) return output;
 
   if (!output.includes(FRONTEND_MARKER)) {
     const start = output.indexOf("function inboundOperationalStage(row, now = new Date()) {");
@@ -103,6 +109,25 @@ function inboundOperationalStage(row, now = new Date()) {
     state.summary = "unloading";
   }`,
       "upper unloading metric opens the shared operational view",
+    );
+  }
+
+  if (!output.includes(HBI_DROP_PHOTO_FRONTEND_MARKER)) {
+    output = replaceUnique(
+      output,
+      `// HBI_TRUCK_PHOTO_LAZY_V1: destination only. No URL and no <img> exists before a click.
+function truckPhotoButton(row) {
+  if (!isDestination(row) || !String(row?.proofId || "").trim()) return "";
+  return \`<button type="button" class="truck-photo-toggle" data-truck-photo="\${esc(encodeURIComponent(String(row.proofId).trim()))}">ดูรูปท้ายรถ</button>\`;
+}`,
+      `// HBI_TRUCK_PHOTO_LAZY_V1: click-only. No URL and no <img> exists before a click.
+// ${HBI_DROP_PHOTO_FRONTEND_MARKER}: inbound Destination and Drop share the same
+// proofId photo action, including a Drop that has already been released.
+function truckPhotoButton(row) {
+  if ((!isDestination(row) && !isDrop(row)) || !String(row?.proofId || "").trim()) return "";
+  return \`<button type="button" class="truck-photo-toggle" data-truck-photo="\${esc(encodeURIComponent(String(row.proofId).trim()))}">ดูรูปท้ายรถ</button>\`;
+}`,
+      "allow click-only truck photos on Drop rows",
     );
   }
 
@@ -245,6 +270,19 @@ async function syncMs(body, actor, env) {`,
       unloadingStartedObservedAt: unloadingStartTruth.observedAt,
       unloadingStartSource: unloadingStartTruth.source,`,
     "persist unload start provenance in snapshot/live cache",
+  );
+
+  output = replaceUnique(
+    output,
+    `    if (normalizeMsAttendance(route.attendance_type) !== "ปลายทาง")
+      fail("รูปท้ายรถเปิดได้เฉพาะงานเข้าปลายทาง", "HBI_PHOTOS_DESTINATION_ONLY", 403);`,
+    `    // ${HBI_DROP_PHOTO_WORKER_MARKER}: HBI remains click-only, but both inbound
+    // work types may retrieve the same proofId photo after the route is found.
+    // A released Drop stays eligible; release status does not create an extra read.
+    const photoAttendance = normalizeMsAttendance(route.attendance_type);
+    if (photoAttendance !== "ปลายทาง" && photoAttendance !== "จุดดรอป")
+      fail("รูปท้ายรถเปิดได้เฉพาะงานเข้าปลายทางหรือจุดดรอป", "HBI_PHOTOS_INBOUND_ONLY", 403);`,
+    "allow HBI truck photos for Drop routes",
   );
 
   return output;

@@ -42,12 +42,12 @@ test("DEV staged HBI photos allow Destination and Drop without adding background
   const stagedFront = stageFrontend(front);
   const stagedWorker = stageWorker(worker);
 
-  assert.match(stagedFront, /HBI_DROP_PHOTO_FRONTEND_V2/);
+  assert.match(stagedFront, /HBI_TRUCK_PHOTO_DESTINATION_DROP_V2/);
   const photoButton = stagedFront.slice(
     stagedFront.indexOf("function truckPhotoButton"),
     stagedFront.indexOf("function ensureTruckPhotoDialog"),
   );
-  assert.match(photoButton, /!isDestination\(row\) && !isDrop\(row\)/);
+  assert.match(photoButton, /const photoEligible = isDestination\(row\) \|\| isDrop\(row\)/);
   assert.match(photoButton, /data-truck-photo=/);
 
   assert.match(stagedWorker, /HBI_DROP_PHOTO_WORKER_V2/);

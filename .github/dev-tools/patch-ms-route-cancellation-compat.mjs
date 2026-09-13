@@ -8,6 +8,7 @@ const DESKTOP_WORK_STATUS_ANCHOR =
   `  const workStatus = isDestination(row)\n    ? row.loadStatus || status.label`;
 const FIRST_SOURCE_MARKER = "MS_QUEUE_FIRST_SOURCE_V1";
 const KIT_TBR_CONTRACT_MARKER = "MS_QUEUE_KIT_TBR_CONTRACT_V2";
+const ORIGIN_RELEASE_QUEUE_MARKER = "MS_ORIGIN_RELEASE_QUEUE_V1";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -59,22 +60,22 @@ export function patchMsFirstSourceQueueFrontend(source) {
   output = replaceUnique(
     output,
     `function queueInfo(row, now = new Date()) {\n  const routeArrival = parseDate(row.actualArrivalAt),\n    arrival = routeArrival ? effectiveArrival(row) : null,\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
-    `function queueInfo(row, now = new Date()) {\n  const arrival = queueAdmissionArrival(row),\n    inboundQueue = isDestination(row) || isDrop(row),\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
-    "queue membership uses Route-KIT/TBR and inbound-only contract",
+    `// ${ORIGIN_RELEASE_QUEUE_MARKER}: inbound first-source queue stays KIT/TBR,\n// while Origin keeps its existing Route-only release queue membership.\nfunction queueInfo(row, now = new Date()) {\n  const arrival = queueAdmissionArrival(row),\n    originReleaseQueue = isOrigin(row),\n    inboundQueue = isDestination(row) || isDrop(row) || originReleaseQueue,\n    ageHours = arrival ? (now - arrival) / 36e5 : 0;`,
+    "queue membership keeps inbound first-source plus Route-only origin release",
   );
 
   output = replaceUnique(
     output,
     `    active = Boolean(routeArrival) && !done && !cancelled && ageHours <= 12;`,
     `    active = inboundQueue && Boolean(arrival) && !done && !cancelled && ageHours <= 12;`,
-    "active queue is destination/drop only",
+    "active queue keeps destination/drop and Route-only origin release",
   );
 
   output = replaceUnique(
     output,
     `    expired: Boolean(routeArrival) && !done && !cancelled && ageHours > 12,`,
     `    expired: inboundQueue && Boolean(arrival) && !done && !cancelled && ageHours > 12,`,
-    "expired queue is destination/drop only",
+    "expired queue keeps destination/drop and Route-only origin release",
   );
 
   output = replaceUnique(
@@ -168,6 +169,8 @@ export function patchMsFirstSourceQueueFrontend(source) {
     "drop operation uses the same Route-KIT/TBR time",
   );
 
+  if (!output.includes(ORIGIN_RELEASE_QUEUE_MARKER))
+    throw new Error("MS first-source queue patch failed: Origin release queue marker missing");
   if (output.includes("เวลาเข้าคิวที่ใช้"))
     throw new Error("MS queue KIT/TBR contract failed: duplicate queue-used UI remains");
 

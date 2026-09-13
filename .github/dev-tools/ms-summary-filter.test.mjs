@@ -1,19 +1,161 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 import { stageFrontend } from "./stage-dev-runtime.mjs";
 
 const root = new URL("../../", import.meta.url);
 const source = await readFile(new URL("ms.js", root), "utf8");
 const staged = stageFrontend(source);
 
-test("active inbound summary cards keep completed-but-unreleased Drop in unloading", () => {
-  assert.match(staged, /state\.queue = "queue";\s*el\("queue-filter"\)\.value = "queue";/);
-  assert.match(staged, /state\.summary === "waiting" &&\s*\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*queue\.active &&\s*!queue\.started/);
-  assert.match(staged, /state\.summary === "unloading" &&\s*\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*queue\.active &&\s*queue\.started/);
+function between(text, start, end) {
+  const from = text.indexOf(start);
+  const to = text.indexOf(end, from + start.length);
+  assert.ok(from >= 0 && to > from, `missing staged block ${start}`);
+  return text.slice(from, to);
+}
+
+function loadInboundOperationalStage() {
+  const code = between(
+    staged,
+    "function inboundOperationalStage",
+    "function renderFilterSummary",
+  );
+  const parseDate = (value) => {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+  const isDestination = (row) => row.attendanceType === "ปลายทาง";
+  const isDrop = (row) => row.attendanceType === "จุดดรอป";
+  const queueAdmissionArrival = (row) => {
+    if (!isDestination(row) && !isDrop(row)) return parseDate(row.actualArrivalAt);
+    return [row.actualArrivalAt, row.scheduleTbrArrivalAt]
+      .map(parseDate)
+      .filter(Boolean)
+      .sort((a, b) => a - b)[0] || null;
+  };
+  const context = {
+    Date,
+    parseDate,
+    isDestination,
+    isDrop,
+    queueAdmissionArrival,
+    queueInfo(row) {
+      return { cancelled: Boolean(row.queueCancelledAt) };
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(`${code};globalThis.fn=inboundOperationalStage`, context);
+  return context.fn;
+}
+
+test("lower waiting/unloading cards follow operational state, not shared queue bookkeeping", () => {
+  assert.match(staged, /MS_OPERATIONAL_CARD_STATE_V1/);
+  assert.match(
+    staged,
+    /state\.summary === "waiting" &&\s*inboundOperationalStage\(row\) === "waiting"/,
+  );
+  assert.match(
+    staged,
+    /state\.summary === "unloading" &&\s*inboundOperationalStage\(row\) === "unloading"/,
+  );
+  assert.match(staged, /const operationalStage = inboundOperationalStage\(row\)/);
+  assert.match(staged, /if \(operationalStage === "waiting"\) counts\.waiting\+\+/);
+  assert.match(staged, /if \(operationalStage === "unloading"\) counts\.unloading\+\+/);
+  assert.match(
+    staged,
+    /const operationalSummaryMatch =\s*!ignoreSummary &&\s*\(state\.summary === "waiting" \|\| state\.summary === "unloading"\) &&\s*inboundOperationalStage\(row\) !== "none"/,
+  );
+  assert.doesNotMatch(
+    staged,
+    /state\.summary === "unloading" &&\s*\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*queue\.active &&\s*queue\.started/,
+  );
   assert.match(staged, /state\.summary === "origin" &&\s*isOrigin\(row\) &&\s*!queue\.done &&\s*!queue\.cancelled/);
   assert.doesNotMatch(staged, /state\.summary === "origin"[^;]+queue\.awaitingRelease/);
   assert.match(staged, /state\.summary === "drop" &&\s*isDrop\(row\) &&\s*queue\.done &&\s*queue\.released &&\s*!queue\.cancelled/);
+});
+
+test("one truck moves waiting to unloading to completed without the unloading card dropping to zero", () => {
+  const operationalStage = loadInboundOperationalStage();
+  const now = new Date("2026-09-13T10:30:00.000Z");
+  const base = {
+    attendanceType: "ปลายทาง",
+    actualArrivalAt: "2026-09-13T10:00:00.000Z",
+  };
+
+  assert.equal(operationalStage({ ...base, unloadingState: 0 }, now), "waiting");
+  assert.equal(operationalStage({ ...base, unloadingState: 1 }, now), "unloading");
+  assert.equal(operationalStage({ ...base, unloadingState: 2 }, now), "none");
+
+  assert.equal(
+    operationalStage(
+      {
+        ...base,
+        unloadingState: 0,
+        scheduleUnloadingStartedAt: "2026-09-13T10:20:00.000Z",
+      },
+      now,
+    ),
+    "unloading",
+  );
+});
+
+test("TBR-first, Drop awaiting release, Origin and cancellation keep their existing contracts", () => {
+  const operationalStage = loadInboundOperationalStage();
+  const now = new Date("2026-09-13T10:30:00.000Z");
+
+  assert.equal(
+    operationalStage(
+      {
+        attendanceType: "ปลายทาง",
+        scheduleTbrArrivalAt: "2026-09-13T10:00:00.000Z",
+        unloadingState: 1,
+      },
+      now,
+    ),
+    "unloading",
+  );
+
+  const drop = {
+    attendanceType: "จุดดรอป",
+    scheduleTbrArrivalAt: "2026-09-13T10:00:00.000Z",
+    unloadingState: 2,
+    scheduleUnloadingCompletedAt: "2026-09-13T10:25:00.000Z",
+  };
+  assert.equal(operationalStage(drop, now), "unloading");
+  assert.equal(
+    operationalStage(
+      { ...drop, actualDepartureAt: "2026-09-13T10:27:00.000Z" },
+      now,
+    ),
+    "none",
+  );
+
+  assert.equal(
+    operationalStage(
+      {
+        attendanceType: "ต้นทาง",
+        actualArrivalAt: "2026-09-13T10:00:00.000Z",
+        unloadingState: 1,
+      },
+      now,
+    ),
+    "none",
+  );
+
+  assert.equal(
+    operationalStage(
+      {
+        attendanceType: "ปลายทาง",
+        actualArrivalAt: "2026-09-13T10:00:00.000Z",
+        unloadingState: 1,
+        queueCancelledAt: "2026-09-13T10:10:00.000Z",
+      },
+      now,
+    ),
+    "none",
+  );
 });
 
 test("completed card displays the authoritative daily Destination rows represented by its total", () => {

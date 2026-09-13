@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 const MARKER = "LIVE_RESILIENCE_V1";
 const FRESHNESS_MARKER = "MS_FRESHNESS_TRUTH_V1";
 const TRUCK_PHOTO_SCOPE_MARKER = "HBI_TRUCK_PHOTO_DESTINATION_DROP_V2";
+const OPERATIONAL_CARD_STATE_MARKER = "MS_OPERATIONAL_CARD_STATE_V1";
 const PROMOTED_API = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 
 function replaceUnique(output, from, to, label) {
@@ -98,6 +99,122 @@ function truckPhotoButton(row) {
   return output;
 }
 
+function patchOperationalCardState(source) {
+  let output = String(source || "");
+  if (output.includes(OPERATIONAL_CARD_STATE_MARKER)) return output;
+
+  output = replaceUnique(
+    output,
+    `function renderFilterSummary(rows) {`,
+    `// ${OPERATIONAL_CARD_STATE_MARKER}: lower operational cards follow the actual
+// unload lifecycle, not shared queue bookkeeping. KIT/TBR decides only admission
+// time/source; Origin release remains separate. A Drop stays unloading after its
+// unload completes until Route supplies the real departure/release timestamp.
+function inboundOperationalStage(row, now = new Date()) {
+  if (!isDestination(row) && !isDrop(row)) return "none";
+
+  const queue = queueInfo(row);
+  if (queue.cancelled) return "none";
+
+  const arrival = queueAdmissionArrival(row);
+  if (!arrival) return "none";
+  const ageHours = (now - arrival) / 36e5;
+  if (ageHours > 12) return "none";
+
+  const unloadingState = Number(row.unloadingState);
+  const hasStarted =
+    unloadingState === 1 ||
+    unloadingState === 2 ||
+    Boolean(parseDate(row.scheduleUnloadingStartedAt)) ||
+    Boolean(parseDate(row.scheduleUnloadingCompletedAt));
+  const hasFinished =
+    unloadingState === 2 ||
+    Boolean(parseDate(row.scheduleUnloadingCompletedAt));
+  const released = Boolean(parseDate(row.actualDepartureAt));
+
+  if (isDrop(row)) {
+    if (released) return "none";
+    return hasStarted || hasFinished ? "unloading" : "waiting";
+  }
+
+  if (hasFinished) return "none";
+  return hasStarted ? "unloading" : "waiting";
+}
+
+function renderFilterSummary(rows) {`,
+    "add independent inbound operational stage",
+  );
+
+  output = replaceUnique(
+    output,
+    `        (state.summary === "waiting" &&
+          (isDestination(row) || isDrop(row)) &&
+          queue.active &&
+          !queue.started) ||
+        (state.summary === "unloading" &&
+          (isDestination(row) || isDrop(row)) &&
+          queue.active &&
+          queue.started) ||`,
+    `        (state.summary === "waiting" &&
+          inboundOperationalStage(row) === "waiting") ||
+        (state.summary === "unloading" &&
+          inboundOperationalStage(row) === "unloading") ||`,
+    "summary filtering follows operational stage",
+  );
+
+  output = replaceUnique(
+    output,
+    `      const queueMatch =
+        (!ignoreSummary &&
+          state.summary === "drop" &&
+          queue.done &&
+          queue.released) ||
+        queueMode === "all" ||
+        (queueMode === "completed" && (queue.done || queue.expired)) ||
+        (queueMode === "queue" && queue.active);`,
+    `      const operationalSummaryMatch =
+        !ignoreSummary &&
+        (state.summary === "waiting" || state.summary === "unloading") &&
+        inboundOperationalStage(row) !== "none";
+      const queueMatch =
+        operationalSummaryMatch ||
+        (!ignoreSummary &&
+          state.summary === "drop" &&
+          queue.done &&
+          queue.released) ||
+        queueMode === "all" ||
+        (queueMode === "completed" && (queue.done || queue.expired)) ||
+        (queueMode === "queue" && queue.active);`,
+    "selected operational cards do not disappear through queue bookkeeping",
+  );
+
+  output = replaceUnique(
+    output,
+    `    const queue = queueInfo(row);
+    if (
+      queue.active &&
+      (isDestination(row) || isDrop(row)) &&
+      !queue.started
+    ) counts.waiting++;
+    if (
+      queue.active &&
+      (isDestination(row) || isDrop(row)) &&
+      queue.started
+    ) counts.unloading++;
+    if (queue.active && isOrigin(row)) counts.origin++;
+    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`,
+    `    const queue = queueInfo(row);
+    const operationalStage = inboundOperationalStage(row);
+    if (operationalStage === "waiting") counts.waiting++;
+    if (operationalStage === "unloading") counts.unloading++;
+    if (queue.active && isOrigin(row)) counts.origin++;
+    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`,
+    "summary counts follow unload lifecycle independently",
+  );
+
+  return output;
+}
+
 export function patchMsLiveResilienceFrontend(source) {
   let output = String(source || "");
 
@@ -141,7 +258,9 @@ export function patchMsLiveResilienceFrontend(source) {
     output = replaceUnique(output, oldApiGet, newApiGet, "harden GET JSON transport");
   }
 
-  return patchTruckPhotoScope(patchFreshnessTruth(output));
+  return patchOperationalCardState(
+    patchTruckPhotoScope(patchFreshnessTruth(output)),
+  );
 }
 
 const invokedPath = process.argv[1]

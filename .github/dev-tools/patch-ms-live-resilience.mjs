@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const MARKER = "LIVE_RESILIENCE_V1";
 const FRESHNESS_MARKER = "MS_FRESHNESS_TRUTH_V1";
+const TRUCK_PHOTO_SCOPE_MARKER = "HBI_TRUCK_PHOTO_DESTINATION_DROP_V2";
 const PROMOTED_API = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 
 function replaceUnique(output, from, to, label) {
@@ -72,6 +73,31 @@ function renderFreshness() {
   return output;
 }
 
+function patchTruckPhotoScope(source) {
+  let output = String(source || "");
+  if (output.includes(TRUCK_PHOTO_SCOPE_MARKER)) return output;
+
+  output = replaceUnique(
+    output,
+    `// HBI_TRUCK_PHOTO_LAZY_V1: destination only. No URL and no <img> exists before a click.
+function truckPhotoButton(row) {
+  if (!isDestination(row) || !String(row?.proofId || "").trim()) return "";
+  return \`<button type="button" class="truck-photo-toggle" data-truck-photo="\${esc(encodeURIComponent(String(row.proofId).trim()))}">ดูรูปท้ายรถ</button>\`;
+}`,
+    `// HBI_TRUCK_PHOTO_LAZY_V1 / ${TRUCK_PHOTO_SCOPE_MARKER}: Destination and Drop
+// can open the same on-demand HBI photo viewer. No HBI/OSS URL or <img> exists
+// before a user click, so expanding eligibility adds zero background polling.
+function truckPhotoButton(row) {
+  const photoEligible = isDestination(row) || isDrop(row);
+  if (!photoEligible || !String(row?.proofId || "").trim()) return "";
+  return \`<button type="button" class="truck-photo-toggle" data-truck-photo="\${esc(encodeURIComponent(String(row.proofId).trim()))}">ดูรูปท้ายรถ</button>\`;
+}`,
+    "allow Destination and Drop to use the existing click-only rear-photo viewer",
+  );
+
+  return output;
+}
+
 export function patchMsLiveResilienceFrontend(source) {
   let output = String(source || "");
 
@@ -109,12 +135,13 @@ export function patchMsLiveResilienceFrontend(source) {
 
     const oldApiGet = `async function apiGet(action, params = {}) {\n  const url = new URL(CONFIG.apiUrl);\n  url.searchParams.set("action", action);\n  url.searchParams.set("token", state.auth?.token || "");\n  Object.entries(params).forEach(\n    ([key, value]) =>\n      value !== undefined && value !== "" && url.searchParams.set(key, value),\n  );\n  const controller = new AbortController();\n  const timeout = setTimeout(\n    () => controller.abort(),\n    CONFIG.requestTimeoutMs,\n  );\n  let json;\n  try {\n    const response = await fetch(url, {\n      cache: "no-store",\n      signal: controller.signal,\n    });\n    json = await response.json();\n  } catch (error) {\n    if (error?.name === "AbortError") {\n      const timeoutError = new Error(\n        "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",\n      );\n      timeoutError.code = "REQUEST_TIMEOUT";\n      throw timeoutError;\n    }\n    throw error;\n  } finally {\n    clearTimeout(timeout);\n  }\n  if (json.ok === false) {\n    const error = new Error(json.message);\n    error.code = json.code || "SERVER_ERROR";\n    if (error.code === "INVALID_SESSION") invalidateSession();\n    throw error;\n  }\n  return json.data ?? json;\n}`;
 
-    const newApiGet = `async function apiGet(action, params = {}) {\n  const url = new URL(CONFIG.apiUrl);\n  url.searchParams.set("action", action);\n  url.searchParams.set("token", state.auth?.token || "");\n  Object.entries(params).forEach(\n    ([key, value]) =>\n      value !== undefined && value !== "" && url.searchParams.set(key, value),\n  );\n\n  let lastError = null;\n  for (let attempt = 1; attempt <= 3; attempt++) {\n    const controller = new AbortController();\n    const timeout = setTimeout(\n      () => controller.abort(),\n      CONFIG.requestTimeoutMs,\n    );\n    try {\n      const response = await fetch(url, {\n        cache: "no-store",\n        signal: controller.signal,\n        headers: { Accept: "application/json" },\n      });\n      const contentType = String(response.headers.get("content-type") || "").toLowerCase();\n      const text = await response.text();\n      let json;\n      try {\n        json = JSON.parse(text);\n      } catch {\n        const error = new Error(\n          contentType.includes("text/html") || /^\\s*</.test(text)\n            ? "API ตอบกลับเป็นหน้าเว็บแทน JSON · ระบบกำลังลองใหม่"\n            : "API ตอบกลับข้อมูลไม่สมบูรณ์ · ระบบกำลังลองใหม่",\n        );\n        error.code = "NON_JSON_RESPONSE";\n        error.retryable = response.status >= 500 || response.status === 404 || response.status === 200;\n        throw error;\n      }\n      if (json?.ok === false) {\n        const error = new Error(json.message || \`API error HTTP \${response.status}\`);\n        error.code = json.code || "SERVER_ERROR";\n        if (error.code === "INVALID_SESSION") invalidateSession();\n        error.retryable = response.status >= 500 || error.code === "REQUEST_TIMEOUT";\n        throw error;\n      }\n      if (!response.ok) {\n        const error = new Error(\`API HTTP \${response.status}\`);\n        error.code = \`HTTP_\${response.status}\`;\n        error.retryable = response.status >= 500 || response.status === 429;\n        throw error;\n      }\n      return json.data ?? json;\n    } catch (error) {\n      if (error?.name === "AbortError") {\n        const timeoutError = new Error(\n          "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",\n        );\n        timeoutError.code = "REQUEST_TIMEOUT";\n        timeoutError.retryable = true;\n        lastError = timeoutError;\n      } else {\n        lastError = error;\n      }\n      const retryable =\n        lastError?.retryable === true ||\n        lastError?.code === "NON_JSON_RESPONSE" ||\n        lastError?.code === "REQUEST_TIMEOUT" ||\n        lastError instanceof TypeError;\n      if (!retryable || attempt === 3) throw lastError;\n      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));\n    } finally {\n      clearTimeout(timeout);\n    }\n  }\n  throw lastError || new Error("โหลดข้อมูลไม่สำเร็จ");\n}`;
+    const newApiGet = `async function apiGet(action, params = {}) {\n  const url = new URL(CONFIG.apiUrl);\n  url.searchParams.set("action", action);\n  url.searchParams.set("token", state.auth?.token || "");\n  Object.entries(params).forEach(\n    ([key, value]) =>\n      value !== undefined && value !== "" && url.searchParams.set(key, value),\n  );\n\n  let lastError = null;\n  for (let attempt = 1; attempt <= 3; attempt++) {\n    const controller = new AbortController();\n    const timeout = setTimeout(\n      () => controller.abort(),\n      CONFIG.requestTimeoutMs,\n    );\n    try {\n      const response = await fetch(url, {\n        cache: "no-store",\n        signal: controller.signal,\n        headers: { Accept: "application/json" },\n      });\n      const contentType = String(response.headers.get("content-type") || "").toLowerCase();\n      const text = await response.text();\n      let json;\n      try {\n        json = JSON.parse(text);\n      } catch {\n        const error = new Error(\n          contentType.includes("text/html") || /^\\s*</.test(text)\n            ? "API ตอบกลับเป็นหน้าเว็บแทน JSON · ระบบกำลังลองใหม่"\n            : "API ตอบกลับข้อมูลไม่สมบูรณ์ · ระบบกำลังลองใหม่",\n        );\n        error.code = "NON_JSON_RESPONSE";\n        error.retryable = response.status >= 500 || response.status === 404 || response.status === 200;\n        throw error;\n      }\n      if (json?.ok === false) {\n        const error = new Error(json.message || \`API error HTTP \${response.status}\`);\n        error.code = json.code || "SERVER_ERROR";\n        if (error.code === "INVALID_SESSION") invalidateSession();\n        error.retryable = response.status >= 500 || error.code === "REQUEST_TIMEOUT";\n        throw error;\n      }\n      if (!response.ok) {\n        const error = new Error(\`API HTTP \${response.status}\`);\n        error.code = \`HTTP_\${response.status}\`;
+        error.retryable = response.status >= 500 || response.status === 429;\n        throw error;\n      }\n      return json.data ?? json;\n    } catch (error) {\n      if (error?.name === "AbortError") {\n        const timeoutError = new Error(\n          "การเชื่อมต่อข้อมูลใช้เวลานานเกินไป ระบบจะลองใหม่อัตโนมัติ",\n        );\n        timeoutError.code = "REQUEST_TIMEOUT";\n        timeoutError.retryable = true;\n        lastError = timeoutError;\n      } else {\n        lastError = error;\n      }\n      const retryable =\n        lastError?.retryable === true ||\n        lastError?.code === "NON_JSON_RESPONSE" ||\n        lastError?.code === "REQUEST_TIMEOUT" ||\n        lastError instanceof TypeError;\n      if (!retryable || attempt === 3) throw lastError;\n      await new Promise((resolve) => setTimeout(resolve, 350 * attempt));\n    } finally {\n      clearTimeout(timeout);\n    }\n  }\n  throw lastError || new Error("โหลดข้อมูลไม่สำเร็จ");\n}`;
 
     output = replaceUnique(output, oldApiGet, newApiGet, "harden GET JSON transport");
   }
 
-  return patchFreshnessTruth(output);
+  return patchTruckPhotoScope(patchFreshnessTruth(output));
 }
 
 const invokedPath = process.argv[1]

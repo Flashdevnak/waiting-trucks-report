@@ -2,7 +2,7 @@ const FRONTEND_MARKER = "MS_UNLOADING_OPERATIONAL_TRUTH_V2";
 const WORKER_MARKER = "MS_UNLOADING_START_TRUTH_V2";
 const PARSER_MARKER = "MS_SCHEDULE_UNLOAD_TIMING_PARSE_V2";
 const UPPER_METRIC_MARKER = "MS_UNLOADING_METRIC_TRUTH_V3";
-const HBI_DROP_PHOTO_FRONTEND_MARKER = "HBI_DROP_PHOTO_FRONTEND_V2";
+const HBI_DROP_PHOTO_FRONTEND_MARKER = "HBI_TRUCK_PHOTO_DESTINATION_DROP_V2";
 const HBI_DROP_PHOTO_WORKER_MARKER = "HBI_DROP_PHOTO_WORKER_V2";
 
 function replaceUnique(output, from, to, label) {
@@ -113,9 +113,9 @@ function inboundOperationalStage(row, now = new Date()) {
   }
 
   if (!output.includes(HBI_DROP_PHOTO_FRONTEND_MARKER)) {
-    // Other DEV frontend patches may adjust comments around this helper before
-    // this stage runs. Replace by stable function boundaries, not byte-for-byte
-    // surrounding text, while still requiring exactly one helper.
+    // Fallback only when this helper is applied outside normal stageFrontend.
+    // Normal DEV staging reuses patch-ms-live-resilience as the single owner of
+    // Destination/Drop photo eligibility and therefore skips this block.
     const photoFunction = "function truckPhotoButton(row) {";
     const photoStart = output.indexOf(photoFunction);
     const photoLast = output.lastIndexOf(photoFunction);
@@ -124,11 +124,12 @@ function inboundOperationalStage(row, now = new Date()) {
       throw new Error("MS unloading start truth V2 patch failed: allow click-only truck photos on Drop rows");
     const lazyComment = output.lastIndexOf("// HBI_TRUCK_PHOTO_LAZY_V1", photoStart);
     const replaceStart = lazyComment >= 0 && photoStart - lazyComment < 300 ? lazyComment : photoStart;
-    const photoBlock = `// HBI_TRUCK_PHOTO_LAZY_V1: click-only. No URL and no <img> exists before a click.
-// ${HBI_DROP_PHOTO_FRONTEND_MARKER}: inbound Destination and Drop share the same
-// proofId photo action, including a Drop that has already been released.
+    const photoBlock = `// HBI_TRUCK_PHOTO_LAZY_V1 / ${HBI_DROP_PHOTO_FRONTEND_MARKER}: Destination and Drop
+// can open the same on-demand HBI photo viewer. No HBI/OSS URL or <img> exists
+// before a user click, so expanding eligibility adds zero background polling.
 function truckPhotoButton(row) {
-  if ((!isDestination(row) && !isDrop(row)) || !String(row?.proofId || "").trim()) return "";
+  const photoEligible = isDestination(row) || isDrop(row);
+  if (!photoEligible || !String(row?.proofId || "").trim()) return "";
   return \`<button type="button" class="truck-photo-toggle" data-truck-photo="\${esc(encodeURIComponent(String(row.proofId).trim()))}">ดูรูปท้ายรถ</button>\`;
 }
 `;

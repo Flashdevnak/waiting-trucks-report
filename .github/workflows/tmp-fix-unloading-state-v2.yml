@@ -25,227 +25,10 @@ jobs:
           git status --short
           git log -5 --oneline
 
-      - name: Apply forward fix and regression
+      - name: Wire unloading truth into normal DEV staging
         run: |
           python3 <<'PY'
           from pathlib import Path
-
-          patch_path = Path('.github/dev-tools/patch-ms-unloading-start-truth-v2.mjs')
-          patch_path.write_text(r'''const FRONTEND_MARKER = "MS_UNLOADING_OPERATIONAL_TRUTH_V2";
-const WORKER_MARKER = "MS_UNLOADING_START_TRUTH_V2";
-const PARSER_MARKER = "MS_SCHEDULE_UNLOAD_TIMING_PARSE_V2";
-
-function replaceUnique(output, from, to, label) {
-  const first = output.indexOf(from);
-  const last = output.lastIndexOf(from);
-  if (first < 0 || first !== last)
-    throw new Error(`MS unloading start truth V2 patch failed: ${label}`);
-  return output.slice(0, first) + to + output.slice(first + from.length);
-}
-
-export function patchMsUnloadingStartTruthFrontend(source) {
-  let output = String(source || "");
-  if (output.includes(FRONTEND_MARKER)) return output;
-
-  const start = output.indexOf("function inboundOperationalStage(row, now = new Date()) {");
-  const end = output.indexOf("\nfunction renderFilterSummary(rows) {", start);
-  if (start < 0 || end <= start)
-    throw new Error("MS unloading start truth V2 patch failed: inbound operational stage");
-
-  const block = `// ${FRONTEND_MARKER}: Route unloadingState is the primary operational truth.
-// KIT/TBR/arrival decides waiting admission only. Schedule S is a fallback when
-// Route status is stale, and Drop remains active until Route release/departure.
-function inboundOperationalStage(row, now = new Date()) {
-  if (!isDestination(row) && !isDrop(row)) return "none";
-
-  const queue = queueInfo(row);
-  if (queue.cancelled) return "none";
-
-  const unloadingState = Number(row.unloadingState);
-  const scheduleStart =
-    parseDate(row.scheduleUnloadingStartedAt) ||
-    parseDate(row.unloadingStartedAt) ||
-    parseDate(row.unloadingStartedObservedAt);
-  const scheduleEnd = parseDate(row.scheduleUnloadingCompletedAt);
-  const released = Boolean(parseDate(row.actualDepartureAt));
-
-  // Original contract: Route state 1 means the truck is unloading now. Do not
-  // hide it merely because admission/arrival enrichment is delayed.
-  if (unloadingState === 1) return "unloading";
-
-  if (isDrop(row)) {
-    if (released) return "none";
-    if (unloadingState === 2 || scheduleEnd || scheduleStart) return "unloading";
-  } else {
-    if (unloadingState === 2 || scheduleEnd) return "none";
-    if (scheduleStart) return "unloading";
-  }
-
-  // Only the waiting card depends on queue-admission truth and the active age
-  // window. Operational unloading truth above must never be gated by this.
-  const arrival = queueAdmissionArrival(row);
-  if (!arrival) return "none";
-  const ageHours = (now - arrival) / 36e5;
-  if (ageHours > 12) return "none";
-  return "waiting";
-}
-`;
-  output = output.slice(0, start) + block + output.slice(end);
-
-  output = replaceUnique(
-    output,
-    `    start = parseDate(row.scheduleUnloadingStartedAt),`,
-    `    start =
-      parseDate(row.scheduleUnloadingStartedAt) ||
-      parseDate(row.unloadingStartedAt) ||
-      parseDate(row.unloadingStartedObservedAt),`,
-    "unload timing start truth fallback",
-  );
-
-  return output;
-}
-
-export function patchMsUnloadingStartTruthWorker(source) {
-  let output = String(source || "");
-  if (output.includes(WORKER_MARKER)) return output;
-
-  const parserStart = output.indexOf("export function parseScheduleUnloadingEnd(field) {");
-  const parserEnd = output.indexOf("\nexport function scheduleStoreMatchesHub", parserStart);
-  if (parserStart < 0 || parserEnd <= parserStart)
-    throw new Error("MS unloading start truth V2 patch failed: Schedule parser section");
-
-  const parserBlock = `// ${PARSER_MARKER}: MS may reorder S/E/W/D entries. Parse by tag, never array index.
-function scheduleUnloadingTaggedValue(field, tag) {
-  if (!Array.isArray(field)) return "";
-  const pattern = new RegExp("^" + tag + ":\\\\s*(.+)$", "i");
-  for (const entry of field) {
-    const raw = String(entry?.value || "").trim();
-    const match = raw.match(pattern);
-    if (match?.[1] && match[1] !== "-") return match[1].trim();
-  }
-  return "";
-}
-
-function parseScheduleUnloadingDurationMs(field) {
-  if (!Array.isArray(field)) return null;
-  for (const entry of field) {
-    const raw = String(entry?.value || "").trim();
-    const match = raw.match(/^D:\\s*(\\d{1,3}):([0-5]\\d):([0-5]\\d)$/i);
-    if (!match) continue;
-    return (Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3])) * 1000;
-  }
-  return null;
-}
-
-export function parseScheduleUnloadingEnd(field) {
-  const raw = scheduleUnloadingTaggedValue(field, "E");
-  return raw ? msDate(raw) : "";
-}
-
-export function parseScheduleUnloadingStart(field) {
-  const raw = scheduleUnloadingTaggedValue(field, "S");
-  const direct = raw ? msDate(raw) : "";
-  if (direct) return direct;
-
-  // Provider D is the actual unload duration. When S is absent but E + D are
-  // both present, S = E - D is source-derived timing evidence, not a guess.
-  const end = parseScheduleUnloadingEnd(field);
-  const durationMs = parseScheduleUnloadingDurationMs(field);
-  const endMs = Date.parse(String(end || ""));
-  if (!Number.isFinite(endMs) || durationMs === null) return "";
-  return new Date(endMs - durationMs).toISOString();
-}
-`;
-  output = output.slice(0, parserStart) + parserBlock + output.slice(parserEnd);
-
-  output = replaceUnique(
-    output,
-    `async function syncMs(body, actor, env) {`,
-    `// ${WORKER_MARKER}: Schedule S is primary. When Schedule has not reached a
-// route yet, preserve the first shared Route observation of unloadingState=1.
-// The observation is never synthesized from arrival time and Schedule S always
-// replaces it when the authoritative source arrives later.
-function normalizeUnloadingStartIso(value) {
-  const at = Date.parse(String(value || ""));
-  return Number.isFinite(at) ? new Date(at).toISOString() : "";
-}
-
-function resolveUnloadingStartTruth(old, unloadingState, scheduleStart, now) {
-  const priorObserved = normalizeUnloadingStartIso(old?.unloadingStartedObservedAt);
-  const directSchedule = normalizeUnloadingStartIso(scheduleStart);
-  if (directSchedule)
-    return { at: directSchedule, observedAt: priorObserved, source: "SCHEDULE" };
-
-  const priorSchedule = normalizeUnloadingStartIso(
-    old?.scheduleUnloadingStartedAt || old?.schedule_unloading_started_at,
-  );
-  if (priorSchedule)
-    return { at: priorSchedule, observedAt: priorObserved, source: "SCHEDULE" };
-
-  const priorEffective = normalizeUnloadingStartIso(old?.unloadingStartedAt);
-  if (priorObserved)
-    return {
-      at: priorEffective || priorObserved,
-      observedAt: priorObserved,
-      source: String(old?.unloadingStartSource || "ROUTE_OBSERVED"),
-    };
-
-  // A state-1 row is itself evidence that unloading is in progress. Record only
-  // the time this shared backend first observed that truth; never backdate it to arrival.
-  if (Number(unloadingState) === 1) {
-    const observedAt = normalizeUnloadingStartIso(now) || new Date().toISOString();
-    return { at: observedAt, observedAt, source: "ROUTE_OBSERVED" };
-  }
-
-  return { at: "", observedAt: "", source: "" };
-}
-
-async function syncMs(body, actor, env) {`,
-    "add shared unloading start resolver",
-  );
-
-  output = replaceUnique(
-    output,
-    `      completionTruth = resolveCompletionTruth(
-        old,
-        unloadingState,
-        r.scheduleUnloadingCompletedAt,
-        now,
-      ),
-      unloadingCompletedAt = completionTruth.at;`,
-    `      unloadingStartTruth = resolveUnloadingStartTruth(
-        old,
-        unloadingState,
-        r.scheduleUnloadingStartedAt,
-        now,
-      ),
-      completionTruth = resolveCompletionTruth(
-        old,
-        unloadingState,
-        r.scheduleUnloadingCompletedAt,
-        now,
-      ),
-      unloadingCompletedAt = completionTruth.at;`,
-    "resolve unload start beside completion truth",
-  );
-
-  output = replaceUnique(
-    output,
-    `      completionSource: completionTruth.source,
-      scheduleUnloadingStartedAt: date(r.scheduleUnloadingStartedAt),
-      scheduleUnloadingCompletedAt: date(r.scheduleUnloadingCompletedAt),`,
-    `      completionSource: completionTruth.source,
-      scheduleUnloadingStartedAt: date(r.scheduleUnloadingStartedAt),
-      scheduleUnloadingCompletedAt: date(r.scheduleUnloadingCompletedAt),
-      unloadingStartedAt: unloadingStartTruth.at,
-      unloadingStartedObservedAt: unloadingStartTruth.observedAt,
-      unloadingStartSource: unloadingStartTruth.source,`,
-    "persist unload start provenance in snapshot/live cache",
-  );
-
-  return output;
-}
-''', encoding='utf-8')
 
           stage = Path('.github/dev-tools/stage-dev-runtime.mjs')
           text = stage.read_text(encoding='utf-8')
@@ -255,165 +38,31 @@ async function syncMs(body, actor, env) {`,
               if import_anchor not in text: raise SystemExit('stage import anchor missing')
               text = text.replace(import_anchor, import_new, 1)
           front_anchor = '  output = patchMsLiveResilienceFrontend(output);\n'
-          if '  output = patchMsUnloadingStartTruthFrontend(output);\n' not in text:
+          front_call = '  output = patchMsUnloadingStartTruthFrontend(output);\n'
+          if front_call not in text:
               if front_anchor not in text: raise SystemExit('stage frontend anchor missing')
-              text = text.replace(front_anchor, front_anchor + '  output = patchMsUnloadingStartTruthFrontend(output);\n', 1)
+              text = text.replace(front_anchor, front_anchor + front_call, 1)
           worker_anchor = '  output = patchMsScheduleCompletionV4(output);\n'
-          if '  output = patchMsUnloadingStartTruthWorker(output);\n' not in text:
+          worker_call = '  output = patchMsUnloadingStartTruthWorker(output);\n'
+          if worker_call not in text:
               if worker_anchor not in text: raise SystemExit('stage worker anchor missing')
-              text = text.replace(worker_anchor, worker_anchor + '  output = patchMsUnloadingStartTruthWorker(output);\n', 1)
+              text = text.replace(worker_anchor, worker_anchor + worker_call, 1)
           stage.write_text(text, encoding='utf-8')
-
-          live = Path('.github/dev-tools/patch-ms-live-resilience.mjs')
-          text = live.read_text(encoding='utf-8')
-          text = text.replace('const OPERATIONAL_CARD_STATE_MARKER = "MS_OPERATIONAL_CARD_STATE_V1";', 'const OPERATIONAL_CARD_STATE_MARKER = "MS_OPERATIONAL_CARD_STATE_V1"; // superseded by MS_UNLOADING_OPERATIONAL_TRUTH_V2')
-          live.write_text(text, encoding='utf-8')
-
-          test_path = Path('.github/dev-tools/ms-unloading-start-truth-v2.test.mjs')
-          test_path.write_text(r'''import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import test from "node:test";
-import vm from "node:vm";
-import { stageFrontend, stageWorker } from "./stage-dev-runtime.mjs";
-
-const root = new URL("../../", import.meta.url);
-const frontSource = await readFile(new URL("ms.js", root), "utf8");
-const workerSource = await readFile(new URL("worker/src/index.js", root), "utf8");
-const front = stageFrontend(frontSource);
-const worker = stageWorker(workerSource);
-
-function between(text, start, end) {
-  const from = text.indexOf(start);
-  const to = text.indexOf(end, from + start.length);
-  assert.ok(from >= 0 && to > from, `missing block ${start}`);
-  return text.slice(from, to);
-}
-
-function parseDate(value) {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function loadOperationalStage() {
-  const code = between(front, "function inboundOperationalStage", "function renderFilterSummary");
-  const context = {
-    Date,
-    parseDate,
-    isDestination: (row) => row.attendanceType === "ปลายทาง",
-    isDrop: (row) => row.attendanceType === "จุดดรอป",
-    queueInfo: (row) => ({ cancelled: Boolean(row.queueCancelledAt) }),
-    queueAdmissionArrival: (row) => parseDate(row.actualArrivalAt || row.scheduleTbrArrivalAt),
-  };
-  vm.createContext(context);
-  vm.runInContext(`${code};globalThis.fn=inboundOperationalStage`, context);
-  return context.fn;
-}
-
-test("Route unloadingState=1 stays in unloading even when admission enrichment is absent", () => {
-  const stage = loadOperationalStage();
-  assert.equal(stage({ attendanceType: "ปลายทาง", unloadingState: 1 }), "unloading");
-  assert.equal(stage({ attendanceType: "จุดดรอป", unloadingState: 1 }), "unloading");
-});
-
-test("waiting admission remains separate and Drop keeps release lifecycle", () => {
-  const stage = loadOperationalStage();
-  const now = new Date("2026-09-13T14:00:00.000Z");
-  assert.equal(stage({ attendanceType: "ปลายทาง", unloadingState: 0, actualArrivalAt: "2026-09-13T13:30:00.000Z" }, now), "waiting");
-  assert.equal(stage({ attendanceType: "ปลายทาง", unloadingState: 2, actualArrivalAt: "2026-09-13T13:30:00.000Z" }, now), "none");
-  assert.equal(stage({ attendanceType: "จุดดรอป", unloadingState: 2, actualArrivalAt: "2026-09-13T13:30:00.000Z" }, now), "unloading");
-  assert.equal(stage({ attendanceType: "จุดดรอป", unloadingState: 2, actualDepartureAt: "2026-09-13T13:55:00.000Z" }, now), "none");
-  assert.equal(stage({ attendanceType: "ต้นทาง", unloadingState: 1 }, now), "none");
-  assert.equal(stage({ attendanceType: "ปลายทาง", unloadingState: 1, queueCancelledAt: "2026-09-13T13:40:00.000Z" }, now), "none");
-});
-
-test("Schedule S fallback still marks unloading without changing Route truth", () => {
-  const stage = loadOperationalStage();
-  assert.equal(stage({ attendanceType: "ปลายทาง", unloadingState: 0, scheduleUnloadingStartedAt: "2026-09-13T13:45:00.000Z" }), "unloading");
-});
-
-test("Schedule parser scans tags in any order and derives S from E-D", () => {
-  const code = between(worker, "// MS_SCHEDULE_UNLOAD_TIMING_PARSE_V2", "export function scheduleStoreMatchesHub")
-    .replaceAll("export ", "");
-  const context = {
-    Date,
-    msDate(value) {
-      const raw = String(value || "").trim();
-      const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
-        ? raw.replace(" ", "T") + "+07:00"
-        : raw;
-      const d = new Date(normalized);
-      return Number.isNaN(d.getTime()) ? "" : d.toISOString();
-    },
-  };
-  vm.createContext(context);
-  vm.runInContext(`${code};globalThis.start=parseScheduleUnloadingStart;globalThis.end=parseScheduleUnloadingEnd`, context);
-
-  const reordered = [
-    { value: "D: 00:02:13" },
-    { value: "E: 2026-09-13 20:17:24" },
-    { value: "W: 00:00:12" },
-    { value: "S: 2026-09-13 20:15:11" },
-  ];
-  assert.equal(context.start(reordered), "2026-09-13T13:15:11.000Z");
-  assert.equal(context.end(reordered), "2026-09-13T13:17:24.000Z");
-
-  const endDurationOnly = [
-    { value: "E: 2026-09-13 20:17:24" },
-    { value: "D: 00:02:13" },
-  ];
-  assert.equal(context.start(endDurationOnly), "2026-09-13T13:15:11.000Z");
-});
-
-test("Route observed start is recorded once and Schedule S supersedes it", () => {
-  const code = between(worker, "// MS_UNLOADING_START_TRUTH_V2", "async function syncMs(body, actor, env)");
-  const context = { Date };
-  vm.createContext(context);
-  vm.runInContext(`${code};globalThis.resolve=resolveUnloadingStartTruth`, context);
-
-  const observed = context.resolve(null, 1, "", "2026-09-13T13:15:14.446Z");
-  assert.equal(observed.at, "2026-09-13T13:15:14.446Z");
-  assert.equal(observed.source, "ROUTE_OBSERVED");
-
-  const preserved = context.resolve({
-    unloadingStartedAt: observed.at,
-    unloadingStartedObservedAt: observed.observedAt,
-    unloadingStartSource: observed.source,
-  }, 1, "", "2026-09-13T13:16:00.000Z");
-  assert.equal(preserved.at, observed.at);
-
-  const schedule = context.resolve({
-    unloadingStartedAt: observed.at,
-    unloadingStartedObservedAt: observed.observedAt,
-    unloadingStartSource: observed.source,
-  }, 2, "2026-09-13T13:15:11.000Z", "2026-09-13T13:17:24.000Z");
-  assert.equal(schedule.at, "2026-09-13T13:15:11.000Z");
-  assert.equal(schedule.source, "SCHEDULE");
-});
-
-test("frontend timing and worker snapshots carry start provenance without new polling", () => {
-  assert.match(front, /MS_UNLOADING_OPERATIONAL_TRUTH_V2/);
-  assert.match(front, /parseDate\(row\.unloadingStartedAt\)/);
-  assert.match(front, /parseDate\(row\.unloadingStartedObservedAt\)/);
-  assert.match(worker, /unloadingStartedAt: unloadingStartTruth\.at/);
-  assert.match(worker, /unloadingStartedObservedAt: unloadingStartTruth\.observedAt/);
-  assert.match(worker, /unloadingStartSource: unloadingStartTruth\.source/);
-  assert.match(front, /pollMs: 4000/);
-});
-''', encoding='utf-8')
 
           workflow = Path('.github/workflows/deploy-worker-dev.yml')
           text = workflow.read_text(encoding='utf-8')
           anchor = '      - run: node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs\n'
-          line = '      - run: node --test ../.github/dev-tools/ms-unloading-start-truth-v2.test.mjs\n'
-          if line not in text:
+          test_line = '      - run: node --test ../.github/dev-tools/ms-unloading-start-truth-v2.test.mjs\n'
+          if test_line not in text:
               if anchor not in text: raise SystemExit('deploy test anchor missing')
-              text = text.replace(anchor, anchor + line, 1)
+              text = text.replace(anchor, anchor + test_line, 1)
           worker_marker = "'MS_SCHEDULE_COMPLETION_TRUTH_V4'"
           if "'MS_UNLOADING_START_TRUTH_V2'" not in text:
+              if worker_marker not in text: raise SystemExit('deploy worker marker anchor missing')
               text = text.replace(worker_marker, worker_marker + ",'MS_UNLOADING_START_TRUTH_V2'", 1)
           front_marker = "'MS_UNLOAD_COMPLETION_UI_V1'"
           if "'MS_UNLOADING_OPERATIONAL_TRUTH_V2'" not in text:
+              if front_marker not in text: raise SystemExit('deploy frontend marker anchor missing')
               text = text.replace(front_marker, front_marker + ",'MS_UNLOADING_OPERATIONAL_TRUTH_V2'", 1)
           workflow.write_text(text, encoding='utf-8')
 
@@ -425,7 +74,6 @@ test("frontend timing and worker snapshots carry start provenance without new po
               path = Path(p)
               if path.exists(): path.unlink()
           PY
-
           git diff --check
           git status --short
 

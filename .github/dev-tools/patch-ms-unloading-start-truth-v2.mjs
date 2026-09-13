@@ -61,11 +61,11 @@ function inboundOperationalStage(row, now = new Date()) {
 
   output = replaceUnique(
     output,
-    `    start = parseDate(row.scheduleUnloadingStartedAt),`,
-    `    start =
-      parseDate(row.scheduleUnloadingStartedAt) ||
-      parseDate(row.unloadingStartedAt) ||
-      parseDate(row.unloadingStartedObservedAt),`,
+    `  const start = parseDate(row.scheduleUnloadingStartedAt);`,
+    `  const start =
+    parseDate(row.scheduleUnloadingStartedAt) ||
+    parseDate(row.unloadingStartedAt) ||
+    parseDate(row.unloadingStartedObservedAt);`,
     "unload timing start truth fallback",
   );
 

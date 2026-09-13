@@ -43,6 +43,10 @@ import { patchMsScheduleCompletionV4 } from "./patch-ms-schedule-completion-v4.m
 import { patchMsCompletedViewStabilityFrontend } from "./patch-ms-completed-view-stability.mjs";
 import { patchMsLiveResilienceFrontend } from "./patch-ms-live-resilience.mjs";
 import {
+  patchMsUnloadingStartTruthFrontend,
+  patchMsUnloadingStartTruthWorker,
+} from "./patch-ms-unloading-start-truth-v2.mjs";
+import {
   patchMsDailyHistoryFrontend,
   patchMsDailyHistoryWorker,
 } from "./apply-ms-daily-history.mjs";
@@ -374,6 +378,7 @@ export function stageFrontend(source) {
   output = patchMsDailyCompletionObservationFrontend(output);
   output = patchMsCompletedViewStabilityFrontend(output);
   output = patchMsLiveResilienceFrontend(output);
+  output = patchMsUnloadingStartTruthFrontend(output);
   output = patchMsDailyHistoryFrontend(output);
   output = patchMsConnectionErrorKvFrontend(output);
   output = patchDevProofHarConnectionFrontend(output);
@@ -403,6 +408,7 @@ export function stageWorker(source) {
   output = patchMsQuotaSafeLiveWorker(output);
   output = patchMsCompletionBurstWorker(output);
   output = patchMsScheduleCompletionV4(output);
+  output = patchMsUnloadingStartTruthWorker(output);
   output = patchMsTbrShadowFeedWorker(output);
   output = patchDevRootEntryWorker(output);
   return output;

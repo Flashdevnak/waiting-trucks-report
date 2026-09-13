@@ -113,22 +113,26 @@ function inboundOperationalStage(row, now = new Date()) {
   }
 
   if (!output.includes(HBI_DROP_PHOTO_FRONTEND_MARKER)) {
-    output = replaceUnique(
-      output,
-      `// HBI_TRUCK_PHOTO_LAZY_V1: destination only. No URL and no <img> exists before a click.
-function truckPhotoButton(row) {
-  if (!isDestination(row) || !String(row?.proofId || "").trim()) return "";
-  return \`<button type="button" class="truck-photo-toggle" data-truck-photo="\${esc(encodeURIComponent(String(row.proofId).trim()))}">ดูรูปท้ายรถ</button>\`;
-}`,
-      `// HBI_TRUCK_PHOTO_LAZY_V1: click-only. No URL and no <img> exists before a click.
+    // Other DEV frontend patches may adjust comments around this helper before
+    // this stage runs. Replace by stable function boundaries, not byte-for-byte
+    // surrounding text, while still requiring exactly one helper.
+    const photoFunction = "function truckPhotoButton(row) {";
+    const photoStart = output.indexOf(photoFunction);
+    const photoLast = output.lastIndexOf(photoFunction);
+    const photoEnd = output.indexOf("\nfunction ensureTruckPhotoDialog()", photoStart);
+    if (photoStart < 0 || photoStart !== photoLast || photoEnd <= photoStart)
+      throw new Error("MS unloading start truth V2 patch failed: allow click-only truck photos on Drop rows");
+    const lazyComment = output.lastIndexOf("// HBI_TRUCK_PHOTO_LAZY_V1", photoStart);
+    const replaceStart = lazyComment >= 0 && photoStart - lazyComment < 300 ? lazyComment : photoStart;
+    const photoBlock = `// HBI_TRUCK_PHOTO_LAZY_V1: click-only. No URL and no <img> exists before a click.
 // ${HBI_DROP_PHOTO_FRONTEND_MARKER}: inbound Destination and Drop share the same
 // proofId photo action, including a Drop that has already been released.
 function truckPhotoButton(row) {
   if ((!isDestination(row) && !isDrop(row)) || !String(row?.proofId || "").trim()) return "";
   return \`<button type="button" class="truck-photo-toggle" data-truck-photo="\${esc(encodeURIComponent(String(row.proofId).trim()))}">ดูรูปท้ายรถ</button>\`;
-}`,
-      "allow click-only truck photos on Drop rows",
-    );
+}
+`;
+    output = output.slice(0, replaceStart) + photoBlock + output.slice(photoEnd);
   }
 
   return output;

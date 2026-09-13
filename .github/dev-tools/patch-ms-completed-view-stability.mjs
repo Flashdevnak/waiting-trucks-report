@@ -10,6 +10,7 @@ const FRONTEND_MARKER = "const preserveObservedCompletion =";
 const DAILY_COUNTS_MARKER = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";
 const SLA_EARLIEST_MARKER = "MS_SLA_EARLIEST_ARRIVAL_V2";
 const TRUSTED_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
+const DROP_CARD_FLOW_MARKER = "MS_DROP_QUEUE_FLOW_V1";
 
 export function patchMsCompletedViewStabilityFrontend(source) {
   let output = String(source || "");
@@ -50,6 +51,71 @@ export function patchMsCompletedViewStabilityFrontend(source) {
       `  if (row.completionObservedLive === false) return false;`,
       `  // ${TRUSTED_SCHEDULE_MARKER}: safely matched Schedule E is accepted completion truth too.\n  if (row.completionObservedLive === false && row.completionSource !== "SCHEDULE") return false;`,
       "daily completed card accepts trusted Schedule E",
+    );
+  }
+
+  if (!output.includes(DROP_CARD_FLOW_MARKER)) {
+    output = replaceUnique(
+      output,
+      `const DAILY_COUNTS_MARKER_RUNTIME = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";`,
+      `const DAILY_COUNTS_MARKER_RUNTIME = "MS_LOWER_DAILY_COUNTS_MIDNIGHT_V2";\n// ${DROP_CARD_FLOW_MARKER}: Drop trips share the inbound queue until the vehicle\n// is actually released. Flow: รอลงรถ -> กำลังลงรถ -> จุดดรอป.`,
+      "drop queue flow runtime marker",
+    );
+
+    output = replaceUnique(
+      output,
+      `    started =\n      (isDestination(row) || isDrop(row)) &&\n      (unloadingState === 1 || unloadingState === 2),`,
+      `    started =\n      (isDestination(row) || isDrop(row)) &&\n      (unloadingState === 1 ||\n        unloadingState === 2 ||\n        Boolean(parseDate(row.scheduleUnloadingStartedAt))),`,
+      "schedule start moves inbound trip to unloading even when Route is stale",
+    );
+
+    output = replaceUnique(
+      output,
+      `    (!ignoreSummary &&\n      (state.summary === "completed" || state.summary === "unload-overtime"));`,
+      `    (!ignoreSummary &&\n      (state.summary === "completed" ||\n        state.summary === "unload-overtime" ||\n        state.summary === "drop"));`,
+      "drop card reads completed-today dataset after release",
+    );
+
+    output = replaceUnique(
+      output,
+      `        (state.summary === "waiting" && isDestination(row) && status.key === "arrived") ||\n        (state.summary === "unloading" && isDestination(row) && status.key === "unloading") ||\n        (state.summary === "completed" && isCompletedToday(row)) ||`,
+      `        (state.summary === "waiting" &&\n          (isDestination(row) || isDrop(row)) &&\n          queue.active &&\n          !queue.started) ||\n        (state.summary === "unloading" &&\n          (isDestination(row) || isDrop(row)) &&\n          queue.active &&\n          queue.started) ||\n        (state.summary === "completed" && isDestination(row) && isCompletedToday(row)) ||`,
+      "drop joins waiting and unloading cards before release",
+    );
+
+    output = replaceUnique(
+      output,
+      `        (state.summary === "drop" && isDrop(row) && !queue.done && !queue.cancelled) ||`,
+      `        (state.summary === "drop" &&\n          isDrop(row) &&\n          queue.done &&\n          Boolean(parseDate(row.actualDepartureAt)) &&\n          !queue.cancelled) ||`,
+      "drop card only after actual release",
+    );
+
+    output = replaceUnique(
+      output,
+      `      const queueMatch =\n        queueMode === "all" ||\n        (queueMode === "completed" && (queue.done || queue.expired)) ||\n        (queueMode === "queue" && queue.active);`,
+      `      const queueMatch =\n        (!ignoreSummary &&\n          state.summary === "drop" &&\n          queue.done &&\n          Boolean(parseDate(row.actualDepartureAt))) ||\n        queueMode === "all" ||\n        (queueMode === "completed" && (queue.done || queue.expired)) ||\n        (queueMode === "queue" && queue.active);`,
+      "released drop remains visible when drop card is selected",
+    );
+
+    output = replaceUnique(
+      output,
+      `    completed: completedTodayDatasetRows().filter(matchesOvertimeContext).length,\n    origin: 0,\n    drop: 0,`,
+      `    completed: completedTodayDatasetRows()\n      .filter(matchesOvertimeContext)\n      .filter((row) => isDestination(row)).length,\n    origin: 0,\n    drop: completedTodayDatasetRows()\n      .filter(matchesOvertimeContext)\n      .filter(\n        (row) =>\n          isDrop(row) &&\n          queueInfo(row).done &&\n          Boolean(parseDate(row.actualDepartureAt)),\n      ).length,`,
+      "completed and drop cards are mutually exclusive",
+    );
+
+    output = replaceUnique(
+      output,
+      `    const key = routeState(row).key;\n    const queue = queueInfo(row);\n    if (queue.active && isDestination(row) && key === "arrived") counts.waiting++;\n    if (queue.active && isDestination(row) && key === "unloading") counts.unloading++;\n    if (queue.active && isOrigin(row)) counts.origin++;\n    if (queue.active && isDrop(row)) counts.drop++;`,
+      `    const queue = queueInfo(row);\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      !queue.started\n    ) counts.waiting++;\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      queue.started\n    ) counts.unloading++;\n    if (queue.active && isOrigin(row)) counts.origin++;`,
+      "summary counts follow wait unload then released-drop flow",
+    );
+
+    output = replaceUnique(
+      output,
+      `        if (value === "completed" || value === "unload-overtime") {`,
+      `        if (value === "completed" || value === "unload-overtime" || value === "drop") {`,
+      "drop card hydrates completed-today rows before filtering",
     );
   }
 

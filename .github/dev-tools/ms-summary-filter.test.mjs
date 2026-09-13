@@ -134,6 +134,29 @@ test("TBR-first, Drop awaiting release, Origin and cancellation keep their exist
     ),
     "none",
   );
+  assert.equal(
+    operationalStage(
+      {
+        ...drop,
+        unloadingState: 1,
+        actualDepartureAt: "2026-09-13T10:27:00.000Z",
+      },
+      now,
+    ),
+    "none",
+    "Route departure must beat a stale unloadingState=1 on Drop rows",
+  );
+  const stageSource = between(
+    staged,
+    "function inboundOperationalStage",
+    "function renderFilterSummary",
+  );
+  assert.match(stageSource, /MS_DROP_RELEASE_PRECEDENCE_V1/);
+  assert.ok(
+    stageSource.indexOf("if (isDrop(row) && released)") <
+      stageSource.indexOf("if (unloadingState === 1)"),
+    "Drop release precedence must execute before operational unloading truth",
+  );
 
   assert.equal(
     operationalStage(

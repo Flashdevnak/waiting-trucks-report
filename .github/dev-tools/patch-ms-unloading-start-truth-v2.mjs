@@ -5,6 +5,7 @@ const UPPER_METRIC_MARKER = "MS_UNLOADING_METRIC_TRUTH_V3";
 const HBI_DROP_PHOTO_FRONTEND_MARKER = "HBI_TRUCK_PHOTO_DESTINATION_DROP_V2";
 const HBI_DROP_PHOTO_WORKER_MARKER = "HBI_DROP_PHOTO_WORKER_V2";
 const EXPIRY_MARKER = "MS_OPERATIONAL_12H_EXPIRY_V1";
+const DROP_RELEASE_PRECEDENCE_MARKER = "MS_DROP_RELEASE_PRECEDENCE_V1";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -152,7 +153,8 @@ export function patchMsUnloadingStartTruthFrontend(source) {
     output.includes(FRONTEND_MARKER) &&
     output.includes(UPPER_METRIC_MARKER) &&
     output.includes(HBI_DROP_PHOTO_FRONTEND_MARKER) &&
-    output.includes(EXPIRY_MARKER)
+    output.includes(EXPIRY_MARKER) &&
+    output.includes(DROP_RELEASE_PRECEDENCE_MARKER)
   ) return output;
 
   if (!output.includes(FRONTEND_MARKER)) {
@@ -178,12 +180,15 @@ function inboundOperationalStage(row, now = new Date()) {
   const scheduleEnd = parseDate(row.scheduleUnloadingCompletedAt);
   const released = Boolean(parseDate(row.actualDepartureAt));
 
+  // ${DROP_RELEASE_PRECEDENCE_MARKER}: actual Route departure is final for a
+  // Drop even when the upstream unloadingState remains stale at state 1.
+  if (isDrop(row) && released) return "none";
+
   // Original contract: Route state 1 means the truck is unloading now. Do not
   // hide it merely because admission/arrival enrichment is delayed.
   if (unloadingState === 1) return "unloading";
 
   if (isDrop(row)) {
-    if (released) return "none";
     if (unloadingState === 2 || scheduleEnd || scheduleStart) return "unloading";
   } else {
     if (unloadingState === 2 || scheduleEnd) return "none";
@@ -209,6 +214,32 @@ function inboundOperationalStage(row, now = new Date()) {
     parseDate(row.unloadingStartedAt) ||
     parseDate(row.unloadingStartedObservedAt);`,
       "unload timing start truth fallback",
+    );
+  }
+
+  if (!output.includes(DROP_RELEASE_PRECEDENCE_MARKER)) {
+    output = replaceUnique(
+      output,
+      `  const released = Boolean(parseDate(row.actualDepartureAt));
+
+  // Original contract: Route state 1 means the truck is unloading now. Do not
+  // hide it merely because admission/arrival enrichment is delayed.
+  if (unloadingState === 1) return "unloading";
+
+  if (isDrop(row)) {
+    if (released) return "none";`,
+      `  const released = Boolean(parseDate(row.actualDepartureAt));
+
+  // ${DROP_RELEASE_PRECEDENCE_MARKER}: actual Route departure is final for a
+  // Drop even when the upstream unloadingState remains stale at state 1.
+  if (isDrop(row) && released) return "none";
+
+  // Original contract: Route state 1 means the truck is unloading now. Do not
+  // hide it merely because admission/arrival enrichment is delayed.
+  if (unloadingState === 1) return "unloading";
+
+  if (isDrop(row)) {`,
+      "Drop Route departure precedes stale unloading state",
     );
   }
 

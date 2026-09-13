@@ -56,32 +56,43 @@ jobs:
               return [...new Uint8Array(digest)].slice(0,8).map(x=>x.toString(16).padStart(2,'0')).join('');
             };
 
-            const liveSql=`
+            const timingSql=`
               WITH cache AS (
                 SELECT hub,
                   CASE
                     WHEN json_type(rows_json)='array' THEN rows_json
                     WHEN json_type(json_extract(rows_json,'$.rows'))='array' THEN json_extract(rows_json,'$.rows')
                     ELSE '[]'
-                  END AS live_json
+                  END AS live_json,
+                  CASE
+                    WHEN json_type(json_extract(rows_json,'$.completedRows'))='array' THEN json_extract(rows_json,'$.completedRows')
+                    ELSE '[]'
+                  END AS completed_json
                 FROM ms_live_cache
+              ), source_rows AS (
+                SELECT hub,value,'live' AS dataset FROM cache,json_each(live_json)
+                UNION ALL
+                SELECT hub,value,'completed' AS dataset FROM cache,json_each(completed_json)
               ), flat AS (
-                SELECT c.hub,
-                  trim(COALESCE(json_extract(j.value,'$.id'),json_extract(j.value,'$.proofId'),json_extract(j.value,'$.routeId'),'')) AS route_id,
-                  lower(trim(COALESCE(json_extract(j.value,'$.attendanceType'),''))) AS attendance,
-                  CAST(COALESCE(json_extract(j.value,'$.unloadingState'),-1) AS INTEGER) AS unload_state,
-                  trim(COALESCE(json_extract(j.value,'$.scheduleUnloadingStartedAt'),'')) AS schedule_start,
-                  trim(COALESCE(json_extract(j.value,'$.scheduleUnloadingCompletedAt'),'')) AS schedule_end,
-                  trim(COALESCE(json_extract(j.value,'$.unloadingCompletedAt'),'')) AS completed_at,
-                  trim(COALESCE(json_extract(j.value,'$.completionSource'),'')) AS completion_source,
-                  CAST(COALESCE(json_extract(j.value,'$.scheduleCompletionAmbiguous'),0) AS INTEGER) AS schedule_ambiguous
-                FROM cache c, json_each(c.live_json) j
+                SELECT hub,dataset,
+                  trim(COALESCE(json_extract(value,'$.id'),json_extract(value,'$.proofId'),json_extract(value,'$.routeId'),'')) AS route_id,
+                  lower(trim(COALESCE(json_extract(value,'$.attendanceType'),''))) AS attendance,
+                  CAST(COALESCE(json_extract(value,'$.unloadingState'),-1) AS INTEGER) AS unload_state,
+                  trim(COALESCE(json_extract(value,'$.scheduleUnloadingStartedAt'),'')) AS schedule_start,
+                  trim(COALESCE(json_extract(value,'$.scheduleUnloadingCompletedAt'),'')) AS schedule_end,
+                  trim(COALESCE(json_extract(value,'$.unloadingCompletedAt'),'')) AS completed_at,
+                  trim(COALESCE(json_extract(value,'$.completionSource'),'')) AS completion_source,
+                  CAST(COALESCE(json_extract(value,'$.scheduleCompletionAmbiguous'),0) AS INTEGER) AS schedule_ambiguous
+                FROM source_rows
+              ), ranked AS (
+                SELECT *,ROW_NUMBER() OVER (PARTITION BY hub,route_id ORDER BY CASE dataset WHEN 'completed' THEN 1 ELSE 0 END DESC) AS rn
+                FROM flat
+                WHERE route_id<>''
+                  AND (instr(attendance,'ปลายทาง')>0 OR instr(attendance,'จุดดร')>0)
+                  AND unload_state IN (1,2)
               )
-              SELECT hub,route_id,attendance,unload_state,schedule_start,schedule_end,completed_at,completion_source,schedule_ambiguous
-              FROM flat
-              WHERE route_id<>''
-                AND (instr(attendance,'ปลายทาง')>0 OR instr(attendance,'จุดดร')>0)
-                AND unload_state IN (1,2)
+              SELECT hub,route_id,attendance,unload_state,schedule_start,schedule_end,completed_at,completion_source,schedule_ambiguous,dataset
+              FROM ranked WHERE rn=1
               ORDER BY hub,route_id
             `;
             const historySql=`
@@ -100,29 +111,34 @@ jobs:
               GROUP BY hub,route_id
               ORDER BY hub,route_id
             `;
-            const live=rows(await query(liveSql));
+            const timing=rows(await query(timingSql));
             const transitions=rows(await query(historySql));
             const transitionMap=new Map(transitions.map(([hub,id,at])=>[`${hub}\u0000${id}`,String(at||'')]));
-            const hubs=[...new Set(live.map(row=>String(row[0]||'')))].sort();
-            let totalMissing=0,totalRecoverable=0,totalScheduleEndOnly=0,totalAmbiguous=0;
+            const hubs=[...new Set(timing.map(row=>String(row[0]||'')))].sort();
+            let totalMissing=0,totalRecoverable=0,totalScheduleEndOnly=0,totalAmbiguous=0,totalCompletedMissing=0;
             for(const hub of hubs){
-              const hubRows=live.filter(row=>String(row[0]||'')===hub);
+              const hubRows=timing.filter(row=>String(row[0]||'')===hub);
               const missing=hubRows.filter(row=>!String(row[4]||''));
               const recoverable=missing.filter(row=>transitionMap.has(`${hub}\u0000${row[1]}`));
               const endOnly=missing.filter(row=>String(row[5]||''));
               const ambiguous=missing.filter(row=>Number(row[8]||0)===1);
+              const completedMissing=missing.filter(row=>row[9]==='completed'||Number(row[3])===2);
               totalMissing+=missing.length;
               totalRecoverable+=recoverable.length;
               totalScheduleEndOnly+=endOnly.length;
               totalAmbiguous+=ambiguous.length;
+              totalCompletedMissing+=completedMissing.length;
               const fingerprints=await Promise.all(missing.map(row=>hashId(row[1])));
               const recoverableFingerprints=await Promise.all(recoverable.map(row=>hashId(row[1])));
-              console.log(`HUB=${hub} ACTIVE_OR_COMPLETED=${hubRows.length} START_MISSING=${missing.length} SCHEDULE_END_WITHOUT_START=${endOnly.length} AMBIGUOUS=${ambiguous.length} OBSERVED_0_TO_1_RECOVERABLE=${recoverable.length}`);
+              const completedFingerprints=await Promise.all(completedMissing.map(row=>hashId(row[1])));
+              console.log(`HUB=${hub} TIMING_ROWS=${hubRows.length} START_MISSING=${missing.length} COMPLETED_START_MISSING=${completedMissing.length} SCHEDULE_END_WITHOUT_START=${endOnly.length} AMBIGUOUS=${ambiguous.length} OBSERVED_0_TO_1_RECOVERABLE=${recoverable.length}`);
               console.log(`HUB=${hub} START_MISSING_FINGERPRINTS=${fingerprints.join(',')||'-'}`);
+              console.log(`HUB=${hub} COMPLETED_START_MISSING_FINGERPRINTS=${completedFingerprints.join(',')||'-'}`);
               console.log(`HUB=${hub} RECOVERABLE_FINGERPRINTS=${recoverableFingerprints.join(',')||'-'}`);
             }
-            console.log(`UNLOAD_TIMING_ROWS=${live.length}`);
+            console.log(`UNLOAD_TIMING_ROWS=${timing.length}`);
             console.log(`UNLOAD_START_MISSING=${totalMissing}`);
+            console.log(`UNLOAD_COMPLETED_START_MISSING=${totalCompletedMissing}`);
             console.log(`UNLOAD_START_RECOVERABLE_0_TO_1=${totalRecoverable}`);
             console.log(`UNLOAD_SCHEDULE_END_WITHOUT_START=${totalScheduleEndOnly}`);
             console.log(`UNLOAD_SCHEDULE_AMBIGUOUS=${totalAmbiguous}`);

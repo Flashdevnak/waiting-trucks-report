@@ -12,6 +12,7 @@ const SLA_EARLIEST_MARKER = "MS_SLA_EARLIEST_ARRIVAL_V2";
 const TRUSTED_SCHEDULE_MARKER = "MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1";
 const DROP_CARD_FLOW_MARKER = "MS_DROP_QUEUE_FLOW_V3";
 const QUEUE_SOURCE_LABEL_MARKER = "MS_QUEUE_SOURCE_LABEL_V1";
+const QUEUE_SOURCE_RENDER_MARKER = "MS_QUEUE_SOURCE_RENDER_V2";
 
 export function patchMsCompletedViewStabilityFrontend(source) {
   let output = String(source || "");
@@ -75,6 +76,51 @@ export function patchMsCompletedViewStabilityFrontend(source) {
       `      classicOperationFact(\n        parseDate(row.actualArrivalAt) ? "ถึงจุดดรอปจริง" : parseDate(row.scheduleTbrArrivalAt) ? "เข้าคิวจาก TBR" : "ถึงจุดดรอปจริง",\n        shortDateTime(queueAdmissionArrival(row)),\n      ),`,
       `      classicOperationFact(\n        queueAdmissionSource(row)\n          ? "เข้าคิวจาก " + queueAdmissionSource(row)\n          : "ยังไม่มีเวลาเข้าคิว",\n        shortDateTime(queueAdmissionArrival(row)),\n      ),`,
       "drop operation names the actual queue admission source",
+    );
+  }
+
+  // MS_QUEUE_SOURCE_RENDER_V2: the operation card must name the same timestamp
+  // winner used by queue admission. Older staged bundles could still render
+  // KIT-first as "ถึงคลังจริง" while TBR-first rendered "เข้าคิวจาก TBR".
+  // Enforce the final rendered label after all legacy source-label generations.
+  if (!output.includes(QUEUE_SOURCE_RENDER_MARKER)) {
+    if (!output.includes("function queueAdmissionSource(row)"))
+      throw new Error("MS queue source renderer requires queueAdmissionSource(row)");
+
+    const sourceFact = `      classicOperationFact(\n        queueAdmissionSource(row)\n          ? "เข้าคิวจาก " + queueAdmissionSource(row)\n          : "ยังไม่มีเวลาเข้าคิว",\n        shortDateTime(queueAdmissionArrival(row)),\n      ),`;
+
+    const destinationLegacy = `      classicOperationFact(\n        parseDate(row.actualArrivalAt) ? "ถึงคลังจริง" : parseDate(row.scheduleTbrArrivalAt) ? "เข้าคิวจาก TBR" : "ถึงคลังจริง",\n        shortDateTime(queueAdmissionArrival(row)),\n      ),`;
+    const dropLegacy = `      classicOperationFact(\n        parseDate(row.actualArrivalAt) ? "ถึงจุดดรอปจริง" : parseDate(row.scheduleTbrArrivalAt) ? "เข้าคิวจาก TBR" : "ถึงจุดดรอปจริง",\n        shortDateTime(queueAdmissionArrival(row)),\n      ),`;
+    const destinationSimple = `      classicOperationFact("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row))),`;
+    const dropSimple = `      classicOperationFact("ถึงจุดดรอปจริง", shortDateTime(confirmedEffectiveArrival(row))),`;
+
+    if (output.includes(destinationLegacy))
+      output = replaceUnique(output, destinationLegacy, sourceFact, "V2 destination queue-source label");
+    else if (output.includes(destinationSimple))
+      output = replaceUnique(output, destinationSimple, sourceFact, "V2 destination simple queue-source label");
+
+    if (output.includes(dropLegacy))
+      output = replaceUnique(output, dropLegacy, sourceFact, "V2 drop queue-source label");
+    else if (output.includes(dropSimple))
+      output = replaceUnique(output, dropSimple, sourceFact, "V2 drop simple queue-source label");
+
+    const renderStart = output.indexOf("function renderOperation(row)");
+    const renderEnd = output.indexOf("// LOCAL_ROUTE_BARCODE_V1", renderStart);
+    if (renderStart < 0 || renderEnd <= renderStart)
+      throw new Error("MS queue source renderer cannot locate renderOperation(row)");
+    const renderBlock = output.slice(renderStart, renderEnd);
+    const sourceLabelCount =
+      (renderBlock.match(/"เข้าคิวจาก " \+ queueAdmissionSource\(row\)/g) || []).length;
+    if (sourceLabelCount < 2)
+      throw new Error("MS queue source renderer did not label both Destination and Drop from timestamp winner");
+    if (/classicOperationFact\("ถึง(?:คลังจริง|จุดดรอปจริง)"/.test(renderBlock))
+      throw new Error("MS queue source renderer still contains legacy actual-arrival queue label");
+
+    output = replaceUnique(
+      output,
+      `function renderOperation(row) {`,
+      `// ${QUEUE_SOURCE_RENDER_MARKER}: KIT/TBR operation label follows queueAdmissionSource timestamp winner.\nfunction renderOperation(row) {`,
+      "mark queue-source renderer V2",
     );
   }
 

@@ -1,0 +1,134 @@
+name: DEV Unloading Timing Readonly Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/unloading-timing-readonly-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Inspect unload timing evidence without writes or upstream calls
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            const org=process.env.TURSO_ORG;
+            const db=process.env.TURSO_DATABASE;
+            if(!platform) throw new Error('Turso platform token missing');
+            const headers={Authorization:`Bearer ${platform}`};
+            const dbRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers});
+            const dbJson=await dbRes.json();
+            if(!dbRes.ok) throw new Error(`Turso lookup HTTP ${dbRes.status}`);
+            const database=dbJson.database||dbJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('Turso hostname missing');
+            const tokenRes=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers});
+            const tokenJson=await tokenRes.json();
+            const dbToken=tokenJson.jwt;
+            if(!tokenRes.ok||!dbToken) throw new Error(`Turso token HTTP ${tokenRes.status}`);
+            console.log(`::add-mask::${dbToken}`);
+            async function query(sql,args=[]){
+              const encode=value=>value==null?{type:'null'}:{type:'text',value:String(value)};
+              const response=await fetch(`https://${hostname}/v2/pipeline`,{
+                method:'POST',headers:{Authorization:`Bearer ${dbToken}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql,args:args.map(encode)}},{type:'close'}]}),
+              });
+              const payload=await response.json();
+              const item=payload?.results?.[0];
+              if(!response.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||payload)}`);
+              return item?.response?.result;
+            }
+            const decode=v=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const rows=result=>(result?.rows||[]).map(row=>row.map(decode));
+            const hashId=async id=>{
+              const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(String(id||'')));
+              return [...new Uint8Array(digest)].slice(0,8).map(x=>x.toString(16).padStart(2,'0')).join('');
+            };
+
+            const liveSql=`
+              WITH cache AS (
+                SELECT hub,
+                  CASE
+                    WHEN json_type(rows_json)='array' THEN rows_json
+                    WHEN json_type(json_extract(rows_json,'$.rows'))='array' THEN json_extract(rows_json,'$.rows')
+                    ELSE '[]'
+                  END AS live_json
+                FROM ms_live_cache
+              ), flat AS (
+                SELECT c.hub,
+                  trim(COALESCE(json_extract(j.value,'$.id'),json_extract(j.value,'$.proofId'),json_extract(j.value,'$.routeId'),'')) AS route_id,
+                  lower(trim(COALESCE(json_extract(j.value,'$.attendanceType'),''))) AS attendance,
+                  CAST(COALESCE(json_extract(j.value,'$.unloadingState'),-1) AS INTEGER) AS unload_state,
+                  trim(COALESCE(json_extract(j.value,'$.scheduleUnloadingStartedAt'),'')) AS schedule_start,
+                  trim(COALESCE(json_extract(j.value,'$.scheduleUnloadingCompletedAt'),'')) AS schedule_end,
+                  trim(COALESCE(json_extract(j.value,'$.unloadingCompletedAt'),'')) AS completed_at,
+                  trim(COALESCE(json_extract(j.value,'$.completionSource'),'')) AS completion_source,
+                  CAST(COALESCE(json_extract(j.value,'$.scheduleCompletionAmbiguous'),0) AS INTEGER) AS schedule_ambiguous
+                FROM cache c, json_each(c.live_json) j
+              )
+              SELECT hub,route_id,attendance,unload_state,schedule_start,schedule_end,completed_at,completion_source,schedule_ambiguous
+              FROM flat
+              WHERE route_id<>''
+                AND (instr(attendance,'ปลายทาง')>0 OR instr(attendance,'จุดดร')>0)
+                AND unload_state IN (1,2)
+              ORDER BY hub,route_id
+            `;
+            const historySql=`
+              WITH ordered AS (
+                SELECT hub,route_id,snapshot_at,rowid,
+                  CAST(COALESCE(json_extract(payload_json,'$.unloadingState'),-1) AS INTEGER) AS current_state,
+                  LAG(CAST(COALESCE(json_extract(payload_json,'$.unloadingState'),-1) AS INTEGER))
+                    OVER (PARTITION BY hub,route_id ORDER BY snapshot_at,rowid) AS previous_state
+                FROM ms_route_history
+                WHERE json_valid(payload_json)=1
+                  AND julianday(snapshot_at)>=julianday('now','-24 hours')
+              )
+              SELECT hub,route_id,MIN(snapshot_at) AS observed_start
+              FROM ordered
+              WHERE current_state=1 AND previous_state=0
+              GROUP BY hub,route_id
+              ORDER BY hub,route_id
+            `;
+            const live=rows(await query(liveSql));
+            const transitions=rows(await query(historySql));
+            const transitionMap=new Map(transitions.map(([hub,id,at])=>[`${hub}\u0000${id}`,String(at||'')]));
+            const hubs=[...new Set(live.map(row=>String(row[0]||'')))].sort();
+            let totalMissing=0,totalRecoverable=0,totalScheduleEndOnly=0,totalAmbiguous=0;
+            for(const hub of hubs){
+              const hubRows=live.filter(row=>String(row[0]||'')===hub);
+              const missing=hubRows.filter(row=>!String(row[4]||''));
+              const recoverable=missing.filter(row=>transitionMap.has(`${hub}\u0000${row[1]}`));
+              const endOnly=missing.filter(row=>String(row[5]||''));
+              const ambiguous=missing.filter(row=>Number(row[8]||0)===1);
+              totalMissing+=missing.length;
+              totalRecoverable+=recoverable.length;
+              totalScheduleEndOnly+=endOnly.length;
+              totalAmbiguous+=ambiguous.length;
+              const fingerprints=await Promise.all(missing.map(row=>hashId(row[1])));
+              const recoverableFingerprints=await Promise.all(recoverable.map(row=>hashId(row[1])));
+              console.log(`HUB=${hub} ACTIVE_OR_COMPLETED=${hubRows.length} START_MISSING=${missing.length} SCHEDULE_END_WITHOUT_START=${endOnly.length} AMBIGUOUS=${ambiguous.length} OBSERVED_0_TO_1_RECOVERABLE=${recoverable.length}`);
+              console.log(`HUB=${hub} START_MISSING_FINGERPRINTS=${fingerprints.join(',')||'-'}`);
+              console.log(`HUB=${hub} RECOVERABLE_FINGERPRINTS=${recoverableFingerprints.join(',')||'-'}`);
+            }
+            console.log(`UNLOAD_TIMING_ROWS=${live.length}`);
+            console.log(`UNLOAD_START_MISSING=${totalMissing}`);
+            console.log(`UNLOAD_START_RECOVERABLE_0_TO_1=${totalRecoverable}`);
+            console.log(`UNLOAD_SCHEDULE_END_WITHOUT_START=${totalScheduleEndOnly}`);
+            console.log(`UNLOAD_SCHEDULE_AMBIGUOUS=${totalAmbiguous}`);
+            console.log('UNLOAD_TIMING_TURSO_READ_QUERIES=2');
+            console.log('UNLOAD_TIMING_TURSO_WRITES=0');
+            console.log('UNLOAD_TIMING_UPSTREAM_MS_CALLS=0');
+            console.log('SENSITIVE_ROUTE_VALUES_LOGGED=0');
+          })().catch(error=>{console.error(error);process.exit(1);});
+          NODE

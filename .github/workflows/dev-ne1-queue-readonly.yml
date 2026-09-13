@@ -1,0 +1,127 @@
+name: DEV NE1 Queue Readonly
+
+# One-shot DEV acceptance helper. Reads accepted Turso cache + Browser KV shadow only.
+# No MS/Route/TBR upstream request and no Turso/KV write.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-ne1-queue-readonly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Read current NE1 accepted Route cache and TBR shadow
+        run: |
+          node <<'NODE'
+          const hub = 'NE1';
+          const tursoPlatform = process.env.TURSO_PLATFORM_API_TOKEN;
+          const cfToken = process.env.CLOUDFLARE_API_TOKEN;
+          const cfAccount = process.env.CLOUDFLARE_ACCOUNT_ID;
+          if (!tursoPlatform || !cfToken || !cfAccount) throw new Error('required DEV read credentials missing');
+
+          const normalizeAttendance = (value) => {
+            const text = String(value || '').trim();
+            if (text.includes('จุดดร')) return 'จุดดรอป';
+            if (text.includes('ปลายทาง')) return 'ปลายทาง';
+            if (text.includes('ต้นทาง')) return 'ต้นทาง';
+            return text;
+          };
+          const isInbound = (row) => ['ปลายทาง','จุดดรอป'].includes(normalizeAttendance(row?.attendanceType));
+          const timeMs = (value) => { const n = Date.parse(String(value || '')); return Number.isFinite(n) ? n : null; };
+          const usedAt = (row) => [row?.actualArrivalAt, row?.scheduleTbrArrivalAt]
+            .map(timeMs).filter((v) => v !== null).sort((a,b) => a-b)[0] ?? null;
+          const safeRow = (row) => ({
+            proofId: String(row?.proofId || row?.barcode || ''),
+            attendanceType: normalizeAttendance(row?.attendanceType),
+            unloadingState: row?.unloadingState ?? null,
+            actualArrivalAt: String(row?.actualArrivalAt || ''),
+            scheduleTbrArrivalAt: String(row?.scheduleTbrArrivalAt || ''),
+            scheduleKitMetadataAt: String(row?.scheduleKitArrivalAt || ''),
+            usedAt: usedAt(row) === null ? '' : new Date(usedAt(row)).toISOString(),
+            actualDepartureAt: String(row?.actualDepartureAt || ''),
+          });
+
+          async function tursoQuery(sql) {
+            const headers = { Authorization: `Bearer ${tursoPlatform}` };
+            const lookup = await fetch(`https://api.turso.tech/v1/organizations/${process.env.TURSO_ORG}/databases/${process.env.TURSO_DATABASE}`, { headers });
+            const lookupJson = await lookup.json();
+            if (!lookup.ok) throw new Error(`Turso lookup HTTP ${lookup.status}`);
+            const database = lookupJson.database || lookupJson;
+            const hostname = database.Hostname || database.hostname;
+            const tokenResponse = await fetch(`https://api.turso.tech/v1/organizations/${process.env.TURSO_ORG}/databases/${process.env.TURSO_DATABASE}/auth/tokens?authorization=full-access`, { method:'POST', headers });
+            const tokenJson = await tokenResponse.json();
+            if (!tokenResponse.ok || !tokenJson.jwt) throw new Error(`Turso token HTTP ${tokenResponse.status}`);
+            console.log(`::add-mask::${tokenJson.jwt}`);
+            const response = await fetch(`https://${hostname}/v2/pipeline`, {
+              method:'POST',
+              headers:{ Authorization:`Bearer ${tokenJson.jwt}`, 'content-type':'application/json' },
+              body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+            });
+            const payload = await response.json();
+            const result = payload?.results?.[0]?.response?.result;
+            if (!response.ok || !result) throw new Error('Turso SELECT failed');
+            const cols = (result.cols || []).map((c) => c.name);
+            return (result.rows || []).map((r) => Object.fromEntries(cols.map((name,i) => [name, r[i]?.value ?? r[i]])));
+          }
+
+          const cacheRows = await tursoQuery(`SELECT synced_at, rows_json FROM ms_live_cache WHERE hub='NE1' LIMIT 1`);
+          const cache = cacheRows[0] || {};
+          let parsed = [];
+          try {
+            const raw = JSON.parse(cache.rows_json || '[]');
+            parsed = Array.isArray(raw) ? raw : Array.isArray(raw?.rows) ? raw.rows : [];
+          } catch {}
+          const inbound = parsed.filter(isInbound);
+          const current = inbound
+            .filter((row) => usedAt(row) !== null && Number(row?.unloadingState) !== 2 && !row?.actualDepartureAt && !row?.queueCancelledAt)
+            .sort((a,b) => (usedAt(a) ?? 0) - (usedAt(b) ?? 0))
+            .map(safeRow);
+          console.log(`NE1_ACCEPTED_CACHE_SYNCED_AT=${cache.synced_at || ''}`);
+          console.log(`NE1_ACCEPTED_ROUTE_ROWS=${parsed.length}`);
+          console.log(`NE1_CURRENT_INBOUND_ROUTE_QUEUE=${JSON.stringify(current)}`);
+
+          const cfHeaders = { Authorization:`Bearer ${cfToken}`, 'Content-Type':'application/json' };
+          const settingsResp = await fetch(`https://api.cloudflare.com/client/v4/accounts/${cfAccount}/workers/scripts/waiting-trucks-ms-browser-test/settings`, { headers:cfHeaders });
+          const settingsJson = await settingsResp.json();
+          if (!settingsResp.ok || settingsJson.success === false) throw new Error('Cloudflare settings read failed');
+          const bindings = Array.isArray(settingsJson.result?.bindings) ? settingsJson.result.bindings : [];
+          const state = bindings.find((x) => x.name === 'STATE' && x.type === 'kv_namespace');
+          if (!state?.namespace_id) throw new Error('Browser STATE KV binding missing');
+          const key = encodeURIComponent(`shadow:tbr:v1:${hub}`);
+          const shadowResp = await fetch(`https://api.cloudflare.com/client/v4/accounts/${cfAccount}/storage/kv/namespaces/${state.namespace_id}/values/${key}`, { headers:{ Authorization:`Bearer ${cfToken}` } });
+          const shadowText = shadowResp.status === 404 ? '' : await shadowResp.text();
+          if (!shadowResp.ok && shadowResp.status !== 404) throw new Error(`Browser KV read HTTP ${shadowResp.status}`);
+          let shadow = {};
+          try { shadow = JSON.parse(shadowText || '{}'); } catch {}
+          const records = Object.values(shadow.records || {}).map((item) => ({
+            attendanceType: normalizeAttendance(item?.attendanceType),
+            status: String(item?.status || ''),
+            tbrAt: String(item?.tbrAt || ''),
+            kitAt: String(item?.kitAt || ''),
+            routeActualArrivalAt: String(item?.routeActualArrivalAt || ''),
+            routeSeen: Boolean(item?.routeSeen),
+            leadMinutes: item?.leadMinutes ?? null,
+          })).filter((row) => ['ปลายทาง','จุดดรอป'].includes(row.attendanceType));
+          const tbrFirstNow = records.filter((row) => row.tbrAt && !row.routeActualArrivalAt && row.status === 'pending');
+          console.log(`NE1_TBR_SHADOW_LAST_ATTEMPT_AT=${shadow.lastAttemptAt || ''}`);
+          console.log(`NE1_TBR_SHADOW_SOURCE_AVAILABLE=${String(shadow.sourceAvailable ?? '')}`);
+          console.log(`NE1_TBR_SHADOW_FEED_COUNT=${shadow.feedCount ?? ''}`);
+          console.log(`NE1_TBR_SHADOW_ROUTE_ROW_COUNT=${shadow.rowCount ?? ''}`);
+          console.log(`NE1_TBR_SHADOW_RECORDS=${JSON.stringify(records)}`);
+          console.log(`NE1_TBR_FIRST_PENDING=${JSON.stringify(tbrFirstNow)}`);
+          console.log('NE1_QUEUE_READONLY_MS_UPSTREAM_CALLS=0');
+          console.log('NE1_QUEUE_READONLY_TURSO_SELECTS=1');
+          console.log('NE1_QUEUE_READONLY_TURSO_WRITES=0');
+          console.log('NE1_QUEUE_READONLY_KV_WRITES=0');
+          NODE

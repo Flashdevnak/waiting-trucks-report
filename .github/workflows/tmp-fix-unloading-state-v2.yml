@@ -25,7 +25,7 @@ jobs:
           git status --short
           git log -5 --oneline
 
-      - name: Wire forward fix into DEV staging
+      - name: Apply runtime wiring
         run: |
           python3 <<'PY'
           from pathlib import Path
@@ -53,21 +53,6 @@ jobs:
               if worker_anchor not in text: raise SystemExit('worker staging anchor missing')
               text = text.replace(worker_anchor, worker_anchor + worker_call, 1)
           stage.write_text(text, encoding='utf-8')
-          deploy = Path('.github/workflows/deploy-worker-dev.yml')
-          text = deploy.read_text(encoding='utf-8')
-          test_anchor = '      - run: node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs\n'
-          test_line = '      - run: node --test ../.github/dev-tools/ms-unloading-start-truth-v2.test.mjs\n'
-          if test_line not in text:
-              if test_anchor not in text: raise SystemExit('deploy test anchor missing')
-              text = text.replace(test_anchor, test_anchor + test_line, 1)
-          if "'MS_UNLOADING_START_TRUTH_V2'" not in text:
-              text = text.replace("'MS_SCHEDULE_COMPLETION_TRUTH_V4'", "'MS_SCHEDULE_COMPLETION_TRUTH_V4','MS_UNLOADING_START_TRUTH_V2'", 1)
-          if "'MS_UNLOADING_OPERATIONAL_TRUTH_V2'" not in text:
-              text = text.replace("'MS_UNLOAD_COMPLETION_UI_V1'", "'MS_UNLOAD_COMPLETION_UI_V1','MS_UNLOADING_OPERATIONAL_TRUTH_V2'", 1)
-          deploy.write_text(text, encoding='utf-8')
-          for p in ['.github/workflows/unloading-timing-readonly-diagnostic.yml','.github/workflows/tmp-target-unloading-timing-readonly.yml','.github/workflows/tmp-fix-unloading-state-v2.yml']:
-              f = Path(p)
-              if f.exists(): f.unlink()
           PY
           git diff --check
           git status --short
@@ -96,13 +81,13 @@ jobs:
           grep -q 'MS_SCHEDULE_UNLOAD_TIMING_PARSE_V2' /tmp/unload-v2-worker/src/index.js
           echo 'UNLOADING_STATE_TRUTH_V2_STAGED=PASS'
 
-      - name: Commit and push safe forward fix
+      - name: Commit and push runtime fix
         run: |
           git fetch origin main
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
           git config user.name "Flashdevnak"
           git config user.email "26nak.testdev@gmail.com"
-          git add -A
+          git add .github/dev-tools/patch-ms-unloading-start-truth-v2.mjs .github/dev-tools/stage-dev-runtime.mjs
           git diff --cached --check
           git commit -m "fix(dev): restore unloading operational truth"
           git push origin HEAD:main

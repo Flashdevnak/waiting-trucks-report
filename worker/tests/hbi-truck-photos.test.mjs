@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import { hbiPhotoDateWindow, normalizeHbiPhotoUrl } from "../src/index.js";
+import { stageFrontend, stageWorker } from "../../.github/dev-tools/stage-dev-runtime.mjs";
 
 test("HBI photo URL is restricted to Flash fleetOutbound thumbnails over HTTPS", () => {
   assert.equal(
@@ -33,6 +34,31 @@ test("frontend keeps photo loading strictly click-only and single-shot", () => {
   assert.match(front, /pollMs:\s*4000/);
   assert.match(front, /setInterval\(realtimeTick, CONFIG\.pollMs\)/);
   assert.doesNotMatch(front, /setInterval\(\(\) => state\.auth && loadData\(true\), CONFIG\.pollMs\)/);
+});
+
+test("DEV staged HBI photos allow Destination and Drop without adding background reads", () => {
+  const front = fs.readFileSync(new URL("../../ms.js", import.meta.url), "utf8");
+  const worker = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  const stagedFront = stageFrontend(front);
+  const stagedWorker = stageWorker(worker);
+
+  assert.match(stagedFront, /HBI_DROP_PHOTO_FRONTEND_V2/);
+  const photoButton = stagedFront.slice(
+    stagedFront.indexOf("function truckPhotoButton"),
+    stagedFront.indexOf("function ensureTruckPhotoDialog"),
+  );
+  assert.match(photoButton, /!isDestination\(row\) && !isDrop\(row\)/);
+  assert.match(photoButton, /data-truck-photo=/);
+
+  assert.match(stagedWorker, /HBI_DROP_PHOTO_WORKER_V2/);
+  const clickPath = stagedWorker.slice(
+    stagedWorker.indexOf("async function msTruckPhotos"),
+    stagedWorker.indexOf("async function readHbiTruckPhotos"),
+  );
+  assert.match(clickPath, /photoAttendance !== "ปลายทาง" && photoAttendance !== "จุดดรอป"/);
+  assert.doesNotMatch(clickPath, /HBI_PHOTOS_DESTINATION_ONLY/);
+  assert.doesNotMatch(clickPath, /INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM/i);
+  assert.doesNotMatch(stagedFront, /setInterval\([^\n]*msTruckPhotos/);
 });
 
 test("mobile barcode toggle stays in its original cell when panel opens", () => {

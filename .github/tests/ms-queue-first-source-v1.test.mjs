@@ -30,6 +30,19 @@ function text(value, max = 500) {
   return String(value || "").trim().slice(0, max);
 }
 
+function parseDate(value) {
+  const at = Date.parse(String(value || ""));
+  return Number.isFinite(at) ? new Date(at) : null;
+}
+
+function isDestination(row) {
+  return normalizeMsAttendance(row?.attendanceType) === "ปลายทาง";
+}
+
+function isDrop(row) {
+  return normalizeMsAttendance(row?.attendanceType) === "จุดดรอป";
+}
+
 function firstSourceRuntime() {
   const start = stagedWorker.indexOf("function msTbrAttendanceFromMapKey(");
   const end = stagedWorker.indexOf("\n\nasync function preEntryCredentials", start);
@@ -51,6 +64,24 @@ function firstSourceRuntime() {
   return {
     queueRows: context.queueRows,
     shadowFeed: context.shadowFeed,
+    helperSource,
+  };
+}
+
+function frontendArrivalRuntime() {
+  const start = stagedFrontend.indexOf("function confirmedEffectiveArrival(row)");
+  const end = stagedFrontend.indexOf("\nfunction attendanceLabel", start);
+  assert.ok(start >= 0 && end > start, "Route-KIT/TBR frontend helper section must exist");
+  const helperSource = stagedFrontend.slice(start, end);
+  const context = { Date, parseDate, isDestination, isDrop };
+  vm.createContext(context);
+  vm.runInContext(
+    `${helperSource}\nthis.confirmed = confirmedEffectiveArrival; this.admitted = queueAdmissionArrival;`,
+    context,
+  );
+  return {
+    confirmed: context.confirmed,
+    admitted: context.admitted,
     helperSource,
   };
 }
@@ -78,20 +109,56 @@ function inboundBus(overrides = {}) {
   };
 }
 
-test("staged DEV treats reached TBR and Route as peer queue-admission sources", () => {
+test("staged DEV uses Route actual-arrival as KIT and schedule-management TBR as the only two inbound queue clocks", () => {
   assert.match(stagedWorker, /MS_QUEUE_FIRST_SOURCE_V1/);
   assert.match(stagedFrontend, /MS_QUEUE_FIRST_SOURCE_V1/);
+  assert.match(stagedFrontend, /MS_QUEUE_KIT_TBR_CONTRACT_V2/);
   assert.match(stagedFrontend, /เข้าคิวแล้วจาก TBR/);
   assert.doesNotMatch(stagedFrontend, /TBR เข้าคิว · รอ Route ยืนยัน/);
   assert.doesNotMatch(stagedWorker, /TBR เข้าคิว · รอ Route ยืนยัน/);
   assert.match(stagedFrontend, /function queueAdmissionArrival\(row\)/);
+  assert.match(stagedFrontend, /const routeKitArrival = parseDate\(row\.actualArrivalAt\)/);
+  assert.match(stagedFrontend, /const tbrArrival = parseDate\(row\.scheduleTbrArrivalAt\)/);
   assert.match(stagedFrontend, /const start = queueAdmissionArrival\(row\)/);
-  assert.match(stagedFrontend, /const arrival = queueAdmissionArrival\(row\)/);
-  assert.match(stagedFrontend, /active = Boolean\(arrival\) && !done && !cancelled && ageHours <= 12/);
+  assert.match(stagedFrontend, /inboundQueue = isDestination\(row\) \|\| isDrop\(row\)/);
+  assert.match(stagedFrontend, /active = inboundQueue && Boolean\(arrival\) && !done && !cancelled && ageHours <= 12/);
+  assert.doesNotMatch(stagedFrontend, /เวลาเข้าคิวที่ใช้/);
   assert.match(
     stagedFrontend,
-    /function confirmedEffectiveArrival\(row\) \{\s*return parseDate\(row\.actualArrivalAt\) \? effectiveArrival\(row\) : null;/,
+    /<em>KIT<\/em>\$\{arrivalSourceDateTime\(row\.actualArrivalAt\)\}/,
   );
+  assert.match(
+    stagedFrontend,
+    /<em>TBR<\/em>\$\{arrivalSourceDateTime\(row\.scheduleTbrArrivalAt\)\}/,
+  );
+});
+
+test("used inbound time is the earlier of Route KIT and TBR; schedule KIT metadata cannot backdate it", () => {
+  const { confirmed, admitted, helperSource } = frontendArrivalRuntime();
+  const row = {
+    attendanceType: "ปลายทาง",
+    actualArrivalAt: "2026-09-13T04:20:00.000Z",
+    scheduleTbrArrivalAt: "2026-09-13T04:10:00.000Z",
+    scheduleKitArrivalAt: "2026-09-13T03:00:00.000Z",
+  };
+  assert.equal(admitted(row).toISOString(), "2026-09-13T04:10:00.000Z");
+  assert.equal(confirmed(row).toISOString(), "2026-09-13T04:10:00.000Z");
+  assert.doesNotMatch(helperSource, /scheduleKitArrivalAt/);
+});
+
+test("TBR can admit destination/drop before Route KIT, while raw Route actual-arrival stays absent", () => {
+  const { confirmed, admitted } = frontendArrivalRuntime();
+  const destination = {
+    attendanceType: "ปลายทาง",
+    actualArrivalAt: "",
+    scheduleTbrArrivalAt: "2026-09-13T04:10:00.000Z",
+  };
+  const drop = { ...destination, attendanceType: "จุดดรอป" };
+  const origin = { ...destination, attendanceType: "ต้นทาง" };
+  assert.equal(confirmed(destination), null);
+  assert.equal(admitted(destination).toISOString(), "2026-09-13T04:10:00.000Z");
+  assert.equal(admitted(drop).toISOString(), "2026-09-13T04:10:00.000Z");
+  assert.equal(admitted(origin), null);
 });
 
 test("TBR-first inbound vehicle becomes a full queue row immediately with no fabricated Route actual-arrival", () => {

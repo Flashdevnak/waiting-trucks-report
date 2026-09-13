@@ -73,7 +73,10 @@ test("lower waiting/unloading cards follow operational state, not shared queue b
   );
   assert.match(staged, /state\.summary === "origin" &&\s*isOrigin\(row\) &&\s*!queue\.done &&\s*!queue\.cancelled/);
   assert.doesNotMatch(staged, /state\.summary === "origin"[^;]+queue\.awaitingRelease/);
-  assert.match(staged, /state\.summary === "drop" &&\s*isDrop\(row\) &&\s*queue\.done &&\s*queue\.released &&\s*!queue\.cancelled/);
+  assert.match(
+    staged,
+    /state\.summary === "drop" &&\s*isDrop\(row\) &&\s*!queue\.cancelled &&\s*\(\(queue\.done && queue\.released\) \|\|\s*operationalExpiry12h\(row\)\?\.group === "drop"\)/,
+  );
 });
 
 test("one truck moves waiting to unloading to completed without the unloading card dropping to zero", () => {
@@ -172,7 +175,7 @@ test("completed card displays the authoritative daily Destination rows represent
   assert.match(staged, /state\.queue = "all";\s*el\("queue-filter"\)\.value = "all";/);
 });
 
-test("completed/drop views keep active cards on live current queue and hydrate released Drop separately", () => {
+test("completed/drop views hydrate released and truthfully expired rows separately", () => {
   assert.match(
     staged,
     /function filteredRows\(ignoreSummary = false, queueMode = state\.queue\)/,
@@ -187,7 +190,11 @@ test("completed/drop views keep active cards on live current queue and hydrate r
   );
   assert.match(
     staged,
-    /const source = useCompletedTodayDataset\s*\? completedTodayDatasetRows\(\)\s*:\s*useArchive\s*\? state\.archiveRows\s*:\s*state\.currentRows;/,
+    /const includeExpired12h =\s*state\.status === "unload-overtime" \|\|\s*\(!ignoreSummary &&\s*\(state\.summary === "unload-overtime" \|\| state\.summary === "drop"\)\);/,
+  );
+  assert.match(
+    staged,
+    /const source = useCompletedTodayDataset\s*\? includeExpired12h\s*\? completedTodayWithExpired12hRows\(\)\s*:\s*completedTodayDatasetRows\(\)\s*:\s*useArchive\s*\? state\.archiveRows\s*:\s*state\.currentRows;/,
   );
   assert.match(
     staged,
@@ -201,6 +208,23 @@ test("completed/drop views keep active cards on live current queue and hydrate r
   assert.match(staged, /queueMode === "queue" && queue\.active/);
   assert.match(staged, /state\.summary === "drop" &&\s*queue\.done &&\s*queue\.released/);
   assert.match(staged, /queueMode === "queue" \? aTime - bTime : bTime - aTime/);
+});
+
+test("12-hour expiry remains an operational cutoff without fabricating release truth", () => {
+  assert.match(staged, /MS_OPERATIONAL_12H_EXPIRY_V1/);
+  assert.match(staged, /ageHours < 12/);
+  assert.match(staged, /ageHours >= 12/);
+  assert.match(staged, /queue\.cancelled \|\| queue\.expired/);
+  assert.match(staged, /จุดดรอป · หมดอายุ 12 ชม\./);
+  assert.match(staged, /ลงรถเกินเวลา · หมดอายุ 12 ชม\./);
+  assert.match(
+    staged,
+    /if \(!queue\.expired \|\| queue\.cancelled \|\| queue\.done\) return null/,
+  );
+  assert.match(
+    staged,
+    /const released = Boolean\(parseDate\(row\.actualDepartureAt\)\)/,
+  );
 });
 
 test("summary filter staging does not change polling or realtime recovery", () => {

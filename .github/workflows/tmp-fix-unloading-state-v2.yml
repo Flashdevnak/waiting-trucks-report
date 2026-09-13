@@ -29,23 +29,12 @@ jobs:
         run: |
           python3 <<'PY'
           from pathlib import Path
-
           patch = Path('.github/dev-tools/patch-ms-unloading-start-truth-v2.mjs')
           text = patch.read_text(encoding='utf-8')
-          old = '''    `    start = parseDate(row.scheduleUnloadingStartedAt),`,
-    `    start =
-      parseDate(row.scheduleUnloadingStartedAt) ||
-      parseDate(row.unloadingStartedAt) ||
-      parseDate(row.unloadingStartedObservedAt),`,'''
-          new = '''    `  const start = parseDate(row.scheduleUnloadingStartedAt);`,
-    `  const start =
-    parseDate(row.scheduleUnloadingStartedAt) ||
-    parseDate(row.unloadingStartedAt) ||
-    parseDate(row.unloadingStartedObservedAt);`,'''
+          old = "    `    start = parseDate(row.scheduleUnloadingStartedAt),`,\n    `    start =\n      parseDate(row.scheduleUnloadingStartedAt) ||\n      parseDate(row.unloadingStartedAt) ||\n      parseDate(row.unloadingStartedObservedAt),`,"
+          new = "    `  const start = parseDate(row.scheduleUnloadingStartedAt);`,\n    `  const start =\n    parseDate(row.scheduleUnloadingStartedAt) ||\n    parseDate(row.unloadingStartedAt) ||\n    parseDate(row.unloadingStartedObservedAt);`,"
           if old not in text: raise SystemExit('unloadTiming anchor patch source missing')
-          text = text.replace(old, new, 1)
-          patch.write_text(text, encoding='utf-8')
-
+          patch.write_text(text.replace(old, new, 1), encoding='utf-8')
           stage = Path('.github/dev-tools/stage-dev-runtime.mjs')
           text = stage.read_text(encoding='utf-8')
           import_anchor = 'import { patchMsLiveResilienceFrontend } from "./patch-ms-live-resilience.mjs";\n'
@@ -64,7 +53,6 @@ jobs:
               if worker_anchor not in text: raise SystemExit('worker staging anchor missing')
               text = text.replace(worker_anchor, worker_anchor + worker_call, 1)
           stage.write_text(text, encoding='utf-8')
-
           deploy = Path('.github/workflows/deploy-worker-dev.yml')
           text = deploy.read_text(encoding='utf-8')
           test_anchor = '      - run: node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs\n'
@@ -77,12 +65,7 @@ jobs:
           if "'MS_UNLOADING_OPERATIONAL_TRUTH_V2'" not in text:
               text = text.replace("'MS_UNLOAD_COMPLETION_UI_V1'", "'MS_UNLOAD_COMPLETION_UI_V1','MS_UNLOADING_OPERATIONAL_TRUTH_V2'", 1)
           deploy.write_text(text, encoding='utf-8')
-
-          for p in [
-              '.github/workflows/unloading-timing-readonly-diagnostic.yml',
-              '.github/workflows/tmp-target-unloading-timing-readonly.yml',
-              '.github/workflows/tmp-fix-unloading-state-v2.yml',
-          ]:
+          for p in ['.github/workflows/unloading-timing-readonly-diagnostic.yml','.github/workflows/tmp-target-unloading-timing-readonly.yml','.github/workflows/tmp-fix-unloading-state-v2.yml']:
               f = Path(p)
               if f.exists(): f.unlink()
           PY

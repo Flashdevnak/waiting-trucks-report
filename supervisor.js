@@ -5,14 +5,32 @@
 // SUPERVISOR_INCIDENT_ACTION_V1
 // SUPERVISOR_QUOTA_CENTER_V1
 // SUPERVISOR_QUOTA_PROTECTION_V1
+// SUPERVISOR_I18N_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
 import { deriveHubView, deriveOverview } from "./supervisor-view.js?v=20260914-sup07";
+import { applySupervisorLanguage, nextSupervisorLanguage, readSupervisorLanguage, syncSupervisorLanguageControls, writeSupervisorLanguage } from "./supervisor-i18n.js?v=20260915-sup13";
 
 const SUPERVISOR_AUTH_KEY = "bnak_operator_auth_v2";
 const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);
 const terminalState = { availability: "UNAVAILABLE", events: [], filter: "ALL", cleared: false, limit: 120 };
+let supervisorLanguage = readSupervisorLanguage();
+
+function applyCurrentLanguage() {
+  applySupervisorLanguage(document, supervisorLanguage);
+  syncSupervisorLanguageControls(document, supervisorLanguage);
+}
+
+function bindLanguageControls() {
+  document.querySelectorAll("[data-language-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      supervisorLanguage = nextSupervisorLanguage(supervisorLanguage);
+      writeSupervisorLanguage(localStorage, supervisorLanguage);
+      applyCurrentLanguage();
+    });
+  });
+}
 
 const sectionCopy = {
   overview: ["ภาพรวมระบบ", "สถานะจริงจะแสดงเมื่อ shared Supervisor snapshot พร้อมใช้งาน"],
@@ -41,6 +59,7 @@ function showGate(title, message) {
   document.getElementById("gate-message").textContent = message;
   document.getElementById("supervisor-gate").hidden = false;
   document.getElementById("supervisor-app").hidden = true;
+  applyCurrentLanguage();
 }
 
 function activateSection(name) {
@@ -56,6 +75,7 @@ function activateSection(name) {
   });
   document.getElementById("section-title").textContent = copy[0];
   document.getElementById("section-subtitle").textContent = copy[1];
+  applyCurrentLanguage();
 }
 
 function terminalPanel() {
@@ -155,6 +175,7 @@ function renderTerminalRows() {
     clearButton.disabled = terminalState.availability !== "AVAILABLE" || terminalState.events.length === 0;
     clearButton.textContent = terminalState.cleared ? "Restore view" : "Clear view";
   }
+  applyCurrentLanguage();
 }
 
 function renderTerminalConsole(snapshot) {
@@ -195,6 +216,7 @@ function bindTerminalControls() {
       } catch {
         copyButton.textContent = "Copy blocked";
       }
+      applyCurrentLanguage();
     });
   }
   if (clearButton) {
@@ -953,6 +975,7 @@ function renderSnapshot(snapshot, workerReachable = false) {
   }
   sourceSummary.append(sourceState, sourceDetail);
   renderTerminalConsole(snapshot);
+  applyCurrentLanguage();
 }
 
 async function loadSharedSnapshot() {
@@ -972,6 +995,9 @@ async function loadSharedSnapshot() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  supervisorLanguage = readSupervisorLanguage();
+  bindLanguageControls();
+  applyCurrentLanguage();
   const auth = readLocalAdminClaim();
   if (!auth) {
     showGate(

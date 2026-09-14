@@ -167,9 +167,9 @@ test("lower waiting and unloading cards share the same operational stage as the 
     staged,
     /state\.summary === "unloading" &&\s*inboundOperationalStage\(row\) === "unloading"/,
   );
-  assert.match(staged, /const operationalStage = inboundOperationalStage\(row\);/);
-  assert.match(staged, /if \(operationalStage === "waiting"\) counts\.waiting\+\+;/);
-  assert.match(staged, /if \(operationalStage === "unloading"\) counts\.unloading\+\+;/);
+  assert.match(staged, /const lowerCardOperationalStage = inboundOperationalStage\(row\);/);
+  assert.match(staged, /if \(lowerCardOperationalStage === "waiting"\) counts\.waiting\+\+;/);
+  assert.match(staged, /if \(lowerCardOperationalStage === "unloading"\) counts\.unloading\+\+;/);
   assert.match(
     staged,
     /state\.currentRows\.filter\(\s*\(row\) => inboundOperationalStage\(row\) === "unloading",\s*\)\.length/,

@@ -4,6 +4,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
 import {
+  SOURCE_REAUTH_MARKER,
+  patchMsSourceReauthGuidance,
+} from "./patch-ms-source-reauth-guidance.mjs";
+import {
   REPORT_TRUTH_MARKER,
   patchDevReportTruthHtml,
   patchDevReportTruthJs,
@@ -68,7 +72,8 @@ async function selfTest() {
   const reportSource = await readFile(new URL("ms-report.js", root), "utf8");
   const stagedFront = patchMsConnectionErrorKvFrontend(msSource);
   const patchedOrigin = patchOriginManifestSessionReplay(originSource);
-  const patchedFront = patchCompactHarActions(stagedFront);
+  const compactFront = patchCompactHarActions(stagedFront);
+  const patchedFront = patchMsSourceReauthGuidance(compactFront);
   const patchedReportHtml = patchDevReportTruthHtml('<span class="badge badge-online">พร้อมใช้งาน</span>');
   const patchedReportJs = patchDevReportTruthJs(reportSource);
 
@@ -90,7 +95,11 @@ async function selfTest() {
 
   assert.ok(patchedFront.includes(COMPACT_MARKER));
   assert.ok(patchedFront.includes(INLINE_MARKER));
-  assert.equal(patchCompactHarActions(patchedFront), patchedFront);
+  assert.ok(patchedFront.includes(SOURCE_REAUTH_MARKER));
+  assert.ok(patchedFront.includes("Session หมดอายุ · อัปโหลด HAR ตารางเวลา KIT/TBR ใหม่"));
+  assert.ok(patchedFront.includes("อัปโหลด HAR ตารางเวลาใหม่"));
+  assert.ok(patchedFront.includes("MS Session ต้องต่อใหม่"));
+  assert.equal(patchMsSourceReauthGuidance(patchedFront), patchedFront);
 
   assert.equal(verifyDevReportTruthState(patchedReportHtml, patchedReportJs), true);
   assert.equal(patchDevReportTruthHtml(patchedReportHtml), patchedReportHtml);
@@ -102,6 +111,8 @@ async function selfTest() {
   console.log("DEV_ORIGIN_MANIFEST_WUJIE_AUTH_V5=PASS");
   console.log("DEV_HAR_COMPACT_ACTIONS_V3=PASS");
   console.log("DEV_HAR_INLINE_ACTIONS_V4=PASS");
+  console.log(`${SOURCE_REAUTH_MARKER}=PASS`);
+  console.log("DEV_SOURCE_REAUTH_BACKGROUND_READS=0");
   console.log(`${REPORT_TRUTH_MARKER}=PASS`);
   console.log("DEV_REPORT_STATIC_READY_BADGE=0");
   console.log("DEV_REPORT_BACKGROUND_TRANSPORT=0");
@@ -122,14 +133,16 @@ async function patchFiles(frontendPath, originPath) {
   ]);
   const patchedReportHtml = patchDevReportTruthHtml(reportHtml);
   const patchedReportJs = patchDevReportTruthJs(reportJs);
+  const patchedFront = patchMsSourceReauthGuidance(patchCompactHarActions(front));
   verifyDevReportTruthState(patchedReportHtml, patchedReportJs);
   await Promise.all([
-    writeFile(frontendPath, patchCompactHarActions(front), "utf8"),
+    writeFile(frontendPath, patchedFront, "utf8"),
     writeFile(originPath, patchOriginManifestSessionReplay(origin), "utf8"),
     writeFile(reportHtmlPath, patchedReportHtml, "utf8"),
     writeFile(reportJsPath, patchedReportJs, "utf8"),
   ]);
   console.log(`Patched DEV connector frontend: ${frontendPath}`);
+  console.log(`Patched DEV source re-auth guidance: ${frontendPath}`);
   console.log(`Patched DEV Origin Manifest Wujie auth + fresh-time replay: ${originPath}`);
   console.log(`Patched DEV report truth-state: ${reportHtmlPath} + ${reportJsPath}`);
 }

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f4f7fb">
+  <title>Waiting Trucks Supervisor · DEV</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="supervisor.css?v=20260914-sup01">
+</head>
+<body>
+  <!-- SUPERVISOR_CORE_SHELL_V1: isolated static side-car; no source, DB, or realtime transport. -->
+  <main id="supervisor-gate" class="access-gate" aria-live="polite">
+    <div class="gate-card">
+      <div class="brand-mark" aria-hidden="true">S</div>
+      <p class="eyebrow">WAITING TRUCKS · DEV ONLY</p>
+      <h1 id="gate-title">กำลังตรวจสิทธิ์ผู้ดูแล</h1>
+      <p id="gate-message">Supervisor จะไม่โหลดข้อมูลระบบจนกว่าจะยืนยันสิทธิ์ผ่าน backend ใน checkpoint ถัดไป</p>
+      <div class="gate-actions">
+        <a class="button button-primary" href="ms.html">กลับหน้า Waiting Trucks</a>
+        <a class="button button-quiet" href="admin.html">เข้าสู่ระบบ Admin</a>
+      </div>
+    </div>
+  </main>
+
+  <div id="supervisor-app" class="supervisor-app" hidden>
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">S</div>
+        <div>
+          <p class="eyebrow">WAITING TRUCKS · DEV ONLY</p>
+          <h1>Supervisor Control Center</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="environment-pill"><i></i> DEV</span>
+        <span class="mode-pill">OBSERVE ONLY</span>
+        <a class="icon-button" href="ms.html" aria-label="กลับหน้า Waiting Trucks">↗</a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" aria-label="เมนู Supervisor">
+        <nav id="supervisor-nav">
+          <button class="nav-item is-active" type="button" data-section="overview"><span>ภาพรวม</span><small>Overview</small></button>
+          <button class="nav-item" type="button" data-section="hubs"><span>สุขภาพ HUB</span><small>HUB &amp; Sources</small></button>
+          <button class="nav-item" type="button" data-section="diagnostics"><span>การวิเคราะห์</span><small>Diagnostics</small></button>
+          <button class="nav-item" type="button" data-section="quota"><span>ศูนย์ Quota</span><small>Quota Guardian</small></button>
+          <button class="nav-item" type="button" data-section="incidents"><span>เหตุการณ์</span><small>Alerts &amp; Actions</small></button>
+          <button class="nav-item" type="button" data-section="maintenance"><span>บำรุงรักษา</span><small>Maintenance</small></button>
+          <button class="nav-item" type="button" data-section="terminal"><span>Event Console</span><small>Terminal</small></button>
+          <button class="nav-item" type="button" data-section="guide"><span>คู่มือ</span><small>Guide &amp; Context</small></button>
+        </nav>
+        <div class="sidebar-foot">
+          <span>Production</span>
+          <strong>OUT OF SCOPE</strong>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div class="workspace-head">
+          <div>
+            <p class="eyebrow">OPERATIONS CONTROL CENTER</p>
+            <h2 id="section-title">ภาพรวมระบบ</h2>
+            <p id="section-subtitle">สถานะจริงจะแสดงเมื่อ shared Supervisor snapshot พร้อมใช้งาน</p>
+          </div>
+          <div class="workspace-actions">
+            <span class="snapshot-state"><i></i> Snapshot: UNAVAILABLE</span>
+            <button class="button button-quiet" type="button" disabled>รีเฟรช Snapshot</button>
+          </div>
+        </div>
+
+        <section class="panel-section is-active" data-panel="overview">
+          <div class="hero-grid">
+            <article class="health-hero">
+              <div>
+                <p class="card-label">OVERALL SYSTEM HEALTH</p>
+                <div class="health-value"><span class="status-orb unknown"></span>UNKNOWN</div>
+                <p>ยังไม่มี shared snapshot จึงไม่สรุปว่าระบบปกติหรือผิดปกติ</p>
+              </div>
+              <button class="why-button" type="button" data-why="snapshot">Why?</button>
+            </article>
+            <article class="bot-card">
+              <div class="bot-head"><span>SUPERVISOR BOT</span><b>LEVEL 0</b></div>
+              <dl>
+                <div><dt>Mode</dt><dd>OBSERVE ONLY</dd></div>
+                <div><dt>Automatic repairs</dt><dd>0</dd></div>
+                <div><dt>AI monitoring</dt><dd>0</dd></div>
+                <div><dt>Production authority</dt><dd>NONE</dd></div>
+              </dl>
+            </article>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric-card"><span>Configured HUB</span><strong>—</strong><small>UNKNOWN</small></article>
+            <article class="metric-card"><span>Healthy HUB</span><strong>—</strong><small>UNKNOWN</small></article>
+            <article class="metric-card"><span>Open incidents</span><strong>—</strong><small>UNAVAILABLE</small></article>
+            <article class="metric-card"><span>Pending actions</span><strong>—</strong><small>UNAVAILABLE</small></article>
+          </div>
+
+          <div class="content-grid">
+            <article class="surface span-2">
+              <div class="surface-head"><div><p class="card-label">SYSTEM MAP</p><h3>เส้นทางข้อมูล Waiting Trucks</h3></div><span class="status-tag unknown">UNKNOWN</span></div>
+              <div class="system-map" aria-label="แผนผังระบบ">
+                <div><span>MS Sources</span><small>UNKNOWN</small></div><b>→</b>
+                <div><span>Shared Coordinator</span><small>UNKNOWN</small></div><b>→</b>
+                <div><span>Accepted State</span><small>UNKNOWN</small></div><b>→</b>
+                <div><span>Queue / UI</span><small>UNKNOWN</small></div>
+              </div>
+            </article>
+            <article class="surface">
+              <div class="surface-head"><div><p class="card-label">CURRENT CONTRACT</p><h3>ผลกระทบ Supervisor</h3></div></div>
+              <ul class="contract-list">
+                <li><span>Additional upstream</span><strong>0</strong></li>
+                <li><span>Database reads</span><strong>0</strong></li>
+                <li><span>Database writes</span><strong>0</strong></li>
+                <li><span>Background timers</span><strong>0</strong></li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel-section" data-panel="hubs">
+          <div class="section-grid">
+            <article class="surface span-2"><div class="surface-head"><div><p class="card-label">HUB HEALTH</p><h3>HUB ที่ค้นพบจากระบบจริง</h3></div><span class="status-tag unknown">UNAVAILABLE</span></div><div class="truth-empty"><strong>ยังไม่มี HUB snapshot</strong><p>รายการจะมาจาก configured/discovered HUB เท่านั้น ไม่มีการ hardcode HUB ตัวอย่าง</p></div></article>
+            <article class="surface"><div class="surface-head"><div><p class="card-label">SOURCE HEALTH</p><h3>Route · KIT/TBR · Optional</h3></div></div><div class="truth-empty compact"><strong>UNKNOWN</strong><p>Missing data จะไม่ถูกตีความเป็น HEALTHY</p></div></article>
+          </div>
+        </section>
+
+        <section class="panel-section" data-panel="diagnostics">
+          <div class="section-grid">
+            <article class="surface"><div class="surface-head"><div><p class="card-label">QUEUE / LIFECYCLE</p><h3>Observer only</h3></div><span class="status-tag unknown">UNKNOWN</span></div><p class="body-copy">จะแยก FACT, INFERENCE และ SUSPICION โดยไม่แก้ actual arrival, departure, completion หรือ queue truth</p></article>
+            <article class="surface"><div class="surface-head"><div><p class="card-label">CONFIG DRIFT</p><h3>Expected vs Current</h3></div><span class="status-tag unknown">UNAVAILABLE</span></div><p class="body-copy">ยังไม่มี diagnostic snapshot สำหรับเปรียบเทียบ runtime bindings, cadence และ transport</p></article>
+            <article class="surface span-2"><div class="surface-head"><div><p class="card-label">ROOT CAUSE</p><h3>Diagnostic explanation</h3></div></div><div class="truth-empty"><strong>ไม่มี incident สำหรับวิเคราะห์</strong><p>Supervisor จะอธิบาย evidence, impact และ next step โดยไม่เปิดเผยข้อมูลลับหรือ private reasoning</p></div></article>
+          </div>
+        </section>
+
+        <section class="panel-section" data-panel="quota">
+          <div class="section-grid">
+            <article class="surface span-2"><div class="surface-head"><div><p class="card-label">QUOTA CENTER</p><h3>Runtime observation &amp; provider truth</h3></div><span class="status-tag unknown">UNKNOWN</span></div><div class="truth-empty"><strong>ยังไม่มี quota snapshot</strong><p>จะไม่ยิง provider หรือ source เพิ่มเพื่อวัด quota และจะไม่เดา provider limit</p></div></article>
+            <article class="surface"><div class="surface-head"><div><p class="card-label">LEAK DETECTOR</p><h3>Hard contracts</h3></div></div><ul class="contract-list"><li><span>Per-client upstream</span><strong>0</strong></li><li><span>Per-widget upstream</span><strong>0</strong></li><li><span>Continuous AI</span><strong>0</strong></li></ul></article>
+          </div>
+        </section>
+
+        <section class="panel-section" data-panel="incidents">
+          <div class="section-grid">
+            <article class="surface"><div class="surface-head"><div><p class="card-label">ALERT &amp; INCIDENT CENTER</p><h3>เหตุการณ์ที่ dedupe แล้ว</h3></div><span class="status-tag unknown">UNAVAILABLE</span></div><div class="truth-empty compact"><strong>ยังไม่มี event source</strong><p>ไม่สร้าง incident จำลอง</p></div></article>
+            <article class="surface"><div class="surface-head"><div><p class="card-label">ACTION CENTER</p><h3>สิ่งที่ Admin ต้องจัดการ</h3></div><span class="status-tag unknown">UNAVAILABLE</span></div><div class="truth-empty compact"><strong>ยังไม่มี action snapshot</strong><p>Repair ถูกปิดตาม OBSERVE ONLY</p></div></article>
+          </div>
+        </section>
+
+        <section class="panel-section" data-panel="maintenance">
+          <article class="surface"><div class="surface-head"><div><p class="card-label">MAINTENANCE</p><h3>Auth renewal · Warnings · Drift · Pending repairs</h3></div><span class="status-tag unknown">UNAVAILABLE</span></div><div class="truth-empty"><strong>ยังไม่มี maintenance snapshot</strong><p>ระบบจะสรุปจากเหตุการณ์จริงและ state changes โดยไม่เพิ่ม heartbeat writes</p></div></article>
+        </section>
+
+        <section class="panel-section" data-panel="terminal">
+          <article class="terminal-card">
+            <div class="terminal-head"><div><span class="terminal-dot red"></span><span class="terminal-dot amber"></span><span class="terminal-dot green"></span><strong>Supervisor Event Console</strong></div><div><button type="button" disabled>Pause</button><button type="button" disabled>Copy</button><button type="button" disabled>Clear view</button></div></div>
+            <div class="terminal-filters"><span class="is-active">ALL</span><span>PASS</span><span>WARN</span><span>ERROR</span></div>
+            <div class="terminal-body"><p><time>--:--:--</time><b>INFO</b><span>No shared event stream connected. No events were fabricated.</span></p></div>
+          </article>
+        </section>
+
+        <section class="panel-section" data-panel="guide">
+          <div class="section-grid">
+            <article class="surface span-2"><div class="surface-head"><div><p class="card-label">GUIDE</p><h3>คู่มือ Supervisor</h3></div></div><div class="guide-grid"><div><strong>UNKNOWN หมายถึงอะไร</strong><p>ยังไม่มีหลักฐานเพียงพอ ห้ามตีความว่าปกติ</p></div><div><strong>OBSERVE ONLY</strong><p>ดูและวิเคราะห์เท่านั้น ไม่มีการซ่อมอัตโนมัติ</p></div><div><strong>Quota guard</strong><p>Supervisor ต้องไม่สร้าง upstream หรือ DB traffic ตามจำนวนหน้าจอ</p></div><div><strong>Production guard</strong><p>Production อยู่นอกอำนาจของ Bot ทุกระดับ</p></div></div></article>
+            <article class="surface"><div class="surface-head"><div><p class="card-label">SYSTEM CONTEXT</p><h3>Copy / Evidence</h3></div></div><p class="body-copy">ปุ่ม Copy จะเปิดเมื่อมี sanitized snapshot และ redaction tests ผ่านแล้ว</p><button class="button button-quiet full" type="button" disabled>Copy Current System Context</button></article>
+          </div>
+        </section>
+      </section>
+    </div>
+  </div>
+
+  <dialog id="why-dialog" class="why-dialog">
+    <div class="dialog-head"><div><p class="card-label">WHY THIS STATUS</p><h2>Snapshot: UNAVAILABLE</h2></div><button type="button" data-close-dialog aria-label="ปิด">×</button></div>
+    <dl><div><dt>Evidence</dt><dd>SUP-01 ยังไม่มี shared Supervisor snapshot หรือ event transport</dd></div><div><dt>Impact</dt><dd>Supervisor ไม่สามารถสรุปสุขภาพระบบ แต่ Waiting Trucks ไม่ได้รับผลกระทบ</dd></div><div><dt>Bot action</dt><dd>SKIP — ไม่สร้างข้อมูลหรือเรียก source เพิ่ม</dd></div><div><dt>Next step</dt><dd>ทำ backend access guard และ shared read-only snapshot ตาม checkpoint</dd></div></dl>
+  </dialog>
+
+  <script src="supervisor.js?v=20260914-sup01" defer></script>
+</body>
+</html>

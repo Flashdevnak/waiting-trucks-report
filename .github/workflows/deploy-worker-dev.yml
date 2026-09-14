@@ -18,6 +18,9 @@ on:
       - admin.html
       - admin.js
       - admin.css
+      - supervisor.html
+      - supervisor.js
+      - supervisor.css
       - ms-report.html
       - ms-report.js
       - ms.html
@@ -65,6 +68,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-multiclient-dedupe.test.mjs
       - run: node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
       - run: node --test ../.github/dev-tools/ms-self-healing-supervisor.test.mjs
+      - run: node --test ../.github/dev-tools/supervisor-access-guard.test.mjs
       - run: node --test ../.github/dev-tools/safe-parity.test.mjs
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
       - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
@@ -96,12 +100,13 @@ jobs:
           rm -rf .dev-assets .dev-runtime
           mkdir -p .dev-assets .dev-runtime
           cp -R src .dev-runtime/src
-          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
           node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js .dev-runtime/src/origin-manifest-v1.js
           node --check .dev-assets/admin.js
+          node --check .dev-assets/supervisor.js
           node --check .dev-assets/ms-report.js
           node --check .dev-assets/ms.js
           node --check .dev-assets/proof.js
@@ -265,9 +270,17 @@ jobs:
           const proof=await get('proof.html');
           const admin=await get('admin.html');
           const adminJs=await get('admin.js');
+          const supervisorResponse=await fetch(`${base}/supervisor.html`,{headers:{'cache-control':'no-cache'},cache:'no-store',redirect:'manual'});
+          const supervisorDenied=await supervisorResponse.text();
+          const supervisorJs=await get('supervisor.js');
+          const supervisorCss=await get('supervisor.css');
           if(!admin.includes('ADMIN_STANDALONE_V1')&&!adminJs.includes('ADMIN_STANDALONE_V1')) throw new Error('standalone Admin marker missing');
           if(/setInterval\s*\(|new WebSocket\s*\(/.test(adminJs)) throw new Error('Admin page introduced background transport');
           if(adminJs.includes('waiting.html')) throw new Error('Admin flow points back to waiting.html');
+          if(supervisorResponse.status!==403||!supervisorDenied.includes('Admin access required')) throw new Error('Supervisor HTML Admin guard missing');
+          if(supervisorDenied.includes('SUPERVISOR_CORE_SHELL_V1')) throw new Error('Supervisor HTML leaked without Admin session');
+          for(const [name,asset] of Object.entries({supervisorJs,supervisorCss})) if(!asset.includes('SUPERVISOR_CORE_SHELL_V1')) throw new Error(`${name} core marker missing`);
+          if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced runtime transport');
           const msJs=await get('ms.js');
           if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');
           if(!proof.includes('ms.html#connection')) throw new Error('Proof shared connection link missing');
@@ -290,6 +303,11 @@ jobs:
           console.log('DEV_UI_VISIBLE_ORDER=STATUS>REFRESH>SYSTEM_MENU>TOOLS>ACCOUNT');
           console.log(`DEV_UI_SHARED_STYLE=${style}`);
           console.log('DEV_ADMIN_STANDALONE=PASS');
+          console.log('DEV_SUPERVISOR_CORE_SHELL=PASS');
+          console.log('DEV_SUPERVISOR_ADMIN_GUARD=PASS');
+          console.log('DEV_SUPERVISOR_EXTRA_UPSTREAM=0');
+          console.log('DEV_SUPERVISOR_DB_READS=0');
+          console.log('DEV_SUPERVISOR_DB_WRITES=0');
           console.log('DEV_UI_HAR_SHARED_ENTRY=PASS');
           console.log('DEV_HAR_COMPACT_ACTIONS_V3=PASS');
           console.log('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2=PASS');

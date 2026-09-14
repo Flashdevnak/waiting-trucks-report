@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/sup11-branch-apply.yml
       - .github/dev-tools/apply-sup11-shared-quota-center.mjs
+      - .github/dev-tools/harden-sup11-coverage.mjs
       - worker/tests/supervisor-shared-quota-center.test.mjs
 
 permissions:
@@ -27,7 +28,9 @@ jobs:
           cache: npm
           cache-dependency-path: worker/package-lock.json
       - name: Apply canonical SUP-11 changes
-        run: node .github/dev-tools/apply-sup11-shared-quota-center.mjs
+        run: |
+          node .github/dev-tools/apply-sup11-shared-quota-center.mjs
+          node .github/dev-tools/harden-sup11-coverage.mjs
       - name: Syntax check Supervisor
         run: node --check supervisor.js
       - name: Full worker regression
@@ -44,5 +47,5 @@ jobs:
             echo "SUP11_CANONICAL_ALREADY_APPLIED=true"
             exit 0
           fi
-          git commit -m "SUP-11: render shared Quota Center"
+          git commit -m "SUP-11: harden quota coverage truth"
           git push origin HEAD:codex/sup-11-shared-quota-center

@@ -137,8 +137,17 @@
 
         <section class="panel-section" data-panel="quota">
           <div class="section-grid">
-            <article class="surface span-2"><div class="surface-head"><div><p class="card-label">QUOTA CENTER</p><h3>Runtime observation &amp; provider truth</h3></div><span class="status-tag unknown">UNKNOWN</span></div><div class="truth-empty"><strong>ยังไม่มี quota snapshot</strong><p>จะไม่ยิง provider หรือ source เพิ่มเพื่อวัด quota และจะไม่เดา provider limit</p></div></article>
-            <article class="surface"><div class="surface-head"><div><p class="card-label">LEAK DETECTOR</p><h3>Hard contracts</h3></div></div><ul class="contract-list"><li><span>Per-client upstream</span><strong>0</strong></li><li><span>Per-widget upstream</span><strong>0</strong></li><li><span>Continuous AI</span><strong>0</strong></li></ul></article>
+            <article class="surface span-2">
+              <div class="surface-head"><div><p class="card-label">QUOTA CENTER</p><h3>Runtime observation &amp; provider truth</h3></div><span id="quota-center-state" class="status-tag unknown">UNKNOWN</span></div>
+              <div id="quota-center-summary" class="truth-empty compact"><strong>Provider billing truth: UNKNOWN</strong><p>รอ SUP-10 shared isolate telemetry; จะไม่ยิง provider/source เพิ่มและจะไม่เดา plan limit</p></div>
+              <div id="quota-hub-list" class="hub-health-grid"></div>
+              <p class="truth-note">Isolate-local facts only · ไม่มีการรวม counter ข้าม isolate เป็น account total · billing และ provider plan/limit ที่ไม่มีหลักฐานคงเป็น UNKNOWN</p>
+            </article>
+            <article class="surface">
+              <div class="surface-head"><div><p class="card-label">QUOTA GUARDS</p><h3>Hard contracts</h3></div><span class="status-tag healthy">OBSERVE ONLY</span></div>
+              <ul class="contract-list"><li><span>Per-client upstream</span><strong>0</strong></li><li><span>Per-widget upstream</span><strong>0</strong></li><li><span>Provider measurement calls</span><strong>0</strong></li><li><span>Quota DB reads / writes</span><strong>0 / 0</strong></li><li><span>Continuous AI</span><strong>0</strong></li></ul>
+              <p class="truth-note">SUP-11 เป็น presentation only; leak/circuit/backoff/kill-switch policy อยู่ SUP-12</p>
+            </article>
           </div>
         </section>
 
@@ -176,6 +185,6 @@
     <dl><div><dt>Evidence</dt><dd>สถานะมาจาก sanitized shared Durable Object state เท่านั้น</dd></div><div><dt>Impact</dt><dd>ถ้าไม่มี runtime event จะแสดง UNKNOWN โดย Waiting Trucks ไม่ได้รับผลกระทบ</dd></div><div><dt>Bot action</dt><dd>OBSERVE ONLY — ไม่สร้างข้อมูลหรือเรียก source เพิ่ม</dd></div><div><dt>Next step</dt><dd>ตรวจ observed HUB และ last accepted evidence โดยไม่ตีความข้อมูลที่หายเป็น HEALTHY</dd></div></dl>
   </dialog>
 
-  <script type="module" src="supervisor.js?v=20260914-sup09"></script>
+  <script type="module" src="supervisor.js?v=20260915-sup11"></script>
 </body>
 </html>

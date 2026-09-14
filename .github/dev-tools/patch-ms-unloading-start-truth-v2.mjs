@@ -4,11 +4,14 @@ import {
 } from "./patch-ms-unloading-start-truth-v2-base.mjs";
 import { patchMsOperationalExpiryAnchorV2Frontend } from "./patch-ms-operational-expiry-anchor-v2.mjs";
 import { patchMsOriginArrivalSourcesV1 } from "./patch-ms-origin-arrival-sources-v1.mjs";
+import { patchMsDropReleasePairV1Frontend } from "./patch-ms-drop-release-pair-v1.mjs";
 
 export function patchMsUnloadingStartTruthFrontend(source) {
-  return patchMsOriginArrivalSourcesV1(
-    patchMsOperationalExpiryAnchorV2Frontend(
-      patchMsUnloadingStartTruthFrontendV2(source),
+  return patchMsDropReleasePairV1Frontend(
+    patchMsOriginArrivalSourcesV1(
+      patchMsOperationalExpiryAnchorV2Frontend(
+        patchMsUnloadingStartTruthFrontendV2(source),
+      ),
     ),
   );
 }

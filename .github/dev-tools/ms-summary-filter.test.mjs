@@ -127,6 +127,19 @@ test("expiry anchor is provenance-safe and never fabricates ETA/arrival truth", 
   assert.equal(truth.stage(noProvenance, now), "unloading");
 });
 
+test("Drop actual departure remains final even when stale state 1 has an old fallback anchor", () => {
+  const truth = loadOperationalTruth();
+  const now = new Date("2026-09-14T14:00:00.000Z");
+  const released = {
+    attendanceType: "จุดดรอป",
+    unloadingState: 1,
+    unloadingStartedObservedAt: "2026-09-13T23:00:00.000Z",
+    actualDepartureAt: "2026-09-14T12:00:00.000Z",
+  };
+  assert.equal(truth.expiry(released, now), null);
+  assert.equal(truth.stage(released, now), "none");
+});
+
 test("overtime card, status filter and queue list share the same operational predicate", () => {
   assert.match(staged, /MS_OPERATIONAL_EXPIRY_ANCHOR_V2/);
   assert.match(staged, /MS_OPERATIONAL_OVERTIME_PREDICATE_V2/);

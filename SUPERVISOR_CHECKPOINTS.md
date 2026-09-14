@@ -214,3 +214,4 @@ Checkpoint date: 2026-09-14
 - Client: one authenticated same-origin snapshot read at page load; no HTTP interval, WebSocket, source poll, DB read/write, persistence, repair, or AI call.
 - Truth contract: only observed HUBs are shown. Durable Object eviction or absent observations renders `UNKNOWN`; accepted row count and last success are preserved across an observed refresh error without copying business rows or private error text.
 - Runtime impact: upstream polls `0`, Turso reads `0`, Turso writes `0`, healthy-state writes `0`, Production touched `NO`.
+- DEV workflow `#608`: all code and quota tests passed, then staging stopped before deploy because the existing TBR quota-guard script matched the coordinator `fetch` block too broadly. The forward compatibility fix narrows that script to stable statements and preserves Supervisor publication in the result hook.

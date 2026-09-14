@@ -70,7 +70,7 @@ jobs:
             if(!adminHtml.includes('admin.js')) throw new Error('Standalone Admin HTML missing');
             if(!adminJs.includes('ADMIN_STANDALONE_V1')) throw new Error('Standalone Admin JS marker missing');
             if(/setInterval\s*\(|new WebSocket\s*\(|EventSource\s*\(/.test(adminJs)) throw new Error('Admin introduced background polling/transport');
-            if(adminJs.includes('waiting.html')) throw new Error('Admin flow points to waiting.html');
+            if(adminJs.includes('waiting.html')) throw new Error('Admin flow points back to waiting.html');
             if(!waitingHtml.includes('location.replace("ms.html")')) throw new Error('Retired waiting page does not redirect to MS');
             for(const [name,js] of [['worker',workerJs],['pages',pagesJs]]){
               if(!/pollMs:\s*4000/.test(js)) throw new Error(`${name} visible cadence is not 4000 ms`);
@@ -216,6 +216,8 @@ jobs:
             if(!configuredHubs.length) throw new Error('No configured HUB connection found');
             const connectorRows=rows(await query('SELECT hub,active,last_used_at FROM ms_connector_tokens ORDER BY hub'));
             const connectors=new Map(connectorRows.map(row=>[String(row[0]||'').trim().toUpperCase(),row]));
+            const matrix=[];
+            const failures=[];
             for(const hub of configuredHubs){
               const connector=connectors.get(hub)||[];
               const [liveResult,routeResult,preentryResult,busResult]=await Promise.all([
@@ -225,22 +227,33 @@ jobs:
                 query('SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub=? LIMIT 1',[hub]),
               ]);
               const live=first(liveResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
-              if(String(live[0]||'')!==hub) throw new Error(`${hub} live cache missing`);
+              const livePresent=String(live[0]||'')===hub;
               const healthy=row=>Boolean(row?.[2])&&!String(row?.[3]||'')&&age(row[2])>=0&&age(row[2])<=20*60;
               const routeHealthy=healthy(route);
               const preentryConfigured=String(preentry[0]||'')===hub;
               const busConfigured=String(bus[0]||'')===hub;
               const preentryHealthy=!preentryConfigured||healthy(preentry);
               const busHealthy=!busConfigured||healthy(bus);
+              const overall=livePresent&&routeHealthy&&preentryHealthy&&busHealthy;
+              const item={hub,livePresent,routeHealthy,preentryConfigured,preentryHealthy,busConfigured,busHealthy,overall};
+              matrix.push(item);
+              if(!overall) failures.push(item);
               console.log(`HUB=${hub} CONNECTOR_ACTIVE=${Number(connector[1]||0)===1} CONNECTOR_LAST_USED=${connector[2]||'-'} LIVE_SNAPSHOT_AT=${live[1]||'-'} LIVE_ROWS=${Number(live[2]||0)}`);
               console.log(`HUB=${hub} ROUTE_CONFIGURED=true ROUTE_LAST_SUCCESS=${route[2]||'-'} AGE=${age(route[2])} ERROR=${route[3]||'-'}`);
               console.log(`HUB=${hub} PREENTRY_CONFIGURED=${preentryConfigured} PREENTRY_LAST_SUCCESS=${preentry[2]||'-'} AGE=${age(preentry[2])} ERROR=${preentry[3]||'-'}`);
               console.log(`HUB=${hub} BUS_CONFIGURED=${busConfigured} BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
-              if(!routeHealthy||!preentryHealthy||!busHealthy)
-                throw new Error(`${hub} source health failed route=${routeHealthy} preentry=${preentryHealthy} bus=${busHealthy}`);
             }
+            console.log('ALL_HUB_HEALTH_MATRIX_BEGIN');
+            for(const item of matrix)
+              console.log(`HUB_HEALTH HUB=${item.hub} LIVE=${item.livePresent} ROUTE=${item.routeHealthy} PREENTRY=${item.preentryConfigured?item.preentryHealthy:'optional_unconfigured'} BUS=${item.busConfigured?item.busHealthy:'optional_unconfigured'} OVERALL=${item.overall?'PASS':'FAIL'}`);
+            console.log('ALL_HUB_HEALTH_MATRIX_END');
             console.log(`CONFIGURED_HUB_CONTRACT_COUNT=${configuredHubs.length}`);
             console.log(`CONFIGURED_HUBS=${configuredHubs.join(',')}`);
+            if(failures.length){
+              console.log('ALL_CONFIGURED_HUB_SESSIONS_READY=false');
+              console.log(`FAILED_HUBS=${failures.map(item=>item.hub).join(',')}`);
+              throw new Error(`source health failed for ${failures.length}/${configuredHubs.length} HUB(s): ${failures.map(item=>item.hub).join(',')}`);
+            }
             console.log('OPTIONAL_SOURCE_CONTRACT=PASS');
             console.log('ALL_CONFIGURED_HUB_SESSIONS_READY=true');
             console.log('REALTIME_READY=READY');

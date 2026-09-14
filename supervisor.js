@@ -1,4 +1,5 @@
 // SUPERVISOR_CORE_SHELL_V1
+// SUPERVISOR_SOURCE_HEALTH_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
@@ -9,7 +10,7 @@ const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);
 
 const sectionCopy = {
   overview: ["ภาพรวมระบบ", "สถานะจริงจะแสดงเมื่อ shared Supervisor snapshot พร้อมใช้งาน"],
-  hubs: ["สุขภาพ HUB และ Source", "แสดงเฉพาะ HUB ที่ configured/discovered จากข้อมูลจริง"],
+  hubs: ["สุขภาพ HUB และ Source", "Source Health ใช้ telemetry ที่เกิดจาก refresh/coordinator เดิมเท่านั้น"],
   diagnostics: ["System Diagnostics", "วิเคราะห์ Queue/Lifecycle และ config drift โดยไม่แก้ business truth"],
   quota: ["Quota Center", "วัดจากงานเดิมและ shared telemetry โดยไม่สร้าง traffic เพื่อวัด traffic"],
   incidents: ["Alert, Incident และ Action Center", "รวม state change ที่ dedupe แล้วและสิ่งที่ Admin ต้องจัดการ"],
@@ -95,6 +96,21 @@ function renderOverviewCards(cards) {
   }));
 }
 
+function sourceFact(source) {
+  if (!source) return "UNKNOWN";
+  const parts = [source.state || "UNKNOWN"];
+  if (source.mode === "CLICK_ONLY") parts.push("CLICK ONLY");
+  if (source.configured === true) parts.push("CONFIGURED");
+  if (source.configured === false) parts.push("NOT CONFIGURED");
+  if (source.freshness && source.freshness !== "UNKNOWN") parts.push(source.freshness);
+  if (source.lastSuccessAt) parts.push(`success ${source.lastSuccessAt}`);
+  if (source.lastUsedAt) parts.push(`used ${source.lastUsedAt}`);
+  if (source.recovery && source.recovery !== "UNKNOWN") parts.push(source.recovery);
+  if (source.retryAt) parts.push(`retry ${source.retryAt}`);
+  if (source.errorCode) parts.push(source.errorCode);
+  return parts.join(" · ");
+}
+
 function renderHubCards(hubs) {
   const list = document.getElementById("hub-snapshot-list");
   if (!hubs.length) {
@@ -117,15 +133,16 @@ function renderHubCards(hubs) {
     title.append(eyebrow, heading);
     head.append(title, statusTag(view.overall));
     const facts = [
-      ["Route", view.route],
-      ["KIT / TBR", view.kitTbr],
-      ["Optional sources", view.optionalSources],
+      ["Route", sourceFact(view.sources.route)],
+      ["PreEntry / FBI", sourceFact(view.sources.preEntry)],
+      ["KIT / TBR", sourceFact(view.sources.busTime)],
+      ["HBI", sourceFact(view.sources.hbiPhotos)],
       ["Connector / Session", view.connectorSession],
-      ["Last success", view.lastSuccessAt || "UNKNOWN"],
-      ["Age", view.age.label],
+      ["Refresh last success", view.lastSuccessAt || "UNKNOWN"],
+      ["Refresh age", view.age.label],
       ["Accepted cache", view.accepted.state === "AVAILABLE" ? `AVAILABLE · ${view.accepted.rows} rows` : "UNKNOWN"],
       ["Queue health", view.queueHealth],
-      ["Current error", view.errorCode || (view.overall === "HEALTHY" ? "NONE OBSERVED" : "UNKNOWN")],
+      ["Current refresh error", view.errorCode || (view.overall === "HEALTHY" ? "NONE OBSERVED" : "UNKNOWN")],
       ["Quota anomaly", view.quota],
       ["Pending action", view.pendingAction],
     ];
@@ -142,7 +159,7 @@ function renderHubCards(hubs) {
     }
     const truth = document.createElement("p");
     truth.className = "truth-note";
-    truth.textContent = "FACT: Route/accepted มาจาก shared coordinator · UNKNOWN: fields ที่ยังไม่มี telemetry · ไม่มี inference ถูกแสดงเป็น fact";
+    truth.textContent = "FACT: Source Health มาจาก refresh/coordinator telemetry เดิมเท่านั้น · HBI เป็น click-only และไม่ถูก poll เพื่อวัด health · ไม่มีหลักฐาน = UNKNOWN";
     card.append(head, dl, truth);
     return card;
   }));
@@ -177,7 +194,16 @@ function renderSnapshot(snapshot, workerReachable = false) {
   const sourceState = document.createElement("strong");
   const sourceDetail = document.createElement("p");
   sourceState.textContent = overview.map.sources;
-  sourceDetail.textContent = hubs.length ? "Route ใช้ observed coordinator state; KIT/TBR และ optional source คง UNKNOWN จน SUP-06 มี telemetry จริง" : "ยังไม่มี source observation; missing data ไม่ใช่ HEALTHY";
+  if (hubs.length) {
+    const views = hubs.map((hub) => deriveHubView(hub));
+    const sources = views.flatMap((view) => Object.values(view.sources));
+    const authRequired = sources.filter((source) => source.state === "AUTH_REQUIRED").length;
+    const errors = sources.filter((source) => ["ERROR", "CRITICAL", "BLOCKED"].includes(source.state)).length;
+    const stale = sources.filter((source) => source.freshness === "STALE").length;
+    sourceDetail.textContent = `refresh/coordinator telemetry เท่านั้น · AUTH_REQUIRED ${authRequired} · ERROR ${errors} · STALE ${stale} · HBI คง click-only`;
+  } else {
+    sourceDetail.textContent = "ยังไม่มี source observation; missing data ไม่ใช่ HEALTHY";
+  }
   sourceSummary.append(sourceState, sourceDetail);
 }
 

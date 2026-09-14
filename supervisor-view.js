@@ -1,9 +1,11 @@
 // SUPERVISOR_OVERVIEW_HUB_VIEW_V1
+// SUPERVISOR_SOURCE_HEALTH_V1
 // Pure view derivation only: no transport, timers, storage, database, or repair.
 const STATES = new Set([
   "HEALTHY", "WARNING", "CRITICAL", "STALE", "PARTIAL", "AUTH_REQUIRED",
   "ERROR", "BLOCKED", "UNKNOWN", "RECOVERED",
 ]);
+export const SOURCE_STALE_AFTER_MS = 20 * 60 * 1000;
 
 export function safeState(value) {
   const state = String(value || "").toUpperCase();
@@ -30,12 +32,72 @@ function metricValue(metrics, id) {
   return Number.isFinite(Number(metric?.value)) ? Number(metric.value) : null;
 }
 
+function aggregateStates(states) {
+  const values = states.map(safeState).filter((state) => state !== "UNKNOWN");
+  if (!values.length) return "UNKNOWN";
+  if (values.some((state) => ["CRITICAL", "ERROR", "BLOCKED"].includes(state))) return "ERROR";
+  if (values.some((state) => state === "AUTH_REQUIRED")) return "AUTH_REQUIRED";
+  if (values.some((state) => ["WARNING", "STALE", "PARTIAL"].includes(state))) return "WARNING";
+  return values.every((state) => ["HEALTHY", "RECOVERED"].includes(state)) ? "HEALTHY" : "UNKNOWN";
+}
+
 function aggregateHubState(hubs) {
   if (!hubs.length) return "UNKNOWN";
-  const states = hubs.map((hub) => safeState(hub?.health));
-  if (states.some((state) => ["CRITICAL", "ERROR", "BLOCKED"].includes(state))) return "ERROR";
-  if (states.some((state) => ["WARNING", "STALE", "PARTIAL", "AUTH_REQUIRED"].includes(state))) return "WARNING";
-  return states.every((state) => ["HEALTHY", "RECOVERED"].includes(state)) ? "HEALTHY" : "UNKNOWN";
+  return aggregateStates(hubs.map((hub) => hub?.health));
+}
+
+function hasSourceEvidence(source) {
+  if (!source || typeof source !== "object") return false;
+  return safeState(source.state) !== "UNKNOWN"
+    || typeof source.configured === "boolean"
+    || validTime(source.lastSuccessAt) != null
+    || validTime(source.lastUsedAt) != null
+    || Boolean(source.errorCode);
+}
+
+function sourceFreshness(source, nowMs) {
+  if (String(source?.mode || "").toUpperCase() === "CLICK_ONLY")
+    return validTime(source?.lastSuccessAt) == null ? "UNKNOWN" : "ON_DEMAND";
+  const at = validTime(source?.lastSuccessAt);
+  if (at == null || !Number.isFinite(nowMs)) return "UNKNOWN";
+  return Math.max(0, nowMs - at) > SOURCE_STALE_AFTER_MS ? "STALE" : "FRESH";
+}
+
+export function deriveSourceView(source, nowMs = Date.now(), fallbackState = "UNKNOWN") {
+  const raw = source && typeof source === "object" ? source : null;
+  const state = raw ? safeState(raw.state) : safeState(fallbackState);
+  const configured = typeof raw?.configured === "boolean" ? raw.configured : null;
+  const lastSuccessAt = validTime(raw?.lastSuccessAt) == null ? null : raw.lastSuccessAt;
+  const lastUsedAt = validTime(raw?.lastUsedAt) == null ? null : raw.lastUsedAt;
+  const retryAt = validTime(raw?.retryAt) == null ? null : raw.retryAt;
+  return {
+    state,
+    configured,
+    lastSuccessAt,
+    lastUsedAt,
+    successAge: ageView(lastSuccessAt, nowMs),
+    freshness: sourceFreshness(raw, nowMs),
+    errorCode: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.errorCode || "")) ? String(raw.errorCode) : null,
+    recovery: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.recovery || "")) ? String(raw.recovery) : "UNKNOWN",
+    retryAt,
+    mode: String(raw?.mode || "").toUpperCase() === "CLICK_ONLY" ? "CLICK_ONLY" : "REFRESH",
+    observed: raw?.observed === true,
+  };
+}
+
+function sourceAggregateForHub(hub) {
+  const sources = hub?.sources || {};
+  const values = ["route", "preEntry", "busTime", "hbiPhotos"]
+    .map((key) => sources?.[key])
+    .filter(hasSourceEvidence)
+    .filter((source) => !(String(source?.mode || "").toUpperCase() === "CLICK_ONLY" && safeState(source?.state) === "UNKNOWN"))
+    .map((source) => source.state);
+  return values.length ? aggregateStates(values) : "UNKNOWN";
+}
+
+function aggregateObservedSources(hubs) {
+  const sourceStates = hubs.map(sourceAggregateForHub).filter((state) => state !== "UNKNOWN");
+  return sourceStates.length ? aggregateStates(sourceStates) : aggregateHubState(hubs);
 }
 
 export function deriveOverview(snapshot, evaluatedModule, options = {}) {
@@ -50,6 +112,7 @@ export function deriveOverview(snapshot, evaluatedModule, options = {}) {
   const contracts = snapshot?.contracts || {};
   const supervisorQuotaSafe = ["additionalUpstreamPolls", "databaseReads", "databaseWrites", "aiCalls"]
     .every((key) => Number(contracts[key]) === 0);
+  const observedSourceState = aggregateObservedSources(hubs);
 
   return {
     overall: safeState(evaluatedModule?.health?.state),
@@ -64,8 +127,8 @@ export function deriveOverview(snapshot, evaluatedModule, options = {}) {
       { id: "critical-hubs", label: "Critical observed HUB", value: String(criticalCount), status: criticalCount ? "CRITICAL" : hubs.length ? "HEALTHY" : "UNKNOWN" },
       { id: "realtime", label: "Realtime", value: "UNKNOWN", status: "UNKNOWN", detail: "ไม่มี transport health ใน snapshot นี้" },
       { id: "worker", label: "Worker", value: options.workerReachable ? "HEALTHY" : "UNKNOWN", status: options.workerReachable ? "HEALTHY" : "UNKNOWN", detail: "ยืนยันจากการตอบ snapshot endpoint" },
-      { id: "database", label: "Database", value: "UNKNOWN", status: "UNKNOWN", detail: "SUP-05 ไม่ query DB เพื่อวัด health" },
-      { id: "sources", label: "Observed source flow", value: aggregateHubState(hubs), status: aggregateHubState(hubs) },
+      { id: "database", label: "Database", value: "UNKNOWN", status: "UNKNOWN", detail: "Supervisor ไม่ query DB เพื่อวัด health" },
+      { id: "sources", label: "Observed source flow", value: observedSourceState, status: observedSourceState },
       { id: "accepted", label: "Accepted State", value: acceptedState, status: acceptedState === "AVAILABLE" ? "HEALTHY" : acceptedState },
       { id: "incidents", label: "Open incidents", value: "UNKNOWN", status: "UNKNOWN", detail: "Incident feed ยังไม่อยู่ใน checkpoint นี้" },
       { id: "actions", label: "Pending actions", value: "UNKNOWN", status: "UNKNOWN", detail: "Action feed ยังไม่อยู่ใน checkpoint นี้" },
@@ -74,7 +137,7 @@ export function deriveOverview(snapshot, evaluatedModule, options = {}) {
       { id: "bot", label: "Bot Mode", value: "OBSERVE ONLY", status: "HEALTHY" },
     ],
     map: {
-      sources: aggregateHubState(hubs),
+      sources: observedSourceState,
       coordinator: availability === "AVAILABLE" ? "HEALTHY" : "UNKNOWN",
       accepted: acceptedState === "AVAILABLE" ? "HEALTHY" : acceptedState,
       queue: "UNKNOWN",
@@ -86,19 +149,35 @@ export function deriveHubView(hub, nowMs = Date.now()) {
   const code = /^[A-Z0-9_-]{2,20}$/.test(String(hub?.hub || "")) ? String(hub.hub) : "UNKNOWN";
   const overall = safeState(hub?.health);
   const acceptedState = hub?.accepted?.state === "AVAILABLE" ? "AVAILABLE" : "UNKNOWN";
+  const sources = {
+    route: deriveSourceView(hub?.sources?.route, nowMs, overall),
+    preEntry: deriveSourceView(hub?.sources?.preEntry, nowMs),
+    busTime: deriveSourceView(hub?.sources?.busTime, nowMs),
+    hbiPhotos: deriveSourceView(hub?.sources?.hbiPhotos, nowMs),
+  };
+  const connectorStates = [sources.route, sources.preEntry, sources.busTime, sources.hbiPhotos]
+    .filter((source) => source.configured !== false)
+    .filter((source) => source.mode !== "CLICK_ONLY" || source.state !== "UNKNOWN")
+    .map((source) => source.state);
+  const connectorSession = connectorStates.length ? aggregateStates(connectorStates) : "UNKNOWN";
+  const sourceActionRequired = Object.values(sources).some((source) =>
+    ["AUTH_REQUIRED", "ERROR", "CRITICAL", "BLOCKED"].includes(source.state));
   return {
     hub: code,
     overall,
-    route: overall,
-    kitTbr: "UNKNOWN",
-    optionalSources: "UNKNOWN",
-    connectorSession: "UNKNOWN",
+    route: sources.route.state,
+    preEntry: sources.preEntry.state,
+    kitTbr: sources.busTime.state,
+    hbi: sources.hbiPhotos.state,
+    optionalSources: aggregateStates([sources.preEntry.state, sources.hbiPhotos.state]),
+    connectorSession,
+    sources,
     lastSuccessAt: validTime(hub?.lastSuccessAt) == null ? null : hub.lastSuccessAt,
     age: ageView(hub?.lastSuccessAt, nowMs),
     accepted: { state: acceptedState, rows: acceptedState === "AVAILABLE" && Number.isInteger(hub?.accepted?.rows) ? hub.accepted.rows : null },
     queueHealth: "UNKNOWN",
     errorCode: /^[A-Z0-9_:-]{2,80}$/.test(String(hub?.errorCode || "")) ? String(hub.errorCode) : null,
     quota: "UNKNOWN",
-    pendingAction: ["ERROR", "CRITICAL", "BLOCKED", "AUTH_REQUIRED"].includes(overall) ? "REVIEW_REQUIRED" : "UNKNOWN",
+    pendingAction: sourceActionRequired || ["ERROR", "CRITICAL", "BLOCKED", "AUTH_REQUIRED"].includes(overall) ? "REVIEW_REQUIRED" : "UNKNOWN",
   };
 }

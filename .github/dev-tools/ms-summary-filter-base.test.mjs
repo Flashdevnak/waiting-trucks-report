@@ -60,9 +60,13 @@ test("lower waiting/unloading cards follow operational state, not shared queue b
     staged,
     /state\.summary === "unloading" &&\s*inboundOperationalStage\(row\) === "unloading"/,
   );
-  assert.match(staged, /const operationalStage = inboundOperationalStage\(row\)/);
-  assert.match(staged, /if \(operationalStage === "waiting"\) counts\.waiting\+\+/);
-  assert.match(staged, /if \(operationalStage === "unloading"\) counts\.unloading\+\+/);
+  const stageBinding = staged.match(
+    /const\s+([A-Za-z_$][\w$]*)\s*=\s*inboundOperationalStage\(row\);\s*if\s*\(\1 === "waiting"\) counts\.waiting\+\+;\s*if\s*\(\1 === "unloading"\) counts\.unloading\+\+;/,
+  );
+  assert.ok(
+    stageBinding,
+    "lower waiting/unloading counts must share one inboundOperationalStage(row) binding",
+  );
   assert.match(
     staged,
     /const operationalSummaryMatch =\s*!ignoreSummary &&\s*\(state\.summary === "waiting" \|\| state\.summary === "unloading"\) &&\s*inboundOperationalStage\(row\) !== "none"/,

@@ -215,3 +215,11 @@ Checkpoint date: 2026-09-14
 - Truth contract: only observed HUBs are shown. Durable Object eviction or absent observations renders `UNKNOWN`; accepted row count and last success are preserved across an observed refresh error without copying business rows or private error text.
 - Runtime impact: upstream polls `0`, Turso reads `0`, Turso writes `0`, healthy-state writes `0`, Production touched `NO`.
 - DEV workflow `#608`: all code and quota tests passed, then staging stopped before deploy because the existing TBR quota-guard script matched the coordinator `fetch` block too broadly. The forward compatibility fix narrows that script to stable statements and preserves Supervisor publication in the result hook.
+
+## SUP-05 — Overview + HUB Health
+
+- Base main: `35d566928f67707542e4fbacc7dbcaa8b4695490`.
+- Adds a pure `supervisor-view.js` contract for Overview and generic HUB presentation; the view module performs no I/O and a failing/missing field remains `UNKNOWN`.
+- Overview distinguishes configured HUB (`UNKNOWN`) from observed HUB (exact shared runtime count), and shows Worker, Realtime, Database, source flow, accepted state, incidents, actions, quota guard, DEV deployment and Bot mode without fabricating unavailable telemetry.
+- HUB cards render only observed generic HUB codes. Route/accepted evidence comes from the shared coordinator; KIT/TBR, optional sources, connector/session, Queue, quota and pending action remain explicit `UNKNOWN` unless current evidence supports a bounded review state.
+- Runtime impact: still one initial shared snapshot read per page, upstream polls `0`, Turso reads/writes `0`, timers `0`, AI calls `0`, Production touched `NO`.

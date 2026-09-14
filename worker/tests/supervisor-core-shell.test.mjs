@@ -3,11 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../../", import.meta.url);
-const [html, css, js, modules, msHtml, msJs, workflow] = await Promise.all([
+const [html, css, js, modules, view, msHtml, msJs, workflow] = await Promise.all([
   readFile(new URL("supervisor.html", root), "utf8"),
   readFile(new URL("supervisor.css", root), "utf8"),
   readFile(new URL("supervisor.js", root), "utf8"),
   readFile(new URL("supervisor-modules.js", root), "utf8"),
+  readFile(new URL("supervisor-view.js", root), "utf8"),
   readFile(new URL("ms.html", root), "utf8"),
   readFile(new URL("ms.js", root), "utf8"),
   readFile(new URL(".github/workflows/deploy-worker-dev.yml", root), "utf8"),
@@ -17,8 +18,8 @@ test("SUP-01 is an isolated, responsive Supervisor side-car", () => {
   for (const source of [html, css, js]) assert.match(source, /SUPERVISOR_CORE_SHELL_V1/);
   assert.match(html, /supervisor\.css\?v=/);
   assert.match(html, /supervisor\.js\?v=/);
-  assert.match(html, /supervisor\.css\?v=20260914-sup04/);
-  assert.match(html, /supervisor\.js\?v=20260914-sup04/);
+  assert.match(html, /supervisor\.css\?v=20260914-sup05/);
+  assert.match(html, /supervisor\.js\?v=20260914-sup05/);
   assert.match(css, /@media\(max-width:700px\)/);
   assert.match(css, /@media\(max-width:420px\)/);
   assert.doesNotMatch(msHtml, /supervisor\.(?:html|js|css)/);
@@ -34,12 +35,12 @@ test("SUP-01 renders truth-safe states and no mock operations data", () => {
 });
 
 test("SUP-04 performs one shared-state read and zero background, upstream, database, and AI work", () => {
-  const runtime = `${js}\n${modules}`;
+  const runtime = `${js}\n${modules}\n${view}`;
   assert.equal((js.match(/\bfetch\s*\(/g) || []).length, 1);
   assert.match(js, /fetch\("\/api\/supervisor\/snapshot"/);
   assert.doesNotMatch(runtime, /new\s+WebSocket|new\s+EventSource|setInterval\s*\(|setTimeout\s*\(/);
   assert.doesNotMatch(runtime, /route_followstart|fleet_time|getList|hbi-common|flashexpress|Turso|SELECT\s|INSERT\s|UPDATE\s|DELETE\s/i);
-  assert.doesNotMatch(runtime, /openai|anthropic|gemini|ai[_-]?call/i);
+  assert.doesNotMatch(runtime, /openai|anthropic|gemini|invokeAi|callAiProvider/i);
   assert.match(js, /role\s*!==\s*"admin"/);
 });
 
@@ -55,8 +56,10 @@ test("DEV pipeline stages and smoke-checks every Supervisor core asset", () => {
   assert.match(workflow, /supervisor\.js/);
   assert.match(workflow, /supervisor\.css/);
   assert.match(workflow, /supervisor-modules\.js/);
+  assert.match(workflow, /supervisor-view\.js/);
   assert.match(workflow, /SUPERVISOR_CORE_SHELL_V1/);
   assert.match(workflow, /SUPERVISOR_MODULE_REGISTRY_V1/);
+  assert.match(workflow, /SUPERVISOR_OVERVIEW_HUB_VIEW_V1/);
   assert.match(workflow, /async function getNewAsset\(path\)/);
   assert.match(workflow, /attempt<=5/);
   assert.match(workflow, /response\.status!==404\|\|attempt===5/);

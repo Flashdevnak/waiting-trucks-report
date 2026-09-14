@@ -61,6 +61,36 @@ export function patchSupervisorSharedSnapshot(source) {
     `      body: JSON.stringify({\n        hub: branch,\n        observedAt: new Date().toISOString(),\n        result: {\n          status: result?.status || "",\n          syncedAt: result?.syncedAt || "",\n          acceptedRows: Array.isArray(result?.rows) ? result.rows.length : null,\n        },\n      }),`,
     "lightweight publication payload",
   );
+  output = replaceOnce(
+    output,
+    `    const health = sourceState === "synced" ? "HEALTHY" : sourceState === "error" ? "ERROR" : "UNKNOWN";`,
+    `    const health = sourceState === "synced" ? "HEALTHY" : sourceState === "degraded" ? "WARNING" : sourceState === "error" ? "ERROR" : "UNKNOWN";\n    const suppliedErrorCode = /^[A-Z0-9_:-]{2,80}$/.test(String(result.errorCode || "")) ? String(result.errorCode) : null;`,
+    "truth-safe observed health",
+  );
+  output = replaceOnce(
+    output,
+    `      errorCode: sourceState === "error" ? "MS_REFRESH_ERROR" : null,`,
+    `      errorCode: sourceState === "error" || sourceState === "degraded" ? suppliedErrorCode || "MS_REFRESH_ERROR" : null,`,
+    "sanitized runtime error code",
+  );
+  output = replaceOnce(
+    output,
+    `          acceptedRows: Array.isArray(result?.rows) ? result.rows.length : null,`,
+    `          acceptedRows: Array.isArray(result?.rows) ? result.rows.length : null,\n          errorCode: result?.errorCode || "",`,
+    "publish error code only",
+  );
+  output = replaceOnce(
+    output,
+    `      source: "SHARED_RUNTIME_STATE",\n      observedAt,`,
+    `      source: "SHARED_RUNTIME_STATE",\n      availability: "AVAILABLE",\n      observedAt,`,
+    "available shared state",
+  );
+  output = replaceOnce(
+    output,
+    `    source: "SHARED_RUNTIME_STATE",\n    observedAt: null,`,
+    `    source: "SHARED_RUNTIME_STATE",\n    availability: "UNAVAILABLE",\n    observedAt: null,`,
+    "unavailable shared state fallback",
+  );
   return output;
 }
 

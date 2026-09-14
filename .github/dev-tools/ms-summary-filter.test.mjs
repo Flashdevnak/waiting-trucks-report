@@ -156,3 +156,30 @@ test("overtime card, status filter and queue list share the same operational pre
     /queueMode === "queue" && inboundOperationalStage\(row\) !== "none"/,
   );
 });
+
+test("lower waiting and unloading cards share the same operational stage as the queue list", () => {
+  assert.match(staged, /MS_LOWER_OPERATIONAL_STAGE_PREDICATE_V1/);
+  assert.match(
+    staged,
+    /state\.summary === "waiting" &&\s*inboundOperationalStage\(row\) === "waiting"/,
+  );
+  assert.match(
+    staged,
+    /state\.summary === "unloading" &&\s*inboundOperationalStage\(row\) === "unloading"/,
+  );
+  assert.match(staged, /const operationalStage = inboundOperationalStage\(row\);/);
+  assert.match(staged, /if \(operationalStage === "waiting"\) counts\.waiting\+\+;/);
+  assert.match(staged, /if \(operationalStage === "unloading"\) counts\.unloading\+\+;/);
+  assert.match(
+    staged,
+    /state\.currentRows\.filter\(\s*\(row\) => inboundOperationalStage\(row\) === "unloading",\s*\)\.length/,
+  );
+
+  const truth = loadOperationalTruth();
+  const now = new Date("2026-09-14T14:00:00.000Z");
+  const routeState1WithoutArrival = {
+    attendanceType: "ปลายทาง",
+    unloadingState: 1,
+  };
+  assert.equal(truth.stage(routeState1WithoutArrival, now), "unloading");
+});

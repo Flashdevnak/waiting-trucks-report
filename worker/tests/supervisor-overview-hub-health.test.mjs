@@ -62,15 +62,16 @@ test("SUP-05 HUB view separates facts from unavailable fields", () => {
   assert.deepEqual(ageView("not-a-time", Date.now()), { seconds: null, label: "UNKNOWN" });
 });
 
-test("SUP-05 view contract is modular, responsive, and transport-free", () => {
+test("SUP-05/SUP-07 view contract is modular, responsive, and transport-free", () => {
   assert.match(view, /SUPERVISOR_OVERVIEW_HUB_VIEW_V1/);
+  assert.match(view, /SUPERVISOR_QUEUE_LIFECYCLE_V1/);
   assert.doesNotMatch(view, /\bfetch\s*\(|WebSocket|EventSource|setInterval|setTimeout|localStorage|sessionStorage/);
   assert.doesNotMatch(view, /route_followstart|fleet_time|getList|SELECT\s|INSERT\s|UPDATE\s|DELETE\s/i);
   assert.match(js, /deriveOverview/);
   assert.match(js, /deriveHubView/);
   assert.match(html, /id="overview-metrics"/);
   assert.match(html, /id="hub-snapshot-list"/);
-  assert.match(js, /supervisor-view\.js\?v=20260914-sup05/);
+  assert.match(js, /supervisor-view\.js\?v=20260914-sup07/);
   assert.match(css, /hub-health-grid/);
   assert.match(css, /@media\(max-width:700px\).*hub-health-grid\{grid-template-columns:1fr\}/s);
   assert.match(workflow, /supervisor-view\.js/);

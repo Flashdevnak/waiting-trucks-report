@@ -199,3 +199,10 @@ Checkpoint date: 2026-09-14
 - Production touched: NO.
 - First DEV workflow run `#605`: FAIL at post-deploy smoke because the newly uploaded module asset returned a transient `404`; deploy and all preceding tests passed. The asset was verified live after propagation. A bounded five-attempt, three-second 404-only smoke retry is added forward-only; it does not call upstream sources or the database.
 - Next exact action: commit/push SUP-03, run the DEV workflow and live smoke, then begin SUP-04 shared sanitized snapshot design from the resulting latest remote main.
+
+### SUP-03 live Admin entry follow-up
+
+- Owner-observed symptom: pressing Supervisor from an already-open authenticated Admin page remained on/returned to the Admin page.
+- Root cause: `admin.html` exposed the new button while retaining the pre-Supervisor `admin.js` cache key, so an existing browser cache could run the old script without `openSupervisor()`.
+- Forward fix: bump only the Admin script asset version and lock the version plus session-exchange handler in the Admin regression test.
+- Runtime impact: static asset cache invalidation only; upstream `0`, database reads/writes `0`, Production touched `NO`.

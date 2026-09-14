@@ -206,3 +206,11 @@ Checkpoint date: 2026-09-14
 - Root cause: `admin.html` exposed the new button while retaining the pre-Supervisor `admin.js` cache key, so an existing browser cache could run the old script without `openSupervisor()`.
 - Forward fix: bump only the Admin script asset version and lock the version plus session-exchange handler in the Admin regression test.
 - Runtime impact: static asset cache invalidation only; upstream `0`, database reads/writes `0`, Production touched `NO`.
+
+## SUP-04 — Shared Supervisor Snapshot
+
+- Base main: `9623fc557f9ef1719122fb8211ac67651c95c535`.
+- Integration: each existing per-HUB Durable Object publishes a sanitized summary to one singleton Durable Object after the normal refresh completes. Publication is best-effort through `waitUntil`; Supervisor failure cannot delay or fail Waiting Trucks.
+- Client: one authenticated same-origin snapshot read at page load; no HTTP interval, WebSocket, source poll, DB read/write, persistence, repair, or AI call.
+- Truth contract: only observed HUBs are shown. Durable Object eviction or absent observations renders `UNKNOWN`; accepted row count and last success are preserved across an observed refresh error without copying business rows or private error text.
+- Runtime impact: upstream polls `0`, Turso reads `0`, Turso writes `0`, healthy-state writes `0`, Production touched `NO`.

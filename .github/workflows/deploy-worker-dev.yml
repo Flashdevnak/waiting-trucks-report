@@ -70,6 +70,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-durable-coordinator.test.mjs
       - run: node --test ../.github/dev-tools/ms-self-healing-supervisor.test.mjs
       - run: node --test ../.github/dev-tools/supervisor-access-guard.test.mjs
+      - run: node --test ../.github/dev-tools/supervisor-shared-snapshot.test.mjs
       - run: node --test ../.github/dev-tools/safe-parity.test.mjs
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
       - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
@@ -294,7 +295,8 @@ jobs:
           for(const [name,asset] of Object.entries({supervisorJs,supervisorCss})) if(!asset.includes('SUPERVISOR_CORE_SHELL_V1')) throw new Error(`${name} core marker missing`);
           if(!supervisorModules.includes('SUPERVISOR_MODULE_REGISTRY_V1')) throw new Error('Supervisor module registry marker missing');
           if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorModules)) throw new Error('Supervisor registry introduced runtime transport');
-          if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced runtime transport');
+          if((supervisorJs.match(/\bfetch\s*\(/g)||[]).length!==1||!supervisorJs.includes('fetch("/api/supervisor/snapshot"')) throw new Error('Supervisor shared snapshot transport contract missing');
+          if(/new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced background transport');
           const msJs=await get('ms.js');
           if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');
           if(!proof.includes('ms.html#connection')) throw new Error('Proof shared connection link missing');

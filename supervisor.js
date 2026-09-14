@@ -1,5 +1,6 @@
 // SUPERVISOR_CORE_SHELL_V1
-// Static side-car only: zero fetch, WebSocket, interval, source, database, or AI calls.
+// Side-car snapshot client: one same-origin shared-state read, zero upstream/database
+// reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
 
 const SUPERVISOR_AUTH_KEY = "bnak_operator_auth_v2";
@@ -64,6 +65,67 @@ function bindShell() {
   });
 }
 
+function metricValue(metrics, id) {
+  const metric = Array.isArray(metrics) ? metrics.find((item) => item?.id === id) : null;
+  return Number.isFinite(Number(metric?.value)) ? Number(metric.value) : null;
+}
+
+function renderSnapshot(snapshot) {
+  const context = snapshot?.modules || {};
+  const [module] = moduleRegistry.evaluate(context);
+  const waitingTrucks = context.waitingTrucks || {};
+  const hubs = Array.isArray(waitingTrucks.hubs) ? waitingTrucks.hubs : [];
+  const state = module?.health?.state || "UNKNOWN";
+  const stateClass = state.toLowerCase();
+
+  document.getElementById("configured-module-count").textContent = "1";
+  document.getElementById("configured-module-state").textContent = state;
+  document.getElementById("observed-hub-count").textContent = String(metricValue(module?.metrics, "observed-hubs") ?? hubs.length);
+  document.getElementById("healthy-hub-count").textContent = String(metricValue(module?.metrics, "healthy-observed-hubs") ?? hubs.filter((hub) => hub?.health === "HEALTHY").length);
+  document.getElementById("snapshot-state").lastChild.textContent = ` Snapshot: ${snapshot?.observedAt ? "AVAILABLE" : "UNKNOWN"}`;
+  document.getElementById("overall-health").innerHTML = `<span class="status-orb ${stateClass}"></span>${state}`;
+  document.getElementById("overall-health-detail").textContent = module?.health?.impact || "ยังไม่มีหลักฐาน shared runtime เพียงพอ";
+
+  const hubState = document.getElementById("hub-snapshot-state");
+  hubState.textContent = hubs.length ? "PARTIAL" : "UNKNOWN";
+  const list = document.getElementById("hub-snapshot-list");
+  if (!hubs.length) {
+    list.className = "truth-empty";
+    list.innerHTML = "<strong>ยังไม่มี runtime event ของ HUB</strong><p>Durable Object อาจเพิ่งเริ่มใหม่ หรือยังไม่มีรอบ refresh จริง ข้อมูลจึงคงเป็น UNKNOWN</p>";
+    return;
+  }
+  list.className = "hub-snapshot-list";
+  list.replaceChildren(...hubs.map((hub) => {
+    const card = document.createElement("article");
+    const title = document.createElement("strong");
+    const health = document.createElement("span");
+    const detail = document.createElement("small");
+    title.textContent = hub.hub || "UNKNOWN";
+    health.textContent = hub.health || "UNKNOWN";
+    health.className = `status-tag ${(hub.health || "UNKNOWN").toLowerCase()}`;
+    const accepted = hub.accepted?.state === "AVAILABLE" ? `${hub.accepted.rows} accepted rows` : "Accepted state UNKNOWN";
+    detail.textContent = `${accepted} · Last success ${hub.lastSuccessAt || "UNKNOWN"}`;
+    card.append(title, health, detail);
+    return card;
+  }));
+}
+
+async function loadSharedSnapshot() {
+  try {
+    const response = await fetch("/api/supervisor/snapshot", {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    const payload = await response.json();
+    if (!response.ok || payload?.ok !== true) throw new Error(payload?.code || "SNAPSHOT_UNAVAILABLE");
+    renderSnapshot(payload.data);
+  } catch {
+    renderSnapshot(null);
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const auth = readLocalAdminClaim();
   if (!auth) {
@@ -78,9 +140,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // signed HttpOnly session and current Admin role before serving this HTML.
   document.getElementById("supervisor-gate").hidden = true;
   document.getElementById("supervisor-app").hidden = false;
-  const configuredModules = moduleRegistry.evaluate({});
-  document.getElementById("configured-module-count").textContent = String(configuredModules.length);
-  document.getElementById("configured-module-state").textContent = configuredModules[0]?.health.state || "UNKNOWN";
+  renderSnapshot(null);
   bindShell();
   activateSection("overview");
+  void loadSharedSnapshot();
 });

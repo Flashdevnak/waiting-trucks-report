@@ -6,10 +6,10 @@
   <meta name="theme-color" content="#f4f7fb">
   <title>Waiting Trucks Supervisor · DEV</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="supervisor.css?v=20260914-sup01">
+  <link rel="stylesheet" href="supervisor.css?v=20260914-sup04">
 </head>
 <body>
-  <!-- SUPERVISOR_CORE_SHELL_V1: isolated static side-car; no source, DB, or realtime transport. -->
+  <!-- SUPERVISOR_CORE_SHELL_V1: isolated side-car; one shared-state read, no source/DB polling. -->
   <main id="supervisor-gate" class="access-gate" aria-live="polite">
     <div class="gate-card">
       <div class="brand-mark" aria-hidden="true">S</div>
@@ -65,7 +65,7 @@
             <p id="section-subtitle">สถานะจริงจะแสดงเมื่อ shared Supervisor snapshot พร้อมใช้งาน</p>
           </div>
           <div class="workspace-actions">
-            <span class="snapshot-state"><i></i> Snapshot: UNAVAILABLE</span>
+            <span id="snapshot-state" class="snapshot-state"><i></i> Snapshot: UNAVAILABLE</span>
             <button class="button button-quiet" type="button" disabled>รีเฟรช Snapshot</button>
           </div>
         </div>
@@ -75,8 +75,8 @@
             <article class="health-hero">
               <div>
                 <p class="card-label">OVERALL SYSTEM HEALTH</p>
-                <div class="health-value"><span class="status-orb unknown"></span>UNKNOWN</div>
-                <p>ยังไม่มี shared snapshot จึงไม่สรุปว่าระบบปกติหรือผิดปกติ</p>
+                <div id="overall-health" class="health-value"><span class="status-orb unknown"></span>UNKNOWN</div>
+                <p id="overall-health-detail">ยังไม่มี shared snapshot จึงไม่สรุปว่าระบบปกติหรือผิดปกติ</p>
               </div>
               <button class="why-button" type="button" data-why="snapshot">Why?</button>
             </article>
@@ -93,8 +93,8 @@
 
           <div class="metric-grid">
             <article class="metric-card"><span>Configured Modules</span><strong id="configured-module-count">—</strong><small id="configured-module-state">UNKNOWN</small></article>
-            <article class="metric-card"><span>Configured HUB</span><strong>—</strong><small>UNKNOWN</small></article>
-            <article class="metric-card"><span>Healthy HUB</span><strong>—</strong><small>UNKNOWN</small></article>
+            <article class="metric-card"><span>Observed HUB</span><strong id="observed-hub-count">—</strong><small>SHARED RUNTIME</small></article>
+            <article class="metric-card"><span>Healthy observed HUB</span><strong id="healthy-hub-count">—</strong><small>SHARED RUNTIME</small></article>
             <article class="metric-card"><span>Open incidents</span><strong>—</strong><small>UNAVAILABLE</small></article>
             <article class="metric-card"><span>Pending actions</span><strong>—</strong><small>UNAVAILABLE</small></article>
           </div>
@@ -123,7 +123,7 @@
 
         <section class="panel-section" data-panel="hubs">
           <div class="section-grid">
-            <article class="surface span-2"><div class="surface-head"><div><p class="card-label">HUB HEALTH</p><h3>HUB ที่ค้นพบจากระบบจริง</h3></div><span class="status-tag unknown">UNAVAILABLE</span></div><div class="truth-empty"><strong>ยังไม่มี HUB snapshot</strong><p>รายการจะมาจาก configured/discovered HUB เท่านั้น ไม่มีการ hardcode HUB ตัวอย่าง</p></div></article>
+            <article class="surface span-2"><div class="surface-head"><div><p class="card-label">HUB HEALTH</p><h3>HUB ที่สังเกตได้จาก coordinator จริง</h3></div><span id="hub-snapshot-state" class="status-tag unknown">UNAVAILABLE</span></div><div id="hub-snapshot-list" class="truth-empty"><strong>ยังไม่มี HUB snapshot</strong><p>รายการจะมาจาก runtime event จริงเท่านั้น ไม่มีการ hardcode HUB ตัวอย่าง</p></div></article>
             <article class="surface"><div class="surface-head"><div><p class="card-label">SOURCE HEALTH</p><h3>Route · KIT/TBR · Optional</h3></div></div><div class="truth-empty compact"><strong>UNKNOWN</strong><p>Missing data จะไม่ถูกตีความเป็น HEALTHY</p></div></article>
           </div>
         </section>
@@ -174,9 +174,9 @@
 
   <dialog id="why-dialog" class="why-dialog">
     <div class="dialog-head"><div><p class="card-label">WHY THIS STATUS</p><h2>Snapshot: UNAVAILABLE</h2></div><button type="button" data-close-dialog aria-label="ปิด">×</button></div>
-    <dl><div><dt>Evidence</dt><dd>SUP-01 ยังไม่มี shared Supervisor snapshot หรือ event transport</dd></div><div><dt>Impact</dt><dd>Supervisor ไม่สามารถสรุปสุขภาพระบบ แต่ Waiting Trucks ไม่ได้รับผลกระทบ</dd></div><div><dt>Bot action</dt><dd>SKIP — ไม่สร้างข้อมูลหรือเรียก source เพิ่ม</dd></div><div><dt>Next step</dt><dd>ทำ backend access guard และ shared read-only snapshot ตาม checkpoint</dd></div></dl>
+    <dl><div><dt>Evidence</dt><dd>สถานะมาจาก sanitized shared Durable Object state เท่านั้น</dd></div><div><dt>Impact</dt><dd>ถ้าไม่มี runtime event จะแสดง UNKNOWN โดย Waiting Trucks ไม่ได้รับผลกระทบ</dd></div><div><dt>Bot action</dt><dd>OBSERVE ONLY — ไม่สร้างข้อมูลหรือเรียก source เพิ่ม</dd></div><div><dt>Next step</dt><dd>ตรวจ observed HUB และ last accepted evidence โดยไม่ตีความข้อมูลที่หายเป็น HEALTHY</dd></div></dl>
   </dialog>
 
-  <script type="module" src="supervisor.js?v=20260914-sup03"></script>
+  <script type="module" src="supervisor.js?v=20260914-sup04"></script>
 </body>
 </html>

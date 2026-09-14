@@ -6,6 +6,7 @@ on:
       - codex/sup-13-thai-english
     paths:
       - .github/dev-tools/apply-sup13.py
+      - .github/dev-tools/prep-sup13-core.py
       - .github/workflows/sup13-branch-apply.yml
       - supervisor-i18n.js
       - worker/tests/supervisor-language-contract.test.mjs
@@ -25,6 +26,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: worker/package-lock.json
+      - name: Align final core-shell cache assertion
+        run: python3 .github/dev-tools/prep-sup13-core.py
       - name: Apply SUP-13 canonical patch
         run: python3 .github/dev-tools/apply-sup13.py
       - name: Install worker dependencies

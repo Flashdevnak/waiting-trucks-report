@@ -197,4 +197,5 @@ Checkpoint date: 2026-09-14
 - Upstream impact: none.
 - Main website impact: none; `ms.html` and `ms.js` do not import Supervisor code.
 - Production touched: NO.
+- First DEV workflow run `#605`: FAIL at post-deploy smoke because the newly uploaded module asset returned a transient `404`; deploy and all preceding tests passed. The asset was verified live after propagation. A bounded five-attempt, three-second 404-only smoke retry is added forward-only; it does not call upstream sources or the database.
 - Next exact action: commit/push SUP-03, run the DEV workflow and live smoke, then begin SUP-04 shared sanitized snapshot design from the resulting latest remote main.

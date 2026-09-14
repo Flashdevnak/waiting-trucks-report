@@ -1,5 +1,6 @@
 const MARKER = "MS_CONNECTION_ERROR_KV_V1";
 const RESPONSIVE_MARKER = "MS_CONNECTION_RESPONSIVE_V2";
+const REAUTH_MARKER = "MS_SOURCE_REAUTH_GUIDANCE_V1";
 const OBSERVER_URL = "https://waiting-trucks-ms-browser-test.26nak-testdev.workers.dev/api/connection-error";
 
 function replaceUnique(source, from, to, label) {
@@ -12,11 +13,12 @@ function replaceUnique(source, from, to, label) {
 
 export function patchMsConnectionErrorKvFrontend(source) {
   let output = String(source || "");
-  if (output.includes(MARKER)) return output;
+  if (output.includes(MARKER) && output.includes(REAUTH_MARKER)) return output;
 
   const helperAnchor = `document.addEventListener("DOMContentLoaded", () => {`;
   const helpers = [
     `// ${MARKER}: persist only HAR/MS error metadata in Browser Worker KV; never Turso or LocalStorage.`,
+    `// ${REAUTH_MARKER}: classify expired source sessions and route the user to the existing HAR input without adding polling.`,
     `const MS_CONNECTION_OBSERVER_URL = "${OBSERVER_URL}";`,
     `const MS_CONNECTION_RESPONSIVE_MARKER = "${RESPONSIVE_MARKER}";`,
     ``,
@@ -24,8 +26,41 @@ export function patchMsConnectionErrorKvFrontend(source) {
     `  if (source === "routes") return "บันทึกสถานะเส้นทางเดินรถ";`,
     `  if (source === "preEntry") return "พัสดุที่คาดว่าจะเข้าคลัง";`,
     `  if (source === "busTime") return "การจัดการตารางเวลา KIT/TBR";`,
+    `  if (source === "hbiPhotos") return "รูปท้ายรถ HBI";`,
     `  if (source === "originManifest") return "LH Manifest พัสดุออกจริง / น้ำหนัก";`,
     `  return "การเชื่อมต่อ MS";`,
+    `}`,
+    ``,
+    `function msSourceNeedsReauth(key, item, routeRepair = {}) {`,
+    `  const routeCode = key === "routes" ? String(routeRepair?.code || "") : "";`,
+    `  const errorText = String(item?.lastError || "");`,
+    `  return routeCode === "MS_SESSION_HTTP_401" || /(^|\\D)401(\\D|$)|need\\s*login|session[^\\n]{0,30}(expired|invalid|denied)|token[^\\n]{0,30}(expired|invalid)|unauthori[sz]ed|invalid[_ -]?session/i.test(routeCode + " " + errorText);`,
+    `}`,
+    ``,
+    `function msReauthInputId(key) {`,
+    `  return ({ routes: "ms-har-routes", preEntry: "ms-har-preentry", busTime: "ms-har-bustime", hbiPhotos: "ms-har-hbi-photos" })[key] || "";`,
+    `}`,
+    ``,
+    `function updateMsSourceReauthAction(row, key, required) {`,
+    `  if (!row) return;`,
+    `  row.querySelector(".source-reauth-action")?.remove();`,
+    `  row.classList.toggle("has-source-reauth", Boolean(required));`,
+    `  if (!required) return;`,
+    `  const inputId = msReauthInputId(key);`,
+    `  if (!inputId) return;`,
+    `  const button = document.createElement("button");`,
+    `  button.type = "button";`,
+    `  button.className = "btn btn-header source-reauth-action";`,
+    `  button.textContent = key === "busTime" ? "อัปโหลด HAR ตารางเวลาใหม่" : "อัปโหลด HAR ใหม่";`,
+    `  button.onclick = () => {`,
+    `    const details = document.querySelector("#ms-connection-form details.setup-fallback");`,
+    `    if (details) details.open = true;`,
+    `    const input = el(inputId);`,
+    `    if (!input) return;`,
+    `    input.scrollIntoView({ behavior: "smooth", block: "center" });`,
+    `    input.click();`,
+    `  };`,
+    `  row.appendChild(button);`,
     `}`,
     ``,
     `function msConnectionObserverBox() {`,
@@ -91,7 +126,7 @@ export function patchMsConnectionErrorKvFrontend(source) {
     `  if (!style) {`,
     `    style = document.createElement("style");`,
     `    style.id = "ms-connection-responsive-v2-style";`,
-    `    style.textContent = ".connector-dialog{width:min(96vw,980px);max-height:calc(100dvh - 24px)}.connector-dialog .connector-setup-card{max-width:none}.connection-source-status.ms-source-status-v2{grid-template-columns:1fr;align-items:stretch}.connection-source-status.ms-source-status-v2>div{min-width:0;align-items:flex-start;flex-direction:column}.connection-source-status.ms-source-status-v2 span{text-align:left}.setup-source-links.ms-source-links-v2{display:grid;grid-template-columns:1fr;gap:8px}.setup-source-links.ms-source-links-v2 .setup-link{width:100%;margin:0;justify-content:center;text-align:center;white-space:normal}.har-source-list.ms-har-cards-v2{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px;align-items:stretch}.har-source-card-v2{min-width:0;display:flex;flex-direction:column;gap:9px;padding:13px;border:1px solid #d8d8d4;border-radius:10px;background:#fbfbf8}.har-source-card-v2 label{display:grid!important;gap:7px!important;margin:0!important;font-size:13px!important;line-height:1.4}.har-source-card-v2 label>span{min-height:0;font-weight:800;color:#252525}.har-source-card-v2 input[type=file]{width:100%;min-height:42px;padding:7px;border:1px solid #c9ccc8;border-radius:7px;background:#fff}.har-source-card-v2 .btn{width:100%;min-height:44px;margin-top:auto;white-space:normal}.har-source-card-v2 small{display:block;color:#656b66;font-size:11px;line-height:1.45}.hbi-sso-note-v2{margin:13px 0 0;padding:12px 14px;border:1px solid #e0bd31;border-left:4px solid #ffd400;border-radius:8px;background:#fff9db;color:#453900;line-height:1.5}.hbi-sso-note-v2 strong,.hbi-sso-note-v2 span{display:block}.hbi-sso-note-v2 span{margin-top:3px;font-size:12px}.setup-fallback>summary{padding:8px 0;font-weight:900}.connector-dialog .setup-warning{margin-top:14px}@media(max-width:760px){.connector-dialog{width:calc(100vw - 12px);max-height:calc(100dvh - 12px)}.connector-dialog .dialog-card{padding:18px 13px}.har-source-card-v2 label>span{min-height:0}.setup-steps{padding-left:20px}.hbi-sso-note-v2{padding:11px 12px}}@media(max-width:420px){.connector-dialog{width:calc(100vw - 6px);max-height:calc(100dvh - 6px)}.connector-dialog .dialog-card{padding:16px 10px}.har-source-card-v2{padding:11px}.har-source-card-v2 input[type=file]{font-size:12px}.connection-source-status>div{padding:10px 11px}}";`,
+    `    style.textContent = ".connector-dialog{width:min(96vw,980px);max-height:calc(100dvh - 24px)}.connector-dialog .connector-setup-card{max-width:none}.connection-source-status.ms-source-status-v2{grid-template-columns:1fr;align-items:stretch}.connection-source-status.ms-source-status-v2>div{min-width:0;align-items:flex-start;flex-direction:column}.connection-source-status.ms-source-status-v2 span{text-align:left}.connection-source-status .source-reauth-action{width:auto;min-height:36px;margin-top:7px;padding:6px 10px;align-self:flex-start}.connection-source-status .has-source-reauth{border-left:4px solid #b3261e}.setup-source-links.ms-source-links-v2{display:grid;grid-template-columns:1fr;gap:8px}.setup-source-links.ms-source-links-v2 .setup-link{width:100%;margin:0;justify-content:center;text-align:center;white-space:normal}.har-source-list.ms-har-cards-v2{display:grid;grid-template-columns:1fr;gap:12px;margin-top:14px;align-items:stretch}.har-source-card-v2{min-width:0;display:flex;flex-direction:column;gap:9px;padding:13px;border:1px solid #d8d8d4;border-radius:10px;background:#fbfbf8}.har-source-card-v2 label{display:grid!important;gap:7px!important;margin:0!important;font-size:13px!important;line-height:1.4}.har-source-card-v2 label>span{min-height:0;font-weight:800;color:#252525}.har-source-card-v2 input[type=file]{width:100%;min-height:42px;padding:7px;border:1px solid #c9ccc8;border-radius:7px;background:#fff}.har-source-card-v2 .btn{width:100%;min-height:44px;margin-top:auto;white-space:normal}.har-source-card-v2 small{display:block;color:#656b66;font-size:11px;line-height:1.45}.hbi-sso-note-v2{margin:13px 0 0;padding:12px 14px;border:1px solid #e0bd31;border-left:4px solid #ffd400;border-radius:8px;background:#fff9db;color:#453900;line-height:1.5}.hbi-sso-note-v2 strong,.hbi-sso-note-v2 span{display:block}.hbi-sso-note-v2 span{margin-top:3px;font-size:12px}.setup-fallback>summary{padding:8px 0;font-weight:900}.connector-dialog .setup-warning{margin-top:14px}@media(max-width:760px){.connector-dialog{width:calc(100vw - 12px);max-height:calc(100dvh - 12px)}.connector-dialog .dialog-card{padding:18px 13px}.har-source-card-v2 label>span{min-height:0}.setup-steps{padding-left:20px}.hbi-sso-note-v2{padding:11px 12px}}@media(max-width:420px){.connector-dialog{width:calc(100vw - 6px);max-height:calc(100dvh - 6px)}.connector-dialog .dialog-card{padding:16px 10px}.har-source-card-v2{padding:11px}.har-source-card-v2 input[type=file]{font-size:12px}.connection-source-status>div{padding:10px 11px}}";`,
     `    document.head.appendChild(style);`,
     `  }`,
     ``,
@@ -194,6 +229,35 @@ export function patchMsConnectionErrorKvFrontend(source) {
     "insert Browser KV connection helpers",
   );
 
+  const statusAnchor = `      const source401 = key === "routes"\n        ? routeRepair?.code === "MS_SESSION_HTTP_401"\n        : /(^|\\D)401(\\D|$)/.test(String(item?.lastError || ""));\n      node.className = item?.configured\n        ? (item.lastError || source401 ? "source-error" : isStale ? "source-stale" : "source-ok")\n        : "source-missing";\n      node.textContent = !item?.configured\n        ? key === "hbiPhotos"\n          ? "ยังไม่ได้อัปโหลด HAR รูปท้ายรถ"\n          : "ยังไม่ได้อัปโหลด"\n        : key === "hbiPhotos"\n          ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"\n          : item.lastError\n            ? \`เชื่อมต่อมีปัญหา · \${item.lastError}\`\n            : isStale\n              ? \`มีการเชื่อมต่อที่บันทึกไว้ · สำเร็จล่าสุด \${shortDateTime(item.lastSuccessAt || item.updatedAt)} · สถานะปัจจุบันยังไม่ยืนยัน\`\n              : \`พร้อมใช้งาน · อัปเดตล่าสุด \${shortDateTime(item.lastSuccessAt || item.updatedAt)}\`;`;
+  const statusReplacement = `      const sourceAuthRequired = msSourceNeedsReauth(key, item, routeRepair);\n      node.className = item?.configured\n        ? (item.lastError || sourceAuthRequired ? "source-error" : isStale ? "source-stale" : "source-ok")\n        : "source-missing";\n      node.textContent = !item?.configured\n        ? key === "hbiPhotos"\n          ? "ยังไม่ได้อัปโหลด HAR รูปท้ายรถ"\n          : "ยังไม่ได้อัปโหลด"\n        : sourceAuthRequired\n          ? key === "busTime"\n            ? "Session หมดอายุ · อัปโหลด HAR ตารางเวลา KIT/TBR ใหม่"\n            : \`Session หมดอายุ · อัปโหลด HAR \${msConnectionSourceLabel(key)} ใหม่\`\n          : key === "hbiPhotos"\n            ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"\n            : item.lastError\n              ? \`เชื่อมต่อมีปัญหา · \${item.lastError}\`\n              : isStale\n                ? \`มีการเชื่อมต่อที่บันทึกไว้ · สำเร็จล่าสุด \${shortDateTime(item.lastSuccessAt || item.updatedAt)} · สถานะปัจจุบันยังไม่ยืนยัน\`\n                : \`พร้อมใช้งาน · อัปเดตล่าสุด \${shortDateTime(item.lastSuccessAt || item.updatedAt)}\`;\n      updateMsSourceReauthAction(row, key, sourceAuthRequired);`;
+  output = replaceUnique(output, statusAnchor, statusReplacement, "classify source re-auth requirement");
+
+  output = replaceUnique(
+    output,
+    `    const session401Sources = [];\n    const session401DetectedAt = routeRepair?.changedAt || "";`,
+    `    const sessionReauthSources = [];\n    const sessionReauthDetectedAt = routeRepair?.changedAt || "";`,
+    "rename session re-auth aggregate",
+  );
+  output = replaceUnique(
+    output,
+    `      if (source401) {`,
+    `      if (sourceAuthRequired) {`,
+    "aggregate every source authentication failure",
+  );
+  output = replaceUnique(
+    output,
+    `        if (!session401Sources.includes(sourceName)) session401Sources.push(sourceName);`,
+    `        if (!sessionReauthSources.includes(sourceName)) sessionReauthSources.push(sourceName);`,
+    "collect re-auth sources",
+  );
+  output = replaceUnique(
+    output,
+    `    if (session401Sources.length) {\n      const detectedAt = session401DetectedAt ? \` · \${shortDateTime(session401DetectedAt)}\` : "";\n      toast(\n        \`MS ตอบกลับ 401\${detectedAt} · Session ปัจจุบันถูกปฏิเสธ · กระทบ: \${session401Sources.join(" / ")} · กรุณาเชื่อมต่อ MS ใหม่ แล้วอัปโหลด HAR ของแหล่งที่ขึ้น 401 ใหม่\`,\n        true,\n        10000,\n      );\n    }`,
+    `    if (sessionReauthSources.length) {\n      const detectedAt = sessionReauthDetectedAt ? \` · \${shortDateTime(sessionReauthDetectedAt)}\` : "";\n      toast(\n        \`MS Session ต้องต่อใหม่\${detectedAt} · กระทบ: \${sessionReauthSources.join(" / ")} · กรุณาเปิดแหล่งนั้นหลังเข้าสู่ระบบ แล้วอัปโหลด HAR ใหม่\`,\n        true,\n        10000,\n      );\n    }`,
+    "show generic session re-auth guidance",
+  );
+
   output = replaceUnique(
     output,
     `  el("ms-connection-dialog").showModal();\n  loadMsConnectionStatus();\n}`,
@@ -228,6 +292,19 @@ export function patchMsConnectionErrorKvFrontend(source) {
     `  } catch (error) {\n    void reportMsConnectionObservation("error", source, hub, error).then(() => loadMsConnectionObservedError(hub));\n    errorEl.textContent = error.message;\n    errorEl.classList.remove("hidden");\n  } finally {\n    button.disabled = false;\n  }\n}\n\nfunction exportCurrent() {`,
     "remember HAR/MS error in Browser KV",
   );
+
+  for (const marker of [
+    MARKER,
+    RESPONSIVE_MARKER,
+    REAUTH_MARKER,
+    "function msSourceNeedsReauth",
+    "function updateMsSourceReauthAction",
+    '"Session หมดอายุ · อัปโหลด HAR ตารางเวลา KIT/TBR ใหม่"',
+    '"อัปโหลด HAR ตารางเวลาใหม่"',
+  ]) if (!output.includes(marker)) throw new Error(`MS connection staging missing ${marker}`);
+  if (!/need\\s\*login/.test(output)) throw new Error("MS connection re-auth classifier lost need-login detection");
+  if (/setInterval\s*\(|new WebSocket\s*\(|EventSource\s*\(/.test(output.slice(output.indexOf(`// ${REAUTH_MARKER}`), output.indexOf(helperAnchor))))
+    throw new Error("MS source re-auth guidance introduced background transport");
 
   return output;
 }

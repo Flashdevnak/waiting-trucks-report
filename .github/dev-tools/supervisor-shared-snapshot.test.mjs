@@ -7,6 +7,7 @@ const root = new URL("../../", import.meta.url);
 const canonical = await readFile(new URL("worker/src/index.js", root), "utf8");
 const staged = stageWorker(canonical);
 const frontend = await readFile(new URL("supervisor.js", root), "utf8");
+const tbrPatch = await readFile(new URL("cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs", root), "utf8");
 const runnable = staged
   .replace(
     `import {
@@ -71,4 +72,10 @@ test("SUP-04 state path is bounded, side-car, and zero-extra-polling", () => {
   assert.equal((frontend.match(/\bfetch\s*\(/g) || []).length, 1);
   assert.match(frontend, /fetch\("\/api\/supervisor\/snapshot"/);
   assert.doesNotMatch(frontend, /setInterval|setTimeout|new\s+WebSocket|new\s+EventSource/);
+});
+
+test("SUP-04 remains compatible with the downstream DEV TBR quota guard", () => {
+  assert.match(tbrPatch, /const fetchAnchor = `    if \(url\.pathname\.startsWith/);
+  assert.doesNotMatch(tbrPatch, /const fetchAnchor = `  async fetch/);
+  assert.match(tbrPatch, /const thenAnchor = `    const task = runMsRefresh[\s\S]*?this\.lastResult = result;`/);
 });

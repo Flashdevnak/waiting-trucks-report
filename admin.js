@@ -179,6 +179,36 @@ async function login(event) {
     localStorage.setItem(AUTH_KEY, JSON.stringify(state.auth)); await loadOverview();
   } catch (error) { showGate("เข้าสู่ระบบผู้ดูแล", { login: true, error: error.message }); }
 }
+async function openSupervisor() {
+  if (!state.auth?.token || state.busy) return;
+  const button = el("supervisor-open-btn");
+  state.busy = true;
+  button.disabled = true;
+  button.textContent = "กำลังยืนยันสิทธิ์…";
+  try {
+    const response = await fetch(new URL("/api/supervisor/session", API_URL), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: state.auth.token }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body?.ok) {
+      const error = new Error(body?.message || `ยืนยันสิทธิ์ Supervisor ไม่สำเร็จ (${response.status})`);
+      error.code = body?.code || "SUPERVISOR_ACCESS_ERROR";
+      throw error;
+    }
+    sessionStorage.setItem("wtr_supervisor_csrf_v1", String(body.data?.csrf || ""));
+    location.assign("supervisor.html");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    state.busy = false;
+    button.disabled = false;
+    button.textContent = "Supervisor";
+  }
+}
 function logout() { localStorage.removeItem(AUTH_KEY); state.auth = null; state.overview = null; showGate("เข้าสู่ระบบผู้ดูแล", { login: true }); }
 async function changePassword(event) {
   event.preventDefault(); const currentPassword = el("current-password").value, newPassword = el("new-password").value;
@@ -186,7 +216,7 @@ async function changePassword(event) {
   try { await request("changePassword", { method: "POST", payload: { currentPassword, newPassword } }); event.currentTarget.reset(); logout(); toast("เปลี่ยนรหัสแล้ว กรุณาเข้าสู่ระบบใหม่"); } catch (error) { toast(error.message, true); }
 }
 function bind() {
-  el("login-form").addEventListener("submit", login); el("logout-btn").addEventListener("click", logout); el("refresh-btn").addEventListener("click", loadOverview); el("repair-all-btn").addEventListener("click", repairAllHubs);
+  el("login-form").addEventListener("submit", login); el("logout-btn").addEventListener("click", logout); el("supervisor-open-btn").addEventListener("click", openSupervisor); el("refresh-btn").addEventListener("click", loadOverview); el("repair-all-btn").addEventListener("click", repairAllHubs);
   el("hub-select").addEventListener("change", () => { state.branch = el("hub-select").value; renderSources(); loadSettings(); });
   document.querySelector(".tabs").addEventListener("click", (event) => { const button = event.target.closest("[data-tab]"); if (!button) return; document.querySelectorAll("[data-tab]").forEach((x) => x.classList.toggle("active", x === button)); document.querySelectorAll("[data-panel]").forEach((x) => x.classList.toggle("hidden", x.dataset.panel !== button.dataset.tab)); });
   el("add-user-btn").addEventListener("click", () => addUserRow()); el("save-standards-btn").addEventListener("click", saveSettings); el("password-form").addEventListener("submit", changePassword);

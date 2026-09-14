@@ -8,6 +8,7 @@ const front = fs.readFileSync(new URL("../../ms.js", import.meta.url), "utf8");
 const proof = fs.readFileSync(new URL("../../worker/src/proof-control.js", import.meta.url), "utf8");
 const turso = fs.readFileSync(new URL("../../worker/src/turso-index.js", import.meta.url), "utf8");
 const browser = fs.readFileSync(new URL("../../cloudflare-browser-test/src/index.js", import.meta.url), "utf8");
+const hotLanePatch = fs.readFileSync(new URL("./patch-bus-time-hot-lane-v14.mjs", import.meta.url), "utf8");
 const staged = stageWorker(worker);
 
 test("visible realtime stays four seconds while direct HTTP 4s polling is removed", () => {
@@ -18,6 +19,15 @@ test("visible realtime stays four seconds while direct HTTP 4s polling is remove
   assert.match(front, /new WebSocket\(realtimeSocketUrl\(\)\)/);
   assert.match(front, /visibilitychange/);
   assert.match(front, /REALTIME_AUTH_HEARTBEAT_MS = 60 \* 1000/);
+});
+
+test("4-second UI cadence is decoupled from shared Route upstream cadence", () => {
+  assert.match(hotLanePatch, /MS_ROUTE_SHARED_SOURCE_CADENCE_V1/);
+  assert.match(hotLanePatch, /MS_REALTIME_SOURCE_MIN_MS = 12 \* 1000/);
+  assert.match(hotLanePatch, /nowMs - this\.lastSourceAt < MS_REALTIME_SOURCE_MIN_MS/);
+  assert.match(hotLanePatch, /!force &&[\s\S]*!cron &&[\s\S]*MS_REALTIME_SOURCE_MIN_MS/);
+  assert.match(front, /pollMs:\s*4000/);
+  assert.doesNotMatch(hotLanePatch, /MS_REALTIME_SOURCE_MIN_MS = 4 \* 1000/);
 });
 
 test("staged per-HUB coordinator uses hibernatable WebSocket broadcast", () => {

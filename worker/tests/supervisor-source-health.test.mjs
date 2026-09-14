@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   SOURCE_STALE_AFTER_MS,
   deriveHubView,
+  deriveOverview,
   deriveSourceView,
 } from "../../supervisor-view.js";
 import { stageWorker } from "../../.github/dev-tools/stage-dev-runtime.mjs";
@@ -39,6 +40,33 @@ test("SUP-06 derives freshness without fabricating source health", () => {
   const unknown = deriveSourceView(null, now);
   assert.equal(unknown.state, "UNKNOWN");
   assert.equal(unknown.freshness, "UNKNOWN");
+});
+
+test("SUP-06 overview uses the same freshness truth as HUB cards", () => {
+  const now = Date.parse("2026-09-14T15:00:00.000Z");
+  const snapshot = {
+    availability: "AVAILABLE",
+    modules: {
+      waitingTrucks: {
+        hubs: [{
+          hub: "ZX9",
+          health: "HEALTHY",
+          sources: {
+            route: {
+              state: "HEALTHY",
+              configured: true,
+              lastSuccessAt: new Date(now - SOURCE_STALE_AFTER_MS - 1).toISOString(),
+              observed: true,
+            },
+          },
+        }],
+      },
+    },
+    contracts: { additionalUpstreamPolls: 0, databaseReads: 0, databaseWrites: 0, aiCalls: 0 },
+  };
+  const overview = deriveOverview(snapshot, { health: { state: "HEALTHY" }, metrics: [] }, { nowMs: now });
+  assert.equal(overview.map.sources, "WARNING");
+  assert.equal(overview.cards.find((card) => card.id === "sources")?.value, "WARNING");
 });
 
 test("SUP-06 keeps HBI click-only and never marks it stale from age alone", () => {

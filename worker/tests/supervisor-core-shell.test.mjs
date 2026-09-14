@@ -17,6 +17,8 @@ test("SUP-01 is an isolated, responsive Supervisor side-car", () => {
   for (const source of [html, css, js]) assert.match(source, /SUPERVISOR_CORE_SHELL_V1/);
   assert.match(html, /supervisor\.css\?v=/);
   assert.match(html, /supervisor\.js\?v=/);
+  assert.match(html, /supervisor\.css\?v=20260914-sup04/);
+  assert.match(html, /supervisor\.js\?v=20260914-sup04/);
   assert.match(css, /@media\(max-width:700px\)/);
   assert.match(css, /@media\(max-width:420px\)/);
   assert.doesNotMatch(msHtml, /supervisor\.(?:html|js|css)/);
@@ -31,9 +33,11 @@ test("SUP-01 renders truth-safe states and no mock operations data", () => {
   assert.doesNotMatch(html, /96\/100|EA2|NE1/);
 });
 
-test("SUP-01 performs zero background, upstream, database, and AI work", () => {
+test("SUP-04 performs one shared-state read and zero background, upstream, database, and AI work", () => {
   const runtime = `${js}\n${modules}`;
-  assert.doesNotMatch(runtime, /\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(|setTimeout\s*\(/);
+  assert.equal((js.match(/\bfetch\s*\(/g) || []).length, 1);
+  assert.match(js, /fetch\("\/api\/supervisor\/snapshot"/);
+  assert.doesNotMatch(runtime, /new\s+WebSocket|new\s+EventSource|setInterval\s*\(|setTimeout\s*\(/);
   assert.doesNotMatch(runtime, /route_followstart|fleet_time|getList|hbi-common|flashexpress|Turso|SELECT\s|INSERT\s|UPDATE\s|DELETE\s/i);
   assert.doesNotMatch(runtime, /openai|anthropic|gemini|ai[_-]?call/i);
   assert.match(js, /role\s*!==\s*"admin"/);

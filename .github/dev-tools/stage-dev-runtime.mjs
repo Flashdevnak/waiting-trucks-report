@@ -54,6 +54,7 @@ import { patchMsQuotaSafeLiveWorker } from "./patch-ms-quota-safe-live.mjs";
 import { patchMsTbrShadowFeedWorker } from "./patch-ms-tbr-shadow-feed.mjs";
 import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
 import { patchSupervisorAccessGuard } from "./patch-supervisor-access-guard.mjs";
+import { patchSupervisorSharedSnapshot } from "./patch-supervisor-shared-snapshot.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -412,6 +413,7 @@ export function stageWorker(source) {
   output = patchMsUnloadingStartTruthWorker(output);
   output = patchMsTbrShadowFeedWorker(output);
   output = patchSupervisorAccessGuard(output);
+  output = patchSupervisorSharedSnapshot(output);
   output = patchDevRootEntryWorker(output);
   return output;
 }

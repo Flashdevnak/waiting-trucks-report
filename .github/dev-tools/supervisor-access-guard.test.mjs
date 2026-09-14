@@ -169,6 +169,37 @@ test("SUP-02 rejects Operator exchange, cross-origin exchange, and missing CSRF"
   assert.equal((await mutation.json()).code, "SUPERVISOR_CSRF_REQUIRED");
 });
 
+test("SUP-04 serves one authorized shared snapshot without database or source work", async () => {
+  const worker = await freshWorker();
+  const { env, metrics } = testEnv();
+  let durableReads = 0;
+  env.MS_REFRESH_COORDINATOR = {
+    idFromName(name) {
+      assert.equal(name, "__SUPERVISOR_SHARED_STATE_V1");
+      return name;
+    },
+    get() {
+      return {
+        async fetch(request) {
+          durableReads += 1;
+          assert.equal(new URL(request.url).pathname, "/supervisor/snapshot");
+          return Response.json({ version: 1, observedAt: null, modules: { waitingTrucks: { health: { state: "UNKNOWN" }, metrics: [], incidents: [], hubs: [] } } });
+        },
+      };
+    },
+  };
+  const session = await exchange(worker, env, await signedToken({ username: "ADMIN", role: "admin" }, env.AUTH_SECRET));
+  const cookie = (session.headers.get("set-cookie") || "").split(";")[0];
+  const response = await worker.fetch(new Request("https://dev.test/api/supervisor/snapshot", { headers: { Cookie: cookie } }), env);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.data.modules.waitingTrucks.health.state, "UNKNOWN");
+  assert.equal(durableReads, 1);
+  assert.equal(metrics.reads, 1, "session exchange primes the shared auth cache; snapshot adds no DB read");
+  assert.equal(metrics.writes, 0);
+});
+
 test("SUP-02 remains side-car and introduces no source, repair, or database writes", async () => {
   const start = staged.indexOf("const SUPERVISOR_COOKIE_NAME");
   const end = staged.indexOf("async function get(url, env)", start);

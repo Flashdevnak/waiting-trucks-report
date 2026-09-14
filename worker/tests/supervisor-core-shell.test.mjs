@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const root = new URL("../../", import.meta.url);
-const [html, css, js, msHtml, msJs, workflow] = await Promise.all([
+const [html, css, js, modules, msHtml, msJs, workflow] = await Promise.all([
   readFile(new URL("supervisor.html", root), "utf8"),
   readFile(new URL("supervisor.css", root), "utf8"),
   readFile(new URL("supervisor.js", root), "utf8"),
+  readFile(new URL("supervisor-modules.js", root), "utf8"),
   readFile(new URL("ms.html", root), "utf8"),
   readFile(new URL("ms.js", root), "utf8"),
   readFile(new URL(".github/workflows/deploy-worker-dev.yml", root), "utf8"),
@@ -31,9 +32,10 @@ test("SUP-01 renders truth-safe states and no mock operations data", () => {
 });
 
 test("SUP-01 performs zero background, upstream, database, and AI work", () => {
-  assert.doesNotMatch(js, /\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(|setTimeout\s*\(/);
-  assert.doesNotMatch(js, /route_followstart|fleet_time|getList|hbi-common|flashexpress|Turso|SELECT\s|INSERT\s|UPDATE\s|DELETE\s/i);
-  assert.doesNotMatch(js, /openai|anthropic|gemini|ai[_-]?call/i);
+  const runtime = `${js}\n${modules}`;
+  assert.doesNotMatch(runtime, /\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(|setTimeout\s*\(/);
+  assert.doesNotMatch(runtime, /route_followstart|fleet_time|getList|hbi-common|flashexpress|Turso|SELECT\s|INSERT\s|UPDATE\s|DELETE\s/i);
+  assert.doesNotMatch(runtime, /openai|anthropic|gemini|ai[_-]?call/i);
   assert.match(js, /role\s*!==\s*"admin"/);
 });
 
@@ -48,7 +50,9 @@ test("DEV pipeline stages and smoke-checks every Supervisor core asset", () => {
   assert.match(workflow, /supervisor\.html/);
   assert.match(workflow, /supervisor\.js/);
   assert.match(workflow, /supervisor\.css/);
+  assert.match(workflow, /supervisor-modules\.js/);
   assert.match(workflow, /SUPERVISOR_CORE_SHELL_V1/);
+  assert.match(workflow, /SUPERVISOR_MODULE_REGISTRY_V1/);
   assert.match(workflow, /supervisorResponse\.status!==403/);
   assert.match(workflow, /DEV_SUPERVISOR_ADMIN_GUARD=PASS/);
 });

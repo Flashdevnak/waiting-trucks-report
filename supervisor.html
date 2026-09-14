@@ -15,7 +15,7 @@
       <div class="brand-mark" aria-hidden="true">S</div>
       <p class="eyebrow">WAITING TRUCKS · DEV ONLY</p>
       <h1 id="gate-title">กำลังตรวจสิทธิ์ผู้ดูแล</h1>
-      <p id="gate-message">Supervisor จะไม่โหลดข้อมูลระบบจนกว่าจะยืนยันสิทธิ์ผ่าน backend ใน checkpoint ถัดไป</p>
+      <p id="gate-message">กำลังยืนยัน Admin session กับ Worker ก่อนเปิด Supervisor</p>
       <div class="gate-actions">
         <a class="button button-primary" href="ms.html">กลับหน้า Waiting Trucks</a>
         <a class="button button-quiet" href="admin.html">เข้าสู่ระบบ Admin</a>
@@ -92,6 +92,7 @@
           </div>
 
           <div class="metric-grid">
+            <article class="metric-card"><span>Configured Modules</span><strong id="configured-module-count">—</strong><small id="configured-module-state">UNKNOWN</small></article>
             <article class="metric-card"><span>Configured HUB</span><strong>—</strong><small>UNKNOWN</small></article>
             <article class="metric-card"><span>Healthy HUB</span><strong>—</strong><small>UNKNOWN</small></article>
             <article class="metric-card"><span>Open incidents</span><strong>—</strong><small>UNAVAILABLE</small></article>
@@ -176,6 +177,6 @@
     <dl><div><dt>Evidence</dt><dd>SUP-01 ยังไม่มี shared Supervisor snapshot หรือ event transport</dd></div><div><dt>Impact</dt><dd>Supervisor ไม่สามารถสรุปสุขภาพระบบ แต่ Waiting Trucks ไม่ได้รับผลกระทบ</dd></div><div><dt>Bot action</dt><dd>SKIP — ไม่สร้างข้อมูลหรือเรียก source เพิ่ม</dd></div><div><dt>Next step</dt><dd>ทำ backend access guard และ shared read-only snapshot ตาม checkpoint</dd></div></dl>
   </dialog>
 
-  <script src="supervisor.js?v=20260914-sup01" defer></script>
+  <script type="module" src="supervisor.js?v=20260914-sup03"></script>
 </body>
 </html>

@@ -131,7 +131,7 @@ Every Supervisor checkpoint must prove:
 
 ## SUP-02 — Admin access guard
 
-Status: PASS (local source and regression); DEV deployment pending branch delivery
+Status: PASS
 
 Base remote main: `b85390f7e6ba551b95ad233f312b4af8de171361`
 
@@ -162,5 +162,39 @@ Checkpoint date: 2026-09-14
 - Database impact: one bounded read on a cold Admin session exchange/verification; zero writes and zero healthy-state heartbeat writes.
 - Main website impact: none. Waiting Trucks routes do not invoke or depend on the Supervisor guard except for an early pathname comparison; `/ms.html`, realtime, accepted state, and lifecycle behavior are unchanged.
 - Production touched: NO.
-- Open blocker: the terminal environment has no GitHub push credential, so the committed branch cannot yet reach the DEV workflow. No deploy was attempted and no success was fabricated.
-- Next exact action: deliver the SUP-02 branch through an authenticated GitHub path, run the DEV workflow, verify unauthorized `403`, open from an authenticated Admin page, and then start SUP-03 from the resulting latest remote main.
+- DEV deployment: PASS, GitHub Actions `Deploy Worker DEV #604`, main `0d691e8d83a7e1476b943830bca938f5e039903e`.
+- Live smoke: health `200`/`ok:true`; direct unauthorized `/supervisor.html` `403`; Admin page exposes exactly one Supervisor button; `/ms.html` still loads.
+- Authorized live session smoke: not verified because no Admin PIN was available to the test browser. Backend exchange/page behavior is covered by the staged Worker tests; no credential was requested or fabricated.
+- Open blocker: none for SUP-02.
+- Next exact action: start SUP-03 from remote main `0d691e8`.
+
+## SUP-03 — Module contract and registry
+
+Status: PASS (local source and regression); DEV deployment pending
+
+Base remote main: `0d691e8d83a7e1476b943830bca938f5e039903e`
+
+Branch: `codex/sup-03-module-registry`
+
+Checkpoint date: 2026-09-14
+
+### Implemented
+
+- Added one small pure internal registry with the required `id`, `name`, `health`, `metrics`, and `incidents` adapters.
+- Registered exactly one current module: `waiting-trucks`. No future, mock, placeholder, remote, or dynamically loaded module exists.
+- Standardized the common health states and preserves missing evidence as `UNKNOWN` with `observedAt: null`; it never creates a fresh timestamp.
+- Optional capabilities are explicit booleans. Enabling a capability without its adapter fails registration, and disabled capabilities are not emitted in evaluated module data.
+- Each module evaluates inside its own error boundary. A failed adapter becomes sanitized `ERROR / MODULE_ADAPTER_ERROR` while the rest of the registry continues; raw exception details are not exposed.
+- The static shell now renders the truthful configured module count from the registry. HUB/source/system health remain `UNKNOWN` until SUP-04 provides shared runtime state.
+
+### Test and impact result
+
+- Target module/core tests: PASS, 11/11.
+- `npm run check`: PASS, 147/147.
+- DEV workflow's broader pre-deploy test set: PASS, 137/137.
+- Quota contract: PASS. Registry performs no HTTP, WebSocket, EventSource, timer, upstream, database, AI, or repair operation.
+- Database impact: none.
+- Upstream impact: none.
+- Main website impact: none; `ms.html` and `ms.js` do not import Supervisor code.
+- Production touched: NO.
+- Next exact action: commit/push SUP-03, run the DEV workflow and live smoke, then begin SUP-04 shared sanitized snapshot design from the resulting latest remote main.

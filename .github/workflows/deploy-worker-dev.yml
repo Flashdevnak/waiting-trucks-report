@@ -20,6 +20,7 @@ on:
       - admin.css
       - supervisor.html
       - supervisor.js
+      - supervisor-modules.js
       - supervisor.css
       - ms-report.html
       - ms-report.js
@@ -100,13 +101,14 @@ jobs:
           rm -rf .dev-assets .dev-runtime
           mkdir -p .dev-assets .dev-runtime
           cp -R src .dev-runtime/src
-          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor-modules.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
           node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js .dev-runtime/src/origin-manifest-v1.js
           node --check .dev-assets/admin.js
           node --check .dev-assets/supervisor.js
+          node --check .dev-assets/supervisor-modules.js
           node --check .dev-assets/ms-report.js
           node --check .dev-assets/ms.js
           node --check .dev-assets/proof.js
@@ -273,6 +275,7 @@ jobs:
           const supervisorResponse=await fetch(`${base}/supervisor.html`,{headers:{'cache-control':'no-cache'},cache:'no-store',redirect:'manual'});
           const supervisorDenied=await supervisorResponse.text();
           const supervisorJs=await get('supervisor.js');
+          const supervisorModules=await get('supervisor-modules.js');
           const supervisorCss=await get('supervisor.css');
           if(!admin.includes('ADMIN_STANDALONE_V1')&&!adminJs.includes('ADMIN_STANDALONE_V1')) throw new Error('standalone Admin marker missing');
           if(/setInterval\s*\(|new WebSocket\s*\(/.test(adminJs)) throw new Error('Admin page introduced background transport');
@@ -280,6 +283,8 @@ jobs:
           if(supervisorResponse.status!==403||!supervisorDenied.includes('Admin access required')) throw new Error('Supervisor HTML Admin guard missing');
           if(supervisorDenied.includes('SUPERVISOR_CORE_SHELL_V1')) throw new Error('Supervisor HTML leaked without Admin session');
           for(const [name,asset] of Object.entries({supervisorJs,supervisorCss})) if(!asset.includes('SUPERVISOR_CORE_SHELL_V1')) throw new Error(`${name} core marker missing`);
+          if(!supervisorModules.includes('SUPERVISOR_MODULE_REGISTRY_V1')) throw new Error('Supervisor module registry marker missing');
+          if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorModules)) throw new Error('Supervisor registry introduced runtime transport');
           if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced runtime transport');
           const msJs=await get('ms.js');
           if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');

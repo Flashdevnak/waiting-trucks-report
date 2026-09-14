@@ -1,6 +1,9 @@
 // SUPERVISOR_CORE_SHELL_V1
 // Static side-car only: zero fetch, WebSocket, interval, source, database, or AI calls.
+import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
+
 const SUPERVISOR_AUTH_KEY = "bnak_operator_auth_v2";
+const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);
 
 const sectionCopy = {
   overview: ["ภาพรวมระบบ", "สถานะจริงจะแสดงเมื่อ shared Supervisor snapshot พร้อมใช้งาน"],
@@ -75,6 +78,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // signed HttpOnly session and current Admin role before serving this HTML.
   document.getElementById("supervisor-gate").hidden = true;
   document.getElementById("supervisor-app").hidden = false;
+  const configuredModules = moduleRegistry.evaluate({});
+  document.getElementById("configured-module-count").textContent = String(configuredModules.length);
+  document.getElementById("configured-module-state").textContent = configuredModules[0]?.health.state || "UNKNOWN";
   bindShell();
   activateSection("overview");
 });

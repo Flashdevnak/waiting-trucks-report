@@ -1,0 +1,51 @@
+name: SUP-13 Branch Apply
+
+on:
+  push:
+    branches:
+      - codex/sup-13-thai-english
+    paths:
+      - .github/dev-tools/apply-sup13.py
+      - .github/workflows/sup13-branch-apply.yml
+      - supervisor-i18n.js
+      - worker/tests/supervisor-language-contract.test.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Apply SUP-13 canonical patch
+        run: python3 .github/dev-tools/apply-sup13.py
+      - name: Install worker dependencies
+        working-directory: worker
+        run: npm ci
+      - name: Focused SUP-13 contract
+        run: node --test worker/tests/supervisor-language-contract.test.mjs
+      - name: Full repository check
+        working-directory: worker
+        run: npm run check
+      - name: Diff safety
+        run: |
+          git diff --check
+          changed="$(git diff --name-only)"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^supervisor\.html$|^supervisor\.js$|^supervisor\.css$|^worker/package\.json$|^\.github/workflows/deploy-worker-dev\.yml$' || true)"
+          test -z "$unexpected"
+      - name: Commit canonical SUP-13 result
+        run: |
+          git config user.name "Flashdevnak"
+          git config user.email "26nak.testdev@gmail.com"
+          git add supervisor.html supervisor.js supervisor.css worker/package.json .github/workflows/deploy-worker-dev.yml
+          git commit -m "SUP-13: Thai English Supervisor language contract [skip ci]"
+          git push origin HEAD:codex/sup-13-thai-english

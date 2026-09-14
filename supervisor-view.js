@@ -1,5 +1,6 @@
 // SUPERVISOR_OVERVIEW_HUB_VIEW_V1
 // SUPERVISOR_SOURCE_HEALTH_V1
+// SUPERVISOR_QUEUE_LIFECYCLE_V1
 // Pure view derivation only: no transport, timers, storage, database, or repair.
 const STATES = new Set([
   "HEALTHY", "WARNING", "CRITICAL", "STALE", "PARTIAL", "AUTH_REQUIRED",
@@ -15,6 +16,11 @@ export function safeState(value) {
 function validTime(value) {
   const time = typeof value === "string" ? Date.parse(value) : NaN;
   return Number.isFinite(time) ? time : null;
+}
+
+function safeCount(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : null;
 }
 
 export function ageView(value, nowMs = Date.now()) {
@@ -87,6 +93,50 @@ export function deriveSourceView(source, nowMs = Date.now(), fallbackState = "UN
   };
 }
 
+export function deriveLifecycleView(lifecycle, nowMs = Date.now()) {
+  const raw = lifecycle && typeof lifecycle === "object" ? lifecycle : null;
+  const counts = {
+    rowsObserved: safeCount(raw?.rowsObserved),
+    active: safeCount(raw?.active),
+    waiting: safeCount(raw?.waiting),
+    unloading: safeCount(raw?.unloading),
+    destinationActive: safeCount(raw?.destinationActive),
+    dropActive: safeCount(raw?.dropActive),
+    awaitingRelease: safeCount(raw?.awaitingRelease),
+    expired12h: safeCount(raw?.expired12h),
+    cancelledObserved: safeCount(raw?.cancelledObserved),
+  };
+  const required = Object.values(counts);
+  const structurallyValid =
+    raw?.state === "AVAILABLE" &&
+    required.every((value) => value !== null) &&
+    counts.active === counts.waiting + counts.unloading &&
+    counts.active === counts.destinationActive + counts.dropActive;
+  const observedAt = validTime(raw?.observedAt) == null ? null : raw.observedAt;
+  const age = ageView(observedAt, nowMs);
+  const freshness = observedAt == null || !Number.isFinite(nowMs)
+    ? "UNKNOWN"
+    : Math.max(0, nowMs - Date.parse(observedAt)) > SOURCE_STALE_AFTER_MS
+      ? "STALE"
+      : "FRESH";
+  const state = !structurallyValid
+    ? "UNKNOWN"
+    : freshness === "STALE"
+      ? "STALE"
+      : freshness === "UNKNOWN"
+        ? "PARTIAL"
+        : "AVAILABLE";
+  return {
+    state,
+    observedAt,
+    age,
+    freshness,
+    basis: raw?.basis === "ACCEPTED_CURRENT_ROWS" ? "ACCEPTED_CURRENT_ROWS" : "UNKNOWN",
+    policy: raw?.policy === "MS_OPERATIONAL_STAGE_SHARED_V1" ? "MS_OPERATIONAL_STAGE_SHARED_V1" : "UNKNOWN",
+    ...counts,
+  };
+}
+
 function sourceAggregateForHub(hub, nowMs = Date.now()) {
   const sources = hub?.sources || {};
   const values = ["route", "preEntry", "busTime", "hbiPhotos"]
@@ -103,6 +153,33 @@ function aggregateObservedSources(hubs, nowMs = Date.now()) {
   return sourceStates.length ? aggregateStates(sourceStates) : aggregateHubState(hubs);
 }
 
+function aggregateLifecycle(hubs, nowMs = Date.now()) {
+  const views = hubs.map((hub) => deriveLifecycleView(hub?.lifecycle, nowMs));
+  const observed = views.filter((view) => view.state !== "UNKNOWN");
+  const usable = observed.filter((view) => ["AVAILABLE", "STALE", "PARTIAL"].includes(view.state));
+  const state = !observed.length
+    ? "UNKNOWN"
+    : observed.some((view) => view.state === "STALE")
+      ? "STALE"
+      : observed.length < hubs.length || observed.some((view) => view.state === "PARTIAL")
+        ? "PARTIAL"
+        : "AVAILABLE";
+  const sum = (key) => usable.reduce((total, view) => total + (Number.isInteger(view[key]) ? view[key] : 0), 0);
+  return {
+    state,
+    observedHubs: observed.length,
+    totalHubs: hubs.length,
+    active: sum("active"),
+    waiting: sum("waiting"),
+    unloading: sum("unloading"),
+    destinationActive: sum("destinationActive"),
+    dropActive: sum("dropActive"),
+    awaitingRelease: sum("awaitingRelease"),
+    expired12h: sum("expired12h"),
+    cancelledObserved: sum("cancelledObserved"),
+  };
+}
+
 export function deriveOverview(snapshot, evaluatedModule, options = {}) {
   const waitingTrucks = snapshot?.modules?.waitingTrucks || {};
   const hubs = Array.isArray(waitingTrucks.hubs) ? waitingTrucks.hubs : [];
@@ -117,6 +194,7 @@ export function deriveOverview(snapshot, evaluatedModule, options = {}) {
     .every((key) => Number(contracts[key]) === 0);
   const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
   const observedSourceState = aggregateObservedSources(hubs, nowMs);
+  const queueLifecycle = aggregateLifecycle(hubs, nowMs);
 
   return {
     overall: safeState(evaluatedModule?.health?.state),
@@ -134,6 +212,7 @@ export function deriveOverview(snapshot, evaluatedModule, options = {}) {
       { id: "database", label: "Database", value: "UNKNOWN", status: "UNKNOWN", detail: "Supervisor ไม่ query DB เพื่อวัด health" },
       { id: "sources", label: "Observed source flow", value: observedSourceState, status: observedSourceState },
       { id: "accepted", label: "Accepted State", value: acceptedState, status: acceptedState === "AVAILABLE" ? "HEALTHY" : acceptedState },
+      { id: "queue-lifecycle", label: "Queue / Lifecycle", value: queueLifecycle.state, status: queueLifecycle.state, detail: queueLifecycle.state === "UNKNOWN" ? "ยังไม่มี accepted lifecycle telemetry" : `active ${queueLifecycle.active} · waiting ${queueLifecycle.waiting} · unloading ${queueLifecycle.unloading}` },
       { id: "incidents", label: "Open incidents", value: "UNKNOWN", status: "UNKNOWN", detail: "Incident feed ยังไม่อยู่ใน checkpoint นี้" },
       { id: "actions", label: "Pending actions", value: "UNKNOWN", status: "UNKNOWN", detail: "Action feed ยังไม่อยู่ใน checkpoint นี้" },
       { id: "quota", label: "Supervisor Quota Guard", value: supervisorQuotaSafe ? "SAFE" : "UNKNOWN", status: supervisorQuotaSafe ? "HEALTHY" : "UNKNOWN", detail: "เฉพาะ Supervisor extra activity; provider quota ยัง UNKNOWN" },
@@ -144,8 +223,9 @@ export function deriveOverview(snapshot, evaluatedModule, options = {}) {
       sources: observedSourceState,
       coordinator: availability === "AVAILABLE" ? "HEALTHY" : "UNKNOWN",
       accepted: acceptedState === "AVAILABLE" ? "HEALTHY" : acceptedState,
-      queue: "UNKNOWN",
+      queue: queueLifecycle.state,
     },
+    queueLifecycle,
   };
 }
 
@@ -166,6 +246,7 @@ export function deriveHubView(hub, nowMs = Date.now()) {
   const connectorSession = connectorStates.length ? aggregateStates(connectorStates) : "UNKNOWN";
   const sourceActionRequired = Object.values(sources).some((source) =>
     ["AUTH_REQUIRED", "ERROR", "CRITICAL", "BLOCKED"].includes(source.state));
+  const queueLifecycle = deriveLifecycleView(hub?.lifecycle, nowMs);
   return {
     hub: code,
     overall,
@@ -179,7 +260,8 @@ export function deriveHubView(hub, nowMs = Date.now()) {
     lastSuccessAt: validTime(hub?.lastSuccessAt) == null ? null : hub.lastSuccessAt,
     age: ageView(hub?.lastSuccessAt, nowMs),
     accepted: { state: acceptedState, rows: acceptedState === "AVAILABLE" && Number.isInteger(hub?.accepted?.rows) ? hub.accepted.rows : null },
-    queueHealth: "UNKNOWN",
+    queueHealth: queueLifecycle.state,
+    queueLifecycle,
     errorCode: /^[A-Z0-9_:-]{2,80}$/.test(String(hub?.errorCode || "")) ? String(hub.errorCode) : null,
     quota: "UNKNOWN",
     pendingAction: sourceActionRequired || ["ERROR", "CRITICAL", "BLOCKED", "AUTH_REQUIRED"].includes(overall) ? "REVIEW_REQUIRED" : "UNKNOWN",

@@ -1,12 +1,11 @@
 name: SUP-12 Branch Apply
 
-# Trigger after the workflow exists on the branch.
 on:
   push:
     branches:
       - codex/sup-12-leak-circuit-backoff-kill-switch
     paths:
-      - .github/dev-tools/apply-sup12.mjs
+      - .github/dev-tools/apply-sup12.py
       - .github/workflows/sup12-branch-apply.yml
 
 permissions:
@@ -24,7 +23,7 @@ jobs:
         with:
           node-version: 22
       - name: Apply SUP-12 forward patch
-        run: node .github/dev-tools/apply-sup12.mjs
+        run: python3 .github/dev-tools/apply-sup12.py
       - name: Syntax and full regression
         working-directory: worker
         run: |

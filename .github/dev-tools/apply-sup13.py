@@ -10,6 +10,15 @@ def replace_once(path, old, new):
     p.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
+def replace_present(path, old, new):
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count < 1:
+        raise RuntimeError(f"{path}: expected cache assertion anchor: {old!r}")
+    p.write_text(text.replace(old, new), encoding="utf-8")
+
+
 # supervisor.html: Thai-first language controls, cache-busted SUP-13 assets.
 replace_once(
     "supervisor.html",
@@ -115,5 +124,24 @@ replace_once(
     '          node --check .dev-assets/supervisor.js\n          node --check .dev-assets/supervisor-modules.js',
     '          node --check .dev-assets/supervisor.js\n          node --check .dev-assets/supervisor-i18n.js\n          node --check .dev-assets/supervisor-modules.js',
 )
+
+# Existing checkpoint tests intentionally pin asset cache keys. Align only those
+# presentation assertions with the accepted SUP-13 cache key; no runtime predicate changes.
+replace_present(
+    "worker/tests/supervisor-core-shell.test.mjs",
+    "supervisor\\.css\\?v=20260914-sup05",
+    "supervisor\\.css\\?v=20260915-sup13",
+)
+for path in [
+    "worker/tests/supervisor-event-console.test.mjs",
+    "worker/tests/supervisor-incident-action-center.test.mjs",
+    "worker/tests/supervisor-quota-protection.test.mjs",
+    "worker/tests/supervisor-shared-quota-center.test.mjs",
+]:
+    replace_present(
+        path,
+        "supervisor.js?v=20260915-sup12",
+        "supervisor.js?v=20260915-sup13",
+    )
 
 print("SUP13_APPLY=PASS")

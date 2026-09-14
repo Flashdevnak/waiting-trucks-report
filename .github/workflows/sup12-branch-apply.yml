@@ -27,11 +27,33 @@ jobs:
         run: python3 .github/dev-tools/apply-sup12.py
       - name: Fix deterministic SUP-12 harness
         run: python3 .github/dev-tools/fix-sup12-harness.py
-      - name: Syntax and full regression
+      - name: Install DEV test dependencies
         working-directory: worker
+        run: npm ci
+      - name: Focused SUP-12 and full regression
+        working-directory: worker
+        shell: bash
         run: |
-          npm ci
-          npm run check
+          set +e
+          set -o pipefail
+          (
+            set -e
+            echo '=== SUP-12 FOCUSED ==='
+            node --test tests/supervisor-quota-protection.test.mjs
+            echo '=== FULL NPM CHECK ==='
+            npm run check
+          ) 2>&1 | tee ../.github/dev-tools/sup12-last-check.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            git config user.name "Flashdevnak"
+            git config user.email "26nak.testdev@gmail.com"
+            git add ../.github/dev-tools/sup12-last-check.log
+            git commit -m "test(dev): capture SUP-12 regression failure [skip ci]"
+            git push origin HEAD:codex/sup-12-leak-circuit-backoff-kill-switch
+            exit "$status"
+          fi
+          rm -f ../.github/dev-tools/sup12-last-check.log
       - name: Verify branch scope and diff
         run: |
           git diff --check

@@ -7,6 +7,7 @@ on:
     paths:
       - .github/dev-tools/apply-sup12.py
       - .github/dev-tools/fix-sup12-harness.py
+      - .github/dev-tools/fix-sup12-regression.py
       - .github/workflows/sup12-branch-apply.yml
 
 permissions:
@@ -27,6 +28,8 @@ jobs:
         run: python3 .github/dev-tools/apply-sup12.py
       - name: Fix deterministic SUP-12 harness
         run: python3 .github/dev-tools/fix-sup12-harness.py
+      - name: Align SUP-12 regression guards
+        run: python3 .github/dev-tools/fix-sup12-regression.py
       - name: Install DEV test dependencies
         working-directory: worker
         run: npm ci

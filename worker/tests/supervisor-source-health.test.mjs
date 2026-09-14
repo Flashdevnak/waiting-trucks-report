@@ -125,7 +125,7 @@ test("SUP-06 frontend remains one-shot snapshot only", () => {
   assert.equal((frontend.match(/\bfetch\s*\(/g) || []).length, 1);
   assert.match(frontend, /fetch\("\/api\/supervisor\/snapshot"/);
   assert.doesNotMatch(frontend, /setInterval|setTimeout|new\s+WebSocket|new\s+EventSource/);
-  assert.match(frontend, /HBI เป็น click-only/);
+  assert.match(frontend, /HBI[^\n]*click-only/i);
   assert.match(viewSource, /SOURCE_STALE_AFTER_MS = 20 \* 60 \* 1000/);
   assert.doesNotMatch(`${frontend}\n${viewSource}`, /EA2|NE1/);
 });

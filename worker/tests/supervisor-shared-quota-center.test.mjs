@@ -99,6 +99,14 @@ test("SUP-11 inconsistent coverage is downgraded to PARTIAL", () => {
   assert.equal(center.coverage.quotaObservedHubs, 1);
 });
 
+test("SUP-11 unknown observed HUB denominator is downgraded to PARTIAL", () => {
+  const { deriveQuotaCenter } = pureRuntime();
+  const center = deriveQuotaCenter(telemetry({ coverage: { quotaObservedHubs: 1 }, hubs: [hub()] }));
+  assert.equal(center.availability, "PARTIAL");
+  assert.equal(center.coverage.observedHubs, null);
+  assert.equal(center.coverage.quotaObservedHubs, 1);
+});
+
 test("SUP-11 client presentation remains bounded to 50 HUB observations", () => {
   const { deriveQuotaCenter } = pureRuntime();
   const hubs = Array.from({ length: 60 }, (_, index) => hub({ hub: `H${String(index).padStart(2, "0")}` }));

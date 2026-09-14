@@ -77,7 +77,7 @@ test("SUP-08 does not emit heartbeat noise when material state is unchanged", ()
   const { materialEvents } = eventRuntime();
   const previous = hubState({ observedAt: "2026-09-14T15:59:00.000Z" });
   const next = hubState({ observedAt: "2026-09-14T16:00:00.000Z" });
-  assert.deepEqual(materialEvents(previous, next), []);
+  assert.equal(materialEvents(previous, next).length, 0);
 });
 
 test("SUP-08 exposes auth/source transitions without private payloads", () => {
@@ -102,7 +102,7 @@ test("SUP-08 exposes auth/source transitions without private payloads", () => {
 test("SUP-08 drops missing timestamps instead of fabricating event time", () => {
   const { materialEvents } = eventRuntime();
   const next = hubState({ observedAt: null, lastSuccessAt: null });
-  assert.deepEqual(materialEvents(null, next), []);
+  assert.equal(materialEvents(null, next).length, 0);
 });
 
 test("SUP-08 staged event ring is ephemeral, capped, and adds no persistence or source work", () => {

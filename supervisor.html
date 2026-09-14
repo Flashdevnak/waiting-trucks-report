@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f7fb">
   <title>Waiting Trucks Supervisor · DEV</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="supervisor.css?v=20260914-sup04">
+  <link rel="stylesheet" href="supervisor.css?v=20260914-sup05">
 </head>
 <body>
   <!-- SUPERVISOR_CORE_SHELL_V1: isolated side-car; one shared-state read, no source/DB polling. -->
@@ -91,22 +91,21 @@
             </article>
           </div>
 
-          <div class="metric-grid">
-            <article class="metric-card"><span>Configured Modules</span><strong id="configured-module-count">—</strong><small id="configured-module-state">UNKNOWN</small></article>
-            <article class="metric-card"><span>Observed HUB</span><strong id="observed-hub-count">—</strong><small>SHARED RUNTIME</small></article>
-            <article class="metric-card"><span>Healthy observed HUB</span><strong id="healthy-hub-count">—</strong><small>SHARED RUNTIME</small></article>
-            <article class="metric-card"><span>Open incidents</span><strong>—</strong><small>UNAVAILABLE</small></article>
-            <article class="metric-card"><span>Pending actions</span><strong>—</strong><small>UNAVAILABLE</small></article>
+          <div id="overview-metrics" class="metric-grid overview-status-grid">
+            <article class="metric-card"><span>Configured Modules</span><strong>1</strong><small>UNKNOWN</small></article>
+            <article class="metric-card"><span>Configured HUB</span><strong>UNKNOWN</strong><small>ไม่มี configured catalog ใน snapshot</small></article>
+            <article class="metric-card"><span>Worker</span><strong>UNKNOWN</strong><small>กำลังรอ shared snapshot</small></article>
+            <article class="metric-card"><span>Bot Mode</span><strong>OBSERVE ONLY</strong><small>LEVEL 0</small></article>
           </div>
 
           <div class="content-grid">
             <article class="surface span-2">
-              <div class="surface-head"><div><p class="card-label">SYSTEM MAP</p><h3>เส้นทางข้อมูล Waiting Trucks</h3></div><span class="status-tag unknown">UNKNOWN</span></div>
+              <div class="surface-head"><div><p class="card-label">SYSTEM MAP</p><h3>เส้นทางข้อมูล Waiting Trucks</h3></div><span id="system-map-state" class="status-tag unknown">UNKNOWN</span></div>
               <div class="system-map" aria-label="แผนผังระบบ">
-                <div><span>MS Sources</span><small>UNKNOWN</small></div><b>→</b>
-                <div><span>Shared Coordinator</span><small>UNKNOWN</small></div><b>→</b>
-                <div><span>Accepted State</span><small>UNKNOWN</small></div><b>→</b>
-                <div><span>Queue / UI</span><small>UNKNOWN</small></div>
+                <div><span>MS Sources</span><small id="map-sources">UNKNOWN</small></div><b>→</b>
+                <div><span>Shared Coordinator</span><small id="map-coordinator">UNKNOWN</small></div><b>→</b>
+                <div><span>Accepted State</span><small id="map-accepted">UNKNOWN</small></div><b>→</b>
+                <div><span>Queue / UI</span><small id="map-queue">UNKNOWN</small></div>
               </div>
             </article>
             <article class="surface">
@@ -124,7 +123,7 @@
         <section class="panel-section" data-panel="hubs">
           <div class="section-grid">
             <article class="surface span-2"><div class="surface-head"><div><p class="card-label">HUB HEALTH</p><h3>HUB ที่สังเกตได้จาก coordinator จริง</h3></div><span id="hub-snapshot-state" class="status-tag unknown">UNAVAILABLE</span></div><div id="hub-snapshot-list" class="truth-empty"><strong>ยังไม่มี HUB snapshot</strong><p>รายการจะมาจาก runtime event จริงเท่านั้น ไม่มีการ hardcode HUB ตัวอย่าง</p></div></article>
-            <article class="surface"><div class="surface-head"><div><p class="card-label">SOURCE HEALTH</p><h3>Route · KIT/TBR · Optional</h3></div></div><div class="truth-empty compact"><strong>UNKNOWN</strong><p>Missing data จะไม่ถูกตีความเป็น HEALTHY</p></div></article>
+            <article class="surface"><div class="surface-head"><div><p class="card-label">SOURCE HEALTH</p><h3>Route · KIT/TBR · Optional</h3></div></div><div id="source-snapshot-summary" class="truth-empty compact"><strong>UNKNOWN</strong><p>Missing data จะไม่ถูกตีความเป็น HEALTHY</p></div></article>
           </div>
         </section>
 
@@ -177,6 +176,6 @@
     <dl><div><dt>Evidence</dt><dd>สถานะมาจาก sanitized shared Durable Object state เท่านั้น</dd></div><div><dt>Impact</dt><dd>ถ้าไม่มี runtime event จะแสดง UNKNOWN โดย Waiting Trucks ไม่ได้รับผลกระทบ</dd></div><div><dt>Bot action</dt><dd>OBSERVE ONLY — ไม่สร้างข้อมูลหรือเรียก source เพิ่ม</dd></div><div><dt>Next step</dt><dd>ตรวจ observed HUB และ last accepted evidence โดยไม่ตีความข้อมูลที่หายเป็น HEALTHY</dd></div></dl>
   </dialog>
 
-  <script type="module" src="supervisor.js?v=20260914-sup04"></script>
+  <script type="module" src="supervisor.js?v=20260914-sup05"></script>
 </body>
 </html>

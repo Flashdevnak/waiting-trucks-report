@@ -2,6 +2,7 @@
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
+import { deriveHubView, deriveOverview } from "./supervisor-view.js?v=20260914-sup05";
 
 const SUPERVISOR_AUTH_KEY = "bnak_operator_auth_v2";
 const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);
@@ -65,49 +66,119 @@ function bindShell() {
   });
 }
 
-function metricValue(metrics, id) {
-  const metric = Array.isArray(metrics) ? metrics.find((item) => item?.id === id) : null;
-  return Number.isFinite(Number(metric?.value)) ? Number(metric.value) : null;
+function statusTag(state) {
+  const value = String(state || "UNKNOWN");
+  const tag = document.createElement("small");
+  tag.className = `status-tag ${value.toLowerCase()}`;
+  tag.textContent = value;
+  return tag;
 }
 
-function renderSnapshot(snapshot) {
-  const context = snapshot?.modules || {};
-  const [module] = moduleRegistry.evaluate(context);
-  const waitingTrucks = context.waitingTrucks || {};
-  const hubs = Array.isArray(waitingTrucks.hubs) ? waitingTrucks.hubs : [];
-  const state = module?.health?.state || "UNKNOWN";
-  const stateClass = state.toLowerCase();
+function renderOverviewCards(cards) {
+  const grid = document.getElementById("overview-metrics");
+  grid.replaceChildren(...cards.map((item) => {
+    const card = document.createElement("article");
+    const label = document.createElement("span");
+    const value = document.createElement("strong");
+    label.textContent = item.label;
+    value.textContent = item.value;
+    card.className = "metric-card";
+    card.dataset.metric = item.id;
+    card.append(label, value, statusTag(item.status));
+    if (item.detail) {
+      const detail = document.createElement("p");
+      detail.className = "metric-detail";
+      detail.textContent = item.detail;
+      card.append(detail);
+    }
+    return card;
+  }));
+}
 
-  document.getElementById("configured-module-count").textContent = "1";
-  document.getElementById("configured-module-state").textContent = state;
-  document.getElementById("observed-hub-count").textContent = String(metricValue(module?.metrics, "observed-hubs") ?? hubs.length);
-  document.getElementById("healthy-hub-count").textContent = String(metricValue(module?.metrics, "healthy-observed-hubs") ?? hubs.filter((hub) => hub?.health === "HEALTHY").length);
-  document.getElementById("snapshot-state").lastChild.textContent = ` Snapshot: ${snapshot?.observedAt ? "AVAILABLE" : "UNKNOWN"}`;
-  document.getElementById("overall-health").innerHTML = `<span class="status-orb ${stateClass}"></span>${state}`;
-  document.getElementById("overall-health-detail").textContent = module?.health?.impact || "ยังไม่มีหลักฐาน shared runtime เพียงพอ";
-
-  const hubState = document.getElementById("hub-snapshot-state");
-  hubState.textContent = hubs.length ? "PARTIAL" : "UNKNOWN";
+function renderHubCards(hubs) {
   const list = document.getElementById("hub-snapshot-list");
   if (!hubs.length) {
     list.className = "truth-empty";
     list.innerHTML = "<strong>ยังไม่มี runtime event ของ HUB</strong><p>Durable Object อาจเพิ่งเริ่มใหม่ หรือยังไม่มีรอบ refresh จริง ข้อมูลจึงคงเป็น UNKNOWN</p>";
     return;
   }
-  list.className = "hub-snapshot-list";
+  list.className = "hub-health-grid";
   list.replaceChildren(...hubs.map((hub) => {
+    const view = deriveHubView(hub);
     const card = document.createElement("article");
-    const title = document.createElement("strong");
-    const health = document.createElement("span");
-    const detail = document.createElement("small");
-    title.textContent = hub.hub || "UNKNOWN";
-    health.textContent = hub.health || "UNKNOWN";
-    health.className = `status-tag ${(hub.health || "UNKNOWN").toLowerCase()}`;
-    const accepted = hub.accepted?.state === "AVAILABLE" ? `${hub.accepted.rows} accepted rows` : "Accepted state UNKNOWN";
-    detail.textContent = `${accepted} · Last success ${hub.lastSuccessAt || "UNKNOWN"}`;
-    card.append(title, health, detail);
+    card.className = "hub-health-card";
+    const head = document.createElement("div");
+    head.className = "hub-health-head";
+    const title = document.createElement("div");
+    const eyebrow = document.createElement("small");
+    const heading = document.createElement("h4");
+    eyebrow.textContent = "OBSERVED HUB";
+    heading.textContent = view.hub;
+    title.append(eyebrow, heading);
+    head.append(title, statusTag(view.overall));
+    const facts = [
+      ["Route", view.route],
+      ["KIT / TBR", view.kitTbr],
+      ["Optional sources", view.optionalSources],
+      ["Connector / Session", view.connectorSession],
+      ["Last success", view.lastSuccessAt || "UNKNOWN"],
+      ["Age", view.age.label],
+      ["Accepted cache", view.accepted.state === "AVAILABLE" ? `AVAILABLE · ${view.accepted.rows} rows` : "UNKNOWN"],
+      ["Queue health", view.queueHealth],
+      ["Current error", view.errorCode || (view.overall === "HEALTHY" ? "NONE OBSERVED" : "UNKNOWN")],
+      ["Quota anomaly", view.quota],
+      ["Pending action", view.pendingAction],
+    ];
+    const dl = document.createElement("dl");
+    dl.className = "hub-facts";
+    for (const [label, value] of facts) {
+      const row = document.createElement("div");
+      const dt = document.createElement("dt");
+      const dd = document.createElement("dd");
+      dt.textContent = label;
+      dd.textContent = value;
+      row.append(dt, dd);
+      dl.append(row);
+    }
+    const truth = document.createElement("p");
+    truth.className = "truth-note";
+    truth.textContent = "FACT: Route/accepted มาจาก shared coordinator · UNKNOWN: fields ที่ยังไม่มี telemetry · ไม่มี inference ถูกแสดงเป็น fact";
+    card.append(head, dl, truth);
     return card;
   }));
+}
+
+function renderSnapshot(snapshot, workerReachable = false) {
+  const context = snapshot?.modules || {};
+  const [module] = moduleRegistry.evaluate(context);
+  const waitingTrucks = context.waitingTrucks || {};
+  const hubs = Array.isArray(waitingTrucks.hubs) ? waitingTrucks.hubs : [];
+  const overview = deriveOverview(snapshot, module, { moduleCount: moduleRegistry.list().length, workerReachable });
+
+  document.getElementById("snapshot-state").lastChild.textContent = ` Snapshot: ${overview.snapshot}`;
+  const overallHealth = document.getElementById("overall-health");
+  const orb = document.createElement("span");
+  orb.className = `status-orb ${overview.overall.toLowerCase()}`;
+  overallHealth.replaceChildren(orb, document.createTextNode(overview.overall));
+  document.getElementById("overall-health-detail").textContent = overview.impact;
+  renderOverviewCards(overview.cards);
+  for (const [key, value] of Object.entries(overview.map))
+    document.getElementById(`map-${key}`).textContent = value;
+  const mapState = document.getElementById("system-map-state");
+  mapState.textContent = overview.overall;
+  mapState.className = `status-tag ${overview.overall.toLowerCase()}`;
+
+  const hubState = document.getElementById("hub-snapshot-state");
+  hubState.textContent = hubs.length ? "PARTIAL" : "UNKNOWN";
+  hubState.className = `status-tag ${hubs.length ? "partial" : "unknown"}`;
+  renderHubCards(hubs);
+  const sourceSummary = document.getElementById("source-snapshot-summary");
+  sourceSummary.replaceChildren();
+  const sourceState = document.createElement("strong");
+  const sourceDetail = document.createElement("p");
+  sourceState.textContent = overview.map.sources;
+  sourceDetail.textContent = hubs.length ? "Route ใช้ observed coordinator state; KIT/TBR และ optional source คง UNKNOWN จน SUP-06 มี telemetry จริง" : "ยังไม่มี source observation; missing data ไม่ใช่ HEALTHY";
+  sourceSummary.append(sourceState, sourceDetail);
 }
 
 async function loadSharedSnapshot() {
@@ -120,9 +191,9 @@ async function loadSharedSnapshot() {
     });
     const payload = await response.json();
     if (!response.ok || payload?.ok !== true) throw new Error(payload?.code || "SNAPSHOT_UNAVAILABLE");
-    renderSnapshot(payload.data);
+    renderSnapshot(payload.data, true);
   } catch {
-    renderSnapshot(null);
+    renderSnapshot(null, false);
   }
 }
 

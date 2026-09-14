@@ -21,6 +21,7 @@ on:
       - supervisor.html
       - supervisor.js
       - supervisor-modules.js
+      - supervisor-view.js
       - supervisor.css
       - ms-report.html
       - ms-report.js
@@ -71,6 +72,7 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-self-healing-supervisor.test.mjs
       - run: node --test ../.github/dev-tools/supervisor-access-guard.test.mjs
       - run: node --test ../.github/dev-tools/supervisor-shared-snapshot.test.mjs
+      - run: node --test tests/supervisor-overview-hub-health.test.mjs
       - run: node --test ../.github/dev-tools/safe-parity.test.mjs
       - run: node --test ../.github/dev-tools/ms-connector-adoption.test.mjs
       - run: node --test ../.github/dev-tools/ms-route-cancellation.test.mjs
@@ -102,7 +104,7 @@ jobs:
           rm -rf .dev-assets .dev-runtime
           mkdir -p .dev-assets .dev-runtime
           cp -R src .dev-runtime/src
-          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor-modules.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor-modules.js ../supervisor-view.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
@@ -110,6 +112,7 @@ jobs:
           node --check .dev-assets/admin.js
           node --check .dev-assets/supervisor.js
           node --check .dev-assets/supervisor-modules.js
+          node --check .dev-assets/supervisor-view.js
           node --check .dev-assets/ms-report.js
           node --check .dev-assets/ms.js
           node --check .dev-assets/proof.js
@@ -286,6 +289,7 @@ jobs:
           const supervisorDenied=await supervisorResponse.text();
           const supervisorJs=await get('supervisor.js');
           const supervisorModules=await getNewAsset('supervisor-modules.js');
+          const supervisorView=await getNewAsset('supervisor-view.js');
           const supervisorCss=await get('supervisor.css');
           if(!admin.includes('ADMIN_STANDALONE_V1')&&!adminJs.includes('ADMIN_STANDALONE_V1')) throw new Error('standalone Admin marker missing');
           if(/setInterval\s*\(|new WebSocket\s*\(/.test(adminJs)) throw new Error('Admin page introduced background transport');
@@ -294,7 +298,9 @@ jobs:
           if(supervisorDenied.includes('SUPERVISOR_CORE_SHELL_V1')) throw new Error('Supervisor HTML leaked without Admin session');
           for(const [name,asset] of Object.entries({supervisorJs,supervisorCss})) if(!asset.includes('SUPERVISOR_CORE_SHELL_V1')) throw new Error(`${name} core marker missing`);
           if(!supervisorModules.includes('SUPERVISOR_MODULE_REGISTRY_V1')) throw new Error('Supervisor module registry marker missing');
+          if(!supervisorView.includes('SUPERVISOR_OVERVIEW_HUB_VIEW_V1')) throw new Error('Supervisor overview/HUB view marker missing');
           if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorModules)) throw new Error('Supervisor registry introduced runtime transport');
+          if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(|setTimeout\s*\(/.test(supervisorView)) throw new Error('Supervisor view introduced runtime transport');
           if((supervisorJs.match(/\bfetch\s*\(/g)||[]).length!==1||!supervisorJs.includes('fetch("/api/supervisor/snapshot"')) throw new Error('Supervisor shared snapshot transport contract missing');
           if(/new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced background transport');
           const msJs=await get('ms.js');

@@ -43,11 +43,24 @@ test("SUP-04 shares sanitized coordinator state without persistence", async () =
     body: JSON.stringify({ hub: "BAG4", observedAt: "2026-09-14T12:00:01.000Z", result: { status: "synced", syncedAt: "2026-09-14T12:00:00.000Z", acceptedRows: 1 } }),
   }));
   const snapshot = await (await coordinator.fetch(new Request("https://internal/supervisor/snapshot"))).json();
+  assert.equal(snapshot.availability, "AVAILABLE");
   assert.equal(snapshot.modules.waitingTrucks.health.state, "PARTIAL");
   assert.equal(snapshot.modules.waitingTrucks.hubs[0].hub, "BAG4");
   assert.equal(snapshot.modules.waitingTrucks.hubs[0].accepted.rows, 1);
   assert.equal(JSON.stringify(snapshot).includes("secret-row"), false);
   assert.deepEqual(snapshot.contracts, { additionalUpstreamPolls: 0, databaseReads: 0, databaseWrites: 0, aiCalls: 0 });
+});
+
+test("SUP-05 carries only a sanitized degraded source code", async () => {
+  const coordinator = new runtime.MsRefreshCoordinator(context(), {});
+  await coordinator.fetch(new Request("https://internal/supervisor/ingest", {
+    method: "POST",
+    body: JSON.stringify({ hub: "ZX9", observedAt: "2026-09-14T12:02:00.000Z", result: { status: "degraded", errorCode: "MS_ROUTE_RATE_LIMIT", acceptedRows: 3 } }),
+  }));
+  const hub = (await (await coordinator.fetch(new Request("https://internal/supervisor/snapshot"))).json()).modules.waitingTrucks.hubs[0];
+  assert.equal(hub.health, "WARNING");
+  assert.equal(hub.errorCode, "MS_ROUTE_RATE_LIMIT");
+  assert.equal(hub.accepted.rows, 3);
 });
 
 test("SUP-04 preserves last accepted evidence across a later refresh error", async () => {
@@ -67,6 +80,9 @@ test("SUP-04 state path is bounded, side-car, and zero-extra-polling", () => {
   assert.match(staged, /this\.ctx\.waitUntil\(this\.publishSupervisorSnapshot\(branch, result\)\.catch/);
   assert.match(staged, /url\.pathname === "\/api\/supervisor\/snapshot"/);
   assert.match(staged, /acceptedRows: Array\.isArray\(result\?\.rows\) \? result\.rows\.length : null/);
+  assert.match(staged, /availability: "AVAILABLE"/);
+  assert.match(staged, /availability: "UNAVAILABLE"/);
+  assert.match(staged, /errorCode: result\?\.errorCode \|\| ""/);
   assert.doesNotMatch(staged, /JSON\.stringify\(\{ hub: branch, observedAt: new Date\(\)\.toISOString\(\), result \}\)/);
   assert.doesNotMatch(canonical, /SUPERVISOR_SHARED_SNAPSHOT_V1/);
   assert.equal((frontend.match(/\bfetch\s*\(/g) || []).length, 1);

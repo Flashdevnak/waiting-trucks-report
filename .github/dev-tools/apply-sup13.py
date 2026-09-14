@@ -140,8 +140,8 @@ for path in [
 ]:
     replace_present(
         path,
-        "supervisor.js?v=20260915-sup12",
-        "supervisor.js?v=20260915-sup13",
+        "supervisor\\.js\\?v=20260915-sup12",
+        "supervisor\\.js\\?v=20260915-sup13",
     )
 
 print("SUP13_APPLY=PASS")

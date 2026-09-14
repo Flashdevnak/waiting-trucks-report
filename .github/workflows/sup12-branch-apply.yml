@@ -1,5 +1,6 @@
 name: SUP-12 Branch Apply
 
+# Trigger after the workflow exists on the branch.
 on:
   push:
     branches:

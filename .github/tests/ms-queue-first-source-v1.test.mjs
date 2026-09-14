@@ -121,7 +121,7 @@ test("staged DEV uses Route actual-arrival as KIT and schedule-management TBR as
   assert.match(stagedFrontend, /const tbrArrival = parseDate\(row\.scheduleTbrArrivalAt\)/);
   assert.match(stagedFrontend, /const start = queueAdmissionArrival\(row\)/);
   assert.match(stagedFrontend, /inboundQueue = isDestination\(row\) \|\| isDrop\(row\)/);
-  assert.match(stagedFrontend, /active = inboundQueue && Boolean\(arrival\) && !done && !cancelled && ageHours <= 12/);
+  assert.match(stagedFrontend, /active = inboundQueue && Boolean\(arrival\) && !done && !cancelled && ageHours < 12/);
   assert.doesNotMatch(stagedFrontend, /เวลาเข้าคิวที่ใช้/);
   assert.match(
     stagedFrontend,

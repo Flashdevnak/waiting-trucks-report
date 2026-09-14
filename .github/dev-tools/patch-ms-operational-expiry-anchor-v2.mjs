@@ -198,11 +198,27 @@ function isOperationalOvertime(row, now = new Date()) {
       "function renderFilterSummary(rows) {",
       "\nasync function applyMetricFilter(metric) {",
       (block) => {
-        const from = `    const queue = queueInfo(row);\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      !queue.started\n    ) counts.waiting++;\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      queue.started\n    ) counts.unloading++;\n    if (queue.active && isOrigin(row)) counts.origin++;\n    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`;
-        const to = `    const queue = queueInfo(row);\n    // ${LOWER_STAGE_MARKER}: lower cards count the exact operational stage used\n    // by the upper unloading metric and the queue list. This keeps Route state 1\n    // visible even while arrival enrichment is absent, until the shared 12h cutoff.\n    const operationalStage = inboundOperationalStage(row);\n    if (operationalStage === "waiting") counts.waiting++;\n    if (operationalStage === "unloading") counts.unloading++;\n    if (queue.active && isOrigin(row)) counts.origin++;\n    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`;
-        if (!block.includes(from))
-          throw new Error("MS lower operational stage predicate missing summary count anchor");
-        return block.replace(from, to);
+        let next = block;
+        const waitingNeedle = "counts.waiting++;";
+        const unloadingNeedle = "counts.unloading++;";
+        const waitingAt = next.indexOf(waitingNeedle);
+        const unloadingAt = next.indexOf(unloadingNeedle, waitingAt + waitingNeedle.length);
+        if (
+          waitingAt < 0 ||
+          unloadingAt < 0 ||
+          waitingAt !== next.lastIndexOf(waitingNeedle) ||
+          unloadingAt !== next.lastIndexOf(unloadingNeedle)
+        )
+          throw new Error("MS lower operational stage predicate requires one waiting and one unloading count");
+
+        const waitingStart = next.lastIndexOf("    if (", waitingAt);
+        const unloadingEnd = next.indexOf(";", unloadingAt) + 1;
+        if (waitingStart < 0 || unloadingEnd <= unloadingAt)
+          throw new Error("MS lower operational stage predicate could not bound summary count conditions");
+
+        const replacement = `    // ${LOWER_STAGE_MARKER}: lower cards count the exact operational stage used\n    // by the upper unloading metric and the queue list. This keeps Route state 1\n    // visible even while arrival enrichment is absent, until the shared 12h cutoff.\n    const operationalStage = inboundOperationalStage(row);\n    if (operationalStage === "waiting") counts.waiting++;\n    if (operationalStage === "unloading") counts.unloading++;`;
+        next = next.slice(0, waitingStart) + replacement + next.slice(unloadingEnd);
+        return next;
       },
       "lower waiting/unloading counts use shared operational stage",
     );

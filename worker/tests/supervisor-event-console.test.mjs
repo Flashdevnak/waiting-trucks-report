@@ -123,5 +123,5 @@ test("SUP-08 frontend remains one-shot and only manipulates the local sanitized 
   assert.match(supervisorFront, /navigator\.clipboard\.writeText/);
   assert.match(supervisorFront, /View cleared locally/);
   assert.match(supervisorFront, /events\.slice\(-limit\)/);
-  assert.match(supervisorHtml, /supervisor\.js\?v=20260914-sup08/);
+  assert.match(supervisorHtml, /supervisor\.js\?v=20260914-sup09/);
 });

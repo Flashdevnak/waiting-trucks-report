@@ -65,18 +65,20 @@ function sourceFreshness(source, nowMs) {
 
 export function deriveSourceView(source, nowMs = Date.now(), fallbackState = "UNKNOWN") {
   const raw = source && typeof source === "object" ? source : null;
-  const state = raw ? safeState(raw.state) : safeState(fallbackState);
+  const baseState = raw ? safeState(raw.state) : safeState(fallbackState);
   const configured = typeof raw?.configured === "boolean" ? raw.configured : null;
   const lastSuccessAt = validTime(raw?.lastSuccessAt) == null ? null : raw.lastSuccessAt;
   const lastUsedAt = validTime(raw?.lastUsedAt) == null ? null : raw.lastUsedAt;
   const retryAt = validTime(raw?.retryAt) == null ? null : raw.retryAt;
+  const freshness = sourceFreshness(raw, nowMs);
+  const state = freshness === "STALE" && ["HEALTHY", "RECOVERED"].includes(baseState) ? "STALE" : baseState;
   return {
     state,
     configured,
     lastSuccessAt,
     lastUsedAt,
     successAge: ageView(lastSuccessAt, nowMs),
-    freshness: sourceFreshness(raw, nowMs),
+    freshness,
     errorCode: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.errorCode || "")) ? String(raw.errorCode) : null,
     recovery: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.recovery || "")) ? String(raw.recovery) : "UNKNOWN",
     retryAt,

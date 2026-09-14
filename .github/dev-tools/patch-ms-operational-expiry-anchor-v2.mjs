@@ -1,5 +1,6 @@
 const MARKER = "MS_OPERATIONAL_EXPIRY_ANCHOR_V2";
 const OVERTIME_MARKER = "MS_OPERATIONAL_OVERTIME_PREDICATE_V2";
+const LOWER_STAGE_MARKER = "MS_LOWER_OPERATIONAL_STAGE_PREDICATE_V1";
 
 function replaceUnique(output, from, to, label) {
   const first = output.indexOf(from);
@@ -25,15 +26,20 @@ function replaceBlock(output, startMarker, endMarker, transform, label) {
 
 export function patchMsOperationalExpiryAnchorV2Frontend(source) {
   let output = String(source || "");
-  if (output.includes(MARKER) && output.includes(OVERTIME_MARKER)) return output;
+  if (
+    output.includes(MARKER) &&
+    output.includes(OVERTIME_MARKER) &&
+    output.includes(LOWER_STAGE_MARKER)
+  ) return output;
   if (!output.includes("MS_OPERATIONAL_12H_EXPIRY_V1"))
     throw new Error("MS operational expiry anchor V2 requires 12h expiry V1 first");
 
-  output = replaceBlock(
-    output,
-    "function operationalExpiry12h(row, now = new Date()) {",
-    "\nfunction expired12hCurrentRows",
-    () => `// ${MARKER}: admission arrival is the primary 12-hour anchor. If arrival
+  if (!output.includes(MARKER) || !output.includes(OVERTIME_MARKER)) {
+    output = replaceBlock(
+      output,
+      "function operationalExpiry12h(row, now = new Date()) {",
+      "\nfunction expired12hCurrentRows",
+      () => `// ${MARKER}: admission arrival is the primary 12-hour anchor. If arrival
 // enrichment is absent but unloading is already proven, use only persisted
 // unload-start provenance. Never fall back to ETA or fabricate arrival/departure.
 function operationalExpiryAnchor(row) {
@@ -103,14 +109,14 @@ function isOperationalOvertime(row, now = new Date()) {
   );
 }
 `,
-    "replace 12h expiry with provenance-safe anchor",
-  );
+      "replace 12h expiry with provenance-safe anchor",
+    );
 
-  output = replaceBlock(
-    output,
-    "function operationalExpiry12hRowKey(row) {",
-    "\nfunction completedTodayWithExpired12hRows",
-    () => `function operationalExpiry12hRowKey(row) {
+    output = replaceBlock(
+      output,
+      "function operationalExpiry12hRowKey(row) {",
+      "\nfunction completedTodayWithExpired12hRows",
+      () => `function operationalExpiry12hRowKey(row) {
   const anchor = operationalExpiryAnchor(row);
   const anchorKey = anchor
     ? anchor.at.toISOString()
@@ -125,22 +131,23 @@ function isOperationalOvertime(row, now = new Date()) {
   return String(row.id || row.proofId || "") + "|" + anchorKey;
 }
 `,
-    "dedupe expired rows by effective expiry anchor",
-  );
+      "dedupe expired rows by effective expiry anchor",
+    );
 
-  output = replaceBlock(
-    output,
-    "function inboundOperationalStage(row, now = new Date()) {",
-    "\nfunction renderFilterSummary(rows) {",
-    (block) => {
-      const from = `  const queue = queueInfo(row, now);\n  if (queue.cancelled || queue.expired) return "none";`;
-      const to = `  const queue = queueInfo(row, now);\n  const expiry12h =\n    typeof operationalExpiry12h === "function"\n      ? operationalExpiry12h(row, now)\n      : null;\n  if (queue.cancelled || queue.expired || expiry12h) return "none";`;
-      if (!block.includes(from))
-        throw new Error("MS operational expiry anchor V2 missing inbound expiry gate");
-      return block.replace(from, to);
-    },
-    "bound state-1 unloading lifecycle by shared expiry",
-  );
+    output = replaceBlock(
+      output,
+      "function inboundOperationalStage(row, now = new Date()) {",
+      "\nfunction renderFilterSummary(rows) {",
+      (block) => {
+        const from = `  const queue = queueInfo(row, now);\n  if (queue.cancelled || queue.expired) return "none";`;
+        const to = `  const queue = queueInfo(row, now);\n  const expiry12h =\n    typeof operationalExpiry12h === "function"\n      ? operationalExpiry12h(row, now)\n      : null;\n  if (queue.cancelled || queue.expired || expiry12h) return "none";`;
+        if (!block.includes(from))
+          throw new Error("MS operational expiry anchor V2 missing inbound expiry gate");
+        return block.replace(from, to);
+      },
+      "bound state-1 unloading lifecycle by shared expiry",
+    );
+  }
 
   output = replaceBlock(
     output,
@@ -148,32 +155,63 @@ function isOperationalOvertime(row, now = new Date()) {
     "\nasync function loadRange() {",
     (block) => {
       let next = block;
-      next = replaceUnique(
-        next,
-        `(state.status === "unload-overtime" && isCompletedTodayOvertime(row));`,
-        `(state.status === "unload-overtime" && isOperationalOvertime(row));`,
-        "status overtime predicate",
-      );
-      next = replaceUnique(
-        next,
-        `(state.summary === "unload-overtime" &&\n          (isCompletedTodayOvertime(row) ||\n            operationalExpiry12h(row)?.group === "unload-overtime")) ||`,
-        `(state.summary === "unload-overtime" && isOperationalOvertime(row)) ||`,
-        "summary overtime predicate",
-      );
-      next = replaceUnique(
-        next,
-        `(queueMode === "queue" && queue.active);`,
-        `(queueMode === "queue" && queue.active) ||\n        (queueMode === "queue" && inboundOperationalStage(row) !== "none");`,
-        "queue view includes bounded operational unloading truth",
-      );
+      if (!next.includes('state.status === "unload-overtime" && isOperationalOvertime(row)')) {
+        next = replaceUnique(
+          next,
+          `(state.status === "unload-overtime" && isCompletedTodayOvertime(row));`,
+          `(state.status === "unload-overtime" && isOperationalOvertime(row));`,
+          "status overtime predicate",
+        );
+      }
+      if (!next.includes('state.summary === "unload-overtime" && isOperationalOvertime(row)')) {
+        next = replaceUnique(
+          next,
+          `(state.summary === "unload-overtime" &&\n          (isCompletedTodayOvertime(row) ||\n            operationalExpiry12h(row)?.group === "unload-overtime")) ||`,
+          `(state.summary === "unload-overtime" && isOperationalOvertime(row)) ||`,
+          "summary overtime predicate",
+        );
+      }
+      if (!next.includes('state.summary === "waiting" &&\n          inboundOperationalStage(row) === "waiting"')) {
+        next = replaceUnique(
+          next,
+          `(state.summary === "waiting" &&\n          (isDestination(row) || isDrop(row)) &&\n          queue.active &&\n          !queue.started) ||\n        (state.summary === "unloading" &&\n          (isDestination(row) || isDrop(row)) &&\n          queue.active &&\n          queue.started) ||`,
+          `(state.summary === "waiting" &&\n          inboundOperationalStage(row) === "waiting") ||\n        (state.summary === "unloading" &&\n          inboundOperationalStage(row) === "unloading") ||`,
+          "lower waiting/unloading summary uses operational stage",
+        );
+      }
+      if (!next.includes('queueMode === "queue" && inboundOperationalStage(row) !== "none"')) {
+        next = replaceUnique(
+          next,
+          `(queueMode === "queue" && queue.active);`,
+          `(queueMode === "queue" && queue.active) ||\n        (queueMode === "queue" && inboundOperationalStage(row) !== "none");`,
+          "queue view includes bounded operational unloading truth",
+        );
+      }
       return next;
     },
     "centralize status/summary/list operational truth",
   );
 
+  if (!output.includes(LOWER_STAGE_MARKER)) {
+    output = replaceBlock(
+      output,
+      "function renderFilterSummary(rows) {",
+      "\nasync function applyMetricFilter(metric) {",
+      (block) => {
+        const from = `    const queue = queueInfo(row);\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      !queue.started\n    ) counts.waiting++;\n    if (\n      queue.active &&\n      (isDestination(row) || isDrop(row)) &&\n      queue.started\n    ) counts.unloading++;\n    if (queue.active && isOrigin(row)) counts.origin++;\n    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`;
+        const to = `    const queue = queueInfo(row);\n    // ${LOWER_STAGE_MARKER}: lower cards count the exact operational stage used\n    // by the upper unloading metric and the queue list. This keeps Route state 1\n    // visible even while arrival enrichment is absent, until the shared 12h cutoff.\n    const operationalStage = inboundOperationalStage(row);\n    if (operationalStage === "waiting") counts.waiting++;\n    if (operationalStage === "unloading") counts.unloading++;\n    if (queue.active && isOrigin(row)) counts.origin++;\n    if (queue.cancelled && isCancelledToday(row)) counts.cancelled++;`;
+        if (!block.includes(from))
+          throw new Error("MS lower operational stage predicate missing summary count anchor");
+        return block.replace(from, to);
+      },
+      "lower waiting/unloading counts use shared operational stage",
+    );
+  }
+
   for (const expected of [
     MARKER,
     OVERTIME_MARKER,
+    LOWER_STAGE_MARKER,
     "function operationalExpiryAnchor(row)",
     'source: "ROUTE_OBSERVED"',
     "ageMs >= 12 * 36e5",
@@ -181,6 +219,11 @@ function isOperationalOvertime(row, now = new Date()) {
     'typeof operationalExpiry12h === "function"',
     'isDrop(row) && parseDate(row.actualDepartureAt)',
     'queueMode === "queue" && inboundOperationalStage(row) !== "none"',
+    'state.summary === "waiting" &&\n          inboundOperationalStage(row) === "waiting"',
+    'state.summary === "unloading" &&\n          inboundOperationalStage(row) === "unloading"',
+    "const operationalStage = inboundOperationalStage(row);",
+    'if (operationalStage === "waiting") counts.waiting++;',
+    'if (operationalStage === "unloading") counts.unloading++;',
   ]) {
     if (!output.includes(expected))
       throw new Error(`MS operational expiry anchor V2 invariant missing: ${expected}`);

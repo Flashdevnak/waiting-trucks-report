@@ -13,21 +13,28 @@ import {
   SUPERVISOR_EVENT_CONSOLE_MARKER,
   patchSupervisorEventConsole,
 } from "./patch-supervisor-event-console.mjs";
+import {
+  SUPERVISOR_QUOTA_PIGGYBACK_MARKER,
+  patchSupervisorQuotaInstrumentation,
+} from "./patch-supervisor-quota-instrumentation.mjs";
 
 export {
   SUPERVISOR_SNAPSHOT_MARKER,
   SUPERVISOR_SOURCE_HEALTH_MARKER,
   SUPERVISOR_QUEUE_LIFECYCLE_MARKER,
   SUPERVISOR_EVENT_CONSOLE_MARKER,
+  SUPERVISOR_QUOTA_PIGGYBACK_MARKER,
 };
 
 // Forward-only layering keeps every accepted Supervisor contract intact.
-// SUP-08 runs last and only derives bounded ephemeral events from the sanitized
-// shared state already being ingested by the existing Supervisor singleton.
+// SUP-10 runs last and samples only the in-memory quota diagnostics produced by
+// normal per-HUB work, piggybacking them onto the existing shared ingest message.
 export function patchSupervisorSharedSnapshot(source) {
-  return patchSupervisorEventConsole(
-    patchSupervisorQueueLifecycle(
-      patchSupervisorSharedSnapshotV6(String(source || "")),
+  return patchSupervisorQuotaInstrumentation(
+    patchSupervisorEventConsole(
+      patchSupervisorQueueLifecycle(
+        patchSupervisorSharedSnapshotV6(String(source || "")),
+      ),
     ),
   );
 }

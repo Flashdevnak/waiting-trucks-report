@@ -617,7 +617,7 @@ function deriveQuotaCenter(raw) {
   let availability = ["AVAILABLE", "PARTIAL", "UNKNOWN", "UNAVAILABLE"].includes(raw.availability) ? raw.availability : "UNKNOWN";
   if (!hubs.length) availability = raw.availability === "UNAVAILABLE" ? "UNAVAILABLE" : "UNKNOWN";
   else {
-    const coverageMismatch = declaredQuotaHubs === null || declaredQuotaHubs !== hubs.length || (observedHubs !== null && observedHubs < hubs.length);
+    const coverageMismatch = observedHubs === null || declaredQuotaHubs === null || declaredQuotaHubs !== hubs.length || observedHubs < hubs.length;
     if (availability !== "AVAILABLE" || coverageMismatch || hubs.some((item) => item.state !== "AVAILABLE")) availability = "PARTIAL";
   }
 

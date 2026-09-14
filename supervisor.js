@@ -1,9 +1,10 @@
 // SUPERVISOR_CORE_SHELL_V1
 // SUPERVISOR_SOURCE_HEALTH_V1
+// SUPERVISOR_QUEUE_LIFECYCLE_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
-import { deriveHubView, deriveOverview } from "./supervisor-view.js?v=20260914-sup05";
+import { deriveHubView, deriveOverview } from "./supervisor-view.js?v=20260914-sup07";
 
 const SUPERVISOR_AUTH_KEY = "bnak_operator_auth_v2";
 const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);
@@ -11,7 +12,7 @@ const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);
 const sectionCopy = {
   overview: ["ภาพรวมระบบ", "สถานะจริงจะแสดงเมื่อ shared Supervisor snapshot พร้อมใช้งาน"],
   hubs: ["สุขภาพ HUB และ Source", "Source Health ใช้ telemetry ที่เกิดจาก refresh/coordinator เดิมเท่านั้น"],
-  diagnostics: ["System Diagnostics", "วิเคราะห์ Queue/Lifecycle และ config drift โดยไม่แก้ business truth"],
+  diagnostics: ["Queue / Lifecycle Diagnostics", "อ่าน accepted current rows จาก refresh เดิมเท่านั้น ไม่สร้าง source หรือ DB traffic เพิ่ม"],
   quota: ["Quota Center", "วัดจากงานเดิมและ shared telemetry โดยไม่สร้าง traffic เพื่อวัด traffic"],
   incidents: ["Alert, Incident และ Action Center", "รวม state change ที่ dedupe แล้วและสิ่งที่ Admin ต้องจัดการ"],
   maintenance: ["Maintenance Advisor", "สรุป auth renewal, warning, drift และ pending repair จากหลักฐานจริง"],
@@ -111,6 +112,11 @@ function sourceFact(source) {
   return parts.join(" · ");
 }
 
+function lifecycleFact(lifecycle) {
+  if (!lifecycle || lifecycle.state === "UNKNOWN") return "UNKNOWN";
+  return `${lifecycle.state} · active ${lifecycle.active} · waiting ${lifecycle.waiting} · unloading ${lifecycle.unloading}`;
+}
+
 function renderHubCards(hubs) {
   const list = document.getElementById("hub-snapshot-list");
   if (!hubs.length) {
@@ -121,6 +127,7 @@ function renderHubCards(hubs) {
   list.className = "hub-health-grid";
   list.replaceChildren(...hubs.map((hub) => {
     const view = deriveHubView(hub);
+    const queue = view.queueLifecycle;
     const card = document.createElement("article");
     card.className = "hub-health-card";
     const head = document.createElement("div");
@@ -141,7 +148,13 @@ function renderHubCards(hubs) {
       ["Refresh last success", view.lastSuccessAt || "UNKNOWN"],
       ["Refresh age", view.age.label],
       ["Accepted cache", view.accepted.state === "AVAILABLE" ? `AVAILABLE · ${view.accepted.rows} rows` : "UNKNOWN"],
-      ["Queue health", view.queueHealth],
+      ["Queue / Lifecycle", lifecycleFact(queue)],
+      ["Queue snapshot age", queue.age?.label || "UNKNOWN"],
+      ["Destination active", queue.state === "UNKNOWN" ? "UNKNOWN" : String(queue.destinationActive)],
+      ["Drop active", queue.state === "UNKNOWN" ? "UNKNOWN" : String(queue.dropActive)],
+      ["Drop awaiting release", queue.state === "UNKNOWN" ? "UNKNOWN" : String(queue.awaitingRelease)],
+      ["12h expired observed", queue.state === "UNKNOWN" ? "UNKNOWN" : String(queue.expired12h)],
+      ["Cancelled observed", queue.state === "UNKNOWN" ? "UNKNOWN" : String(queue.cancelledObserved)],
       ["Current refresh error", view.errorCode || (view.overall === "HEALTHY" ? "NONE OBSERVED" : "UNKNOWN")],
       ["Quota anomaly", view.quota],
       ["Pending action", view.pendingAction],
@@ -159,10 +172,58 @@ function renderHubCards(hubs) {
     }
     const truth = document.createElement("p");
     truth.className = "truth-note";
-    truth.textContent = "FACT: Source Health มาจาก refresh/coordinator telemetry เดิมเท่านั้น · HBI เป็น click-only และไม่ถูก poll เพื่อวัด health · ไม่มีหลักฐาน = UNKNOWN";
+    truth.textContent = "FACT: Source Health และ Queue/Lifecycle มาจาก refresh/coordinator เดิมเท่านั้น · Queue ใช้ accepted current rows และ operational stage contract เดียวกับหน้าหลัก · ไม่มีหลักฐาน = UNKNOWN";
     card.append(head, dl, truth);
     return card;
   }));
+}
+
+function renderQueueLifecycle(hubs, summary) {
+  const panel = document.querySelector('[data-panel="diagnostics"]');
+  const surface = panel?.querySelector(".surface");
+  if (!surface) return;
+  const tag = surface.querySelector(".status-tag");
+  if (tag) {
+    tag.textContent = summary?.state || "UNKNOWN";
+    tag.className = `status-tag ${String(summary?.state || "UNKNOWN").toLowerCase()}`;
+  }
+  const body = surface.querySelector(".body-copy");
+  if (body) {
+    body.textContent = summary?.state === "UNKNOWN"
+      ? "ยังไม่มี accepted lifecycle telemetry จึงไม่สรุปสถานะคิว"
+      : `FACT จาก accepted current rows: active ${summary.active} · waiting ${summary.waiting} · unloading ${summary.unloading} · Drop รอปล่อย ${summary.awaitingRelease} · หมดอายุ 12 ชม. ${summary.expired12h} · ยกเลิกที่สังเกตได้ ${summary.cancelledObserved}`;
+  }
+  surface.querySelector("[data-queue-lifecycle-detail]")?.remove();
+  const detail = document.createElement("div");
+  detail.dataset.queueLifecycleDetail = "1";
+  detail.className = "hub-health-grid";
+  const cards = hubs.map((hub) => deriveHubView(hub)).filter((view) => view.queueLifecycle.state !== "UNKNOWN");
+  if (!cards.length) {
+    const empty = document.createElement("div");
+    empty.className = "truth-empty compact";
+    const strong = document.createElement("strong");
+    const text = document.createElement("p");
+    strong.textContent = "UNKNOWN";
+    text.textContent = "ไม่มี lifecycle observation ที่ตรวจสอบโครงสร้างได้";
+    empty.append(strong, text);
+    detail.append(empty);
+  } else {
+    for (const view of cards) {
+      const item = document.createElement("article");
+      item.className = "hub-health-card";
+      const title = document.createElement("strong");
+      const text = document.createElement("p");
+      title.textContent = `${view.hub} · ${view.queueLifecycle.state}`;
+      text.textContent = `active ${view.queueLifecycle.active} · waiting ${view.queueLifecycle.waiting} · unloading ${view.queueLifecycle.unloading} · Destination ${view.queueLifecycle.destinationActive} · Drop ${view.queueLifecycle.dropActive} · รอปล่อย ${view.queueLifecycle.awaitingRelease} · 12h ${view.queueLifecycle.expired12h} · cancelled ${view.queueLifecycle.cancelledObserved} · age ${view.queueLifecycle.age.label}`;
+      item.append(title, text);
+      detail.append(item);
+    }
+  }
+  const note = document.createElement("p");
+  note.className = "truth-note";
+  note.textContent = "FACT ONLY · ไม่แก้ actual arrival/departure/completion · ไม่อ่าน DB · ไม่ยิง MS/KIT/TBR/HBI เพิ่ม · 12h cutoff และ Drop departure ใช้ contract เดียวกับ Waiting Trucks";
+  detail.append(note);
+  surface.append(detail);
 }
 
 function renderSnapshot(snapshot, workerReachable = false) {
@@ -189,6 +250,7 @@ function renderSnapshot(snapshot, workerReachable = false) {
   hubState.textContent = hubs.length ? "PARTIAL" : "UNKNOWN";
   hubState.className = `status-tag ${hubs.length ? "partial" : "unknown"}`;
   renderHubCards(hubs);
+  renderQueueLifecycle(hubs, overview.queueLifecycle);
   const sourceSummary = document.getElementById("source-snapshot-summary");
   sourceSummary.replaceChildren();
   const sourceState = document.createElement("strong");

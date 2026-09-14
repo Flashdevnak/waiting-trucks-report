@@ -9,19 +9,26 @@ import {
   SUPERVISOR_QUEUE_LIFECYCLE_MARKER,
   patchSupervisorQueueLifecycle,
 } from "./patch-supervisor-queue-lifecycle.mjs";
+import {
+  SUPERVISOR_EVENT_CONSOLE_MARKER,
+  patchSupervisorEventConsole,
+} from "./patch-supervisor-event-console.mjs";
 
 export {
   SUPERVISOR_SNAPSHOT_MARKER,
   SUPERVISOR_SOURCE_HEALTH_MARKER,
   SUPERVISOR_QUEUE_LIFECYCLE_MARKER,
+  SUPERVISOR_EVENT_CONSOLE_MARKER,
 };
 
-// SUP-07 is deliberately layered after the byte-for-byte SUP-06 implementation.
-// This keeps every previously accepted snapshot/source-health contract intact and
-// adds only a pure aggregate over rows already held by the existing refresh.
+// Forward-only layering keeps every accepted Supervisor contract intact.
+// SUP-08 runs last and only derives bounded ephemeral events from the sanitized
+// shared state already being ingested by the existing Supervisor singleton.
 export function patchSupervisorSharedSnapshot(source) {
-  return patchSupervisorQueueLifecycle(
-    patchSupervisorSharedSnapshotV6(String(source || "")),
+  return patchSupervisorEventConsole(
+    patchSupervisorQueueLifecycle(
+      patchSupervisorSharedSnapshotV6(String(source || "")),
+    ),
   );
 }
 

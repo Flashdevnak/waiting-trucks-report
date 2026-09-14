@@ -1,5 +1,6 @@
 name: SUP-11 Branch Apply
 
+# Branch-only verification helper; no deploy and no production access.
 on:
   push:
     branches:

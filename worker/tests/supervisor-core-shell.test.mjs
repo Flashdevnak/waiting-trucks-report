@@ -19,7 +19,7 @@ test("SUP-01 is an isolated, responsive Supervisor side-car", () => {
   assert.match(html, /supervisor\.css\?v=/);
   assert.match(html, /supervisor\.js\?v=/);
   assert.match(html, /supervisor\.css\?v=20260914-sup05/);
-  assert.match(html, /supervisor\.js\?v=20260914-sup07/);
+  assert.match(html, /supervisor\.js\?v=20260914-sup08/);
   assert.match(css, /@media\(max-width:700px\)/);
   assert.match(css, /@media\(max-width:420px\)/);
   assert.doesNotMatch(msHtml, /supervisor\.(?:html|js|css)/);

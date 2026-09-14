@@ -87,18 +87,19 @@ export function deriveSourceView(source, nowMs = Date.now(), fallbackState = "UN
   };
 }
 
-function sourceAggregateForHub(hub) {
+function sourceAggregateForHub(hub, nowMs = Date.now()) {
   const sources = hub?.sources || {};
   const values = ["route", "preEntry", "busTime", "hbiPhotos"]
     .map((key) => sources?.[key])
     .filter(hasSourceEvidence)
-    .filter((source) => !(String(source?.mode || "").toUpperCase() === "CLICK_ONLY" && safeState(source?.state) === "UNKNOWN"))
+    .map((source) => deriveSourceView(source, nowMs))
+    .filter((source) => !(source.mode === "CLICK_ONLY" && source.state === "UNKNOWN"))
     .map((source) => source.state);
   return values.length ? aggregateStates(values) : "UNKNOWN";
 }
 
-function aggregateObservedSources(hubs) {
-  const sourceStates = hubs.map(sourceAggregateForHub).filter((state) => state !== "UNKNOWN");
+function aggregateObservedSources(hubs, nowMs = Date.now()) {
+  const sourceStates = hubs.map((hub) => sourceAggregateForHub(hub, nowMs)).filter((state) => state !== "UNKNOWN");
   return sourceStates.length ? aggregateStates(sourceStates) : aggregateHubState(hubs);
 }
 
@@ -114,7 +115,8 @@ export function deriveOverview(snapshot, evaluatedModule, options = {}) {
   const contracts = snapshot?.contracts || {};
   const supervisorQuotaSafe = ["additionalUpstreamPolls", "databaseReads", "databaseWrites", "aiCalls"]
     .every((key) => Number(contracts[key]) === 0);
-  const observedSourceState = aggregateObservedSources(hubs);
+  const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
+  const observedSourceState = aggregateObservedSources(hubs, nowMs);
 
   return {
     overall: safeState(evaluatedModule?.health?.state),

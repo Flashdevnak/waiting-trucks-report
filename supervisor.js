@@ -4,6 +4,7 @@
 // SUPERVISOR_EVENT_CONSOLE_V1
 // SUPERVISOR_INCIDENT_ACTION_V1
 // SUPERVISOR_QUOTA_CENTER_V1
+// SUPERVISOR_QUOTA_PROTECTION_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
@@ -632,6 +633,46 @@ function deriveQuotaCenter(raw) {
   };
 }
 
+// SUPERVISOR_QUOTA_PROTECTION_V1: pure presentation of the latest sanitized isolate guard state.
+// Leak is only a local guard signal; it is never promoted to provider/account leak truth.
+function deriveQuotaProtection(raw) {
+  const unknown = {
+    availability: "UNKNOWN", mode: "OBSERVE_ONLY", evidenceScope: "current-worker-isolate",
+    leakSignal: { state: "UNKNOWN", basis: "LOCAL_GUARD_EVENTS_ONLY" },
+    circuit: { state: "UNKNOWN", until: null, enforcement: "LOCAL_READ_GUARD" },
+    backoff: { state: "UNKNOWN", activeCooldowns: null, until: null, enforcement: "LOCAL_HEAVY_READ_FINGERPRINT_GUARD" },
+    killSwitch: { state: "UNKNOWN", canExecute: false },
+    policy: { providerReadBlockMs: null, heavyReadCooldownMs: null, heavyReadRowsThreshold: null },
+    observedAt: null,
+  };
+  if (!raw || typeof raw !== "object" || raw.mode !== "OBSERVE_ONLY" || raw.evidenceScope !== "current-worker-isolate") return unknown;
+  const pickState = (value, allowed) => allowed.includes(String(value || "")) ? String(value) : "UNKNOWN";
+  const positive = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  const leakState = pickState(raw.leakSignal?.state, ["SIGNAL_OBSERVED", "NO_LOCAL_GUARD_SIGNAL_OBSERVED", "UNKNOWN"]);
+  const circuitState = pickState(raw.circuit?.state, ["OPEN", "CLOSED", "UNKNOWN"]);
+  const backoffState = pickState(raw.backoff?.state, ["ACTIVE", "CLEAR", "UNKNOWN"]);
+  const killSwitchState = pickState(raw.killSwitch?.state, ["NOT_CONFIGURED", "CONFIGURED_NON_EXECUTABLE", "UNKNOWN"]);
+  const policy = {
+    providerReadBlockMs: positive(raw.policy?.providerReadBlockMs),
+    heavyReadCooldownMs: positive(raw.policy?.heavyReadCooldownMs),
+    heavyReadRowsThreshold: positive(raw.policy?.heavyReadRowsThreshold),
+  };
+  const activeCooldowns = positive(raw.backoff?.activeCooldowns);
+  const circuitUntil = quotaCenterTime(raw.circuit?.until);
+  const backoffUntil = quotaCenterTime(raw.backoff?.until);
+  const observedAt = quotaCenterTime(raw.observedAt);
+  const complete = leakState !== "UNKNOWN" && circuitState !== "UNKNOWN" && backoffState !== "UNKNOWN" && killSwitchState !== "UNKNOWN" && Object.values(policy).every((item) => item !== null);
+  return {
+    availability: complete && raw.availability === "AVAILABLE" ? "AVAILABLE" : "PARTIAL",
+    mode: "OBSERVE_ONLY", evidenceScope: "current-worker-isolate",
+    leakSignal: { state: leakState, basis: "LOCAL_GUARD_EVENTS_ONLY" },
+    circuit: { state: circuitState, until: circuitUntil, enforcement: "LOCAL_READ_GUARD" },
+    backoff: { state: backoffState, activeCooldowns, until: backoffUntil, enforcement: "LOCAL_HEAVY_READ_FINGERPRINT_GUARD" },
+    killSwitch: { state: killSwitchState, canExecute: false },
+    policy, observedAt,
+  };
+}
+
 // SUPERVISOR_QUOTA_CENTER_RENDER_V1
 function quotaCenterValue(value) {
   return value === null || value === undefined ? "UNKNOWN" : String(value);
@@ -708,6 +749,49 @@ function renderQuotaCenter(center) {
     card.append(head, counters, guard, time, note);
     hubList.append(card);
   }
+}
+
+function renderQuotaProtection(protection) {
+  const panel = document.querySelector('[data-panel="quota"]');
+  const surfaces = [...(panel?.querySelectorAll(".surface") || [])];
+  const surface = surfaces[1];
+  if (!surface) return;
+  surface.querySelector("[data-quota-protection]")?.remove();
+  const box = document.createElement("div");
+  box.dataset.quotaProtection = "1";
+  box.className = "hub-health-grid";
+  const card = document.createElement("article");
+  card.className = "hub-health-card";
+  const head = document.createElement("div");
+  head.className = "hub-health-head";
+  const title = document.createElement("strong");
+  title.textContent = "Leak / Circuit / Backoff / Kill-switch";
+  head.append(title, statusTag(protection.availability === "AVAILABLE" ? "HEALTHY" : protection.availability));
+  const facts = document.createElement("dl");
+  facts.className = "hub-facts";
+  const rows = [
+    ["Leak signal", protection.leakSignal.state],
+    ["Read circuit", protection.circuit.state + (protection.circuit.until ? ` · until ${protection.circuit.until}` : "")],
+    ["Heavy-read backoff", protection.backoff.state + (protection.backoff.activeCooldowns === null ? " · active UNKNOWN" : ` · active ${protection.backoff.activeCooldowns}`) + (protection.backoff.until ? ` · until ${protection.backoff.until}` : "")],
+    ["Global kill switch", `${protection.killSwitch.state} · execution DISABLED`],
+    ["Local guard policy", `read block ${quotaCenterValue(protection.policy.providerReadBlockMs)} ms · heavy cooldown ${quotaCenterValue(protection.policy.heavyReadCooldownMs)} ms · heavy threshold ${quotaCenterValue(protection.policy.heavyReadRowsThreshold)} rows`],
+    ["Evidence", `${protection.evidenceScope} · ${protection.observedAt || "time UNKNOWN"}`],
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = label;
+    dd.textContent = value;
+    row.append(dt, dd);
+    facts.append(row);
+  }
+  const note = document.createElement("p");
+  note.className = "truth-note";
+  note.textContent = "OBSERVE ONLY · leak = local guard signal เท่านั้น ไม่ใช่ provider/account leak proof · circuit/backoff เป็น guard ที่บล็อกก่อน provider fetch · ไม่มี executable global kill switch";
+  card.append(head, facts, note);
+  box.append(card);
+  surface.append(box);
 }
 
 function renderIncidentActionCenter(center) {
@@ -815,6 +899,7 @@ function renderSnapshot(snapshot, workerReachable = false) {
   const eventConsole = normalizeTerminalConsole(snapshot);
   const incidentCenter = deriveIncidentActionCenter(hubViews, eventConsole.events, eventConsole.availability);
   const quotaCenter = deriveQuotaCenter(snapshot?.quotaTelemetry);
+  const quotaProtection = deriveQuotaProtection(snapshot?.quotaTelemetry?.protection);
   const overview = deriveOverview(snapshot, module, { moduleCount: moduleRegistry.list().length, workerReachable, nowMs });
   const incidentCard = overview.cards.find((item) => item.id === "incidents");
   const actionCard = overview.cards.find((item) => item.id === "actions");
@@ -850,6 +935,7 @@ function renderSnapshot(snapshot, workerReachable = false) {
   renderHubCards(hubs);
   renderQueueLifecycle(hubs, overview.queueLifecycle);
   renderQuotaCenter(quotaCenter);
+  renderQuotaProtection(quotaProtection);
   renderIncidentActionCenter(incidentCenter);
   const sourceSummary = document.getElementById("source-snapshot-summary");
   sourceSummary.replaceChildren();

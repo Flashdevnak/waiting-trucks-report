@@ -25,11 +25,30 @@ const tursoRuntimeCounters = {
 // It never issues a database/provider request and deliberately exposes no SQL,
 // URL, token, credential, user or HUB identifier.
 export function tursoRuntimeDiagnostics() {
+  const now = Date.now();
+  let heavyReadCooldownsActive = 0;
+  let heavyReadCooldownUntil = 0;
+  for (const until of tursoHeavyReadUntil.values()) {
+    const numericUntil = Number(until) || 0;
+    if (numericUntil <= now) continue;
+    heavyReadCooldownsActive += 1;
+    heavyReadCooldownUntil = Math.max(heavyReadCooldownUntil, numericUntil);
+  }
+  const providerReadCircuitOpen = tursoProviderReadBlockedUntil > now;
   return {
     scope: "current-worker-isolate",
     since: tursoRuntimeStartedAt,
     ...tursoRuntimeCounters,
-    providerReadCircuitOpen: tursoProviderReadBlockedUntil > Date.now(),
+    providerReadCircuitOpen,
+    providerReadCircuitUntil: providerReadCircuitOpen ? new Date(tursoProviderReadBlockedUntil).toISOString() : null,
+    heavyReadCooldownsActive,
+    heavyReadCooldownUntil: heavyReadCooldownUntil > now ? new Date(heavyReadCooldownUntil).toISOString() : null,
+    localGuardPolicy: {
+      providerReadBlockMs: TURSO_PROVIDER_READ_BLOCK_MS,
+      heavyReadCooldownMs: TURSO_HEAVY_READ_COOLDOWN_MS,
+      heavyReadRowsThreshold: TURSO_HEAVY_READ_ROWS,
+    },
+    globalKillSwitchConfigured: false,
   };
 }
 

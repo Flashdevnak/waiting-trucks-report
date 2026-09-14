@@ -6,6 +6,7 @@ on:
       - codex/sup-12-leak-circuit-backoff-kill-switch
     paths:
       - .github/dev-tools/apply-sup12.py
+      - .github/dev-tools/fix-sup12-harness.py
       - .github/workflows/sup12-branch-apply.yml
 
 permissions:
@@ -24,6 +25,8 @@ jobs:
           node-version: 22
       - name: Apply SUP-12 forward patch
         run: python3 .github/dev-tools/apply-sup12.py
+      - name: Fix deterministic SUP-12 harness
+        run: python3 .github/dev-tools/fix-sup12-harness.py
       - name: Syntax and full regression
         working-directory: worker
         run: |

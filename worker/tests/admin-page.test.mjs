@@ -16,6 +16,9 @@ test("Admin is a standalone full page with manual refresh only", async () => {
   assert.match(js, /request\("adminOverview"\)/);
   assert.doesNotMatch(js, /setInterval\s*\(|new WebSocket\s*\(|EventSource\s*\(/);
   assert.doesNotMatch(html + js + css, /waiting\.html/);
+  assert.match(html, /admin\.js\?v=20260914-sup02/);
+  assert.match(js, /async function openSupervisor\(\)/);
+  assert.match(js, /\/api\/supervisor\/session/);
 });
 
 test("Admin authorization is enforced by Worker, including operator rejection", async () => {

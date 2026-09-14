@@ -62,6 +62,10 @@ function operationalExpiryAnchor(row) {
 
 function operationalExpiry12h(row, now = new Date()) {
   if (!isDestination(row) && !isDrop(row)) return null;
+  // Route departure is final for Drop rows and must beat every operational
+  // fallback, including a stale unloadingState=1 and an old unload-start anchor.
+  if (isDrop(row) && parseDate(row.actualDepartureAt)) return null;
+
   const queue = queueInfo(row, now);
   const anchor = operationalExpiryAnchor(row);
   const ageMs = anchor ? now.getTime() - anchor.at.getTime() : Number.NaN;
@@ -175,6 +179,7 @@ function isOperationalOvertime(row, now = new Date()) {
     "ageMs >= 12 * 36e5",
     "isOperationalOvertime(row)",
     'typeof operationalExpiry12h === "function"',
+    'isDrop(row) && parseDate(row.actualDepartureAt)',
     'queueMode === "queue" && inboundOperationalStage(row) !== "none"',
   ]) {
     if (!output.includes(expected))

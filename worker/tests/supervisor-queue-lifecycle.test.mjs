@@ -22,10 +22,13 @@ function between(text, startLabel, endLabel) {
 }
 
 function waitingRuntime() {
+  // Keep the parity harness on the exact staged frontend implementation. The
+  // operational stage is patched later than queueInfo, so include the complete
+  // route/queue/expiry/stage section instead of stopping at dropOperation().
   const source = between(
     stagedFrontend,
     "function routeState(row, now = new Date())",
-    "function dropOperation(row)",
+    "function renderFilterSummary(rows)",
   );
   const context = {
     Date,

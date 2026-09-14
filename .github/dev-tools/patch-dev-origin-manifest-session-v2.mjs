@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
+import {
+  REPORT_TRUTH_MARKER,
+  patchDevReportTruthHtml,
+  patchDevReportTruthJs,
+  verifyDevReportTruthState,
+} from "./patch-dev-report-truth-state.mjs";
 import {
   SESSION_MARKER,
   RECOVERY_MARKER,
@@ -58,9 +65,12 @@ async function selfTest() {
   const root = new URL("../../", import.meta.url);
   const originSource = await readFile(new URL("worker/src/origin-manifest-v1.js", root), "utf8");
   const msSource = await readFile(new URL("ms.js", root), "utf8");
+  const reportSource = await readFile(new URL("ms-report.js", root), "utf8");
   const stagedFront = patchMsConnectionErrorKvFrontend(msSource);
   const patchedOrigin = patchOriginManifestSessionReplay(originSource);
   const patchedFront = patchCompactHarActions(stagedFront);
+  const patchedReportHtml = patchDevReportTruthHtml('<span class="badge badge-online">พร้อมใช้งาน</span>');
+  const patchedReportJs = patchDevReportTruthJs(reportSource);
 
   assert.ok(patchedOrigin.includes(SESSION_MARKER));
   assert.ok(patchedOrigin.includes(RECOVERY_MARKER));
@@ -82,12 +92,19 @@ async function selfTest() {
   assert.ok(patchedFront.includes(INLINE_MARKER));
   assert.equal(patchCompactHarActions(patchedFront), patchedFront);
 
+  assert.equal(verifyDevReportTruthState(patchedReportHtml, patchedReportJs), true);
+  assert.equal(patchDevReportTruthHtml(patchedReportHtml), patchedReportHtml);
+  assert.equal(patchDevReportTruthJs(patchedReportJs), patchedReportJs);
+
   console.log("DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2=PASS");
   console.log("DEV_ORIGIN_MANIFEST_RECOVERY_V3=PASS");
   console.log("DEV_ORIGIN_MANIFEST_FRESH_TIME_V4=PASS");
   console.log("DEV_ORIGIN_MANIFEST_WUJIE_AUTH_V5=PASS");
   console.log("DEV_HAR_COMPACT_ACTIONS_V3=PASS");
   console.log("DEV_HAR_INLINE_ACTIONS_V4=PASS");
+  console.log(`${REPORT_TRUTH_MARKER}=PASS`);
+  console.log("DEV_REPORT_STATIC_READY_BADGE=0");
+  console.log("DEV_REPORT_BACKGROUND_TRANSPORT=0");
   console.log("MANIFEST_REFRESH_MS=300000");
   console.log("MANIFEST_EXTRA_MS_POLLING=0");
   console.log("MANIFEST_DATA_PERSISTENCE_WRITES=0");
@@ -95,16 +112,26 @@ async function selfTest() {
 }
 
 async function patchFiles(frontendPath, originPath) {
-  const [front, origin] = await Promise.all([
+  const reportHtmlPath = join(dirname(frontendPath), "ms-report.html");
+  const reportJsPath = join(dirname(frontendPath), "ms-report.js");
+  const [front, origin, reportHtml, reportJs] = await Promise.all([
     readFile(frontendPath, "utf8"),
     readFile(originPath, "utf8"),
+    readFile(reportHtmlPath, "utf8"),
+    readFile(reportJsPath, "utf8"),
   ]);
+  const patchedReportHtml = patchDevReportTruthHtml(reportHtml);
+  const patchedReportJs = patchDevReportTruthJs(reportJs);
+  verifyDevReportTruthState(patchedReportHtml, patchedReportJs);
   await Promise.all([
     writeFile(frontendPath, patchCompactHarActions(front), "utf8"),
     writeFile(originPath, patchOriginManifestSessionReplay(origin), "utf8"),
+    writeFile(reportHtmlPath, patchedReportHtml, "utf8"),
+    writeFile(reportJsPath, patchedReportJs, "utf8"),
   ]);
   console.log(`Patched DEV connector frontend: ${frontendPath}`);
   console.log(`Patched DEV Origin Manifest Wujie auth + fresh-time replay: ${originPath}`);
+  console.log(`Patched DEV report truth-state: ${reportHtmlPath} + ${reportJsPath}`);
 }
 
 const invoked = process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(`file://${process.argv[1]}`));

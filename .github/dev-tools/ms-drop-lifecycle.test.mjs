@@ -141,6 +141,26 @@ test("only real Route departure releases Drop into the Drop card state", () => {
   assert.equal(routeState(row, now).key, "drop");
 });
 
+test("Drop release display is one two-column box and keeps planned versus actual truth separate", () => {
+  assert.match(frontend, /MS_DROP_RELEASE_PAIR_V1/);
+  const displayBlock = between(
+    frontend,
+    "function classicDropReleasePair(row, release)",
+    "function classicOperationFacts(items)",
+  );
+  assert.match(displayBlock, /const planned = shortDateTime\(release\?\.plan\);/);
+  assert.match(displayBlock, /const actual = shortDateTime\(row\.actualDepartureAt\);/);
+  assert.match(displayBlock, /classic-operation-facts drop-release-pair/);
+  assert.match(displayBlock, /grid-column:1\/-1/);
+  assert.match(displayBlock, /กำหนดปล่อยรถ/);
+  assert.match(displayBlock, /ออกจากจุดดรอปจริง/);
+  assert.doesNotMatch(displayBlock, /fetch\s*\(|apiGet\(|apiPost\(|env\.DB|\.prepare\(/);
+  assert.match(
+    frontend,
+    /\(release\?\.plan \|\| parseDate\(row\.actualDepartureAt\)\) \? classicDropReleasePair\(row, release\) : ""/,
+  );
+});
+
 test("lifecycle/source helpers add no DB, HTTP, or upstream path", () => {
   const { helperSource } = runtime();
   assert.doesNotMatch(helperSource, /env\.DB|\.prepare\(|fetch\s*\(|apiGet\(|apiPost\(/);

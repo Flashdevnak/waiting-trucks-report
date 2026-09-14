@@ -7,6 +7,7 @@ export const BUS_TIME_CACHE_RETENTION_MS = 36 * 60 * 60 * 1000;
 export const BUS_TIME_CREDENTIAL_CACHE_MS = 10 * 60 * 1000;
 export const BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 8_000;
 export const BUS_TIME_RATE_LIMIT_MAX_COOLDOWN_MS = 5 * 60 * 1000;
+export const BUS_TIME_SESSION_COOLDOWN_MS = 60 * 60 * 1000;
 
 export function parseBusRetryAfter(value, nowMs = Date.now()) {
   const raw = String(value || "").trim();
@@ -106,6 +107,7 @@ export function createBusTimeHotLane(deps) {
         lastErrorWriteAt: 0,
         lastPersistedError: "",
         cooldownUntil: 0,
+        cooldownCode: "",
         rateLimitStrikes: 0,
         callTimes: [],
         busHotCalls: 0,
@@ -364,8 +366,15 @@ export function createBusTimeHotLane(deps) {
       ? Number(error.retryAfterMs)
       : rateCooldown(state.rateLimitStrikes);
     state.cooldownUntil = now() + Math.max(BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS, wait);
+    state.cooldownCode = "BUS_TIME_RATE_LIMIT";
     state.busRateLimitCount += 1;
     state.busLastError = "BUS_TIME_RATE_LIMIT";
+  }
+
+  function applySessionExpiry(state) {
+    state.cooldownUntil = now() + BUS_TIME_SESSION_COOLDOWN_MS;
+    state.cooldownCode = "BUS_TIME_SESSION_EXPIRED";
+    state.busLastError = "BUS_TIME_SESSION_EXPIRED";
   }
 
   async function persistSuccess(env, hub, state) {
@@ -448,7 +457,7 @@ export function createBusTimeHotLane(deps) {
 
     if (state.cooldownUntil > at) {
       state.busCacheHits += 1;
-      return result(state, true, "BUS_TIME_RATE_LIMIT");
+      return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
     }
     if (state.lastHotAt && at - state.lastHotAt < BUS_TIME_HOT_REUSE_MS) {
       state.busCacheHits += 1;
@@ -488,6 +497,7 @@ export function createBusTimeHotLane(deps) {
         } catch (error) {
           state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
           if (error?.code === "BUS_TIME_RATE_LIMIT") applyRateLimit(state, error);
+          else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
           await persistError(env, key, state, error);
           logger.warn?.(JSON.stringify({
             event: "bus_time_hot_lane_error",
@@ -505,6 +515,7 @@ export function createBusTimeHotLane(deps) {
         state.busLastError = "";
         state.rateLimitStrikes = 0;
         state.cooldownUntil = 0;
+        state.cooldownCode = "";
         await persistSuccess(env, key, state);
       }
 
@@ -542,6 +553,7 @@ export function createBusTimeHotLane(deps) {
           } catch (error) {
             state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
             if (error?.code === "BUS_TIME_RATE_LIMIT") applyRateLimit(state, error);
+            else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
             await persistError(env, key, state, error);
             logger.warn?.(JSON.stringify({
               event: "bus_time_background_error",
@@ -575,6 +587,8 @@ export function createBusTimeHotLane(deps) {
         busCacheMisses: 0,
         busRateLimitCount: 0,
         busCooldownUntil: "",
+        busCooldownCode: "",
+        busNeedsLogin: false,
         busLastSuccessAt: "",
         busLastError: "",
         busActiveRows: 0,
@@ -584,6 +598,7 @@ export function createBusTimeHotLane(deps) {
       };
     }
     state.callTimes = state.callTimes.filter((value) => at - value < 60_000);
+    const cooldownActive = state.cooldownUntil > at;
     return {
       mode: BUS_TIME_HOT_LANE_MARKER,
       busHotCalls: state.busHotCalls,
@@ -593,9 +608,11 @@ export function createBusTimeHotLane(deps) {
       busCacheHits: state.busCacheHits,
       busCacheMisses: state.busCacheMisses,
       busRateLimitCount: state.busRateLimitCount,
-      busCooldownUntil: state.cooldownUntil > at
+      busCooldownUntil: cooldownActive
         ? new Date(state.cooldownUntil).toISOString()
         : "",
+      busCooldownCode: cooldownActive ? state.cooldownCode : "",
+      busNeedsLogin: cooldownActive && state.cooldownCode === "BUS_TIME_SESSION_EXPIRED",
       busLastSuccessAt: state.busLastSuccessAt,
       busLastError: state.busLastError,
       busActiveRows: state.busActiveRows,
@@ -610,6 +627,7 @@ export function createBusTimeHotLane(deps) {
     state.credentials = value;
     state.credentialsUntil = value ? now() + BUS_TIME_CREDENTIAL_CACHE_MS : 0;
     state.cooldownUntil = 0;
+    state.cooldownCode = "";
     state.rateLimitStrikes = 0;
     state.busLastError = "";
   }

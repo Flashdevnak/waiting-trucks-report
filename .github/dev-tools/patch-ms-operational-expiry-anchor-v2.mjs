@@ -216,7 +216,7 @@ function isOperationalOvertime(row, now = new Date()) {
         if (waitingStart < 0 || unloadingEnd <= unloadingAt)
           throw new Error("MS lower operational stage predicate could not bound summary count conditions");
 
-        const replacement = `    // ${LOWER_STAGE_MARKER}: lower cards count the exact operational stage used\n    // by the upper unloading metric and the queue list. This keeps Route state 1\n    // visible even while arrival enrichment is absent, until the shared 12h cutoff.\n    const operationalStage = inboundOperationalStage(row);\n    if (operationalStage === "waiting") counts.waiting++;\n    if (operationalStage === "unloading") counts.unloading++;`;
+        const replacement = `    // ${LOWER_STAGE_MARKER}: lower cards count the exact operational stage used\n    // by the upper unloading metric and the queue list. This keeps Route state 1\n    // visible even while arrival enrichment is absent, until the shared 12h cutoff.\n    const lowerCardOperationalStage = inboundOperationalStage(row);\n    if (lowerCardOperationalStage === "waiting") counts.waiting++;\n    if (lowerCardOperationalStage === "unloading") counts.unloading++;`;
         next = next.slice(0, waitingStart) + replacement + next.slice(unloadingEnd);
         return next;
       },
@@ -237,9 +237,9 @@ function isOperationalOvertime(row, now = new Date()) {
     'queueMode === "queue" && inboundOperationalStage(row) !== "none"',
     'state.summary === "waiting" &&\n          inboundOperationalStage(row) === "waiting"',
     'state.summary === "unloading" &&\n          inboundOperationalStage(row) === "unloading"',
-    "const operationalStage = inboundOperationalStage(row);",
-    'if (operationalStage === "waiting") counts.waiting++;',
-    'if (operationalStage === "unloading") counts.unloading++;',
+    "const lowerCardOperationalStage = inboundOperationalStage(row);",
+    'if (lowerCardOperationalStage === "waiting") counts.waiting++;',
+    'if (lowerCardOperationalStage === "unloading") counts.unloading++;',
   ]) {
     if (!output.includes(expected))
       throw new Error(`MS operational expiry anchor V2 invariant missing: ${expected}`);

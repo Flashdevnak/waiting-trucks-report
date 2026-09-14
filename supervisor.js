@@ -3,6 +3,7 @@
 // SUPERVISOR_QUEUE_LIFECYCLE_V1
 // SUPERVISOR_EVENT_CONSOLE_V1
 // SUPERVISOR_INCIDENT_ACTION_V1
+// SUPERVISOR_QUOTA_CENTER_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
@@ -554,6 +555,161 @@ function renderQueueLifecycle(hubs, summary) {
   surface.append(detail);
 }
 
+// SUPERVISOR_QUOTA_CENTER_V1: pure derivation from SUP-10 sanitized shared
+// telemetry only. Isolate-local counters are never promoted to provider billing,
+// account quota, monthly totals, or plan limits, and no cross-isolate totals are made.
+function quotaCenterCounter(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function quotaCenterTime(value) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function deriveQuotaCenter(raw) {
+  const unknown = {
+    availability: "UNKNOWN",
+    mode: "PIGGYBACK_ISOLATE_COUNTERS",
+    billingTruth: "UNKNOWN",
+    providerPlanLimit: "UNKNOWN",
+    observedAt: null,
+    coverage: { observedHubs: null, quotaObservedHubs: 0 },
+    hubs: [],
+  };
+  if (!raw || typeof raw !== "object" || raw.mode !== "PIGGYBACK_ISOLATE_COUNTERS") return unknown;
+
+  const observedHubs = quotaCenterCounter(raw.coverage?.observedHubs);
+  const declaredQuotaHubs = quotaCenterCounter(raw.coverage?.quotaObservedHubs);
+  const hubs = [];
+  for (const item of (Array.isArray(raw.hubs) ? raw.hubs : []).slice(0, 50)) {
+    if (!item || typeof item !== "object") continue;
+    const hub = String(item.hub || "").toUpperCase();
+    if (!/^[A-Z0-9_-]{2,20}$/.test(hub) || item.scope !== "current-worker-isolate") continue;
+    const counters = {
+      httpRequests: quotaCenterCounter(item.httpRequests),
+      statements: quotaCenterCounter(item.statements),
+      rowsRead: quotaCenterCounter(item.rowsRead),
+      rowsWritten: quotaCenterCounter(item.rowsWritten),
+      errors: quotaCenterCounter(item.errors),
+      providerLimitErrors: quotaCenterCounter(item.providerLimitErrors),
+      heavyReadEvents: quotaCenterCounter(item.heavyReadEvents),
+    };
+    const providerReadCircuitOpen = typeof item.providerReadCircuitOpen === "boolean" ? item.providerReadCircuitOpen : null;
+    const observedAt = quotaCenterTime(item.observedAt);
+    const since = quotaCenterTime(item.since);
+    const lastObservedAt = quotaCenterTime(item.lastObservedAt);
+    const hasEvidence = Object.values(counters).some((value) => value !== null) || providerReadCircuitOpen !== null || Boolean(observedAt || since || lastObservedAt);
+    if (!hasEvidence) continue;
+    const complete = Object.values(counters).every((value) => value !== null) && providerReadCircuitOpen !== null;
+    hubs.push({
+      hub,
+      state: item.state === "AVAILABLE" && complete ? "AVAILABLE" : "PARTIAL",
+      scope: "current-worker-isolate",
+      observedAt,
+      since,
+      ...counters,
+      providerReadCircuitOpen,
+      lastObservedAt,
+    });
+  }
+
+  let availability = ["AVAILABLE", "PARTIAL", "UNKNOWN", "UNAVAILABLE"].includes(raw.availability) ? raw.availability : "UNKNOWN";
+  if (!hubs.length) availability = raw.availability === "UNAVAILABLE" ? "UNAVAILABLE" : "UNKNOWN";
+  else {
+    const coverageMismatch = observedHubs === null || declaredQuotaHubs === null || declaredQuotaHubs !== hubs.length || observedHubs < hubs.length;
+    if (availability !== "AVAILABLE" || coverageMismatch || hubs.some((item) => item.state !== "AVAILABLE")) availability = "PARTIAL";
+  }
+
+  return {
+    availability,
+    mode: "PIGGYBACK_ISOLATE_COUNTERS",
+    billingTruth: "UNKNOWN",
+    providerPlanLimit: "UNKNOWN",
+    observedAt: quotaCenterTime(raw.observedAt),
+    coverage: { observedHubs, quotaObservedHubs: hubs.length },
+    hubs,
+  };
+}
+
+// SUPERVISOR_QUOTA_CENTER_RENDER_V1
+function quotaCenterValue(value) {
+  return value === null || value === undefined ? "UNKNOWN" : String(value);
+}
+
+function quotaCenterStatusClass(state) {
+  if (state === "AVAILABLE") return "healthy";
+  if (state === "PARTIAL") return "partial";
+  if (state === "UNAVAILABLE") return "unavailable";
+  return "unknown";
+}
+
+function renderQuotaCenter(center) {
+  const panel = document.querySelector('[data-panel="quota"]');
+  const surface = panel?.querySelector(".surface");
+  const stateTag = document.getElementById("quota-center-state");
+  const summary = document.getElementById("quota-center-summary");
+  const hubList = document.getElementById("quota-hub-list");
+  if (!surface || !stateTag || !summary || !hubList) return;
+
+  stateTag.textContent = center.availability;
+  stateTag.className = `status-tag ${quotaCenterStatusClass(center.availability)}`;
+  summary.replaceChildren();
+  const summaryList = document.createElement("dl");
+  summaryList.className = "hub-facts";
+  const fields = [
+    ["Evidence mode", center.mode],
+    ["Observed HUB coverage", center.coverage.observedHubs === null ? `${center.coverage.quotaObservedHubs} / UNKNOWN` : `${center.coverage.quotaObservedHubs} / ${center.coverage.observedHubs}`],
+    ["Provider billing truth", center.billingTruth],
+    ["Provider plan / limit", center.providerPlanLimit],
+    ["Latest observation", center.observedAt || "UNKNOWN"],
+  ];
+  for (const [label, value] of fields) {
+    const row = document.createElement("div");
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = label;
+    dd.textContent = value;
+    row.append(dt, dd);
+    summaryList.append(row);
+  }
+  summary.append(summaryList);
+
+  hubList.replaceChildren();
+  if (!center.hubs.length) {
+    const empty = document.createElement("div");
+    empty.className = "truth-empty compact";
+    const strong = document.createElement("strong");
+    const text = document.createElement("p");
+    strong.textContent = center.availability === "UNAVAILABLE" ? "Quota telemetry UNAVAILABLE" : "Quota telemetry UNKNOWN";
+    text.textContent = "ไม่มี isolate-local evidence ที่ตรวจสอบได้ จึงไม่สร้างค่า 0 และไม่เดา provider usage";
+    empty.append(strong, text);
+    hubList.append(empty);
+    return;
+  }
+
+  for (const item of center.hubs) {
+    const card = document.createElement("article");
+    card.className = "hub-health-card";
+    const head = document.createElement("div");
+    head.className = "hub-health-head";
+    const title = document.createElement("strong");
+    title.textContent = `${item.hub} · isolate observation`;
+    head.append(title, statusTag(item.state === "AVAILABLE" ? "HEALTHY" : "PARTIAL"));
+    const counters = document.createElement("p");
+    counters.textContent = `HTTP ${quotaCenterValue(item.httpRequests)} · statements ${quotaCenterValue(item.statements)} · rows read ${quotaCenterValue(item.rowsRead)} · rows written ${quotaCenterValue(item.rowsWritten)}`;
+    const guard = document.createElement("p");
+    guard.textContent = `errors ${quotaCenterValue(item.errors)} · provider-limit errors ${quotaCenterValue(item.providerLimitErrors)} · heavy reads ${quotaCenterValue(item.heavyReadEvents)} · read circuit ${item.providerReadCircuitOpen === null ? "UNKNOWN" : item.providerReadCircuitOpen ? "OPEN" : "CLOSED"}`;
+    const time = document.createElement("p");
+    time.textContent = `since ${item.since || "UNKNOWN"} · observed ${item.observedAt || item.lastObservedAt || "UNKNOWN"}`;
+    const note = document.createElement("p");
+    note.className = "truth-note";
+    note.textContent = "FACT: current Worker isolate only · ไม่ใช่ provider billing/account/monthly total และไม่รวม counter ข้าม isolate เป็นยอดรวม";
+    card.append(head, counters, guard, time, note);
+    hubList.append(card);
+  }
+}
+
 function renderIncidentActionCenter(center) {
   const panel = document.querySelector('[data-panel="incidents"]');
   const surfaces = [...(panel?.querySelectorAll(".surface") || [])];
@@ -658,6 +814,7 @@ function renderSnapshot(snapshot, workerReachable = false) {
   const hubViews = hubs.map((hub) => deriveHubView(hub, nowMs));
   const eventConsole = normalizeTerminalConsole(snapshot);
   const incidentCenter = deriveIncidentActionCenter(hubViews, eventConsole.events, eventConsole.availability);
+  const quotaCenter = deriveQuotaCenter(snapshot?.quotaTelemetry);
   const overview = deriveOverview(snapshot, module, { moduleCount: moduleRegistry.list().length, workerReachable, nowMs });
   const incidentCard = overview.cards.find((item) => item.id === "incidents");
   const actionCard = overview.cards.find((item) => item.id === "actions");
@@ -692,6 +849,7 @@ function renderSnapshot(snapshot, workerReachable = false) {
   hubState.className = `status-tag ${hubs.length ? "partial" : "unknown"}`;
   renderHubCards(hubs);
   renderQueueLifecycle(hubs, overview.queueLifecycle);
+  renderQuotaCenter(quotaCenter);
   renderIncidentActionCenter(incidentCenter);
   const sourceSummary = document.getElementById("source-snapshot-summary");
   sourceSummary.replaceChildren();

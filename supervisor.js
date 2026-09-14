@@ -2,6 +2,7 @@
 // SUPERVISOR_SOURCE_HEALTH_V1
 // SUPERVISOR_QUEUE_LIFECYCLE_V1
 // SUPERVISOR_EVENT_CONSOLE_V1
+// SUPERVISOR_INCIDENT_ACTION_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
@@ -16,7 +17,7 @@ const sectionCopy = {
   hubs: ["สุขภาพ HUB และ Source", "Source Health ใช้ telemetry ที่เกิดจาก refresh/coordinator เดิมเท่านั้น"],
   diagnostics: ["Queue / Lifecycle Diagnostics", "อ่าน accepted current rows จาก refresh เดิมเท่านั้น ไม่สร้าง source หรือ DB traffic เพิ่ม"],
   quota: ["Quota Center", "วัดจากงานเดิมและ shared telemetry โดยไม่สร้าง traffic เพื่อวัด traffic"],
-  incidents: ["Alert, Incident และ Action Center", "รวม state change ที่ dedupe แล้วและสิ่งที่ Admin ต้องจัดการ"],
+  incidents: ["Alert, Incident และ Action Center", "สรุป current open incident จาก shared state และใช้ event ring เป็นหลักฐานประกอบเท่านั้น"],
   maintenance: ["Maintenance Advisor", "สรุป auth renewal, warning, drift และ pending repair จากหลักฐานจริง"],
   terminal: ["Terminal-style Event Console", "Event ชั่วคราวแบบ bounded จาก shared state เดิม; Clear view ไม่ลบ event ring, Audit หรือ Incident"],
   guide: ["คู่มือและ System Context", "คำอธิบายสถานะ การแก้ปัญหา และ sanitized evidence"],
@@ -223,6 +224,162 @@ function bindTerminalControls() {
   });
 }
 
+// SUPERVISOR_INCIDENT_ACTION_V1: pure derivation from already-sanitized current
+// HUB views plus the SUP-08 ephemeral event ring. Current state is authoritative;
+// historical WARN/ERROR events never keep an incident open after current recovery.
+function incidentSeverity(state) {
+  const value = String(state || "UNKNOWN").toUpperCase();
+  if (["ERROR", "CRITICAL", "BLOCKED"].includes(value)) return "ERROR";
+  if (["AUTH_REQUIRED", "WARNING", "STALE", "PARTIAL"].includes(value)) return "WARN";
+  return null;
+}
+
+function validIncidentTime(value) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function latestIncidentEvent(events, hub, source = null) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event?.hub !== hub) continue;
+    if (source && event.source !== source) continue;
+    if (!source && event.source) continue;
+    if (["SOURCE_STATE_CHANGED", "REFRESH_ERROR", "REFRESH_RECOVERED", "HUB_HEALTH_CHANGED"].includes(event.code)) return event;
+  }
+  return null;
+}
+
+function incidentManualStep(hub, sourceLabel, state, errorCode) {
+  if (state === "AUTH_REQUIRED")
+    return `ต่ออายุ session / HAR จริงของ ${sourceLabel} สำหรับ ${hub} แล้วให้ refresh/coordinator เดิมยืนยันผล; ห้ามสร้าง session ปลอม`;
+  if (state === "STALE")
+    return `ตรวจ last success และ session ของ ${sourceLabel} สำหรับ ${hub}; อย่าเพิ่ม polling เพื่อบังคับ freshness`;
+  if (["ERROR", "CRITICAL", "BLOCKED"].includes(state))
+    return `ตรวจ ${sourceLabel} ของ ${hub}${errorCode ? ` (${errorCode})` : ""} จากหลักฐานจริง แล้วรอรอบ shared refresh เดิมยืนยันการฟื้นตัว`;
+  return `ตรวจ evidence และ source state ของ ${sourceLabel} สำหรับ ${hub} แบบ manual; OBSERVE ONLY ไม่มี repair execution`;
+}
+
+function deriveIncidentActionCenter(hubViews = [], events = [], eventAvailability = "UNAVAILABLE") {
+  const views = Array.isArray(hubViews)
+    ? hubViews.filter((view) => /^[A-Z0-9_-]{2,20}$/.test(String(view?.hub || "")) && view.hub !== "UNKNOWN")
+    : [];
+  const safeEvents = Array.isArray(events) ? events.filter((event) => event && typeof event === "object") : [];
+  const incidents = [];
+  const actions = [];
+  const seen = new Set();
+  const sourceMap = [
+    ["route", "ROUTE", "Route"],
+    ["preEntry", "PREENTRY", "PreEntry"],
+    ["busTime", "KIT_TBR", "KIT/TBR"],
+    ["hbiPhotos", "HBI", "HBI"],
+  ];
+
+  const add = ({ key, severity, hub, source = null, state, code, title, evidence, observedAt, actionKind, nextStep }) => {
+    if (!severity || seen.has(key)) return;
+    seen.add(key);
+    const time = validIncidentTime(observedAt);
+    const cleanCode = /^[A-Z0-9_:-]{2,80}$/.test(String(code || "")) ? String(code) : null;
+    incidents.push({
+      key, severity, status: "OPEN", hub, source, state, code: cleanCode, title,
+      evidence: String(evidence || "").slice(0, 260), observedAt: time,
+    });
+    actions.push({
+      key: `ACTION:${key}`, hub, source, severity, kind: actionKind,
+      title: state === "AUTH_REQUIRED" ? `Manual re-auth · ${source || hub}` : `Manual review · ${source || hub}`,
+      nextStep: String(nextStep || "").slice(0, 360), canExecute: false, mode: "OBSERVE_ONLY",
+    });
+  };
+
+  for (const view of views) {
+    let specific = 0;
+    for (const [field, sourceCode, sourceLabel] of sourceMap) {
+      const source = view?.sources?.[field];
+      if (!source || source.configured === false) continue;
+      if (source.mode === "CLICK_ONLY" && source.state === "UNKNOWN") continue;
+      const severity = incidentSeverity(source.state);
+      if (!severity) continue;
+      const event = latestIncidentEvent(safeEvents, view.hub, sourceCode);
+      const evidenceAt = event?.at || source.lastSuccessAt || view.lastSuccessAt || null;
+      const evidence = `${sourceLabel} current ${source.state}${source.errorCode ? ` · ${source.errorCode}` : ""}${source.freshness && source.freshness !== "UNKNOWN" ? ` · ${source.freshness}` : ""}`;
+      add({
+        key: `SOURCE:${view.hub}:${sourceCode}`,
+        severity,
+        hub: view.hub,
+        source: sourceCode,
+        state: source.state,
+        code: source.errorCode,
+        title: source.state === "AUTH_REQUIRED" ? `${sourceLabel} ต้องยืนยันตัวตนใหม่` : `${sourceLabel} ต้องตรวจสอบ`,
+        evidence,
+        observedAt: evidenceAt,
+        actionKind: source.state === "AUTH_REQUIRED" ? "MANUAL_REAUTH" : source.state === "STALE" ? "MANUAL_FRESHNESS_REVIEW" : "MANUAL_SOURCE_REVIEW",
+        nextStep: incidentManualStep(view.hub, sourceLabel, source.state, source.errorCode),
+      });
+      specific += 1;
+    }
+
+    if (view.errorCode) {
+      const event = latestIncidentEvent(safeEvents, view.hub, null);
+      add({
+        key: `REFRESH:${view.hub}`,
+        severity: "ERROR",
+        hub: view.hub,
+        state: "ERROR",
+        code: view.errorCode,
+        title: "Shared refresh มี error ที่ยังสังเกตได้",
+        evidence: `Current refresh error · ${view.errorCode}`,
+        observedAt: event?.at || view.lastSuccessAt || null,
+        actionKind: "MANUAL_REFRESH_REVIEW",
+        nextStep: `ตรวจ refresh error ${view.errorCode} และ Source Health ของ ${view.hub}; ห้ามยิง source เพิ่มเพื่อทำให้สถานะเขียว`,
+      });
+      specific += 1;
+    }
+
+    const hubSeverity = incidentSeverity(view.overall);
+    if (!specific && hubSeverity) {
+      const event = latestIncidentEvent(safeEvents, view.hub, null);
+      add({
+        key: `HUB:${view.hub}`,
+        severity: hubSeverity,
+        hub: view.hub,
+        state: view.overall,
+        code: null,
+        title: "HUB health ต้องตรวจสอบ",
+        evidence: `Current HUB health · ${view.overall}`,
+        observedAt: event?.at || view.lastSuccessAt || null,
+        actionKind: "MANUAL_HUB_REVIEW",
+        nextStep: `ตรวจ Source Health, connector/session และ last success ของ ${view.hub} จาก shared evidence เดิม; ไม่มีหลักฐานห้ามเดา`,
+      });
+    }
+  }
+
+  const rank = { ERROR: 0, WARN: 1 };
+  incidents.sort((left, right) => (rank[left.severity] ?? 9) - (rank[right.severity] ?? 9) || left.hub.localeCompare(right.hub) || String(left.source || "").localeCompare(String(right.source || "")));
+  actions.sort((left, right) => (rank[left.severity] ?? 9) - (rank[right.severity] ?? 9) || left.hub.localeCompare(right.hub));
+  const recentAlerts = safeEvents.filter((event) => ["WARN", "ERROR"].includes(event.level)).length;
+  const incomplete = views.some((view) => view.overall === "UNKNOWN" || Object.values(view.sources || {}).some((source) =>
+    source?.configured !== false && source?.mode !== "CLICK_ONLY" && source?.state === "UNKNOWN"));
+  const availability = views.length ? "AVAILABLE" : "UNAVAILABLE";
+  const state = availability !== "AVAILABLE"
+    ? "UNKNOWN"
+    : incidents.some((incident) => incident.severity === "ERROR")
+      ? "ERROR"
+      : incidents.length || incomplete
+        ? "PARTIAL"
+        : "HEALTHY";
+  return {
+    availability,
+    state,
+    openCount: incidents.length,
+    pendingActionCount: actions.length,
+    recentAlerts: eventAvailability === "AVAILABLE" ? recentAlerts : null,
+    incidents,
+    actions,
+    actionExecution: "DISABLED_OBSERVE_ONLY",
+  };
+}
+// SUPERVISOR_INCIDENT_ACTION_RENDER_V1
+
 function bindShell() {
   document.getElementById("supervisor-nav").addEventListener("click", (event) => {
     const button = event.target.closest("[data-section]");
@@ -397,12 +554,125 @@ function renderQueueLifecycle(hubs, summary) {
   surface.append(detail);
 }
 
+function renderIncidentActionCenter(center) {
+  const panel = document.querySelector('[data-panel="incidents"]');
+  const surfaces = [...(panel?.querySelectorAll(".surface") || [])];
+  const incidentSurface = surfaces[0];
+  const actionSurface = surfaces[1];
+  if (!incidentSurface || !actionSurface) return;
+
+  const replaceStatus = (surface, text, state) => {
+    const tag = surface.querySelector(".status-tag");
+    if (!tag) return;
+    tag.textContent = text;
+    tag.className = `status-tag ${state.toLowerCase()}`;
+  };
+  const replaceBody = (surface, kind, items, emptyTitle, emptyText, renderer) => {
+    surface.querySelector(".truth-empty")?.remove();
+    surface.querySelector(`[data-${kind}-list]`)?.remove();
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "truth-empty compact";
+      const strong = document.createElement("strong");
+      const text = document.createElement("p");
+      strong.textContent = emptyTitle;
+      text.textContent = emptyText;
+      empty.append(strong, text);
+      surface.append(empty);
+      return;
+    }
+    const list = document.createElement("div");
+    list.dataset[`${kind}List`] = "1";
+    list.className = "hub-health-grid";
+    for (const item of items) list.append(renderer(item));
+    surface.append(list);
+  };
+
+  const unavailable = center.availability !== "AVAILABLE";
+  replaceStatus(incidentSurface, unavailable ? "UNKNOWN" : center.openCount ? center.state : center.state === "HEALTHY" ? "CLEAR" : center.state, center.state);
+  replaceStatus(actionSurface, unavailable ? "UNKNOWN" : center.pendingActionCount ? center.state : center.state === "HEALTHY" ? "NONE" : center.state, center.state);
+
+  replaceBody(
+    incidentSurface,
+    "incident",
+    center.incidents,
+    unavailable ? "UNKNOWN" : center.state === "HEALTHY" ? "ไม่พบ incident ที่ยังเปิดอยู่" : "ยังไม่มี incident ที่ยืนยันได้",
+    unavailable
+      ? "ไม่มี current HUB evidence เพียงพอ; event history อย่างเดียวไม่ถูกใช้เพื่อเดาว่า incident ยังเปิดอยู่"
+      : center.state === "HEALTHY"
+        ? `ไม่พบ current problem ใน HUB ที่สังเกตได้ · recent WARN/ERROR ใน ring ${center.recentAlerts ?? "UNKNOWN"} · ไม่ได้หมายความว่าระบบที่ไม่มีหลักฐานเป็น HEALTHY`
+        : "หลักฐานยังไม่ครบ จึงไม่สรุปว่า CLEAR",
+    (incident) => {
+      const card = document.createElement("article");
+      card.className = "hub-health-card";
+      const head = document.createElement("div");
+      head.className = "hub-health-head";
+      const title = document.createElement("strong");
+      title.textContent = `${incident.hub}${incident.source ? ` / ${incident.source}` : ""} · ${incident.title}`;
+      head.append(title, statusTag(incident.severity === "ERROR" ? "ERROR" : "PARTIAL"));
+      const evidence = document.createElement("p");
+      evidence.textContent = `Evidence: ${incident.evidence}${incident.observedAt ? ` · ${incident.observedAt}` : " · time UNKNOWN"}`;
+      const note = document.createElement("p");
+      note.className = "truth-note";
+      note.textContent = `OPEN จาก current shared state · key ${incident.key} · event ring เป็นหลักฐานประกอบ ไม่ใช่ persistent incident store`;
+      card.append(head, evidence, note);
+      return card;
+    },
+  );
+
+  replaceBody(
+    actionSurface,
+    "action",
+    center.actions,
+    unavailable ? "UNKNOWN" : center.state === "HEALTHY" ? "ไม่มี pending manual action" : "ยังไม่มี action ที่ยืนยันได้",
+    unavailable
+      ? "ไม่มี current incident truth จึงไม่สร้าง action จำลอง"
+      : center.state === "HEALTHY"
+        ? "OBSERVE ONLY · ไม่มี repair execution และไม่มี mutation endpoint จาก SUP-09"
+        : "หลักฐานไม่พอสำหรับ action ที่ปลอดภัย; ไม่มีการเดา",
+    (action) => {
+      const card = document.createElement("article");
+      card.className = "hub-health-card";
+      const head = document.createElement("div");
+      head.className = "hub-health-head";
+      const title = document.createElement("strong");
+      title.textContent = `${action.hub}${action.source ? ` / ${action.source}` : ""} · ${action.title}`;
+      head.append(title, statusTag(action.severity === "ERROR" ? "ERROR" : "PARTIAL"));
+      const text = document.createElement("p");
+      text.textContent = action.nextStep;
+      const note = document.createElement("p");
+      note.className = "truth-note";
+      note.textContent = `${action.kind} · ${action.mode} · execution=${action.canExecute ? "ENABLED" : "DISABLED"}`;
+      card.append(head, text, note);
+      return card;
+    },
+  );
+}
+
 function renderSnapshot(snapshot, workerReachable = false) {
   const context = snapshot?.modules || {};
   const [module] = moduleRegistry.evaluate(context);
   const waitingTrucks = context.waitingTrucks || {};
   const hubs = Array.isArray(waitingTrucks.hubs) ? waitingTrucks.hubs : [];
-  const overview = deriveOverview(snapshot, module, { moduleCount: moduleRegistry.list().length, workerReachable });
+  const nowMs = Date.now();
+  const hubViews = hubs.map((hub) => deriveHubView(hub, nowMs));
+  const eventConsole = normalizeTerminalConsole(snapshot);
+  const incidentCenter = deriveIncidentActionCenter(hubViews, eventConsole.events, eventConsole.availability);
+  const overview = deriveOverview(snapshot, module, { moduleCount: moduleRegistry.list().length, workerReachable, nowMs });
+  const incidentCard = overview.cards.find((item) => item.id === "incidents");
+  const actionCard = overview.cards.find((item) => item.id === "actions");
+  if (incidentCard) {
+    incidentCard.value = incidentCenter.availability === "AVAILABLE" ? String(incidentCenter.openCount) : "UNKNOWN";
+    incidentCard.status = incidentCenter.state;
+    incidentCard.detail = incidentCenter.availability === "AVAILABLE"
+      ? `current open เท่านั้น · recent ring alerts ${incidentCenter.recentAlerts ?? "UNKNOWN"}`
+      : "ไม่มี current HUB evidence จึงไม่เดา incident";
+  }
+  if (actionCard) {
+    actionCard.value = incidentCenter.availability === "AVAILABLE" ? String(incidentCenter.pendingActionCount) : "UNKNOWN";
+    actionCard.status = incidentCenter.state;
+    actionCard.detail = "MANUAL / OBSERVE ONLY · execution disabled";
+  }
 
   document.getElementById("snapshot-state").lastChild.textContent = ` Snapshot: ${overview.snapshot}`;
   const overallHealth = document.getElementById("overall-health");
@@ -422,14 +692,14 @@ function renderSnapshot(snapshot, workerReachable = false) {
   hubState.className = `status-tag ${hubs.length ? "partial" : "unknown"}`;
   renderHubCards(hubs);
   renderQueueLifecycle(hubs, overview.queueLifecycle);
+  renderIncidentActionCenter(incidentCenter);
   const sourceSummary = document.getElementById("source-snapshot-summary");
   sourceSummary.replaceChildren();
   const sourceState = document.createElement("strong");
   const sourceDetail = document.createElement("p");
   sourceState.textContent = overview.map.sources;
   if (hubs.length) {
-    const views = hubs.map((hub) => deriveHubView(hub));
-    const sources = views.flatMap((view) => Object.values(view.sources));
+    const sources = hubViews.flatMap((view) => Object.values(view.sources));
     const authRequired = sources.filter((source) => source.state === "AUTH_REQUIRED").length;
     const errors = sources.filter((source) => ["ERROR", "CRITICAL", "BLOCKED"].includes(source.state)).length;
     const stale = sources.filter((source) => source.freshness === "STALE").length;

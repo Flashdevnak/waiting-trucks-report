@@ -1,6 +1,7 @@
 // SUPERVISOR_CORE_SHELL_V1
 // SUPERVISOR_SOURCE_HEALTH_V1
 // SUPERVISOR_QUEUE_LIFECYCLE_V1
+// SUPERVISOR_EVENT_CONSOLE_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
@@ -8,6 +9,7 @@ import { deriveHubView, deriveOverview } from "./supervisor-view.js?v=20260914-s
 
 const SUPERVISOR_AUTH_KEY = "bnak_operator_auth_v2";
 const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);
+const terminalState = { availability: "UNAVAILABLE", events: [], filter: "ALL", cleared: false, limit: 120 };
 
 const sectionCopy = {
   overview: ["ภาพรวมระบบ", "สถานะจริงจะแสดงเมื่อ shared Supervisor snapshot พร้อมใช้งาน"],
@@ -16,7 +18,7 @@ const sectionCopy = {
   quota: ["Quota Center", "วัดจากงานเดิมและ shared telemetry โดยไม่สร้าง traffic เพื่อวัด traffic"],
   incidents: ["Alert, Incident และ Action Center", "รวม state change ที่ dedupe แล้วและสิ่งที่ Admin ต้องจัดการ"],
   maintenance: ["Maintenance Advisor", "สรุป auth renewal, warning, drift และ pending repair จากหลักฐานจริง"],
-  terminal: ["Terminal-style Event Console", "Event ชั่วคราวแบบ bounded; Clear view ไม่ลบ Audit หรือ Incident"],
+  terminal: ["Terminal-style Event Console", "Event ชั่วคราวแบบ bounded จาก shared state เดิม; Clear view ไม่ลบ event ring, Audit หรือ Incident"],
   guide: ["คู่มือและ System Context", "คำอธิบายสถานะ การแก้ปัญหา และ sanitized evidence"],
 };
 
@@ -53,6 +55,174 @@ function activateSection(name) {
   document.getElementById("section-subtitle").textContent = copy[1];
 }
 
+function terminalPanel() {
+  return document.querySelector('[data-panel="terminal"]');
+}
+
+function terminalVisibleEvents() {
+  if (terminalState.cleared || terminalState.availability !== "AVAILABLE") return [];
+  return terminalState.events.filter((event) => terminalState.filter === "ALL" || event.level === terminalState.filter);
+}
+
+function terminalTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--:--:--";
+  return date.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+
+function normalizeTerminalConsole(snapshot) {
+  const raw = snapshot?.eventConsole;
+  if (!raw || raw.availability !== "AVAILABLE" || !Array.isArray(raw.events))
+    return { availability: "UNAVAILABLE", events: [], limit: 120 };
+  const suppliedLimit = Number(raw.limit);
+  const limit = Number.isInteger(suppliedLimit) && suppliedLimit > 0 && suppliedLimit <= 120 ? suppliedLimit : 120;
+  const seen = new Set();
+  const events = [];
+  for (const item of raw.events) {
+    if (!item || typeof item !== "object") continue;
+    const atMs = Date.parse(String(item.at || ""));
+    const level = String(item.level || "").toUpperCase();
+    const code = String(item.code || "").toUpperCase();
+    const hub = String(item.hub || "").toUpperCase();
+    const source = item.source == null ? null : String(item.source || "").toUpperCase();
+    if (!Number.isFinite(atMs) || !["INFO", "PASS", "WARN", "ERROR"].includes(level)) continue;
+    if (!/^[A-Z0-9_:-]{2,80}$/.test(code) || !/^[A-Z0-9_-]{2,20}$/.test(hub)) continue;
+    if (source && !/^[A-Z0-9_:-]{2,80}$/.test(source)) continue;
+    const message = String(item.message || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 220);
+    if (!message) continue;
+    const id = String(item.id || `${new Date(atMs).toISOString()}|${hub}|${code}|${events.length}`).slice(0, 180);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    events.push({ id, at: new Date(atMs).toISOString(), level, code, hub, source, message });
+  }
+  events.sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+  return { availability: "AVAILABLE", events: events.slice(-limit), limit };
+}
+
+function renderTerminalRows() {
+  const panel = terminalPanel();
+  const body = panel?.querySelector(".terminal-body");
+  if (!body) return;
+  const buttons = [...panel.querySelectorAll(".terminal-head button")];
+  const copyButton = buttons[1];
+  const clearButton = buttons[2];
+  const visible = terminalVisibleEvents();
+  body.replaceChildren();
+
+  const messageRow = (text) => {
+    const row = document.createElement("p");
+    const time = document.createElement("time");
+    const level = document.createElement("b");
+    const message = document.createElement("span");
+    time.textContent = "--:--:--";
+    level.textContent = "INFO";
+    message.textContent = text;
+    row.append(time, level, message);
+    body.append(row);
+  };
+
+  if (terminalState.availability !== "AVAILABLE") {
+    messageRow("Event console UNAVAILABLE. No runtime event was fabricated.");
+  } else if (terminalState.cleared) {
+    messageRow("View cleared locally. Ephemeral event ring was not deleted; use Restore view to show the retained snapshot again.");
+  } else if (!terminalState.events.length) {
+    messageRow("No material runtime transition is retained in the current ephemeral ring.");
+  } else if (!visible.length) {
+    messageRow(`No retained event matches filter ${terminalState.filter}.`);
+  } else {
+    for (const event of visible) {
+      const row = document.createElement("p");
+      row.dataset.level = event.level;
+      const time = document.createElement("time");
+      const level = document.createElement("b");
+      const message = document.createElement("span");
+      time.textContent = terminalTime(event.at);
+      time.title = event.at;
+      level.textContent = event.level;
+      const scope = event.source ? `${event.hub}/${event.source}` : event.hub;
+      message.textContent = `${scope} · ${event.code} · ${event.message}`;
+      row.append(time, level, message);
+      body.append(row);
+    }
+    body.scrollTop = body.scrollHeight;
+  }
+
+  if (copyButton) copyButton.disabled = visible.length === 0;
+  if (clearButton) {
+    clearButton.disabled = terminalState.availability !== "AVAILABLE" || terminalState.events.length === 0;
+    clearButton.textContent = terminalState.cleared ? "Restore view" : "Clear view";
+  }
+}
+
+function renderTerminalConsole(snapshot) {
+  const normalized = normalizeTerminalConsole(snapshot);
+  terminalState.availability = normalized.availability;
+  terminalState.events = normalized.events;
+  terminalState.limit = normalized.limit;
+  terminalState.cleared = false;
+  terminalState.filter = "ALL";
+  const panel = terminalPanel();
+  panel?.querySelectorAll(".terminal-filters span").forEach((item) => {
+    item.classList.toggle("is-active", item.textContent.trim().toUpperCase() === "ALL");
+  });
+  renderTerminalRows();
+}
+
+function bindTerminalControls() {
+  const panel = terminalPanel();
+  if (!panel) return;
+  const buttons = [...panel.querySelectorAll(".terminal-head button")];
+  const pauseButton = buttons[0];
+  const copyButton = buttons[1];
+  const clearButton = buttons[2];
+  if (pauseButton) {
+    pauseButton.textContent = "One-shot";
+    pauseButton.disabled = true;
+    pauseButton.title = "SUP-08 reads the shared snapshot once and does not start a background event stream.";
+  }
+  if (copyButton) {
+    copyButton.disabled = true;
+    copyButton.addEventListener("click", async () => {
+      const events = terminalVisibleEvents();
+      if (!events.length) return;
+      const text = events.map((event) => `${event.at} ${event.level} ${event.hub}${event.source ? `/${event.source}` : ""} ${event.code} ${event.message}`).join("\n");
+      try {
+        await navigator.clipboard.writeText(text);
+        copyButton.textContent = "Copied";
+      } catch {
+        copyButton.textContent = "Copy blocked";
+      }
+    });
+  }
+  if (clearButton) {
+    clearButton.disabled = true;
+    clearButton.addEventListener("click", () => {
+      terminalState.cleared = !terminalState.cleared;
+      renderTerminalRows();
+    });
+  }
+  panel.querySelectorAll(".terminal-filters span").forEach((item) => {
+    const value = item.textContent.trim().toUpperCase();
+    if (!["ALL", "PASS", "WARN", "ERROR"].includes(value)) return;
+    item.tabIndex = 0;
+    item.setAttribute("role", "button");
+    item.setAttribute("aria-label", `Filter terminal events: ${value}`);
+    const activate = () => {
+      terminalState.filter = value;
+      terminalState.cleared = false;
+      panel.querySelectorAll(".terminal-filters span").forEach((candidate) => candidate.classList.toggle("is-active", candidate === item));
+      renderTerminalRows();
+    };
+    item.addEventListener("click", activate);
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activate();
+      }
+    });
+  });
+}
+
 function bindShell() {
   document.getElementById("supervisor-nav").addEventListener("click", (event) => {
     const button = event.target.closest("[data-section]");
@@ -66,6 +236,7 @@ function bindShell() {
   dialog.addEventListener("click", (event) => {
     if (event.target === dialog) dialog.close();
   });
+  bindTerminalControls();
 }
 
 function statusTag(state) {
@@ -267,6 +438,7 @@ function renderSnapshot(snapshot, workerReachable = false) {
     sourceDetail.textContent = "ยังไม่มี source observation; missing data ไม่ใช่ HEALTHY";
   }
   sourceSummary.append(sourceState, sourceDetail);
+  renderTerminalConsole(snapshot);
 }
 
 async function loadSharedSnapshot() {

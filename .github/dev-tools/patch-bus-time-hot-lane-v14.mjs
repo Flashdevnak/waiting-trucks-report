@@ -11,10 +11,7 @@ fs.copyFileSync(runtimeSource, runtimeTarget);
 let source = fs.readFileSync(file, "utf8");
 const MARKER = "BUS_TIME_HOT_LANE_V14";
 const PARALLEL_MARKER = "MS_FIRST_SOURCE_PARALLEL_V2";
-if (source.includes(MARKER)) {
-  console.log(`${MARKER}=ALREADY_APPLIED`);
-  process.exit(0);
-}
+const SOURCE_CADENCE_MARKER = "MS_ROUTE_SHARED_SOURCE_CADENCE_V1";
 
 function replaceUnique(input, from, to, label) {
   const first = input.indexOf(from);
@@ -22,6 +19,46 @@ function replaceUnique(input, from, to, label) {
   if (first < 0 || first !== last)
     throw new Error(`${MARKER}: ${label} anchor missing or non-unique`);
   return input.slice(0, first) + to + input.slice(first + from.length);
+}
+
+function patchSharedRouteSourceCadence(input) {
+  let output = String(input || "");
+  if (output.includes(SOURCE_CADENCE_MARKER)) return output;
+  output = replaceUnique(
+    output,
+    "const MS_CRON_ACTIVE_SKIP_MS = 45 * 1000;",
+    `const MS_CRON_ACTIVE_SKIP_MS = 45 * 1000;
+// ${SOURCE_CADENCE_MARKER}: visible WebSocket snapshots stay at 4 seconds,
+// while one per-HUB coordinator shares Route upstream work at a bounded 12-second cadence.
+// Explicit force refresh remains authoritative and bypasses this source gate.
+const MS_REALTIME_SOURCE_MIN_MS = 12 * 1000;`,
+    "shared Route source cadence constant",
+  );
+  output = replaceUnique(
+    output,
+    `    if (!force && this.lastResult && this.recentUntil > nowMs)
+      return this.lastResult;`,
+    `    if (
+      !force &&
+      !cron &&
+      this.lastResult &&
+      nowMs - this.lastSourceAt < MS_REALTIME_SOURCE_MIN_MS
+    )
+      return this.lastResult;
+    if (!force && this.lastResult && this.recentUntil > nowMs)
+      return this.lastResult;`,
+    "shared Route source cadence gate",
+  );
+  return output;
+}
+
+source = patchSharedRouteSourceCadence(source);
+if (source.includes(MARKER)) {
+  fs.writeFileSync(file, source);
+  console.log(`${MARKER}=ALREADY_APPLIED`);
+  console.log(`${SOURCE_CADENCE_MARKER}=PASS`);
+  console.log("MS_ROUTE_SHARED_SOURCE_MIN_MS=12000");
+  process.exit(0);
 }
 
 if (!source.startsWith("import "))
@@ -250,6 +287,10 @@ if (!source.includes("readBusTimeData(env, branch, liveSourceDays(), routeHintRo
   throw new Error(`${MARKER}: parallel Route-hint handoff missing`);
 if (!source.includes(PARALLEL_MARKER))
   throw new Error(`${MARKER}: first-source parallel marker missing`);
+if (!source.includes(SOURCE_CADENCE_MARKER) || !source.includes("MS_REALTIME_SOURCE_MIN_MS = 12 * 1000"))
+  throw new Error(`${MARKER}: shared Route source cadence marker missing`);
+if (!source.includes("nowMs - this.lastSourceAt < MS_REALTIME_SOURCE_MIN_MS"))
+  throw new Error(`${MARKER}: 4-second UI is still coupled to Route upstream refresh`);
 if (!refreshSection.includes("Promise.all([\n      readMsRoutes(credentials),") ||
     !refreshSection.includes("readBusTimeData(env, branch, liveSourceDays(), routeHintRows)"))
   throw new Error(`${MARKER}: Route and BusTime are not started in the same shared refresh`);
@@ -274,8 +315,11 @@ if (!source.includes("data.sourceFailed = Boolean(data.sourceStale)"))
 fs.writeFileSync(file, source);
 console.log(`${MARKER}=PASS`);
 console.log(`${PARALLEL_MARKER}=PASS`);
+console.log(`${SOURCE_CADENCE_MARKER}=PASS`);
 console.log("FIRST_SOURCE_ROUTE_LATENCY_GATE=0");
 console.log("FIRST_SOURCE_BUS_READS_PER_REFRESH=1");
+console.log("MS_VISIBLE_REALTIME_MS=4000");
+console.log("MS_ROUTE_SHARED_SOURCE_MIN_MS=12000");
 console.log("BUS_TIME_HOT_DETECTION_MS=4000");
 console.log("BUS_TIME_BACKGROUND_INTERVAL_MS=12000");
 console.log("BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE=1");

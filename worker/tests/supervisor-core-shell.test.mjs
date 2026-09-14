@@ -53,6 +53,10 @@ test("DEV pipeline stages and smoke-checks every Supervisor core asset", () => {
   assert.match(workflow, /supervisor-modules\.js/);
   assert.match(workflow, /SUPERVISOR_CORE_SHELL_V1/);
   assert.match(workflow, /SUPERVISOR_MODULE_REGISTRY_V1/);
+  assert.match(workflow, /async function getNewAsset\(path\)/);
+  assert.match(workflow, /attempt<=5/);
+  assert.match(workflow, /response\.status!==404\|\|attempt===5/);
+  assert.match(workflow, /getNewAsset\('supervisor-modules\.js'\)/);
   assert.match(workflow, /supervisorResponse\.status!==403/);
   assert.match(workflow, /DEV_SUPERVISOR_ADMIN_GUARD=PASS/);
 });

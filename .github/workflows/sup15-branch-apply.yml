@@ -1,0 +1,64 @@
+name: SUP-15 Branch Apply
+
+on:
+  push:
+    branches:
+      - codex/sup-15-redacted-system-context
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'SUP-15:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Apply SUP-15 canonical patch
+        run: node .github/dev-tools/apply-sup15.mjs
+      - name: Install worker dependencies
+        working-directory: worker
+        run: npm ci
+      - name: Focused SUP-15 contracts
+        working-directory: worker
+        run: node --test tests/supervisor-system-context.test.mjs tests/supervisor-guide-contract.test.mjs tests/supervisor-language-contract.test.mjs
+      - name: Full regression
+        working-directory: worker
+        run: npm run check
+      - name: Diff safety
+        run: |
+          git diff --check
+          node <<'NODE'
+          const {execSync}=require('node:child_process');
+          const files=execSync('git diff --name-only', {encoding:'utf8'}).trim().split(/\r?\n/).filter(Boolean);
+          const allowed=new Set([
+            'supervisor.html',
+            'supervisor.js',
+            'supervisor-context.js',
+            'worker/package.json',
+            'worker/tests/supervisor-system-context.test.mjs',
+            'worker/tests/supervisor-guide-contract.test.mjs',
+            'worker/tests/supervisor-language-contract.test.mjs',
+            '.github/workflows/deploy-worker-dev.yml',
+          ]);
+          const bad=files.filter((file)=>!allowed.has(file));
+          if(bad.length) throw new Error(`Unexpected SUP-15 files: ${bad.join(', ')}`);
+          console.log(`SUP15_CHANGED_FILES=${files.length}`);
+          console.log('SUP15_DIFF_SAFETY=PASS');
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE
+      - name: Commit canonical SUP-15
+        run: |
+          git config user.name "Flashdevnak"
+          git config user.email "26nak.testdev@gmail.com"
+          git add supervisor.html supervisor.js supervisor-context.js worker/package.json worker/tests/supervisor-system-context.test.mjs worker/tests/supervisor-guide-contract.test.mjs worker/tests/supervisor-language-contract.test.mjs .github/workflows/deploy-worker-dev.yml
+          git commit -m "SUP-15: Redacted System Context copy contract"
+          git push origin HEAD:codex/sup-15-redacted-system-context

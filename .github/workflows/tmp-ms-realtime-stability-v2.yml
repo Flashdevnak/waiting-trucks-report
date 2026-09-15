@@ -60,28 +60,27 @@ jobs:
           }
           NODE
 
-      - name: Show final diff and remove temporary runner
+      - name: Prepare tested source commit
         run: |
           git status --short
-          git diff -- ms.js ms-report.js worker/package.json .github/dev-tools/stage-dev-runtime.mjs .github/workflows/current-system-acceptance.yml
+          git diff -- ms.js ms-report.js worker/package.json .github/dev-tools/stage-dev-runtime.mjs
+          git restore .github/workflows/current-system-acceptance.yml
           git rm .github/dev-tools/tmp-ms-realtime-stability-v2.mjs
           git rm .github/dev-tools/tmp-ms-realtime-stability-v2-fixed.mjs
           git rm .github/dev-tools/tmp-ms-realtime-stability-v3.mjs
-          git rm .github/workflows/tmp-ms-realtime-stability-v2.yml
 
       - name: Commit tested DEV hardening
         run: |
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
-          git add ms.js ms-report.js worker/package.json worker/tests/ms-transient-empty-guard.test.mjs .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/patch-ms-transient-empty-guard.mjs .github/workflows/current-system-acceptance.yml
-          git add -u .github/dev-tools .github/workflows
+          git add ms.js ms-report.js worker/package.json worker/tests/ms-transient-empty-guard.test.mjs .github/dev-tools/stage-dev-runtime.mjs .github/dev-tools/patch-ms-transient-empty-guard.mjs
+          git add -u .github/dev-tools
           git commit -m 'fix(dev): harden realtime empty snapshot continuity'
           git push origin HEAD:codex/dev-ms-realtime-stability-v2
 
-      - name: Verify temporary runner removed
+      - name: Verify temporary patch scripts removed
         run: |
           test ! -e .github/dev-tools/tmp-ms-realtime-stability-v2.mjs
           test ! -e .github/dev-tools/tmp-ms-realtime-stability-v2-fixed.mjs
           test ! -e .github/dev-tools/tmp-ms-realtime-stability-v3.mjs
-          test ! -e .github/workflows/tmp-ms-realtime-stability-v2.yml
-          echo 'TEMP_RUNNER_REMOVED=PASS'
+          echo 'TEMP_PATCH_SCRIPTS_REMOVED=PASS'

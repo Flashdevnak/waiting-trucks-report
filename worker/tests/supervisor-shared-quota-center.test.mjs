@@ -133,5 +133,5 @@ test("SUP-11 uses the existing one-shot snapshot transport and exposes truth-saf
   assert.match(supervisorHtml, /id="quota-center-summary"/);
   assert.match(supervisorHtml, /id="quota-hub-list"/);
   assert.match(supervisorHtml, /Provider billing truth/);
-  assert.match(supervisorHtml, /supervisor\.js\?v=20260915-sup13/);
+  assert.match(supervisorHtml, /supervisor\.js\?v=20260915-sup14/);
 });

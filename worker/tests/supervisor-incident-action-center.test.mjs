@@ -144,5 +144,5 @@ test("SUP-09 frontend preserves one-shot snapshot transport and disabled action 
   assert.match(supervisorFront, /actionExecution: "DISABLED_OBSERVE_ONLY"/);
   assert.match(supervisorFront, /canExecute: false/);
   assert.match(supervisorFront, /current open เท่านั้น/);
-  assert.match(supervisorHtml, /supervisor\.js\?v=20260915-sup13/);
+  assert.match(supervisorHtml, /supervisor\.js\?v=20260915-sup14/);
 });

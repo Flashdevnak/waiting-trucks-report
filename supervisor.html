@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f4f7fb">
   <title>Waiting Trucks Supervisor · DEV</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="supervisor.css?v=20260915-sup13">
+  <link rel="stylesheet" href="supervisor.css?v=20260915-sup14">
 </head>
 <body>
   <!-- SUPERVISOR_CORE_SHELL_V1: isolated side-car; one shared-state read, no source/DB polling. -->
@@ -173,9 +173,76 @@
         </section>
 
         <section class="panel-section" data-panel="guide">
+          <!-- SUPERVISOR_GUIDE_V1: static/read-only operating guide; no source, DB, repair, timer, or AI work. -->
           <div class="section-grid">
-            <article class="surface span-2"><div class="surface-head"><div><p class="card-label">GUIDE</p><h3>คู่มือ Supervisor</h3></div></div><div class="guide-grid"><div><strong>UNKNOWN หมายถึงอะไร</strong><p>ยังไม่มีหลักฐานเพียงพอ ห้ามตีความว่าปกติ</p></div><div><strong>OBSERVE ONLY</strong><p>ดูและวิเคราะห์เท่านั้น ไม่มีการซ่อมอัตโนมัติ</p></div><div><strong>Quota guard</strong><p>Supervisor ต้องไม่สร้าง upstream หรือ DB traffic ตามจำนวนหน้าจอ</p></div><div><strong>Production guard</strong><p>Production อยู่นอกอำนาจของ Bot ทุกระดับ</p></div></div></article>
-            <article class="surface"><div class="surface-head"><div><p class="card-label">SYSTEM CONTEXT</p><h3>Copy / Evidence</h3></div></div><p class="body-copy">ปุ่ม Copy จะเปิดเมื่อมี sanitized snapshot และ redaction tests ผ่านแล้ว</p><button class="button button-quiet full" type="button" disabled>Copy Current System Context</button></article>
+            <article class="surface span-2">
+              <div class="surface-head"><div><p class="card-label">GUIDE</p><h3>คู่มือ Supervisor</h3></div><span class="status-tag healthy">READ ONLY</span></div>
+              <div class="guide-grid">
+                <div><strong>อ่านสถานะอย่างไร</strong><p>ใช้ลำดับนี้ทุกครั้งก่อนตัดสินใจ</p></div>
+                <div><strong>1. เริ่มจาก Overall และ Snapshot</strong><p>ถ้า Snapshot ยัง UNAVAILABLE หรือ UNKNOWN ให้หยุดที่ข้อเท็จจริงนั้น ห้ามสรุปว่าระบบปกติ</p></div>
+                <div><strong>2. เลือก HUB แล้วดู Source Health</strong><p>ตรวจ Route, KIT/TBR และ optional source จาก shared telemetry ที่มีอยู่เท่านั้น</p></div>
+                <div><strong>3. ตรวจเวลาและหลักฐานล่าสุด</strong><p>ดู last success, freshness, error และ current incident ก่อนแนะนำการแก้</p></div>
+                <div><strong>4. ตรวจ Queue / Lifecycle</strong><p>ใช้ accepted queue truth เดิมเท่านั้น ไม่แก้ arrival, unloading, departure หรือ expiry</p></div>
+                <div><strong>5. ยืนยันผลหลังการแก้แบบ manual</strong><p>ให้ refresh/coordinator เดิมยืนยัน recovery ห้ามยิง source เพิ่มเพื่อพิสูจน์ผล</p></div>
+              </div>
+            </article>
+
+            <article class="surface span-2">
+              <div class="surface-head"><div><p class="card-label">STATUS GUIDE</p><h3>ความหมายสถานะ</h3></div></div>
+              <div class="guide-grid">
+                <div><strong>UNKNOWN</strong><p>หลักฐานไม่พอ ห้ามตีความเป็น HEALTHY</p></div>
+                <div><strong>HEALTHY</strong><p>หลักฐานปัจจุบันผ่าน freshness และ contract ที่มีอยู่</p></div>
+                <div><strong>STALE</strong><p>มีหลักฐานแต่เก่าเกินเกณฑ์ที่กำหนด</p></div>
+                <div><strong>AUTH_REQUIRED</strong><p>ต้องต่ออายุ session หรือ HAR จริง ห้ามสร้าง session ปลอม</p></div>
+                <div><strong>ERROR</strong><p>source หรือ runtime รายงานข้อผิดพลาดที่ตรวจสอบได้</p></div>
+                <div><strong>OBSERVE ONLY</strong><p>ดูและวิเคราะห์เท่านั้น ไม่มีการซ่อมอัตโนมัติ</p></div>
+              </div>
+            </article>
+
+            <article class="surface">
+              <div class="surface-head"><div><p class="card-label">EVIDENCE</p><h3>หลักฐานและระดับความมั่นใจ</h3></div></div>
+              <div class="guide-grid">
+                <div><strong>FACT</strong><p>ค่าที่มาจาก current shared state หรือ accepted evidence โดยตรง</p></div>
+                <div><strong>INFERENCE</strong><p>ข้อสรุปที่อนุมานได้จากหลักฐานที่ครบ และต้องไม่แทนที่ FACT</p></div>
+                <div><strong>SUSPICION</strong><p>ข้อสงสัยที่ยังพิสูจน์ไม่ได้ ต้องแสดงเป็นข้อสงสัย ไม่ใช่ข้อเท็จจริง</p></div>
+              </div>
+            </article>
+
+            <article class="surface">
+              <div class="surface-head"><div><p class="card-label">TROUBLESHOOTING</p><h3>แนวทางแก้ปัญหาที่พบบ่อย</h3></div></div>
+              <div class="guide-grid">
+                <div><strong>KIT/TBR ขึ้น AUTH_REQUIRED</strong><p>ต่ออายุ session / HAR จริง แล้วให้ coordinator เดิมยืนยันผล</p></div>
+                <div><strong>Route เป็น STALE หรือ ERROR</strong><p>ตรวจ last success และ error จาก shared telemetry ก่อน ห้ามเพิ่ม direct polling</p></div>
+                <div><strong>หลัง Worker เริ่มใหม่แล้วเป็น UNKNOWN</strong><p>รอหลักฐานจากรอบ refresh จริงเดิม ไม่สร้าง synthetic refresh</p></div>
+                <div><strong>Quota หรือ guard ไม่ชัดเจน</strong><p>ใช้เฉพาะ isolate-local telemetry ที่มีอยู่ และคง provider total/limit เป็น UNKNOWN ถ้าไม่มีหลักฐาน</p></div>
+              </div>
+            </article>
+
+            <article class="surface">
+              <div class="surface-head"><div><p class="card-label">SAFETY</p><h3>ข้อห้ามสำคัญ</h3></div></div>
+              <ul class="contract-list">
+                <li><span>ห้าม Auto Repair ใน SUP-14</span><strong>LOCKED</strong></li>
+                <li><span>ห้ามสร้าง HAR, session, event หรือข้อมูลจำลองเพื่อทำให้สถานะเขียว</span><strong>0</strong></li>
+                <li><span>ห้ามแตะ Production</span><strong>NO</strong></li>
+                <li><span>HBI ต้อง click-only</span><strong>CLICK ONLY</strong></li>
+                <li><span>ห้ามเพิ่ม provider/source/DB traffic เพื่อวัด health หรือ quota</span><strong>0</strong></li>
+              </ul>
+            </article>
+
+            <article class="surface">
+              <div class="surface-head"><div><p class="card-label">RESOLUTION</p><h3>เมื่อไรจึงถือว่าเหตุการณ์หาย</h3></div></div>
+              <div class="guide-grid">
+                <div><strong>Current truth</strong><p>ต้องมี current shared state ที่กลับมาปกติและมี accepted evidence ล่าสุดรองรับ</p></div>
+                <div><strong>Event history</strong><p>event history อย่างเดียวไม่พอสำหรับปิด incident</p></div>
+                <div><strong>Missing evidence</strong><p>ถ้ายังขาดหลักฐาน ให้คง UNKNOWN หรือ PARTIAL ตามจริง</p></div>
+              </div>
+            </article>
+
+            <article class="surface span-2">
+              <div class="surface-head"><div><p class="card-label">SYSTEM CONTEXT</p><h3>System Context ยังล็อกอยู่</h3></div><span class="status-tag unknown">SUP-15</span></div>
+              <p class="body-copy">SUP-14 ให้คู่มือเท่านั้น ปุ่ม Copy Current System Context ยังปิดไว้จนกว่า SUP-15 redaction contract จะผ่าน</p>
+              <button class="button button-quiet full" type="button" disabled>Copy Current System Context</button>
+            </article>
           </div>
         </section>
       </section>
@@ -187,6 +254,6 @@
     <dl><div><dt>Evidence</dt><dd>สถานะมาจาก sanitized shared Durable Object state เท่านั้น</dd></div><div><dt>Impact</dt><dd>ถ้าไม่มี runtime event จะแสดง UNKNOWN โดย Waiting Trucks ไม่ได้รับผลกระทบ</dd></div><div><dt>Bot action</dt><dd>OBSERVE ONLY — ไม่สร้างข้อมูลหรือเรียก source เพิ่ม</dd></div><div><dt>Next step</dt><dd>ตรวจ observed HUB และ last accepted evidence โดยไม่ตีความข้อมูลที่หายเป็น HEALTHY</dd></div></dl>
   </dialog>
 
-  <script type="module" src="supervisor.js?v=20260915-sup13"></script>
+  <script type="module" src="supervisor.js?v=20260915-sup14"></script>
 </body>
 </html>

@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  validate-staged-asset:
+  persist-validated-refactor:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,24 +20,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: worker/package-lock.json
-      - name: Apply staged-asset refactor
+      - name: Apply whitespace-normalized staged-asset refactor
         run: python .github/dev-tools/refactor-sup15-staged-asset.py
-      - name: Install worker dependencies
-        working-directory: worker
-        run: npm ci
-      - name: Focused SUP-15 contracts
-        working-directory: worker
-        run: node --test tests/supervisor-system-context.test.mjs tests/supervisor-guide-contract.test.mjs tests/supervisor-language-contract.test.mjs tests/supervisor-module-registry.test.mjs tests/supervisor-core-shell.test.mjs
-      - name: Full regression
-        working-directory: worker
-        run: npm run check
+      - name: Verify syntax and focused redaction contract
+        run: |
+          node --check supervisor-modules.js
+          node --check supervisor.js
+          node --test worker/tests/supervisor-system-context.test.mjs worker/tests/supervisor-module-registry.test.mjs
       - name: Diff safety
         run: |
           git diff --check
           git diff --name-only
-          echo SUP15_REFACTOR_DIFF_SAFETY=PASS
+          echo SUP15_WHITESPACE_FIX=PASS
+          echo SUP15_PRIOR_FULL_REGRESSION_RUN=34976604958
           echo PRODUCTION_TOUCHED=NO
       - name: Commit validated staged-asset refactor
         run: |

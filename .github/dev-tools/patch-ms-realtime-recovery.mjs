@@ -260,6 +260,7 @@ async function readMsRoutes(credentials, wantedStart, wantedEnd) {`,
           ...remembered,
           status: "degraded",
           changes: 0,
+          errorCode: errorCode || "MS_NETWORK_ERROR",
           error: tursoAvailability
             ? "ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด"
             : "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
@@ -318,6 +319,7 @@ async function readMsRoutes(credentials, wantedStart, wantedEnd) {`,
     );
     const result = {
       status: "error",
+      errorCode: errorCode || "MS_SYNC_FAILED",
       error: tursoAvailability
         ? "ฐานข้อมูลตอบช้าชั่วคราว ยังไม่สามารถอ่าน snapshot ล่าสุดได้"
         : errorMessage || "เชื่อมต่อ MS ไม่สำเร็จ",

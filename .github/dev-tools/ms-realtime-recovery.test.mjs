@@ -74,6 +74,11 @@ test("Turso 524 preserves accepted in-memory snapshot without extra DB read/writ
   );
   assert.match(
     refresh,
+    /\.\.\.remembered,[\s\S]*?errorCode:\s*errorCode \|\| "MS_NETWORK_ERROR"/,
+    "degraded memory fallback must retain truthful technical error metadata",
+  );
+  assert.match(
+    refresh,
     /if \(!tursoAvailability\) \{\s*const fallback = await readMsLiveCache\(env, branch\);/,
     "Turso availability failures must not issue an immediate second DB read",
   );
@@ -110,6 +115,35 @@ test("Turso 524 preserves accepted in-memory snapshot without extra DB read/writ
     rememberedResultBlock,
     /syncedAt:\s*new Date\(/,
     "Turso fallback must preserve remembered syncedAt rather than fabricate freshness",
+  );
+  assert.doesNotMatch(
+    rememberedResultBlock,
+    /readMsLiveCache|readMsRoutes|readPreEntryCounts|readBusTimeData|safeStatusWrite/,
+    "remembered Turso fallback must not issue a DB/upstream call or status write",
+  );
+});
+
+test("Turso transient classification is limited to unreadable provider 5xx responses", () => {
+  const refresh = functionBody(worker, "runMsRefresh");
+  assert.match(
+    refresh,
+    /Turso returned an unreadable response \\\((?:5\\d\\d\|unknown|\(\?:5\\d\\d\|unknown\))\\\)/,
+  );
+  assert.doesNotMatch(
+    refresh,
+    /errorCode === "TURSO_PROTOCOL_ERROR"\s*\|\|/,
+    "malformed successful responses must not all be hidden as transient",
+  );
+});
+
+test("Turso fallback remains HUB-isolated and a real success clears degraded state", () => {
+  const refresh = functionBody(worker, "runMsRefresh");
+  assert.match(refresh, /recentMsSync\.get\(branch\)\?\.result/);
+  assert.doesNotMatch(refresh, /recentMsSync\.values\(\)|recentMsSync\.entries\(\)/);
+  assert.match(
+    refresh,
+    /const result = \{\s*status:\s*"synced",[\s\S]*?recentMsSync\.set\(branch/,
+    "the next genuine success must replace degraded state naturally",
   );
 });
 
@@ -168,7 +202,8 @@ test("frontend keeps transient degraded mode connected and visible without toast
   assert.match(frontend, /state\.msStatus !== "degraded"/);
   assert.match(
     frontend,
-    /ระบบข้อมูลตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที/,
+    /ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที/,
+    "degraded UI must remain truthful without coupling the contract to a cosmetic prefix",
   );
 });
 

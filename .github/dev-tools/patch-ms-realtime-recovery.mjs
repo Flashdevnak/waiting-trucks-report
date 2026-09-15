@@ -77,7 +77,7 @@ export function patchDevRealtimeFrontend(source) {
       toast(state.syncError, true);
     el("last-refresh").textContent =
       state.msStatus === "degraded"
-        ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
+        ? "ระบบข้อมูลตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
         : \`อัปเดตล่าสุด \${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที\`;`,
     "frontend degraded cache status",
   );
@@ -228,60 +228,105 @@ async function readMsRoutes(credentials, wantedStart, wantedEnd) {`,
   }
 }`,
     `  } catch (error) {
+    const errorCode = String(error?.code || "");
+    const errorMessage = String(error?.message || "");
+    // TURSO_TRANSIENT_CACHE_CONTINUITY_V1: a provider/network 5xx must not
+    // destroy the last accepted snapshot or trigger an immediate second DB
+    // request. Preserve the original syncedAt so degraded data is never made
+    // to look fresh.
+    const tursoAvailability =
+      errorCode === "TURSO_NETWORK_ERROR" ||
+      (errorCode === "TURSO_PROTOCOL_ERROR" &&
+        /Turso returned an unreadable response \\((?:5\\d\\d|unknown)\\)/i.test(
+          errorMessage,
+        ));
     const transient =
-      error?.code === "UPSTREAM_TIMEOUT" ||
-      error?.code === "MS_HTTP_ERROR" ||
+      tursoAvailability ||
+      errorCode === "UPSTREAM_TIMEOUT" ||
+      errorCode === "MS_HTTP_ERROR" ||
       error instanceof TypeError;
     if (transient) {
-      const fallback = await readMsLiveCache(env, branch);
-      if (fallback?.rows) {
+      const remembered = recentMsSync.get(branch)?.result;
+      if (Array.isArray(remembered?.rows)) {
         console.warn(
           JSON.stringify({
-            event: "ms_sync_degraded",
+            event: "ms_sync_degraded_memory",
             branch,
-            code: error.code || "MS_NETWORK_ERROR",
-            message: error.message,
+            code: errorCode || "MS_NETWORK_ERROR",
+            message: errorMessage,
           }),
         );
         const result = {
+          ...remembered,
           status: "degraded",
-          syncedAt: fallback.syncedAt || "",
           changes: 0,
-          rows: fallback.rows,
-          completedToday:
-            fallback.completedDay === thaiDay()
-              ? fallback.completedRows.length
-              : 0,
-          error:
-            error?.code === "MS_SESSION_EXPIRED"
-            ? "เซสชัน MS ต้องอัปเดต · ระบบยังแสดงข้อมูลล่าสุดและจะลองเชื่อมต่อใหม่อัตโนมัติ"
+          error: tursoAvailability
+            ? "ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด"
             : "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
         };
         recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
         return result;
       }
+
+      // Turso itself is unavailable: do not immediately issue another Turso
+      // read. For normal MS upstream transients, the persisted accepted cache
+      // remains the safe fallback because the database is still available.
+      if (!tursoAvailability) {
+        const fallback = await readMsLiveCache(env, branch);
+        if (fallback?.rows) {
+          console.warn(
+            JSON.stringify({
+              event: "ms_sync_degraded",
+              branch,
+              code: errorCode || "MS_NETWORK_ERROR",
+              message: errorMessage,
+            }),
+          );
+          const result = {
+            status: "degraded",
+            syncedAt: fallback.syncedAt || "",
+            changes: 0,
+            rows: fallback.rows,
+            completedToday:
+              fallback.completedDay === thaiDay()
+                ? fallback.completedRows.length
+                : 0,
+            error:
+              "MS ตอบช้าชั่วคราว ระบบแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
+          };
+          recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
+          return result;
+        }
+      }
     }
-    await safeStatusWrite(
-      markConnectionError(env, "ms_connections", branch, error.message),
-      "ms_connection_error_write_error",
-      branch,
-    );
+
+    // When Turso is the failing dependency, avoid a pointless DB status write
+    // that would add load and cannot improve recovery.
+    if (!tursoAvailability) {
+      await safeStatusWrite(
+        markConnectionError(env, "ms_connections", branch, errorMessage),
+        "ms_connection_error_write_error",
+        branch,
+      );
+    }
     console.error(
       JSON.stringify({
         event: "ms_sync_error",
-        code: error.code || "MS_SYNC_FAILED",
-        message: error.message,
+        code: errorCode || "MS_SYNC_FAILED",
+        message: errorMessage,
       }),
     );
     const result = {
       status: "error",
-      error: error.message || "เชื่อมต่อ MS ไม่สำเร็จ",
+      error: tursoAvailability
+        ? "ฐานข้อมูลตอบช้าชั่วคราว ยังไม่สามารถอ่าน snapshot ล่าสุดได้"
+        : errorMessage || "เชื่อมต่อ MS ไม่สำเร็จ",
     };
     recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
     return result;
   }
 }`,
-    "serve live cache on transient upstream failure",
+    "serve accepted memory/cache on transient upstream or Turso failure",
   );
 
   return output;

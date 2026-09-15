@@ -57,6 +57,42 @@ test("DEV worker tolerates transient upstream slowness without treating session 
   }
 });
 
+test("Turso 524 preserves accepted in-memory snapshot without extra DB read/write", () => {
+  const refresh = functionBody(worker, "runMsRefresh");
+  assert.match(refresh, /TURSO_TRANSIENT_CACHE_CONTINUITY_V1/);
+  assert.match(refresh, /errorCode === "TURSO_NETWORK_ERROR"/);
+  assert.match(
+    refresh,
+    /errorCode === "TURSO_PROTOCOL_ERROR"[\s\S]*?Turso returned an unreadable response/,
+  );
+  assert.match(refresh, /const remembered = recentMsSync\.get\(branch\)\?\.result;/);
+  assert.match(refresh, /if \(Array\.isArray\(remembered\?\.rows\)\)/);
+  assert.match(
+    refresh,
+    /\.\.\.remembered,[\s\S]*?status:\s*"degraded",[\s\S]*?changes:\s*0/,
+    "degraded memory fallback must retain the accepted rows and original syncedAt",
+  );
+  assert.match(
+    refresh,
+    /if \(!tursoAvailability\) \{\s*const fallback = await readMsLiveCache\(env, branch\);/,
+    "Turso availability failures must not issue an immediate second DB read",
+  );
+  assert.match(
+    refresh,
+    /if \(!tursoAvailability\) \{\s*await safeStatusWrite\(/,
+    "Turso availability failures must not attempt a DB error-status write",
+  );
+  assert.match(
+    refresh,
+    /ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด/,
+  );
+  assert.doesNotMatch(
+    refresh,
+    /syncedAt:\s*new Date\(/,
+    "fallback must not fabricate a fresh accepted timestamp",
+  );
+});
+
 test("optional enrichment runs in parallel so it cannot serially stall live routes", () => {
   const body = functionBody(worker, "runMsRefresh");
   assert.match(
@@ -112,7 +148,7 @@ test("frontend keeps transient degraded mode connected and visible without toast
   assert.match(frontend, /state\.msStatus !== "degraded"/);
   assert.match(
     frontend,
-    /MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที/,
+    /ระบบข้อมูลตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที/,
   );
 });
 

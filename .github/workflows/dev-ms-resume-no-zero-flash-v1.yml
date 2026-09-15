@@ -1,0 +1,81 @@
+name: DEV MS Resume No-Zero Flash V1
+
+on:
+  push:
+    branches:
+      - codex/dev-ms-resume-no-zero-flash-v1
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Patch foreground resume path
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'ms.js';
+          let text = fs.readFileSync(path, 'utf8');
+          const oldBlock = `function handleRealtimeVisibility() {
+            if (document.hidden) {
+              stopRealtimeTransport();
+              return;
+            }
+            if (state.auth)
+              loadData(true).finally(() => restartRealtimeTransport());
+          }`;
+          const newBlock = `// MS_RESUME_NO_ZERO_FLASH_V1: returning from a backgrounded tab must keep the
+          // last accepted rows visible while the existing shared realtime coordinator reconnects.
+          // No foreground HTTP refresh, upstream MS poll, DB read/write, timer, or subscription is added.
+          function handleRealtimeVisibility() {
+            if (document.hidden) {
+              stopRealtimeTransport();
+              return;
+            }
+            if (!state.auth) return;
+            if (!Array.isArray(state.currentRows) || state.currentRows.length === 0)
+              restoreFastRefreshSnapshot();
+            state.transportLastOkAt = 0;
+            if (el("last-refresh"))
+              el("last-refresh").textContent =
+                "แสดงข้อมูลล่าสุด · กำลังเชื่อมต่อข้อมูลสด";
+            renderFreshness();
+            restartRealtimeTransport();
+          }`;
+          if (text.includes('MS_RESUME_NO_ZERO_FLASH_V1')) {
+            console.log('MS_RESUME_NO_ZERO_FLASH_V1 already present');
+          } else {
+            if (!text.includes(oldBlock)) throw new Error('handleRealtimeVisibility anchor not found');
+            text = text.replace(oldBlock, newBlock);
+            fs.writeFileSync(path, text);
+          }
+          NODE
+      - name: Install worker dependencies
+        working-directory: worker
+        run: npm ci
+      - name: Full Worker checks
+        working-directory: worker
+        run: npm run check
+      - name: Diff safety check
+        run: |
+          git diff --check
+          node --check ms.js
+          git diff -- ms.js worker/tests/ms-fast-first-paint.test.mjs
+      - name: Commit tested patch and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/dev-ms-resume-no-zero-flash-v1.yml
+          git add ms.js worker/tests/ms-fast-first-paint.test.mjs
+          git commit -m "fix(dev): preserve MS rows across foreground resume"
+          git push origin HEAD:codex/dev-ms-resume-no-zero-flash-v1

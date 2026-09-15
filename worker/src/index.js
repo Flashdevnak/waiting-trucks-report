@@ -1459,6 +1459,60 @@ function thaiDateBoundary(value, endOfDay) {
   return endOfDay ? time + 86400000 - 1000 : time;
 }
 
+// MS_HAR_BROWSER_CONTEXT_V1: replay only an allowlisted, encrypted subset of
+// the browser context that produced a confirmed HTTP 200 HAR entry. This is
+// browser-agnostic and keeps old session/device-only credentials compatible.
+const MS_BROWSER_CONTEXT_HEADERS = new Set([
+  "user-agent",
+  "accept",
+  "accept-language",
+  "cache-control",
+  "pragma",
+  "sec-ch-ua",
+  "sec-ch-ua-mobile",
+  "sec-ch-ua-platform",
+  "cookie",
+  "x-fh-ms-equipment-type",
+]);
+function normalizeMsBrowserContext(input) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const result = {};
+  for (const [rawName, rawValue] of Object.entries(source)) {
+    const name = String(rawName || "").trim().toLowerCase();
+    if (!MS_BROWSER_CONTEXT_HEADERS.has(name)) continue;
+    const value = text(rawValue, name === "cookie" ? 8000 : 1500);
+    if (value) result[name] = value;
+  }
+  return result;
+}
+function msBrowserRequestHeaders(credentials) {
+  let deviceId = String(credentials?.deviceId || "");
+  let context = normalizeMsBrowserContext(credentials?.browserContext);
+  if (!Object.keys(context).length && deviceId.trim().startsWith("{")) {
+    try {
+      const envelope = JSON.parse(deviceId);
+      if (envelope?.v === 2 && typeof envelope.deviceId === "string" && envelope.deviceId) {
+        deviceId = envelope.deviceId;
+        context = normalizeMsBrowserContext(envelope.browserContext);
+      }
+    } catch {}
+  }
+  const headers = {
+    Accept: context.accept || "application/json, text/plain, */*",
+    "Accept-Language": context["accept-language"] || "th",
+    "Cache-Control": context["cache-control"] || "no-cache",
+    Origin: "https://ms.flashexpress.com",
+    Referer: "https://ms.flashexpress.com/",
+    "User-Agent": context["user-agent"] || "Mozilla/5.0",
+    "X-DEVICE-ID": deviceId,
+    "X-FH-MS-EQUIPMENT-TYPE": context["x-fh-ms-equipment-type"] || "5",
+    "X-FLE-SESSION-ID": credentials.sessionId,
+  };
+  for (const name of ["pragma", "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "cookie"])
+    if (context[name]) headers[name] = context[name];
+  return headers;
+}
+
 async function readMsPage(credentials, page, start, end) {
   const url = new URL(
     "https://ms-api.flashexpress.com/gw/nws/staff/ms/store/line/task",
@@ -1480,19 +1534,7 @@ async function readMsPage(credentials, page, start, end) {
   };
   for (const [key, value] of Object.entries(query))
     url.searchParams.set(key, value);
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json, text/plain, */*",
-      "Accept-Language": "th",
-      "Cache-Control": "no-cache",
-      Origin: "https://ms.flashexpress.com",
-      Referer: "https://ms.flashexpress.com/",
-      "User-Agent": "Mozilla/5.0",
-      "X-DEVICE-ID": credentials.deviceId,
-      "X-FH-MS-EQUIPMENT-TYPE": "5",
-      "X-FLE-SESSION-ID": credentials.sessionId,
-    },
-  });
+  const response = await fetch(url, { headers: msBrowserRequestHeaders(credentials) });
   if (!response.ok) fail(`MS ตอบกลับ ${response.status}`, "MS_HTTP_ERROR", 502);
   const json = await response.json();
   if (json.code !== 1)
@@ -1506,12 +1548,13 @@ async function readMsPage(credentials, page, start, end) {
 async function saveMsConnection(body, actor, env) {
   const hub = canonicalHubCode(body.hub),
     sessionId = text(body.sessionId, 2000),
-    deviceId = text(body.deviceId, 500);
+    deviceId = text(body.deviceId, 500),
+    browserContext = normalizeMsBrowserContext(body.browserContext);
   if (!hub || !sessionId || !deviceId)
     fail("ไฟล์ HAR ไม่มีข้อมูลเซสชัน MS ที่ต้องใช้", "INVALID_HAR");
   if (!access(hub, actor))
     fail("บัญชีนี้ไม่มีสิทธิ์เชื่อมต่อ HUB ที่เลือก", "FORBIDDEN", 403);
-  return persistMsConnection(hub, sessionId, deviceId, actor.username, env);
+  return persistMsConnection(hub, sessionId, deviceId, actor.username, env, browserContext);
 }
 
 async function saveMsPreEntryConnection(body, actor, env) {
@@ -2130,11 +2173,12 @@ function earliestDate(...values) {
   return valid.sort((a, b) => Date.parse(a) - Date.parse(b))[0];
 }
 
-async function persistMsConnection(hub, sessionId, deviceId, updatedBy, env) {
+async function persistMsConnection(hub, sessionId, deviceId, updatedBy, env, browserContext = {}) {
   const nowThai = Date.now() + 7 * 3600000,
     start = Math.floor(nowThai / 86400000) * 86400000 - 7 * 3600000,
     end = start + 86400000 - 1000;
-  const test = await readMsPage({ sessionId, deviceId }, 1, start, end);
+  const normalizedBrowserContext = normalizeMsBrowserContext(browserContext);
+  const test = await readMsPage({ sessionId, deviceId, browserContext: normalizedBrowserContext }, 1, start, end);
   const now = new Date().toISOString();
   await env.DB.prepare(
     "INSERT INTO ms_connections(hub,session_cipher,device_cipher,updated_at,updated_by,last_success_at,last_error) VALUES(?,?,?,?,?,?,?) ON CONFLICT(hub) DO UPDATE SET session_cipher=excluded.session_cipher,device_cipher=excluded.device_cipher,updated_at=excluded.updated_at,updated_by=excluded.updated_by,last_success_at=excluded.last_success_at,last_error='' ",
@@ -2142,7 +2186,7 @@ async function persistMsConnection(hub, sessionId, deviceId, updatedBy, env) {
     .bind(
       hub,
       await encryptMs(sessionId, env),
-      await encryptMs(deviceId, env),
+      await encryptMs(JSON.stringify({ v: 2, deviceId, browserContext: normalizedBrowserContext }), env),
       now,
       updatedBy,
       now,
@@ -2151,7 +2195,7 @@ async function persistMsConnection(hub, sessionId, deviceId, updatedBy, env) {
     .run();
   msCredentialCache.set(hub, {
     until: Date.now() + MS_CREDENTIAL_CACHE_MS,
-    value: { sessionId, deviceId },
+    value: { sessionId, deviceId, browserContext: normalizedBrowserContext },
   });
   await audit(
     env,

@@ -37,3 +37,15 @@ test("cached first paint suppresses archive hydration and upstream duplicate wor
   assert.match(loadInitial, /apiGet\("msRoutesSnapshot"/);
   assert.match(loadInitial, /restartRealtimeTransport\(\)/);
 });
+
+test("returning from background preserves accepted rows until realtime resumes", () => {
+  const start = frontend.indexOf("// MS_RESUME_NO_ZERO_FLASH_V1");
+  const end = frontend.indexOf("function handleRealtimeMessage", start);
+  assert.ok(start >= 0 && end > start, "resume stability marker missing");
+  const block = frontend.slice(start, end);
+  assert.match(block, /restoreFastRefreshSnapshot\(\)/);
+  assert.match(block, /restartRealtimeTransport\(\)/);
+  assert.match(block, /state\.transportLastOkAt = 0/);
+  assert.doesNotMatch(block, /loadData\s*\(/);
+  assert.doesNotMatch(block, /apiGet\s*\(|fetch\s*\(/);
+});

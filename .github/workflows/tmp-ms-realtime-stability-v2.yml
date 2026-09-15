@@ -18,7 +18,7 @@ jobs:
 
       - name: Apply preventive realtime stability patch
         run: |
-          node .github/dev-tools/tmp-ms-realtime-stability-v2-fixed.mjs
+          node .github/dev-tools/tmp-ms-realtime-stability-v3.mjs
           node --check ms.js
           node --check ms-report.js
           node --check .github/dev-tools/patch-ms-transient-empty-guard.mjs
@@ -66,6 +66,7 @@ jobs:
           git diff -- ms.js ms-report.js worker/package.json .github/dev-tools/stage-dev-runtime.mjs .github/workflows/current-system-acceptance.yml
           git rm .github/dev-tools/tmp-ms-realtime-stability-v2.mjs
           git rm .github/dev-tools/tmp-ms-realtime-stability-v2-fixed.mjs
+          git rm .github/dev-tools/tmp-ms-realtime-stability-v3.mjs
           git rm .github/workflows/tmp-ms-realtime-stability-v2.yml
 
       - name: Commit tested DEV hardening
@@ -81,5 +82,6 @@ jobs:
         run: |
           test ! -e .github/dev-tools/tmp-ms-realtime-stability-v2.mjs
           test ! -e .github/dev-tools/tmp-ms-realtime-stability-v2-fixed.mjs
+          test ! -e .github/dev-tools/tmp-ms-realtime-stability-v3.mjs
           test ! -e .github/workflows/tmp-ms-realtime-stability-v2.yml
           echo 'TEMP_RUNNER_REMOVED=PASS'

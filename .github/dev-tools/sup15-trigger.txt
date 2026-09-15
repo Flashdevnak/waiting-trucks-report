@@ -1,2 +1,0 @@
-SUP15 validation trigger after regex harness normalizer fix.
-Temporary DEV-only file; remove before PR.

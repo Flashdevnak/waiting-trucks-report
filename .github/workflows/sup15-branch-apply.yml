@@ -4,13 +4,14 @@ on:
   push:
     branches:
       - codex/sup-15-redacted-system-context
+    paths:
+      - .github/workflows/sup15-branch-apply.yml
 
 permissions:
   contents: write
 
 jobs:
   validate-staged-asset:
-    if: startsWith(github.event.head_commit.message, 'SUP-15:') == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -15,6 +15,10 @@ const AUTH_KEY = "bnak_operator_auth_v2";
 const FAST_REFRESH_SNAPSHOT_KEY = "ms_fast_refresh_snapshot_v1";
 const FAST_REFRESH_SNAPSHOT_MAX_AGE_MS = 5 * 60 * 1000;
 let fastSnapshotRestoreInProgress = false;
+// MS_TRANSIENT_EMPTY_CONFIRM_V1: one transient empty response must not erase accepted rows.
+// Confirmation reuses the existing realtime cadence; zero new timer/upstream/DB write.
+let transientEmptyCandidateKey = "";
+let transientEmptyHoldActive = false;
 const state = {
   rows: [],
   currentRows: [],
@@ -311,8 +315,7 @@ function handleRealtimeMessage(raw) {
   }
   if (payload?.type !== "snapshot") return;
   realtimeLastSnapshotAt = Date.now();
-  applyLiveResult(payload, true);
-  saveFastRefreshSnapshot();
+  if (applyAcceptedLiveResult(payload, true)) saveFastRefreshSnapshot();
 }
 
 function realtimeTick() {
@@ -506,8 +509,67 @@ function fastRefreshBranches() {
   return [...new Set([...fromSelect, ...fromAuth, state.branch].filter(Boolean))];
 }
 
+function resetTransientEmptyGuard() {
+  transientEmptyCandidateKey = "";
+  transientEmptyHoldActive = false;
+}
+
+function transientEmptyObservationKey(result) {
+  const branch = String(result?.branch || state.branch || "").trim().toUpperCase();
+  const sync = String(result?.lastSync || result?.syncedAt || "").trim();
+  return sync ? `${branch}|${sync}` : "";
+}
+
+function holdTransientEmptyResult(result) {
+  const rows = Array.isArray(result?.rows) ? result.rows : null;
+  if (!rows) return false;
+  if (rows.length > 0) { resetTransientEmptyGuard(); return false; }
+  if (!Array.isArray(state.currentRows) || state.currentRows.length === 0) {
+    resetTransientEmptyGuard();
+    return false;
+  }
+  const incomingBranch = String(result?.branch || state.branch || "").trim().toUpperCase();
+  const currentBranch = String(state.branch || "").trim().toUpperCase();
+  if (incomingBranch && currentBranch && incomingBranch !== currentBranch) {
+    resetTransientEmptyGuard();
+    return false;
+  }
+  const key = transientEmptyObservationKey(result);
+  if (!key || key === transientEmptyCandidateKey) {
+    transientEmptyHoldActive = true;
+    if (key) transientEmptyCandidateKey = key;
+    return true;
+  }
+  if (!transientEmptyCandidateKey) {
+    transientEmptyCandidateKey = key;
+    transientEmptyHoldActive = true;
+    return true;
+  }
+  resetTransientEmptyGuard();
+  return false;
+}
+
+function applyAcceptedLiveResult(result, fromStream = false) {
+  if (holdTransientEmptyResult(result)) {
+    state.transportLastOkAt = Date.now();
+    state.transportFailures = 0;
+    render();
+    const badge = el("connection-badge");
+    if (badge) {
+      badge.textContent = "กำลังยืนยันข้อมูลสด";
+      badge.className = "badge badge-neutral";
+    }
+    if (el("last-refresh"))
+      el("last-refresh").textContent =
+        "ได้รับข้อมูลว่างชั่วคราว · คงข้อมูลล่าสุดไว้ · กำลังยืนยันข้อมูลสด";
+    return false;
+  }
+  applyLiveResult(result, fromStream);
+  return true;
+}
+
 function saveFastRefreshSnapshot(savedAt = Date.now()) {
-  if (!state.auth || !Array.isArray(state.currentRows)) return;
+  if (!state.auth || !Array.isArray(state.currentRows) || transientEmptyHoldActive) return;
   const key = fastRefreshSnapshotKey();
   if (!key) return;
   const snapshot = {
@@ -545,7 +607,7 @@ function applyFastRefreshSnapshot(snapshot, sourceLabel = "snapshot") {
   if (snapshotBranch && snapshotBranch !== String(state.branch || "").toUpperCase()) return false;
   fastSnapshotRestoreInProgress = true;
   try {
-    applyLiveResult(snapshot, true);
+    applyAcceptedLiveResult(snapshot, true);
   } finally {
     fastSnapshotRestoreInProgress = false;
   }
@@ -596,8 +658,16 @@ async function loadInitialData() {
     if (snapshot?.snapshotFound && Array.isArray(snapshot.rows)) {
       const lastSyncMs = Date.parse(String(snapshot.lastSync || ""));
       snapshot.savedAt = Number.isFinite(lastSyncMs) ? lastSyncMs : Date.now();
-      if (applyFastRefreshSnapshot(snapshot, "Turso snapshot")) {
+      if (snapshot.rows.length > 0 && applyFastRefreshSnapshot(snapshot, "Turso snapshot")) {
         saveFastRefreshSnapshot(snapshot.savedAt);
+        restartRealtimeTransport();
+        return true;
+      }
+      if (snapshot.rows.length === 0) {
+        const badge = el("connection-badge");
+        if (badge) { badge.textContent = "กำลังยืนยันข้อมูลสด"; badge.className = "badge badge-neutral"; }
+        if (el("last-refresh"))
+          el("last-refresh").textContent = "แคชล่าสุดว่าง · กำลังยืนยันกับข้อมูลสดก่อนแสดง 0";
         restartRealtimeTransport();
         return true;
       }
@@ -619,8 +689,7 @@ async function loadData(silent = false) {
   if (!silent) el("loading-state").classList.remove("hidden");
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
-    applyLiveResult(result, false);
-    saveFastRefreshSnapshot();
+    if (applyAcceptedLiveResult(result, false)) saveFastRefreshSnapshot();
     ensureRealtimeTransport();
   } catch (error) {
     state.transportFailures = Number(state.transportFailures || 0) + 1;

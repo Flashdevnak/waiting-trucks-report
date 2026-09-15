@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   persist-validated:
-    if: !startsWith(github.event.head_commit.message, 'SUP-15:')
+    if: ${{ !startsWith(github.event.head_commit.message, 'SUP-15:') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

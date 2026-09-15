@@ -11,7 +11,7 @@ module_text = modules.read_text()
 context_text = context.read_text()
 if 'SUPERVISOR_SYSTEM_CONTEXT_V1' in module_text:
     raise SystemExit('context helpers already present in supervisor-modules.js')
-modules.write_text(module_text.rstrip() + '\n\n' + context_text + '\n')
+modules.write_text(module_text.rstrip() + '\n\n' + context_text.rstrip() + '\n')
 
 app_text = app.read_text()
 old_import = 'import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";'

@@ -2689,6 +2689,8 @@ async function saveMsConnection(source, button) {
       await loadMsConnectionStatus();
       return;
     }
+    // MS_HAR_BROWSER_CONTEXT_V1: preserve the minimal browser identity from the
+    // successful HAR request. Raw HAR is still parsed locally and never uploaded.
     const header = (name) =>
       entry.request.headers?.find((item) => item.name?.toLowerCase() === name)
         ?.value || "";
@@ -2696,6 +2698,26 @@ async function saveMsConnection(source, button) {
       deviceId = header("x-device-id");
     if (!sessionId || !deviceId)
       throw new Error("ไฟล์ HAR ไม่มี Session ID หรือ Device ID");
+    const browserContext = {};
+    for (const name of [
+      "user-agent",
+      "accept",
+      "accept-language",
+      "cache-control",
+      "pragma",
+      "sec-ch-ua",
+      "sec-ch-ua-mobile",
+      "sec-ch-ua-platform",
+      "cookie",
+      "x-fh-ms-equipment-type",
+    ]) {
+      const value = header(name);
+      if (value) browserContext[name] = value.slice(0, name === "cookie" ? 8000 : 1500);
+    }
+    // Keep the existing route-HAR save call byte-for-byte so DEV staging
+    // observers can still wrap its success path. The context is attached by
+    // apiPost for this one request, then cleared from memory immediately.
+    state.msHarBrowserContext = { deviceId, value: browserContext };
     const result = await apiPost("saveMsConnection", {
       hub,
       sessionId,
@@ -2973,6 +2995,13 @@ function excelText(value) {
 
 async function apiPost(action, payload = {}, withAuth = true) {
   const body = { action, ...payload };
+  if (
+    action === "saveMsConnection" &&
+    state.msHarBrowserContext?.deviceId === payload?.deviceId
+  ) {
+    body.browserContext = state.msHarBrowserContext.value || {};
+    state.msHarBrowserContext = null;
+  }
   if (withAuth) body.token = state.auth?.token || "";
   const json = await (
     await fetch(CONFIG.apiUrl, {

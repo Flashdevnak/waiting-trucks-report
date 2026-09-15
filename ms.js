@@ -271,13 +271,23 @@ function restartRealtimeTransport() {
   ensureRealtimeTransport();
 }
 
+// MS_RESUME_NO_ZERO_FLASH_V1: returning from a backgrounded tab must keep the
+// last accepted rows visible while the existing shared realtime coordinator reconnects.
+// No foreground HTTP refresh, upstream MS poll, DB read/write, timer, or subscription is added.
 function handleRealtimeVisibility() {
   if (document.hidden) {
     stopRealtimeTransport();
     return;
   }
-  if (state.auth)
-    loadData(true).finally(() => restartRealtimeTransport());
+  if (!state.auth) return;
+  if (!Array.isArray(state.currentRows) || state.currentRows.length === 0)
+    restoreFastRefreshSnapshot();
+  state.transportLastOkAt = 0;
+  if (el("last-refresh"))
+    el("last-refresh").textContent =
+      "แสดงข้อมูลล่าสุด · กำลังเชื่อมต่อข้อมูลสด";
+  renderFreshness();
+  restartRealtimeTransport();
 }
 
 function handleRealtimeMessage(raw) {

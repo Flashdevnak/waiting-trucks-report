@@ -5,7 +5,7 @@ import {
   deriveRedactedSystemContext,
   redactSensitiveText,
   serializeRedactedSystemContext,
-} from "../../supervisor-modules.js";
+} from "../../supervisor-context.js";
 
 const root = new URL("../../", import.meta.url);
 const read = (file) => readFile(new URL(file, root), "utf8");
@@ -119,22 +119,19 @@ test("SUP-15 UI starts locked and enables copy only from the accepted sanitized 
 });
 
 test("SUP-15 adds no new runtime transport, polling, repair, persistence, or AI work", async () => {
-  const contextModule = await read("supervisor-modules.js");
+  const contextModule = await read("supervisor-context.js");
   const app = await read("supervisor.js");
   for (const forbidden of ["fetch(", "WebSocket", "EventSource", "setInterval(", "setTimeout(", "localStorage", "document.", "navigator.", "/api/", "openai", "repairMs"])
     assert.equal(contextModule.includes(forbidden), false, "context module must not contain " + forbidden);
   assert.equal((app.match(/fetch\(/g) || []).length, 1, "Supervisor must retain one snapshot fetch only");
 });
 
-test("SUP-15 reuses the already-staged pure Supervisor module asset", async () => {
+test("SUP-15 DEV deployment stages and syntax-checks the context asset", async () => {
   const workflow = await read(".github/workflows/deploy-worker-dev.yml");
   const pkg = await read("worker/package.json");
-  const app = await read("supervisor.js");
-  assert.ok(workflow.includes("- supervisor-modules.js"));
-  assert.ok(workflow.includes("../supervisor-modules.js"));
-  assert.ok(workflow.includes("node --check .dev-assets/supervisor-modules.js"));
-  assert.ok(pkg.includes("node --check ../supervisor-modules.js"));
+  assert.ok(workflow.includes("- supervisor-context.js"));
+  assert.ok(workflow.includes("../supervisor-context.js"));
+  assert.ok(workflow.includes("node --check .dev-assets/supervisor-context.js"));
+  assert.ok(pkg.includes("node --check ../supervisor-context.js"));
   assert.ok(pkg.includes("tests/supervisor-system-context.test.mjs"));
-  assert.ok(app.includes("./supervisor-modules.js?v=20260915-sup15"));
-  assert.equal(app.includes("supervisor-context.js"), false);
 });

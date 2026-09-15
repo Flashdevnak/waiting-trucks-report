@@ -7,16 +7,19 @@
 // SUPERVISOR_QUOTA_PROTECTION_V1
 // SUPERVISOR_I18N_V1
 // SUPERVISOR_GUIDE_V1
+// SUPERVISOR_SYSTEM_CONTEXT_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
 import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
 import { deriveHubView, deriveOverview } from "./supervisor-view.js?v=20260914-sup07";
 import { applySupervisorLanguage, nextSupervisorLanguage, readSupervisorLanguage, syncSupervisorLanguageControls, writeSupervisorLanguage } from "./supervisor-i18n.js?v=20260915-sup14";
+import { deriveRedactedSystemContext, serializeRedactedSystemContext } from "./supervisor-context.js?v=20260915-sup15";
 
 const SUPERVISOR_AUTH_KEY = "bnak_operator_auth_v2";
 const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);
 const terminalState = { availability: "UNAVAILABLE", events: [], filter: "ALL", cleared: false, limit: 120 };
 let supervisorLanguage = readSupervisorLanguage();
+let systemContextText = null;
 
 function applyCurrentLanguage() {
   applySupervisorLanguage(document, supervisorLanguage);
@@ -405,6 +408,39 @@ function deriveIncidentActionCenter(hubViews = [], events = [], eventAvailabilit
 }
 // SUPERVISOR_INCIDENT_ACTION_RENDER_V1
 
+function renderSystemContext(context) {
+  const state = document.getElementById("system-context-state");
+  const detail = document.getElementById("system-context-detail");
+  const copyButton = document.getElementById("copy-system-context");
+  const copyState = document.getElementById("system-context-copy-state");
+  if (!state || !detail || !copyButton || !copyState) return;
+
+  systemContextText = context ? serializeRedactedSystemContext(context) : null;
+  copyButton.disabled = !context;
+  state.textContent = context ? "READY" : "LOCKED";
+  state.className = "status-tag " + (context ? "healthy" : "unknown");
+  detail.textContent = "ปุ่ม Copy จะเปิดเมื่อมี sanitized snapshot และ redaction tests ผ่านแล้ว";
+  copyState.textContent = context
+    ? "Browser-only clipboard · allowlist/redaction PASS · no extra server request"
+    : "Browser-only clipboard · no extra server request";
+  applyCurrentLanguage();
+}
+
+function bindSystemContextControl() {
+  const copyButton = document.getElementById("copy-system-context");
+  if (!copyButton) return;
+  copyButton.addEventListener("click", async () => {
+    if (!systemContextText) return;
+    try {
+      await navigator.clipboard.writeText(systemContextText);
+      copyButton.textContent = "คัดลอกแล้ว";
+    } catch {
+      copyButton.textContent = "คัดลอกถูกบล็อก";
+    }
+    applyCurrentLanguage();
+  });
+}
+
 function bindShell() {
   document.getElementById("supervisor-nav").addEventListener("click", (event) => {
     const button = event.target.closest("[data-section]");
@@ -419,6 +455,7 @@ function bindShell() {
     if (event.target === dialog) dialog.close();
   });
   bindTerminalControls();
+  bindSystemContextControl();
 }
 
 function statusTag(state) {
@@ -924,6 +961,18 @@ function renderSnapshot(snapshot, workerReachable = false) {
   const quotaCenter = deriveQuotaCenter(snapshot?.quotaTelemetry);
   const quotaProtection = deriveQuotaProtection(snapshot?.quotaTelemetry?.protection);
   const overview = deriveOverview(snapshot, module, { moduleCount: moduleRegistry.list().length, workerReachable, nowMs });
+  const systemContext = workerReachable && snapshot
+    ? deriveRedactedSystemContext({
+        generatedAt: new Date(nowMs).toISOString(),
+        workerReachable,
+        overview,
+        hubViews,
+        eventConsole,
+        incidentCenter,
+        quotaCenter,
+        quotaProtection,
+      })
+    : null;
   const incidentCard = overview.cards.find((item) => item.id === "incidents");
   const actionCard = overview.cards.find((item) => item.id === "actions");
   if (incidentCard) {
@@ -976,6 +1025,7 @@ function renderSnapshot(snapshot, workerReachable = false) {
   }
   sourceSummary.append(sourceState, sourceDetail);
   renderTerminalConsole(snapshot);
+  renderSystemContext(systemContext);
   applyCurrentLanguage();
 }
 

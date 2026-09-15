@@ -45,20 +45,20 @@ test("SUP-14 guide Thai copy has bounded English translations", () => {
   for (const [th, en] of samples) assert.equal(translateSupervisorText(th, "en"), en);
 });
 
-test("SUP-14 keeps System Context copy locked for SUP-15", async () => {
+test("SUP-14 guide delegates System Context copy to the SUP-15 redaction contract", async () => {
   const html = await read("supervisor.html");
   const panel = html.slice(html.indexOf('data-panel="guide"'), html.indexOf('<dialog id="why-dialog"'));
-  assert.match(panel, /<button[^>]+disabled>Copy Current System Context<\/button>/);
-  assert.ok(panel.includes("SUP-15 redaction contract"));
-  assert.equal(/data-guide-action|data-repair|onclick=|fetch\(|WebSocket|EventSource|setInterval\(/.test(panel), false);
+  assert.ok(panel.includes("SUPERVISOR_SYSTEM_CONTEXT_V1"));
+  assert.match(panel, /id="copy-system-context"[^>]+disabled/);
+  assert.equal(/data-repair|onclick=|fetch\(|WebSocket|EventSource|setInterval\(/.test(panel), false);
 });
 
-test("SUP-14 only cache-busts existing frontend assets and adds no guide runtime transport", async () => {
+test("SUP-14 guide keeps its frontend-only contract under the SUP-15 cache revision", async () => {
   const html = await read("supervisor.html");
   const app = await read("supervisor.js");
   assert.ok(html.includes("supervisor.css?v=20260915-sup14"));
-  assert.ok(html.includes("supervisor.js?v=20260915-sup14"));
+  assert.ok(html.includes("supervisor.js?v=20260915-sup15"));
   assert.ok(app.includes("./supervisor-i18n.js?v=20260915-sup14"));
-  assert.equal(app.includes("bindGuide"), false);
+  assert.ok(app.includes("./supervisor-context.js?v=20260915-sup15"));
   assert.equal(app.includes("loadGuide"), false);
 });

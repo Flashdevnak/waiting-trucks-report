@@ -20,6 +20,7 @@ on:
       - admin.css
       - supervisor.html
       - supervisor.js
+      - supervisor-context.js
       - supervisor-i18n.js
       - supervisor-modules.js
       - supervisor-view.js
@@ -105,13 +106,14 @@ jobs:
           rm -rf .dev-assets .dev-runtime
           mkdir -p .dev-assets .dev-runtime
           cp -R src .dev-runtime/src
-          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor-i18n.js ../supervisor-modules.js ../supervisor-view.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor-context.js ../supervisor-i18n.js ../supervisor-modules.js ../supervisor-view.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
           cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
           cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
           node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js .dev-runtime/src/origin-manifest-v1.js
           node --check .dev-assets/admin.js
           node --check .dev-assets/supervisor.js
+          node --check .dev-assets/supervisor-context.js
           node --check .dev-assets/supervisor-i18n.js
           node --check .dev-assets/supervisor-modules.js
           node --check .dev-assets/supervisor-view.js

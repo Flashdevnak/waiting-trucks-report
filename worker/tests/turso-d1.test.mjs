@@ -12,6 +12,16 @@ function response(payload, status = 200) {
   };
 }
 
+function unreadableResponse(status) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      throw new SyntaxError("unexpected non-JSON response");
+    },
+  };
+}
+
 function okExecute({ cols = [], rows = [], affected = 0, last = null, rowsRead = 0, rowsWritten = 0 } = {}) {
   return {
     type: "ok",
@@ -193,6 +203,41 @@ test("fetch implementation is not rebound to the database instance", async () =>
 
   await db.prepare("SELECT 1").all();
   assert.equal(observedThis, undefined);
+});
+
+test("unreadable Turso 520 and 524 responses retain status for transient classification", async () => {
+  for (const status of [520, 524]) {
+    let calls = 0;
+    const db = new TursoD1Database({
+      url: "https://example.turso.io",
+      authToken: "secret",
+      fetchImpl: async () => {
+        calls += 1;
+        return unreadableResponse(status);
+      },
+    });
+    await assert.rejects(
+      db.prepare("SELECT 1").first(),
+      (error) =>
+        error.code === "TURSO_PROTOCOL_ERROR" &&
+        error.message === `Turso returned an unreadable response (${status})`,
+    );
+    assert.equal(calls, 1, `HTTP ${status} must use exactly one Turso request`);
+  }
+});
+
+test("unreadable Turso 200 remains a non-5xx protocol defect", async () => {
+  const db = new TursoD1Database({
+    url: "https://example.turso.io",
+    authToken: "secret",
+    fetchImpl: async () => unreadableResponse(200),
+  });
+  await assert.rejects(
+    db.prepare("SELECT 1").first(),
+    (error) =>
+      error.code === "TURSO_PROTOCOL_ERROR" &&
+      error.message === "Turso returned an unreadable response (200)",
+  );
 });
 
 

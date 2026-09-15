@@ -60,7 +60,8 @@ jobs:
             changed = 0
             out = []
             for line in lines:
-              if 'supervisor.js' in line and '20260915-sup14' in line:
+              js_cache_line = 'supervisor.js' in line or 'supervisor\\.js' in line
+              if js_cache_line and '20260915-sup14' in line:
                 line = line.replace('20260915-sup14', '20260915-sup15')
                 changed += 1
               out.append(line)

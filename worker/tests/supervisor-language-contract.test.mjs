@@ -76,10 +76,10 @@ test("SUP-13 frontend contract adds no transport, timers, DB, repair, or AI work
     assert.equal(i18n.includes(forbidden), false, `i18n must not contain ${forbidden}`);
   assert.ok(i18n.includes("SUPERVISOR_I18N_V1"));
   assert.ok(app.includes("SUPERVISOR_I18N_V1"));
-  assert.ok(app.includes("./supervisor-i18n.js?v=20260915-sup13"));
+  assert.ok(app.includes("./supervisor-i18n.js?v=20260915-sup14"));
   assert.ok(html.includes('data-language-toggle'));
   assert.equal((html.match(/data-language-toggle/g) || []).length, 2);
-  assert.ok(html.includes("supervisor.js?v=20260915-sup13"));
+  assert.ok(html.includes("supervisor.js?v=20260915-sup14"));
 });
 
 test("SUP-13 DEV deploy stages and syntax-checks the language asset", async () => {

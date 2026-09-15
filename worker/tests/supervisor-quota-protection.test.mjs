@@ -71,7 +71,7 @@ test("SUP-12 frontend remains one-shot observe-only and has no executable kill s
   assert.ok(js.includes("killSwitch: { state: killSwitchState, canExecute: false }"));
   assert.equal((js.match(/fetch\("\/api\/supervisor\/snapshot"/g) || []).length, 1);
   assert.equal(/setInterval\s*\(|new WebSocket\s*\(|EventSource\s*\(/.test(js), false);
-  assert.ok(html.includes("supervisor.js?v=20260915-sup13"));
+  assert.ok(html.includes("supervisor.js?v=20260915-sup14"));
   assert.equal(/kill.?switch[^<]{0,80}<button/i.test(html), false);
 });
 

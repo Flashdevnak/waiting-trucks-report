@@ -22,6 +22,25 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: worker/package-lock.json
+      - name: Normalize temporary patcher embedded templates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/dev-tools/apply-sup15.mjs')
+          s=p.read_text()
+          replacements={
+            '  return `WAITING_TRUCKS_SUPERVISOR_CONTEXT_V1\\\\n${redactSensitiveText(body)}`;':'  return "WAITING_TRUCKS_SUPERVISOR_CONTEXT_V1\\\\n" + redactSensitiveText(body);',
+            '    assert.equal(contextModule.includes(forbidden), false, `context module must not contain ${forbidden}`);':'    assert.equal(contextModule.includes(forbidden), false, "context module must not contain " + forbidden);',
+            '  state.className = `status-tag ${context ? "healthy" : "unknown"}`;':'  state.className = "status-tag " + (context ? "healthy" : "unknown");',
+          }
+          for old,new in replacements.items():
+            if old not in s:
+              raise SystemExit(f'missing patcher escape anchor: {old}')
+            s=s.replace(old,new)
+          p.write_text(s)
+          print('SUP15_PATCHER_ESCAPING=PASS')
+          PY
+          node --check .github/dev-tools/apply-sup15.mjs
       - name: Apply SUP-15 canonical patch
         run: node .github/dev-tools/apply-sup15.mjs
       - name: Install worker dependencies

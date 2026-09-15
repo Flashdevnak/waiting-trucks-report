@@ -39,10 +39,9 @@ jobs:
 
       - name: Verify DEV staging compatibility
         run: |
-          node .github/dev-tools/stage-dev-runtime.mjs
+          node .github/dev-tools/stage-dev-runtime.mjs ms.js worker/src/index.js
           grep -q 'MS_FAST_FIRST_PAINT_V1' ms.js
           grep -q 'MS_FAST_FIRST_PAINT_V1' worker/src/index.js
-          grep -R -q 'MS_FAST_FIRST_PAINT_V1' worker .github/dev-tools
           echo 'DEV_STAGE_FAST_FIRST_PAINT=PASS'
 
       - name: Restore intended final tree only

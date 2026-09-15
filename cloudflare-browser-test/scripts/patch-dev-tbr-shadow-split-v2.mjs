@@ -159,18 +159,44 @@ if (!source.includes(ACCOUNT_GUARD_MARKER) && source.includes('export class MsRe
   });
 
   source = patchAsyncFunction(source, 'runMsRefresh', (body) => {
-    const transientAnchor = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error instanceof TypeError;`;
-    const transientReplacement = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error?.code === \"MS_SESSION_EXPIRED\" ||\n      error?.code === \"MS_ROUTE_SOURCE_ERROR\" ||\n      error?.code === \"MS_ROUTE_RATE_LIMIT\" ||\n      error instanceof TypeError;`;
-    if (!body.includes(transientAnchor)) throw new Error('runMsRefresh transient anchor not found');
-    body = body.replace(transientAnchor, transientReplacement);
+    const legacyTransientAnchor = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error instanceof TypeError;`;
+    const legacyTransientReplacement = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error?.code === \"MS_SESSION_EXPIRED\" ||\n      error?.code === \"MS_ROUTE_SOURCE_ERROR\" ||\n      error?.code === \"MS_ROUTE_RATE_LIMIT\" ||\n      error instanceof TypeError;`;
+    const recoveryTransientAnchor = `    const transient =\n      tursoAvailability ||\n      errorCode === \"UPSTREAM_TIMEOUT\" ||\n      errorCode === \"MS_HTTP_ERROR\" ||\n      error instanceof TypeError;`;
+    const recoveryTransientReplacement = `    const transient =\n      tursoAvailability ||\n      errorCode === \"UPSTREAM_TIMEOUT\" ||\n      errorCode === \"MS_HTTP_ERROR\" ||\n      errorCode === \"MS_SESSION_EXPIRED\" ||\n      errorCode === \"MS_ROUTE_SOURCE_ERROR\" ||\n      errorCode === \"MS_ROUTE_RATE_LIMIT\" ||\n      error instanceof TypeError;`;
+    let usesRecoveryErrorCode = false;
+    if (body.includes(recoveryTransientAnchor)) {
+      usesRecoveryErrorCode = true;
+      body = body.replace(recoveryTransientAnchor, recoveryTransientReplacement);
+    } else if (body.includes(legacyTransientAnchor)) {
+      body = body.replace(legacyTransientAnchor, legacyTransientReplacement);
+    } else if (body.includes('errorCode === \"MS_ROUTE_RATE_LIMIT\"')) {
+      usesRecoveryErrorCode = body.includes('const errorCode = String(error?.code || \"\");');
+    } else if (!body.includes('error?.code === \"MS_ROUTE_RATE_LIMIT\"')) {
+      throw new Error('runMsRefresh transient anchor not found');
+    }
+
     const degradedAnchor = `        const result = {\n          status: \"degraded\",\n          syncedAt: fallback.syncedAt || \"\",\n          changes: 0,`;
-    const degradedReplacement = `        const result = {\n          status: \"degraded\",\n          syncedAt: fallback.syncedAt || \"\",\n          errorCode: error?.code || \"MS_NETWORK_ERROR\",\n          changes: 0,`;
-    if (!body.includes(degradedAnchor)) throw new Error('runMsRefresh degraded result anchor not found');
-    body = body.replace(degradedAnchor, degradedReplacement);
-    const errorAnchor = `    const result = {\n      status: \"error\",\n      error: error.message || \"เชื่อมต่อ MS ไม่สำเร็จ\",\n    };`;
-    const errorReplacement = `    const result = {\n      status: \"error\",\n      errorCode: error?.code || \"MS_SYNC_FAILED\",\n      error: error.message || \"เชื่อมต่อ MS ไม่สำเร็จ\",\n    };`;
-    if (!body.includes(errorAnchor)) throw new Error('runMsRefresh error result anchor not found');
-    return body.replace(errorAnchor, errorReplacement);
+    if (body.includes(degradedAnchor)) {
+      const errorCodeLine = usesRecoveryErrorCode
+        ? `          errorCode: errorCode || \"MS_NETWORK_ERROR\",\n`
+        : `          errorCode: error?.code || \"MS_NETWORK_ERROR\",\n`;
+      body = body.replace(
+        degradedAnchor,
+        `        const result = {\n          status: \"degraded\",\n          syncedAt: fallback.syncedAt || \"\",\n${errorCodeLine}          changes: 0,`,
+      );
+    } else if (!body.includes('errorCode: errorCode || \"MS_NETWORK_ERROR\"') &&
+               !body.includes('errorCode: error?.code || \"MS_NETWORK_ERROR\"')) {
+      throw new Error('runMsRefresh degraded result anchor not found');
+    }
+
+    const legacyErrorAnchor = `    const result = {\n      status: \"error\",\n      error: error.message || \"เชื่อมต่อ MS ไม่สำเร็จ\",\n    };`;
+    const legacyErrorReplacement = `    const result = {\n      status: \"error\",\n      errorCode: error?.code || \"MS_SYNC_FAILED\",\n      error: error.message || \"เชื่อมต่อ MS ไม่สำเร็จ\",\n    };`;
+    if (body.includes(legacyErrorAnchor))
+      return body.replace(legacyErrorAnchor, legacyErrorReplacement);
+    if (body.includes('errorCode: errorCode || \"MS_SYNC_FAILED\"') ||
+        body.includes('errorCode: error?.code || \"MS_SYNC_FAILED\"'))
+      return body;
+    throw new Error('runMsRefresh error result anchor not found');
   });
 
   const cronConstant = 'const MS_CRON_ACTIVE_SKIP_MS = 45 * 1000;';

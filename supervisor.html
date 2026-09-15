@@ -238,10 +238,19 @@
               </div>
             </article>
 
-            <article class="surface span-2">
-              <div class="surface-head"><div><p class="card-label">SYSTEM CONTEXT</p><h3>System Context ยังล็อกอยู่</h3></div><span class="status-tag unknown">SUP-15</span></div>
-              <p class="body-copy">SUP-14 ให้คู่มือเท่านั้น ปุ่ม Copy Current System Context ยังปิดไว้จนกว่า SUP-15 redaction contract จะผ่าน</p>
-              <button class="button button-quiet full" type="button" disabled>Copy Current System Context</button>
+            <article class="surface span-2" data-system-context>
+              <!-- SUPERVISOR_SYSTEM_CONTEXT_V1: allowlist-only browser copy from already-sanitized shared facts. -->
+              <div class="surface-head"><div><p class="card-label">SYSTEM CONTEXT</p><h3>Redacted System Context</h3></div><span id="system-context-state" class="status-tag unknown">LOCKED</span></div>
+              <p id="system-context-detail" class="body-copy">ปุ่ม Copy จะเปิดเมื่อมี sanitized snapshot และ redaction tests ผ่านแล้ว</p>
+              <ul class="contract-list">
+                <li><span>Raw snapshot</span><strong>OMITTED</strong></li>
+                <li><span>Credentials / tokens / cookies</span><strong>OMITTED</strong></li>
+                <li><span>HAR / session payload</span><strong>OMITTED</strong></li>
+                <li><span>Free-form event message</span><strong>OMITTED</strong></li>
+                <li><span>Parcel / driver identifiers</span><strong>OMITTED</strong></li>
+              </ul>
+              <button id="copy-system-context" class="button button-quiet full" type="button" disabled>Copy Current System Context</button>
+              <p id="system-context-copy-state" class="truth-note">Browser-only clipboard · no extra server request</p>
             </article>
           </div>
         </section>
@@ -254,6 +263,6 @@
     <dl><div><dt>Evidence</dt><dd>สถานะมาจาก sanitized shared Durable Object state เท่านั้น</dd></div><div><dt>Impact</dt><dd>ถ้าไม่มี runtime event จะแสดง UNKNOWN โดย Waiting Trucks ไม่ได้รับผลกระทบ</dd></div><div><dt>Bot action</dt><dd>OBSERVE ONLY — ไม่สร้างข้อมูลหรือเรียก source เพิ่ม</dd></div><div><dt>Next step</dt><dd>ตรวจ observed HUB และ last accepted evidence โดยไม่ตีความข้อมูลที่หายเป็น HEALTHY</dd></div></dl>
   </dialog>
 
-  <script type="module" src="supervisor.js?v=20260915-sup14"></script>
+  <script type="module" src="supervisor.js?v=20260915-sup15"></script>
 </body>
 </html>

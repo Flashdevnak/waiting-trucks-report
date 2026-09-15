@@ -79,7 +79,7 @@ test("SUP-13 frontend contract adds no transport, timers, DB, repair, or AI work
   assert.ok(app.includes("./supervisor-i18n.js?v=20260915-sup14"));
   assert.ok(html.includes('data-language-toggle'));
   assert.equal((html.match(/data-language-toggle/g) || []).length, 2);
-  assert.ok(html.includes("supervisor.js?v=20260915-sup14"));
+  assert.ok(html.includes("supervisor.js?v=20260915-sup15"));
 });
 
 test("SUP-13 DEV deploy stages and syntax-checks the language asset", async () => {

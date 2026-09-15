@@ -24,7 +24,7 @@ jobs:
 
       - name: Apply source realtime restoration
         run: |
-          node .github/dev-tools/tmp-ms-source-realtime-v1.mjs
+          node .github/dev-tools/tmp-ms-source-realtime-v1b.mjs
           node <<'NODE'
           const fs=require('node:fs');
           const p='worker/package.json';
@@ -89,6 +89,7 @@ jobs:
           git config user.name 'Flashdevnak'
           git config user.email '26nak.testdev@gmail.com'
           git rm .github/dev-tools/tmp-ms-source-realtime-v1.mjs
+          git rm .github/dev-tools/tmp-ms-source-realtime-v1b.mjs
           git add ms.js worker/package.json .github/dev-tools/patch-bus-time-hot-lane-v14.mjs .github/dev-tools/realtime-quota-hardening.test.mjs .github/dev-tools/ms-source-realtime-v1.test.mjs
           git add -u .github/dev-tools
           git status --short

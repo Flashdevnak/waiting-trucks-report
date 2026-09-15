@@ -59,6 +59,6 @@ test("SUP-14 guide keeps its frontend-only contract under the SUP-15 cache revis
   assert.ok(html.includes("supervisor.css?v=20260915-sup14"));
   assert.ok(html.includes("supervisor.js?v=20260915-sup15"));
   assert.ok(app.includes("./supervisor-i18n.js?v=20260915-sup14"));
-  assert.ok(app.includes("./supervisor-context.js?v=20260915-sup15"));
+  assert.ok(app.includes("./supervisor-modules.js?v=20260915-sup15"));
   assert.equal(app.includes("loadGuide"), false);
 });

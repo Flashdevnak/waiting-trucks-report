@@ -10,10 +10,9 @@
 // SUPERVISOR_SYSTEM_CONTEXT_V1
 // Side-car snapshot client: one same-origin shared-state read, zero upstream/database
 // reads, WebSocket, interval, source polling, persistence, repair, or AI calls.
-import { createSupervisorRegistry, waitingTrucksModule } from "./supervisor-modules.js?v=20260914-sup03";
+import { createSupervisorRegistry, deriveRedactedSystemContext, serializeRedactedSystemContext, waitingTrucksModule } from "./supervisor-modules.js?v=20260915-sup15";
 import { deriveHubView, deriveOverview } from "./supervisor-view.js?v=20260914-sup07";
 import { applySupervisorLanguage, nextSupervisorLanguage, readSupervisorLanguage, syncSupervisorLanguageControls, writeSupervisorLanguage } from "./supervisor-i18n.js?v=20260915-sup14";
-import { deriveRedactedSystemContext, serializeRedactedSystemContext } from "./supervisor-context.js?v=20260915-sup15";
 
 const SUPERVISOR_AUTH_KEY = "bnak_operator_auth_v2";
 const moduleRegistry = createSupervisorRegistry([waitingTrucksModule]);

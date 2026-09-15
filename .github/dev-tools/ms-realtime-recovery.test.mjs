@@ -86,10 +86,30 @@ test("Turso 524 preserves accepted in-memory snapshot without extra DB read/writ
     refresh,
     /ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด/,
   );
+
+  const rememberedResultStart = refresh.indexOf("const result = {\n          ...remembered,");
+  assert.notEqual(
+    rememberedResultStart,
+    -1,
+    "degraded remembered-result block must exist",
+  );
+  const rememberedResultEnd = refresh.indexOf(
+    "recentMsSync.set(branch",
+    rememberedResultStart,
+  );
+  assert.notEqual(
+    rememberedResultEnd,
+    -1,
+    "degraded remembered-result block must be cached",
+  );
+  const rememberedResultBlock = refresh.slice(
+    rememberedResultStart,
+    rememberedResultEnd,
+  );
   assert.doesNotMatch(
-    refresh,
+    rememberedResultBlock,
     /syncedAt:\s*new Date\(/,
-    "fallback must not fabricate a fresh accepted timestamp",
+    "Turso fallback must preserve remembered syncedAt rather than fabricate freshness",
   );
 });
 

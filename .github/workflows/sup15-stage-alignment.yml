@@ -27,6 +27,7 @@ jobs:
         shell: bash
         run: |
           TMP="$(mktemp -d)"
+          cp *.html "$TMP/"
           cp ms.js "$TMP/ms.js"
           cp style.css "$TMP/style.css"
           cp worker/src/index.js "$TMP/index.js"

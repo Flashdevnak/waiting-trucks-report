@@ -49,12 +49,18 @@ async function holdTransientEmptyMsSource(env, branch, mappedRows) {
   if (start < 0 || end < 0)
     throw new Error("transient-empty worker guard: runMsRefresh section missing");
   let section = output.slice(start, end);
-  const anchor = "    const sourceHash = await sha(canonicalMsSource(mappedRows));";
-  if (!section.includes(anchor))
-    throw new Error("transient-empty worker guard: sourceHash anchor missing");
-  section = section.replace(
-    anchor,
-    `    const transientEmptyHold = await holdTransientEmptyMsSource(env, branch, mappedRows);
+
+  // Earlier DEV stage patches may reformat or wrap the sourceHash declaration.
+  // Anchor on the canonical business-source expression instead of exact whitespace.
+  const hashToken = "canonicalMsSource(mappedRows)";
+  const hashAt = section.indexOf(hashToken);
+  if (hashAt < 0)
+    throw new Error("transient-empty worker guard: canonical source hash anchor missing");
+  const statementStart = section.lastIndexOf("\n", hashAt) + 1;
+  if (statementStart <= 0)
+    throw new Error("transient-empty worker guard: canonical source statement boundary missing");
+
+  const guard = `    const transientEmptyHold = await holdTransientEmptyMsSource(env, branch, mappedRows);
     if (transientEmptyHold) {
       const result = {
         status: "degraded",
@@ -67,8 +73,8 @@ async function holdTransientEmptyMsSource(env, branch, mappedRows) {
       recentMsSync.set(branch, { until: Date.now() + MS_SYNC_TTL, result });
       return result;
     }
-    ${anchor}`,
-  );
+`;
+  section = section.slice(0, statementStart) + guard + section.slice(statementStart);
   output = output.slice(0, start) + section + output.slice(end);
   return output;
 }

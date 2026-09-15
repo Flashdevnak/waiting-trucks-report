@@ -1,0 +1,117 @@
+name: SUP-15 Stage Alignment
+
+on:
+  push:
+    branches:
+      - codex/sup-15-deploy-stage-alignment
+
+permissions:
+  contents: write
+
+jobs:
+  align-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Align TBR staging patcher with accepted Turso recovery shape
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs')
+          source = path.read_text(encoding='utf-8')
+          start_marker = "  source = patchAsyncFunction(source, 'runMsRefresh', (body) => {"
+          end_marker = "\n\n  const cronConstant = 'const MS_CRON_ACTIVE_SKIP_MS = 45 * 1000;'"
+          start = source.find(start_marker)
+          end = source.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('SUP15_STAGE_ALIGN=FAIL missing runMsRefresh patch block')
+
+          replacement = r'''  source = patchAsyncFunction(source, 'runMsRefresh', (body) => {
+    const legacyTransientAnchor = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error instanceof TypeError;`;
+    const legacyTransientReplacement = `    const transient =\n      error?.code === \"UPSTREAM_TIMEOUT\" ||\n      error?.code === \"MS_HTTP_ERROR\" ||\n      error?.code === \"MS_SESSION_EXPIRED\" ||\n      error?.code === \"MS_ROUTE_SOURCE_ERROR\" ||\n      error?.code === \"MS_ROUTE_RATE_LIMIT\" ||\n      error instanceof TypeError;`;
+    const recoveryTransientAnchor = `    const transient =\n      tursoAvailability ||\n      errorCode === \"UPSTREAM_TIMEOUT\" ||\n      errorCode === \"MS_HTTP_ERROR\" ||\n      error instanceof TypeError;`;
+    const recoveryTransientReplacement = `    const transient =\n      tursoAvailability ||\n      errorCode === \"UPSTREAM_TIMEOUT\" ||\n      errorCode === \"MS_HTTP_ERROR\" ||\n      errorCode === \"MS_SESSION_EXPIRED\" ||\n      errorCode === \"MS_ROUTE_SOURCE_ERROR\" ||\n      errorCode === \"MS_ROUTE_RATE_LIMIT\" ||\n      error instanceof TypeError;`;
+    let usesRecoveryErrorCode = false;
+    if (body.includes(recoveryTransientAnchor)) {
+      usesRecoveryErrorCode = true;
+      body = body.replace(recoveryTransientAnchor, recoveryTransientReplacement);
+    } else if (body.includes(legacyTransientAnchor)) {
+      body = body.replace(legacyTransientAnchor, legacyTransientReplacement);
+    } else if (body.includes('errorCode === \"MS_ROUTE_RATE_LIMIT\"')) {
+      usesRecoveryErrorCode = body.includes('const errorCode = String(error?.code || \"\");');
+    } else if (!body.includes('error?.code === \"MS_ROUTE_RATE_LIMIT\"')) {
+      throw new Error('runMsRefresh transient anchor not found');
+    }
+
+    const degradedAnchor = `        const result = {\n          status: \"degraded\",\n          syncedAt: fallback.syncedAt || \"\",\n          changes: 0,`;
+    if (body.includes(degradedAnchor)) {
+      const errorCodeLine = usesRecoveryErrorCode
+        ? `          errorCode: errorCode || \"MS_NETWORK_ERROR\",\n`
+        : `          errorCode: error?.code || \"MS_NETWORK_ERROR\",\n`;
+      body = body.replace(
+        degradedAnchor,
+        `        const result = {\n          status: \"degraded\",\n          syncedAt: fallback.syncedAt || \"\",\n${errorCodeLine}          changes: 0,`,
+      );
+    } else if (!body.includes('errorCode: errorCode || \"MS_NETWORK_ERROR\"') &&
+               !body.includes('errorCode: error?.code || \"MS_NETWORK_ERROR\"')) {
+      throw new Error('runMsRefresh degraded result anchor not found');
+    }
+
+    const legacyErrorAnchor = `    const result = {\n      status: \"error\",\n      error: error.message || \"เชื่อมต่อ MS ไม่สำเร็จ\",\n    };`;
+    const legacyErrorReplacement = `    const result = {\n      status: \"error\",\n      errorCode: error?.code || \"MS_SYNC_FAILED\",\n      error: error.message || \"เชื่อมต่อ MS ไม่สำเร็จ\",\n    };`;
+    if (body.includes(legacyErrorAnchor))
+      return body.replace(legacyErrorAnchor, legacyErrorReplacement);
+    if (body.includes('errorCode: errorCode || \"MS_SYNC_FAILED\"') ||
+        body.includes('errorCode: error?.code || \"MS_SYNC_FAILED\"'))
+      return body;
+    throw new Error('runMsRefresh error result anchor not found');
+  });'''
+
+          updated = source[:start] + replacement + source[end:]
+          if updated == source:
+              raise SystemExit('SUP15_STAGE_ALIGN=FAIL no change')
+          path.write_text(updated, encoding='utf-8')
+          print('SUP15_STAGE_ALIGN=PATCHED')
+          PY
+
+      - name: Syntax check staging patcher
+        run: node --check cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
+
+      - name: Simulate exact DEV staging path
+        shell: bash
+        run: |
+          TMP="$(mktemp -d)"
+          cp ms.js "$TMP/ms.js"
+          cp style.css "$TMP/style.css"
+          cp worker/src/index.js "$TMP/index.js"
+          node .github/dev-tools/stage-dev-runtime.mjs "$TMP/ms.js" "$TMP/index.js"
+          grep -q 'MS_UPSTREAM_ACCOUNT_GUARD_V12' "$TMP/index.js"
+          grep -q 'TBR_SHADOW_SPLIT_V2' "$TMP/index.js"
+          grep -q 'TBR_EXTRA_MS_POLLING=0' <(node cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs "$TMP/index.js")
+          rm -rf "$TMP"
+          echo 'SUP15_STAGE_ALIGN=STAGE_PASS'
+
+      - name: Run worker regression
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+
+      - name: Commit alignment only
+        shell: bash
+        run: |
+          git status --short
+          test "$(git status --short | grep -v '^??' | wc -l | tr -d ' ')" = "1"
+          git diff --check
+          git add cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
+          git diff --cached --name-only | grep -qx 'cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(dev): align TBR staging with Turso recovery'
+          git push origin HEAD:codex/sup-15-deploy-stage-alignment

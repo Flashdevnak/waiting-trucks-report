@@ -13,6 +13,12 @@ hot = mustReplace(
   "shared Route cadence",
 );
 hot = hot.replaceAll("MS_ROUTE_SHARED_SOURCE_MIN_MS=12000", "MS_ROUTE_SHARED_SOURCE_MIN_MS=3000");
+hot = mustReplace(
+  hot,
+  '!source.includes("MS_REALTIME_SOURCE_MIN_MS = 12 * 1000")',
+  '!source.includes("MS_REALTIME_SOURCE_MIN_MS = 3 * 1000")',
+  "shared Route cadence self-validator",
+);
 fs.writeFileSync(".github/dev-tools/patch-bus-time-hot-lane-v14.mjs", hot);
 
 let front = fs.readFileSync("ms.js", "utf8");

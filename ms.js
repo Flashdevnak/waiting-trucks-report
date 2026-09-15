@@ -10,6 +10,11 @@ const CONFIG = {
 CONFIG.apiUrl = "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 const ARCHIVE_LOAD_DELAY_MS = 1500;
 const AUTH_KEY = "bnak_operator_auth_v2";
+// MS_FAST_FIRST_PAINT_V1: a browser reload paints the last accepted snapshot immediately,
+// then reconnects to the existing shared realtime coordinator. No extra upstream MS poll.
+const FAST_REFRESH_SNAPSHOT_KEY = "ms_fast_refresh_snapshot_v1";
+const FAST_REFRESH_SNAPSHOT_MAX_AGE_MS = 5 * 60 * 1000;
+let fastSnapshotRestoreInProgress = false;
 const state = {
   rows: [],
   currentRows: [],
@@ -120,7 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
     state.summary = "all";
     resetArchiveState();
     stopRealtimeTransport();
-    loadData().finally(() => restartRealtimeTransport());
+    void loadInitialData();
   };
   setupDateInput("date-from");
   setupDateInput("date-to");
@@ -180,7 +185,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setInterval(renderFreshness, 10000);
   clock();
   authUi();
-  loadData().finally(() => restartRealtimeTransport());
+  void loadInitialData();
   handleMsEntryHash();
   window.addEventListener("hashchange", handleMsEntryHash);
   document.addEventListener("visibilitychange", handleRealtimeVisibility);
@@ -297,6 +302,7 @@ function handleRealtimeMessage(raw) {
   if (payload?.type !== "snapshot") return;
   realtimeLastSnapshotAt = Date.now();
   applyLiveResult(payload, true);
+  saveFastRefreshSnapshot();
 }
 
 function realtimeTick() {
@@ -403,8 +409,7 @@ async function login(event) {
     el("login-error").classList.add("hidden");
     el("login-dialog").close();
     authUi();
-    await loadData();
-    restartRealtimeTransport();
+    await loadInitialData();
     handleMsEntryHash();
     toast("เข้าสู่ระบบแล้ว");
   } catch (error) {
@@ -420,7 +425,9 @@ function closeLogin() {
 }
 
 function logout() {
+  const fastSnapshotUsername = state.auth?.username || "";
   stopRealtimeTransport();
+  clearFastRefreshSnapshotsForUser(fastSnapshotUsername);
   state.auth = null;
   state.currentRows = [];
   resetArchiveState();
@@ -434,7 +441,9 @@ function logout() {
 }
 
 function invalidateSession() {
+  const fastSnapshotUsername = state.auth?.username || "";
   stopRealtimeTransport();
+  clearFastRefreshSnapshotsForUser(fastSnapshotUsername);
   state.auth = null;
   state.rows = [];
   localStorage.removeItem(AUTH_KEY);
@@ -463,6 +472,132 @@ function resetLowerDailyViewOnBangkokDayChange() {
   }
 }
 
+function fastRefreshSnapshotKey(branch = state.branch, username = state.auth?.username) {
+  const user = String(username || "").trim().toUpperCase();
+  const hub = String(branch || "").trim().toUpperCase();
+  return user && hub ? `${FAST_REFRESH_SNAPSHOT_KEY}:${user}:${hub}` : "";
+}
+
+function fastRefreshStandards() {
+  return Object.entries(state.standards || {}).map(([type, minutes]) => ({
+    type,
+    minutes: Number(minutes) || 120,
+  }));
+}
+
+function fastRefreshBranches() {
+  const select = el("branch-filter");
+  const fromSelect = select
+    ? Array.from(select.options || []).map((option) => String(option.value || "").trim()).filter(Boolean)
+    : [];
+  const fromAuth = Array.isArray(state.auth?.branches)
+    ? state.auth.branches.filter((branch) => branch && branch !== "*")
+    : [];
+  return [...new Set([...fromSelect, ...fromAuth, state.branch].filter(Boolean))];
+}
+
+function saveFastRefreshSnapshot(savedAt = Date.now()) {
+  if (!state.auth || !Array.isArray(state.currentRows)) return;
+  const key = fastRefreshSnapshotKey();
+  if (!key) return;
+  const snapshot = {
+    marker: "MS_FAST_FIRST_PAINT_V1",
+    savedAt: Number(savedAt) || Date.now(),
+    branch: state.branch,
+    rows: state.currentRows,
+    completedToday: Number(state.completedToday) || 0,
+    standards: fastRefreshStandards(),
+    branches: fastRefreshBranches(),
+    lastSync: state.lastSync || "",
+    msStatus: state.msStatus || "",
+    syncError: state.syncError || "",
+  };
+  try {
+    sessionStorage.setItem(key, JSON.stringify(snapshot));
+  } catch {}
+}
+
+function clearFastRefreshSnapshotsForUser(username) {
+  const user = String(username || "").trim().toUpperCase();
+  if (!user) return;
+  const prefix = `${FAST_REFRESH_SNAPSHOT_KEY}:${user}:`;
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith(prefix)) sessionStorage.removeItem(key);
+    }
+  } catch {}
+}
+
+function applyFastRefreshSnapshot(snapshot, sourceLabel = "snapshot") {
+  if (!snapshot || !Array.isArray(snapshot.rows)) return false;
+  const snapshotBranch = String(snapshot.branch || state.branch || "").toUpperCase();
+  if (snapshotBranch && snapshotBranch !== String(state.branch || "").toUpperCase()) return false;
+  fastSnapshotRestoreInProgress = true;
+  try {
+    applyLiveResult(snapshot, true);
+  } finally {
+    fastSnapshotRestoreInProgress = false;
+  }
+  const savedAt = Number(snapshot.savedAt) || Date.parse(String(snapshot.lastSync || "")) || 0;
+  state.transportLastOkAt = savedAt;
+  const badge = el("connection-badge");
+  if (badge) {
+    badge.textContent = "กำลังเชื่อมต่อ";
+    badge.className = "badge badge-neutral";
+  }
+  const displayAt = Date.parse(String(snapshot.lastSync || "")) || savedAt;
+  if (el("last-refresh")) {
+    const stamp = displayAt ? dtf.format(new Date(displayAt)) : "ล่าสุด";
+    el("last-refresh").textContent =
+      `แสดงข้อมูลล่าสุดจาก ${sourceLabel} · ${stamp} น. · กำลังเชื่อมต่อข้อมูลสด`;
+  }
+  return true;
+}
+
+function restoreFastRefreshSnapshot() {
+  const key = fastRefreshSnapshotKey();
+  if (!key) return false;
+  try {
+    const snapshot = JSON.parse(sessionStorage.getItem(key) || "null");
+    const savedAt = Number(snapshot?.savedAt) || 0;
+    if (!snapshot || !savedAt || Date.now() - savedAt > FAST_REFRESH_SNAPSHOT_MAX_AGE_MS) {
+      sessionStorage.removeItem(key);
+      return false;
+    }
+    return applyFastRefreshSnapshot(snapshot, "snapshot ในแท็บนี้");
+  } catch {
+    try { sessionStorage.removeItem(key); } catch {}
+    return false;
+  }
+}
+
+async function loadInitialData() {
+  if (!state.auth) {
+    await loadData();
+    return false;
+  }
+  if (restoreFastRefreshSnapshot()) {
+    restartRealtimeTransport();
+    return true;
+  }
+  try {
+    const snapshot = await apiGet("msRoutesSnapshot", { branch: state.branch });
+    if (snapshot?.snapshotFound && Array.isArray(snapshot.rows)) {
+      const lastSyncMs = Date.parse(String(snapshot.lastSync || ""));
+      snapshot.savedAt = Number.isFinite(lastSyncMs) ? lastSyncMs : Date.now();
+      if (applyFastRefreshSnapshot(snapshot, "Turso snapshot")) {
+        saveFastRefreshSnapshot(snapshot.savedAt);
+        restartRealtimeTransport();
+        return true;
+      }
+    }
+  } catch {}
+  await loadData();
+  restartRealtimeTransport();
+  return false;
+}
+
 async function loadData(silent = false) {
   if (!state.auth) {
     connection(false);
@@ -475,6 +610,7 @@ async function loadData(silent = false) {
   try {
     const result = await apiGet("msRoutes", { branch: state.branch });
     applyLiveResult(result, false);
+    saveFastRefreshSnapshot();
     ensureRealtimeTransport();
   } catch (error) {
     state.transportFailures = Number(state.transportFailures || 0) + 1;
@@ -517,8 +653,10 @@ function applyLiveResult(result, fromStream = false) {
   if (result?.lastSync !== undefined) state.lastSync = result.lastSync || "";
   if (result?.msStatus !== undefined) state.msStatus = result.msStatus || "";
   if (result?.syncError !== undefined) state.syncError = result.syncError || "";
-  state.transportLastOkAt = Date.now();
-  state.transportFailures = 0;
+  if (!fastSnapshotRestoreInProgress) {
+    state.transportLastOkAt = Date.now();
+    state.transportFailures = 0;
+  }
   fillFilters();
   connection(state.msStatus !== "error" && state.msStatus !== "not_configured");
   if (!fromStream && state.syncError && state.msStatus !== "degraded")
@@ -529,7 +667,7 @@ function applyLiveResult(result, fromStream = false) {
       : `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
   render();
   const zeroProbeKey = completedTodayDatasetKey();
-  if (state.completedToday === 0 && completedTodayZeroProbedKey !== zeroProbeKey) {
+  if (!fastSnapshotRestoreInProgress && state.completedToday === 0 && completedTodayZeroProbedKey !== zeroProbeKey) {
     completedTodayZeroProbedKey = zeroProbeKey;
     const probeBranch = state.branch;
     void loadCompletedTodayRows(true)
@@ -538,7 +676,7 @@ function applyLiveResult(result, fromStream = false) {
       })
       .catch(() => {});
   }
-  if (shouldHydrateCompletedTodayRows()) {
+  if (!fastSnapshotRestoreInProgress && shouldHydrateCompletedTodayRows()) {
     const hydrationBranch = state.branch;
     void loadCompletedTodayRows(false)
       .then(() => {

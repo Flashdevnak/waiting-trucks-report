@@ -43,6 +43,8 @@ jobs:
           node --check .github/dev-tools/apply-sup15.mjs
       - name: Apply SUP-15 canonical patch
         run: node .github/dev-tools/apply-sup15.mjs
+      - name: Restore temporary patcher
+        run: git checkout -- .github/dev-tools/apply-sup15.mjs
       - name: Align historical Supervisor JS cache-key harnesses
         run: |
           python - <<'PY'

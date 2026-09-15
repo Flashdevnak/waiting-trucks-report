@@ -214,6 +214,48 @@ async function get(url, env) {
         pickBranch(actor, url.searchParams.get("branch")),
       ),
     );
+  // MS_FAST_FIRST_PAINT_V1: cache-only first paint. This path never calls upstream MS.
+  if (action === "msRoutesSnapshot") {
+    const branch = pickBranch(actor, url.searchParams.get("branch"));
+    const [cache, settings] = await Promise.all([
+      env.DB.prepare(
+        "SELECT rows_json,synced_at FROM ms_live_cache WHERE hub=? LIMIT 1",
+      )
+        .bind(branch)
+        .first(),
+      readSettings(env, branch),
+    ]);
+    const syncedAt = String(cache?.synced_at || "");
+    const parsedAt = Date.parse(syncedAt);
+    const snapshotAgeMs = Number.isFinite(parsedAt)
+      ? Math.max(0, Date.now() - parsedAt)
+      : -1;
+    let rows = [];
+    let snapshotFound = false;
+    if (cache && snapshotAgeMs >= 0 && snapshotAgeMs <= 20 * 60 * 1000) {
+      try {
+        const parsed = JSON.parse(cache.rows_json || "[]");
+        if (Array.isArray(parsed)) {
+          rows = parsed;
+          snapshotFound = true;
+        }
+      } catch {}
+    }
+    return ok({
+      rows,
+      branch,
+      branches:
+        actor.role === "admin"
+          ? [...new Set([branch, ...(await knownMsBranches(env))])]
+          : actor.branches.filter((x) => x !== "*"),
+      standards: settings.msVehicleLimits,
+      lastSync: snapshotFound ? syncedAt : "",
+      msStatus: snapshotFound ? "cached" : "empty",
+      syncError: "",
+      snapshotFound,
+      snapshotAgeMs,
+    });
+  }
   if (action === "msRoutes") {
     const branch = pickBranch(actor, url.searchParams.get("branch")),
       live = await refreshMsIfStale(env, actor, branch);

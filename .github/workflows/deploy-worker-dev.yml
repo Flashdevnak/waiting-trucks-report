@@ -146,10 +146,11 @@ jobs:
           const msV4=fs.readFileSync('.dev-assets/ms-v4.css','utf8');
           if(!msV4.includes('MS_UI_V4_VISUAL_CONTRACT')) throw new Error('staged MS UI V4 CSS missing');
 
-          for(const marker of ['MS_DAILY_HISTORY_V1','MS_UNLOAD_COMPLETION_UI_V1','pollMs: 4000','MS_REALTIME_WS_V1','setInterval(realtimeTick, CONFIG.pollMs)','apiGet("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
+          for(const marker of ['MS_DAILY_HISTORY_V1','MS_UNLOAD_COMPLETION_UI_V1','pollMs: 4000','MS_REALTIME_WS_V1','setInterval(realtimeTick, CONFIG.pollMs)','apiGetOnce("msDailyArchive"','เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา'])
             if(!front.includes(marker)) throw new Error(`staged frontend missing ${marker}`);
+          if(front.includes('apiGet("msDailyArchive"')) throw new Error('staged frontend restored retrying daily-history request');
           if(front.includes('setInterval(() => state.auth && loadData(true), CONFIG.pollMs)')) throw new Error('staged frontend restored direct HTTP 4s timer');
-          for(const marker of ['MS_REALTIME_WS_V1','DEV_ROOT_ENTRY_V1','HUB_SETTINGS_CACHE_V1','MS_DAILY_HISTORY_V1: read-only daily history','MS_QUOTA_SAFE_LIVE_V1','MS_COMPLETION_TIME_TRUTH_V2','MS_SCHEDULE_COMPLETION_TRUTH_V4','MS_COMPLETION_DAILY_HISTORY_TRUTH_V2','MS_COMPLETION_ARCHIVE_TRUTH_V2','AUTH_SESSION_RESILIENCE_V1','AUTH_VERIFY_UNAVAILABLE','TBR_SHADOW_SPLIT_V2','TBR_ROUTE_OPERATING_WINDOW_V3','TBR_ROUTE_CHUNK_RETRY_V4','tbrShadowRouteRanges','readTbrRouteRangeWithRetry','todayStartBangkok - 86400000','todayStartBangkok + 86400000 - 1000'])
+          for(const marker of ['MS_REALTIME_WS_V1','DEV_ROOT_ENTRY_V1','HUB_SETTINGS_CACHE_V1','MS_DAILY_HISTORY_V1: read-only daily history','MS_DAILY_HISTORY_MAX_7_DAYS_V1','MS_QUOTA_SAFE_LIVE_V1','MS_COMPLETION_TIME_TRUTH_V2','MS_SCHEDULE_COMPLETION_TRUTH_V4','MS_COMPLETION_DAILY_HISTORY_TRUTH_V2','MS_COMPLETION_ARCHIVE_TRUTH_V2','AUTH_SESSION_RESILIENCE_V1','AUTH_VERIFY_UNAVAILABLE','TBR_SHADOW_SPLIT_V2','TBR_ROUTE_OPERATING_WINDOW_V3','TBR_ROUTE_CHUNK_RETRY_V4','tbrShadowRouteRanges','readTbrRouteRangeWithRetry','todayStartBangkok - 86400000','todayStartBangkok + 86400000 - 1000'])
             if(!worker.includes(marker)) throw new Error(`staged worker missing ${marker}`);
           if(!canonicalWorker.includes('HUB_SETTINGS_CACHE_V1')) throw new Error('canonical HUB settings cache missing');
           if(canonicalWorker.includes('MS_REALTIME_WS_V1')) throw new Error('canonical worker contaminated by staged realtime runtime');

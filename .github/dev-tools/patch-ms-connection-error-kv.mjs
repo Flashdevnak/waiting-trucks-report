@@ -16,7 +16,7 @@ export function patchMsConnectionErrorKvFrontend(source) {
 
   const helperAnchor = `document.addEventListener("DOMContentLoaded", () => {`;
   const helpers = [
-    `// ${MARKER}: persist only HAR/MS error metadata in Browser Worker KV; never Turso or LocalStorage.`,
+    `// ${MARKER}: persist only real server/upstream connection errors in Browser Worker KV; never local HAR validation.`,
     `const MS_CONNECTION_OBSERVER_URL = "${OBSERVER_URL}";`,
     `const MS_CONNECTION_RESPONSIVE_MARKER = "${RESPONSIVE_MARKER}";`,
     ``,
@@ -26,6 +26,17 @@ export function patchMsConnectionErrorKvFrontend(source) {
     `  if (source === "busTime") return "การจัดการตารางเวลา KIT/TBR";`,
     `  if (source === "originManifest") return "LH Manifest พัสดุออกจริง / น้ำหนัก";`,
     `  return "การเชื่อมต่อ MS";`,
+    `}`,
+    ``,
+    `function msConnectionDisplayError(error) {`,
+    `  const code = String(error?.code || "");`,
+    `  const message = String(error?.message || "");`,
+    `  const text = code + " " + message;`,
+    `  if (/MS_SESSION_HTTP_401|MS_SESSION_EXPIRED|INVALID_SESSION|(^|\\D)401(\\D|$)/i.test(text))`,
+    `    return "ไฟล์ HAR อ่านได้ แต่ Session ในไฟล์ถูก MS ปฏิเสธ (401) · กรุณาเข้า MS ให้พร้อมใช้งาน แล้ว Export HAR ใหม่จากหน้าเดิม จากนั้นอัปโหลดอีกครั้ง";`,
+    `  if (error instanceof SyntaxError)`,
+    `    return "ไฟล์ HAR อ่านไม่ได้หรือรูปแบบไฟล์ไม่สมบูรณ์ · กรุณา Export HAR ใหม่แล้วลองอีกครั้ง";`,
+    `  return message || "อัปโหลด HAR ไม่สำเร็จ";`,
     `}`,
     ``,
     `function msConnectionObserverBox() {`,
@@ -70,7 +81,7 @@ export function patchMsConnectionErrorKvFrontend(source) {
     `  box.append(title, detail, message);`,
     `  if (record.recoveredAt) {`,
     `    const recovered = document.createElement("div");`,
-    `    recovered.textContent = "✓ เชื่อมต่อสำเร็จอีกครั้ง " + shortDateTime(record.recoveredAt) + " · error นี้ถูกแก้แล้ว";`,
+    `    recovered.textContent = "✓ Session ใหม่เชื่อมต่อสำเร็จ " + shortDateTime(record.recoveredAt) + " · เหตุการณ์เดิมปิดแล้ว";`,
     `    recovered.style.marginTop = "4px";`,
     `    recovered.style.fontWeight = "700";`,
     `    box.append(recovered);`,
@@ -171,6 +182,7 @@ export function patchMsConnectionErrorKvFrontend(source) {
     `  if (!hub) return;`,
     `  const message = String(error?.message || "").slice(0, 240);`,
     `  const rawCode = String(error?.code || "").slice(0, 40);`,
+    `  if (event === "error" && (!rawCode || rawCode.startsWith("LOCAL_"))) return;`,
     `  const code = /429|rate.?limit|too many requests/i.test(rawCode + " " + message) ? "429" : rawCode || "ERROR";`,
     `  try {`,
     `    const url = new URL(MS_CONNECTION_OBSERVER_URL);`,
@@ -192,6 +204,20 @@ export function patchMsConnectionErrorKvFrontend(source) {
     helperAnchor,
     helpers + helperAnchor,
     "insert Browser KV connection helpers",
+  );
+
+  output = replaceUnique(
+    output,
+    `    if (!file || file.size > maxHarMb * 1024 * 1024)\n      throw new Error(\`กรุณาเลือกไฟล์ HAR ขนาดไม่เกิน \${maxHarMb} MB\`);`,
+    `    if (!file) {\n      const localError = new Error("กรุณาเลือกไฟล์ HAR ก่อนกดบันทึก");\n      localError.code = "LOCAL_NO_FILE";\n      throw localError;\n    }\n    if (file.size > maxHarMb * 1024 * 1024) {\n      const localError = new Error(\`ไฟล์ HAR มีขนาดเกิน \${maxHarMb} MB · กรุณา Export ไฟล์ใหม่ให้มีขนาดไม่เกินที่กำหนด\`);\n      localError.code = "LOCAL_FILE_TOO_LARGE";\n      throw localError;\n    }`,
+    "separate missing HAR from oversize HAR",
+  );
+
+  output = replaceUnique(
+    output,
+    `  if (json.ok === false) throw new Error(json.message);`,
+    `  if (json.ok === false) {\n    const apiError = new Error(json.message || "การเชื่อมต่อ MS ไม่สำเร็จ");\n    apiError.code = String(json.code || "MS_CONNECTION_ERROR");\n    throw apiError;\n  }`,
+    "preserve API error code for truthful HAR diagnosis",
   );
 
   output = replaceUnique(
@@ -225,8 +251,8 @@ export function patchMsConnectionErrorKvFrontend(source) {
   output = replaceUnique(
     output,
     `  } catch (error) {\n    errorEl.textContent = error.message;\n    errorEl.classList.remove("hidden");\n  } finally {\n    button.disabled = false;\n  }\n}\n\nfunction exportCurrent() {`,
-    `  } catch (error) {\n    void reportMsConnectionObservation("error", source, hub, error).then(() => loadMsConnectionObservedError(hub));\n    errorEl.textContent = error.message;\n    errorEl.classList.remove("hidden");\n  } finally {\n    button.disabled = false;\n  }\n}\n\nfunction exportCurrent() {`,
-    "remember HAR/MS error in Browser KV",
+    `  } catch (error) {\n    void reportMsConnectionObservation("error", source, hub, error).then(() => loadMsConnectionObservedError(hub));\n    errorEl.textContent = msConnectionDisplayError(error);\n    errorEl.classList.remove("hidden");\n  } finally {\n    button.disabled = false;\n  }\n}\n\nfunction exportCurrent() {`,
+    "remember only real HAR/MS errors in Browser KV",
   );
 
   return output;

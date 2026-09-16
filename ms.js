@@ -61,6 +61,9 @@ let completedTodayZeroProbedKey = "";
 // leads refreshes; the shared Durable Object broadcasts the same accepted data.
 const REALTIME_WS_RETRY_MS = 3000;
 const REALTIME_AUTH_HEARTBEAT_MS = 60 * 1000;
+// MS_REALTIME_FAILOVER_V2: after two missed visible cycles plus 1s grace, a follower
+// can refresh the same shared per-HUB coordinator. Healthy followers remain passive.
+const REALTIME_FOLLOWER_TAKEOVER_MS = 2 * CONFIG.pollMs + 1000;
 let realtimeSocket = null;
 let realtimeSocketKey = "";
 let realtimeConnectStartedAt = 0;
@@ -327,7 +330,7 @@ function realtimeTick() {
     const staleFollower =
       realtimeIsLeader === false &&
       realtimeLastSnapshotAt > 0 &&
-      now - realtimeLastSnapshotAt > CONFIG.staleMs;
+      now - realtimeLastSnapshotAt > REALTIME_FOLLOWER_TAKEOVER_MS;
     const shouldRefresh =
       realtimeIsLeader === true || realtimeIsLeader === null || staleFollower;
     const shouldAuth =

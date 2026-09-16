@@ -44,6 +44,7 @@ test("worker daily history is read-only Turso history and never refreshes upstre
   assert.match(worker, /upstreamMsCalls:\s*0/);
   assert.match(worker, /historyWrites:\s*0/);
   assert.match(worker, /FROM ms_route_registry r/);
+  // Quota guard: the per-route latest snapshot lookup must be locked to the existing covering index.
   assert.match(worker, /INDEXED BY idx_ms_route_history_hub_route_snapshot/);
 
   const start = worker.indexOf("async function msDailyArchive");

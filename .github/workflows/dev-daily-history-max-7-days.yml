@@ -1,0 +1,71 @@
+name: DEV Daily History Max 7 Days
+
+on:
+  push:
+    branches:
+      - codex/dev-daily-history-max-7-days
+    paths:
+      - '.github/dev-tools/apply-daily-history-max-7-days.mjs'
+      - '.github/workflows/dev-daily-history-max-7-days.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/dev-daily-history-max-7-days
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Patch only daily-history max range
+        run: node .github/dev-tools/apply-daily-history-max-7-days.mjs
+
+      - name: Focused syntax and regression
+        run: |
+          node --check ms.js
+          node --check worker/src/index.js
+          node --test .github/dev-tools/daily-history.test.mjs
+
+      - name: Full worker regression
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+
+      - name: Scope safety
+        run: |
+          node <<'NODE'
+          const { execSync } = require('node:child_process');
+          const changed = execSync('git diff --name-only', {encoding:'utf8'}).trim().split(/\r?\n/).filter(Boolean).sort();
+          const allowed = ['.github/dev-tools/daily-history.test.mjs','ms.js','worker/src/index.js'].sort();
+          if (JSON.stringify(changed) !== JSON.stringify(allowed)) {
+            throw new Error(`unexpected runtime diff: ${changed.join(', ')}`);
+          }
+          const fs = require('node:fs');
+          const front = fs.readFileSync('ms.js','utf8');
+          const worker = fs.readFileSync('worker/src/index.js','utf8');
+          if (!front.includes('MS_DAILY_HISTORY_MAX_7_DAYS_V1')) throw new Error('frontend marker missing');
+          if (!worker.includes('MS_DAILY_HISTORY_MAX_7_DAYS_V1')) throw new Error('worker marker missing');
+          console.log('MAX_SEARCH_CALENDAR_DAYS=7');
+          console.log('UPSTREAM_MS_CALLS_ADDED=0');
+          console.log('DATABASE_WRITES_ADDED=0');
+          console.log('PRODUCTION_TOUCHED=NO');
+          NODE
+
+      - name: Commit only final scoped source and remove temporary apply files
+        run: |
+          git config user.name "Flashdevnak"
+          git config user.email "26nak.testdev@gmail.com"
+          git rm .github/dev-tools/apply-daily-history-max-7-days.mjs .github/workflows/dev-daily-history-max-7-days.yml
+          git add ms.js worker/src/index.js .github/dev-tools/daily-history.test.mjs
+          git commit -m "fix(dev): cap daily-history search at 7 days"
+          git push origin HEAD:codex/dev-daily-history-max-7-days

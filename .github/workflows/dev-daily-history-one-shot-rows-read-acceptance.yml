@@ -1,0 +1,170 @@
+name: DEV Daily History One-Shot Rows Read Acceptance
+
+# DEV ONLY.
+# One merge-triggered acceptance run:
+# - reads Turso account usage before/after without querying application tables
+# - executes the exact msDailyArchive heavy SELECT once for one calendar day
+# - executes the small cancellation companion SELECT once, matching one search action
+# - performs no upstream MS call and no database write
+# - never touches Production
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/dev-daily-history-one-shot-rows-read-acceptance.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-daily-history-one-shot-rows-read-acceptance
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+      ACCEPTANCE_HUB: NE1
+      ACCEPTANCE_DAY: '2026-09-16'
+    steps:
+      - name: Baseline, one 1-day history search, and Rows Read delta
+        shell: bash
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            const org=process.env.TURSO_ORG;
+            const db=process.env.TURSO_DATABASE;
+            const hub=process.env.ACCEPTANCE_HUB;
+            const day=process.env.ACCEPTANCE_DAY;
+            if(!platform) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
+            if(db!=='waiting-trucks-dev-turso-20260902192750') throw new Error('DEV database guard failed');
+            if(hub!=='NE1') throw new Error('DEV acceptance HUB guard failed');
+            if(!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Acceptance day invalid');
+
+            const platformHeaders={Authorization:`Bearer ${platform}`};
+            async function platformJson(url, init={}) {
+              const response=await fetch(url,{...init,headers:{...platformHeaders,...(init.headers||{})}});
+              const json=await response.json();
+              if(!response.ok) throw new Error(`Turso platform HTTP ${response.status}: ${JSON.stringify(json).slice(0,500)}`);
+              return json;
+            }
+            function usageRowsRead(value) {
+              return Number(value?.database?.total?.rows_read||0);
+            }
+            function usageRowsWritten(value) {
+              return Number(value?.database?.total?.rows_written||0);
+            }
+
+            const usageUrl=`https://api.turso.tech/v1/organizations/${org}/databases/${db}/usage`;
+            const beforeUsage=await platformJson(usageUrl);
+            const baselineRowsRead=usageRowsRead(beforeUsage);
+            const baselineRowsWritten=usageRowsWritten(beforeUsage);
+            console.log(`TURSO_USAGE_ROWS_READ_BEFORE=${baselineRowsRead}`);
+            console.log(`TURSO_USAGE_ROWS_WRITTEN_BEFORE=${baselineRowsWritten}`);
+
+            const databaseJson=await platformJson(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`);
+            const database=databaseJson.database||databaseJson;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('DEV Turso hostname missing');
+
+            const tokenJson=await platformJson(
+              `https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,
+              {method:'POST'},
+            );
+            if(!tokenJson.jwt) throw new Error('DEV Turso token missing');
+            console.log(`::add-mask::${tokenJson.jwt}`);
+
+            const historySql=`WITH latest AS (
+              SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type
+              FROM ms_route_registry r
+              JOIN ms_route_history h
+                ON h.rowid = (
+                  SELECT h2.rowid
+                  FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot
+                  WHERE h2.hub=r.hub AND h2.route_id=r.route_id
+                  ORDER BY h2.snapshot_at DESC,h2.rowid DESC
+                  LIMIT 1
+                )
+              WHERE r.hub='${hub}' AND h.hub='${hub}' AND json_valid(h.payload_json)=1
+            ), daily AS (
+              SELECT route_id,payload_json,snapshot_at,synced_by,event_type,
+                CASE
+                  WHEN COALESCE(json_extract(payload_json,'$.attendanceType'),'') LIKE '%ต้นทาง%' THEN
+                    date(datetime(COALESCE(
+                      NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),''),
+                      NULLIF(json_extract(payload_json,'$.actualDepartureAt'),''),
+                      NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),'')
+                    ), '+7 hours'))
+                  ELSE
+                    date(datetime(COALESCE(
+                      NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),''),
+                      NULLIF(json_extract(payload_json,'$.actualArrivalAt'),''),
+                      NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),'')
+                    ), '+7 hours'))
+                END AS business_day
+              FROM latest
+            )
+            SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day
+            FROM daily
+            WHERE business_day>='${day}' AND business_day<='${day}'
+            ORDER BY business_day DESC,snapshot_at DESC`;
+            const cancellationSql=`SELECT route_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub='${hub}' AND active=1`;
+
+            // One acceptance search only. Both SELECTs are the two read-only statements
+            // used by one msDailyArchive search; no retry and no additional history scan.
+            const pipelineResponse=await fetch(`https://${hostname}/v2/pipeline`,{
+              method:'POST',
+              headers:{Authorization:`Bearer ${tokenJson.jwt}`,'content-type':'application/json'},
+              body:JSON.stringify({requests:[
+                {type:'execute',stmt:{sql:historySql}},
+                {type:'execute',stmt:{sql:cancellationSql}},
+                {type:'close'},
+              ]}),
+            });
+            const pipeline=await pipelineResponse.json();
+            if(!pipelineResponse.ok) throw new Error(`Turso pipeline HTTP ${pipelineResponse.status}`);
+            const historyItem=pipeline?.results?.[0];
+            const cancellationItem=pipeline?.results?.[1];
+            if(historyItem?.type==='error') throw new Error(`History query failed: ${JSON.stringify(historyItem.error).slice(0,500)}`);
+            if(cancellationItem?.type==='error') throw new Error(`Cancellation query failed: ${JSON.stringify(cancellationItem.error).slice(0,500)}`);
+            const historyResult=historyItem?.response?.result||{};
+            const cancellationResult=cancellationItem?.response?.result||{};
+            const historyRowsRead=Number(historyResult.rows_read||0);
+            const cancellationRowsRead=Number(cancellationResult.rows_read||0);
+            const exactRowsRead=historyRowsRead+cancellationRowsRead;
+            const rowsWritten=Number(historyResult.rows_written||0)+Number(cancellationResult.rows_written||0);
+            const historyRows=Array.isArray(historyResult.rows)?historyResult.rows.length:0;
+            const cancellationRows=Array.isArray(cancellationResult.rows)?cancellationResult.rows.length:0;
+
+            console.log(`HISTORY_ACCEPTANCE_HUB=${hub}`);
+            console.log(`HISTORY_ACCEPTANCE_START=${day}`);
+            console.log(`HISTORY_ACCEPTANCE_END=${day}`);
+            console.log('HISTORY_ACCEPTANCE_RANGE_DAYS=1');
+            console.log('HISTORY_ACCEPTANCE_SEARCH_COUNT=1');
+            console.log(`HISTORY_RESULT_ROWS=${historyRows}`);
+            console.log(`HISTORY_CANCELLATION_ROWS=${cancellationRows}`);
+            console.log(`HISTORY_QUERY_ROWS_READ=${historyRowsRead}`);
+            console.log(`HISTORY_CANCELLATION_ROWS_READ=${cancellationRowsRead}`);
+            console.log(`HISTORY_SEARCH_ROWS_READ_DELTA_EXACT=${exactRowsRead}`);
+            console.log(`HISTORY_SEARCH_ROWS_WRITTEN_EXACT=${rowsWritten}`);
+            console.log('HISTORY_UPSTREAM_MS_CALLS=0');
+            console.log('HISTORY_AUTOMATIC_RETRY=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+
+            const afterUsage=await platformJson(usageUrl);
+            const afterRowsRead=usageRowsRead(afterUsage);
+            const afterRowsWritten=usageRowsWritten(afterUsage);
+            console.log(`TURSO_USAGE_ROWS_READ_AFTER=${afterRowsRead}`);
+            console.log(`TURSO_USAGE_ROWS_WRITTEN_AFTER=${afterRowsWritten}`);
+            console.log(`TURSO_USAGE_ROWS_READ_DELTA_OBSERVED=${Math.max(0,afterRowsRead-baselineRowsRead)}`);
+            console.log(`TURSO_USAGE_ROWS_WRITTEN_DELTA_OBSERVED=${Math.max(0,afterRowsWritten-baselineRowsWritten)}`);
+
+            if(rowsWritten!==0) throw new Error(`History acceptance wrote ${rowsWritten} rows`);
+            if(exactRowsRead>=100000) throw new Error(`FAIL: one-day history search read ${exactRowsRead} rows (>=100000)`);
+            console.log('HISTORY_ROWS_READ_ACCEPTANCE=PASS');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

@@ -1,0 +1,35 @@
+name: DEV History Latest-State Schema V2
+on:
+  push:
+    branches: [codex/dev-history-latest-state-benchmark-v2]
+    paths: [.github/workflows/dev-history-latest-state-schema-v2.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Read schema metadata only
+        shell: bash
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const p=process.env.TURSO_PLATFORM_API_TOKEN,o=process.env.TURSO_ORG,d=process.env.TURSO_DATABASE;
+            if(!p||o!=='flashdevnak'||d!=='waiting-trucks-dev-turso-20260902192750') throw Error('DEV guard failed');
+            const h={Authorization:`Bearer ${p}`};
+            const j=async(u,i={})=>{const r=await fetch(u,{...i,headers:{...h,...(i.headers||{})}}),x=await r.json();if(!r.ok)throw Error(JSON.stringify(x));return x};
+            const db=(await j(`https://api.turso.tech/v1/organizations/${o}/databases/${d}`)).database;
+            const t=await j(`https://api.turso.tech/v1/organizations/${o}/databases/${d}/auth/tokens?expiration=10m&authorization=read-only`,{method:'POST'});
+            console.log(`::add-mask::${t.jwt}`);
+            const q=`SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name IN ('ms_routes','ms_route_registry','ms_route_history') OR (type='index' AND tbl_name IN ('ms_routes','ms_route_registry')) ORDER BY type,name`;
+            const r=await fetch(`https://${db.Hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${t.jwt}`,'content-type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql:q}},{type:'close'}]})});
+            const x=await r.json(),z=x.results?.[0]?.response?.result||{};
+            console.log(`SCHEMA_ROWS_READ=${Number(z.rows_read||0)}`);
+            console.log(`SCHEMA=${JSON.stringify(z.rows||[])}`);
+            console.log('DB_WRITES=0');console.log('UPSTREAM_MS_CALLS=0');console.log('PRODUCTION_TOUCHED=NO');
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

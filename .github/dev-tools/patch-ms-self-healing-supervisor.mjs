@@ -56,7 +56,7 @@ export function patchMsSelfHealingSupervisor(source) {
   output = replaceOnce(
     output,
     `    if (url.pathname === "/stream") return this.openStream(request, branch);\n    const force = url.searchParams.get("force") === "1";`,
-    `    if (url.pathname === "/stream") return this.openStream(request, branch);\n    if (url.pathname === "/credential-adopted") {\n      if (!branch) return Response.json({ status: "error", error: "missing branch" }, { status: 400 });\n      await this.loadRepairState();\n      return Response.json({ branch, repair: await this.resetAfterCredentialAdoption() });\n    }\n    if (url.pathname === "/repair-health") {\n      await this.loadRepairState();\n      return Response.json({ branch, repair: this.repairView() });\n    }\n    const force = url.searchParams.get("force") === "1";`,
+    `    if (url.pathname === "/stream") return this.openStream(request, branch);\n    if (url.pathname === "/credential-adopted") {\n      if (!branch) return Response.json({ status: "error", error: "missing branch" }, { status: 400 });\n      msCredentialCache.delete(branch);\n      await this.loadRepairState();\n      return Response.json({ branch, repair: await this.resetAfterCredentialAdoption() });\n    }\n    if (url.pathname === "/repair-health") {\n      await this.loadRepairState();\n      return Response.json({ branch, repair: this.repairView() });\n    }\n    const force = url.searchParams.get("force") === "1";`,
     "repair health route",
   );
 

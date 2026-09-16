@@ -1,0 +1,262 @@
+name: DEV History Latest Pointer Benchmark
+
+# DEV ONLY. Creates an isolated Turso branch seeded from DEV, benchmarks
+# materialized latest-route lookup, then deletes the branch. Source DEV is never modified.
+on:
+  push:
+    branches:
+      - codex/dev-history-latest-pointer-benchmark-v1
+    paths:
+      - .github/workflows/dev-history-latest-pointer-benchmark.yml
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_SOURCE_DATABASE: waiting-trucks-dev-turso-20260902192750
+      ACCEPTANCE_HUB: NE1
+      ACCEPTANCE_DAY: 2026-09-16
+    steps:
+      - name: Isolated latest-route benchmark with exact parity
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { createHash } = require('node:crypto');
+          (async()=>{
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            const org=process.env.TURSO_ORG;
+            const sourceDb=process.env.TURSO_SOURCE_DATABASE;
+            const hub=process.env.ACCEPTANCE_HUB;
+            const day=process.env.ACCEPTANCE_DAY;
+            const runId=String(process.env.GITHUB_RUN_ID||Date.now());
+            const branchDb=`wt-hist-latest-${runId}`.toLowerCase().slice(0,60);
+            if(!platform) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
+            if(org!=='flashdevnak') throw new Error('DEV organization guard failed');
+            if(sourceDb!=='waiting-trucks-dev-turso-20260902192750') throw new Error('DEV source database guard failed');
+            if(hub!=='NE1' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Acceptance guard failed');
+            if(!branchDb.startsWith('wt-hist-latest-')) throw new Error('Isolated branch naming guard failed');
+
+            const headers={Authorization:`Bearer ${platform}`};
+            async function platformJson(url,init={}) {
+              const response=await fetch(url,{...init,headers:{...headers,...(init.headers||{})}});
+              let json={};
+              try { json=await response.json(); } catch {}
+              if(!response.ok) throw new Error(`Turso platform HTTP ${response.status}: ${JSON.stringify(json).slice(0,800)}`);
+              return json;
+            }
+            async function deleteBranch() {
+              const response=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${branchDb}`,{method:'DELETE',headers});
+              if(response.ok || response.status===404) {
+                console.log(`ISOLATED_BRANCH_DELETED=${response.status===404?'ALREADY_GONE':'YES'}`);
+                return;
+              }
+              const text=await response.text();
+              throw new Error(`Failed to delete isolated branch: HTTP ${response.status} ${text.slice(0,500)}`);
+            }
+
+            let created=false;
+            try {
+              const sourceJson=await platformJson(`https://api.turso.tech/v1/organizations/${org}/databases/${sourceDb}`);
+              const source=sourceJson.database||sourceJson;
+              const group=source.Group||source.group||source.GroupName||source.group_name||'default';
+              console.log(`SOURCE_DATABASE=${sourceDb}`);
+              console.log(`SOURCE_GROUP=${group}`);
+              console.log(`ISOLATED_BRANCH=${branchDb}`);
+
+              const createJson=await platformJson(`https://api.turso.tech/v1/organizations/${org}/databases`,{
+                method:'POST',
+                headers:{'content-type':'application/json'},
+                body:JSON.stringify({name:branchDb,group,seed:{type:'database',name:sourceDb}}),
+              });
+              created=true;
+              const branch=createJson.database||createJson;
+              let hostname=branch.Hostname||branch.hostname||'';
+              if(!hostname) {
+                const readback=await platformJson(`https://api.turso.tech/v1/organizations/${org}/databases/${branchDb}`);
+                const db=readback.database||readback;
+                hostname=db.Hostname||db.hostname||'';
+              }
+              if(!hostname) throw new Error('Isolated branch hostname missing');
+
+              const tokenJson=await platformJson(
+                `https://api.turso.tech/v1/organizations/${org}/databases/${branchDb}/auth/tokens?expiration=20m&authorization=full-access`,
+                {method:'POST'}
+              );
+              if(!tokenJson.jwt) throw new Error('Isolated branch token missing');
+              console.log(`::add-mask::${tokenJson.jwt}`);
+
+              async function pipeline(requests) {
+                const response=await fetch(`https://${hostname}/v2/pipeline`,{
+                  method:'POST',
+                  headers:{Authorization:`Bearer ${tokenJson.jwt}`,'content-type':'application/json'},
+                  body:JSON.stringify({requests:[...requests,{type:'close'}]}),
+                });
+                const body=await response.json();
+                if(!response.ok) throw new Error(`Turso SQL HTTP ${response.status}: ${JSON.stringify(body).slice(0,800)}`);
+                for(const item of body.results||[]) {
+                  if(item?.type==='error') throw new Error(`Turso SQL error: ${JSON.stringify(item.error).slice(0,800)}`);
+                }
+                return body.results||[];
+              }
+              const resultOf=(item)=>item?.response?.result||{};
+              const scalar=(cell)=>cell?.type==='null'||cell==null?null:cell.value;
+              const canonical=(result)=>{
+                const values=(result.rows||[]).map(row=>row.map(scalar));
+                const lines=values.map(row=>JSON.stringify(row)).sort();
+                return {count:values.length,hash:createHash('sha256').update(lines.join('\n')).digest('hex')};
+              };
+
+              const rawBusinessDay=`CASE
+                WHEN COALESCE(json_extract(payload_json,'$.attendanceType'),'') LIKE '%ต้นทาง%' THEN
+                  date(datetime(COALESCE(
+                    NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),''),
+                    NULLIF(json_extract(payload_json,'$.actualDepartureAt'),''),
+                    NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),'')
+                  ), '+7 hours'))
+                ELSE
+                  date(datetime(COALESCE(
+                    NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),''),
+                    NULLIF(json_extract(payload_json,'$.actualArrivalAt'),''),
+                    NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),'')
+                  ), '+7 hours'))
+                END`;
+              const safeBusinessDay=`CASE WHEN json_valid(payload_json)=1 THEN (${rawBusinessDay}) ELSE NULL END`;
+
+              const currentSql=`WITH latest AS (
+                SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type
+                FROM ms_route_registry r
+                JOIN ms_route_history h
+                  ON h.rowid = (
+                    SELECT h2.rowid
+                    FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot
+                    WHERE h2.hub=r.hub AND h2.route_id=r.route_id
+                    ORDER BY h2.snapshot_at DESC,h2.rowid DESC
+                    LIMIT 1
+                  )
+                WHERE r.hub='${hub}' AND h.hub='${hub}' AND json_valid(h.payload_json)=1
+              ), daily AS (
+                SELECT route_id,payload_json,snapshot_at,synced_by,event_type,${rawBusinessDay} AS business_day
+                FROM latest
+              )
+              SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day
+              FROM daily
+              WHERE business_day>='${day}' AND business_day<='${day}'
+              ORDER BY business_day DESC,snapshot_at DESC`;
+
+              const schemaSql=`CREATE TABLE ms_route_latest_probe (
+                hub TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                latest_history_id TEXT NOT NULL,
+                business_day TEXT,
+                snapshot_at TEXT NOT NULL,
+                synced_by TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY(hub,route_id)
+              ) WITHOUT ROWID`;
+              const populateSql=`INSERT INTO ms_route_latest_probe(
+                hub,route_id,latest_history_id,business_day,snapshot_at,synced_by,event_type,payload_json
+              )
+              SELECT r.hub,r.route_id,h.history_id,${safeBusinessDay},h.snapshot_at,h.synced_by,h.event_type,h.payload_json
+              FROM ms_route_registry r
+              JOIN ms_route_history h
+                ON h.rowid=(
+                  SELECT h2.rowid
+                  FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot
+                  WHERE h2.hub=r.hub AND h2.route_id=r.route_id
+                  ORDER BY h2.snapshot_at DESC,h2.rowid DESC
+                  LIMIT 1
+                )
+              WHERE r.hub='${hub}'`;
+              const dayIndexSql=`CREATE INDEX idx_probe_latest_hub_day_snapshot
+                ON ms_route_latest_probe(hub,business_day,snapshot_at DESC)`;
+
+              const buildResults=await pipeline([
+                {type:'execute',stmt:{sql:schemaSql}},
+                {type:'execute',stmt:{sql:populateSql}},
+                {type:'execute',stmt:{sql:dayIndexSql}},
+                {type:'execute',stmt:{sql:`SELECT COUNT(*) AS total FROM ms_route_latest_probe WHERE hub='${hub}'`}},
+              ]);
+              const populateResult=resultOf(buildResults[1]);
+              const indexResult=resultOf(buildResults[2]);
+              const countResult=resultOf(buildResults[3]);
+              console.log(`MATERIALIZE_ROWS_READ=${Number(populateResult.rows_read||0)}`);
+              console.log(`MATERIALIZE_ROWS_WRITTEN=${Number(populateResult.rows_written||0)}`);
+              console.log(`DAY_INDEX_ROWS_READ=${Number(indexResult.rows_read||0)}`);
+              console.log(`DAY_INDEX_ROWS_WRITTEN=${Number(indexResult.rows_written||0)}`);
+              console.log(`LATEST_ROUTE_ROWS=${scalar(countResult.rows?.[0]?.[0])}`);
+              console.log('SOURCE_DEV_SCHEMA_CHANGED=NO');
+
+              const pointerSql=`SELECT
+                h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type,p.business_day
+              FROM ms_route_latest_probe p INDEXED BY idx_probe_latest_hub_day_snapshot
+              JOIN ms_route_history h ON h.history_id=p.latest_history_id
+              WHERE p.hub='${hub}' AND p.business_day>='${day}' AND p.business_day<='${day}'
+              ORDER BY p.business_day DESC,p.snapshot_at DESC`;
+
+              const cacheSql=`SELECT
+                p.route_id,p.payload_json,p.snapshot_at,p.synced_by,p.event_type,p.business_day
+              FROM ms_route_latest_probe p INDEXED BY idx_probe_latest_hub_day_snapshot
+              WHERE p.hub='${hub}' AND p.business_day>='${day}' AND p.business_day<='${day}'
+              ORDER BY p.business_day DESC,p.snapshot_at DESC`;
+
+              const queryResults=await pipeline([
+                {type:'execute',stmt:{sql:currentSql}},
+                {type:'execute',stmt:{sql:pointerSql}},
+                {type:'execute',stmt:{sql:cacheSql}},
+                {type:'execute',stmt:{sql:`EXPLAIN QUERY PLAN ${pointerSql}`}},
+                {type:'execute',stmt:{sql:`EXPLAIN QUERY PLAN ${cacheSql}`}},
+              ]);
+              const oldResult=resultOf(queryResults[0]);
+              const pointerResult=resultOf(queryResults[1]);
+              const cacheResult=resultOf(queryResults[2]);
+              const pointerPlan=resultOf(queryResults[3]);
+              const cachePlan=resultOf(queryResults[4]);
+              const oldCanon=canonical(oldResult);
+              const pointerCanon=canonical(pointerResult);
+              const cacheCanon=canonical(cacheResult);
+              const oldRead=Number(oldResult.rows_read||0);
+              const pointerRead=Number(pointerResult.rows_read||0);
+              const cacheRead=Number(cacheResult.rows_read||0);
+              const pct=(value)=>oldRead>0?((oldRead-value)/oldRead*100).toFixed(2):'0.00';
+
+              console.log(`OLD_RESULT_ROWS=${oldCanon.count}`);
+              console.log(`POINTER_RESULT_ROWS=${pointerCanon.count}`);
+              console.log(`CACHE_RESULT_ROWS=${cacheCanon.count}`);
+              console.log(`OLD_RESULT_SHA256=${oldCanon.hash}`);
+              console.log(`POINTER_RESULT_SHA256=${pointerCanon.hash}`);
+              console.log(`CACHE_RESULT_SHA256=${cacheCanon.hash}`);
+              console.log(`POINTER_PARITY=${oldCanon.count===pointerCanon.count&&oldCanon.hash===pointerCanon.hash?'PASS':'FAIL'}`);
+              console.log(`CACHE_PARITY=${oldCanon.count===cacheCanon.count&&oldCanon.hash===cacheCanon.hash?'PASS':'FAIL'}`);
+              console.log(`OLD_QUERY_ROWS_READ=${oldRead}`);
+              console.log(`POINTER_QUERY_ROWS_READ=${pointerRead}`);
+              console.log(`CACHE_QUERY_ROWS_READ=${cacheRead}`);
+              console.log(`POINTER_REDUCTION_PERCENT=${pct(pointerRead)}`);
+              console.log(`CACHE_REDUCTION_PERCENT=${pct(cacheRead)}`);
+              console.log(`OLD_QUERY_ROWS_WRITTEN=${Number(oldResult.rows_written||0)}`);
+              console.log(`POINTER_QUERY_ROWS_WRITTEN=${Number(pointerResult.rows_written||0)}`);
+              console.log(`CACHE_QUERY_ROWS_WRITTEN=${Number(cacheResult.rows_written||0)}`);
+              console.log(`POINTER_PLAN=${JSON.stringify((pointerPlan.rows||[]).map(row=>row.map(scalar)))}`);
+              console.log(`CACHE_PLAN=${JSON.stringify((cachePlan.rows||[]).map(row=>row.map(scalar)))}`);
+              console.log('UPSTREAM_MS_CALLS=0');
+              console.log('PRODUCTION_TOUCHED=NO');
+
+              if(oldCanon.count!==pointerCanon.count || oldCanon.hash!==pointerCanon.hash)
+                throw new Error('FAIL: pointer result parity mismatch');
+              if(oldCanon.count!==cacheCanon.count || oldCanon.hash!==cacheCanon.hash)
+                throw new Error('FAIL: cache result parity mismatch');
+              if(pointerRead>=oldRead || cacheRead>=oldRead)
+                throw new Error(`FAIL: candidate did not reduce rows read old=${oldRead} pointer=${pointerRead} cache=${cacheRead}`);
+              if(Number(pointerResult.rows_written||0)!==0 || Number(cacheResult.rows_written||0)!==0)
+                throw new Error('FAIL: benchmark search query wrote rows');
+              console.log('LATEST_POINTER_BENCHMARK=PASS');
+            } finally {
+              if(created) await deleteBranch();
+            }
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE

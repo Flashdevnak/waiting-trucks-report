@@ -2414,8 +2414,9 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
     endMs = thaiDateBoundary(end, true);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs)
     fail("กรุณาเลือกช่วงวันที่ให้ถูกต้อง", "INVALID_DATE_RANGE");
-  if (endMs - startMs > 31 * 86400000)
-    fail("ดูข้อมูลสะสมได้ครั้งละไม่เกิน 31 วัน", "DATE_RANGE_TOO_LARGE");
+  // MS_DAILY_HISTORY_MAX_7_DAYS_V1: 7 calendar days inclusive means at most 6 days between start/end.
+  if (endMs - startMs > 6 * 86400000)
+    fail("เลือกค้นหาข้อมูลย้อนหลังได้ครั้งละไม่เกิน 7 วัน", "DATE_RANGE_TOO_LARGE");
 
   const [historyResult, cancellationResult] = await Promise.all([
     env.DB.prepare(

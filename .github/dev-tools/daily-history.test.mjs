@@ -27,6 +27,9 @@ test("frontend daily history is explicit, database-only and keeps 4-second live 
   assert.doesNotMatch(frontend, /apiGet\("msDailyArchive"/);
   assert.doesNotMatch(frontend, /const result = await apiGet\("msRange"/);
   assert.match(frontend, /เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา/);
+  assert.match(frontend, /MS_DAILY_HISTORY_MAX_7_DAYS_V1/);
+  assert.match(frontend, /เลือกค้นหาได้ครั้งละไม่เกิน 7 วัน/);
+  assert.match(frontend, /rangeEndMs - rangeStartMs > 6 \* 86400000/);
   assert.match(frontend, /function rowBusinessDay\(row\)/);
   assert.match(frontend, /function metricSourceRows\(\)/);
   assert.match(
@@ -52,7 +55,10 @@ test("worker daily history is read-only Turso history and never refreshes upstre
   assert.ok(start >= 0 && end > start, "msDailyArchive function must exist before msArchiveTotal");
   const dailyArchive = worker.slice(start, end);
   assert.doesNotMatch(dailyArchive, /readMsRoutes\(|syncMs\(|refreshMsIfStale\(/);
-  assert.match(dailyArchive, /31 \* 86400000/);
+  assert.match(dailyArchive, /MS_DAILY_HISTORY_MAX_7_DAYS_V1/);
+  assert.match(dailyArchive, /6 \* 86400000/);
+  assert.match(dailyArchive, /เลือกค้นหาข้อมูลย้อนหลังได้ครั้งละไม่เกิน 7 วัน/);
+  assert.doesNotMatch(dailyArchive, /31 \* 86400000/);
 });
 
 test("daily history UI release and lower-reference SW revision are current", () => {

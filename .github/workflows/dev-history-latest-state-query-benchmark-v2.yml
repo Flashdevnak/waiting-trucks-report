@@ -1,0 +1,46 @@
+name: DEV History Latest-State Query Benchmark V2
+on:
+  push:
+    branches: [codex/dev-history-latest-state-benchmark-v2]
+    paths: [.github/workflows/dev-history-latest-state-query-benchmark-v2.yml]
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_SOURCE_DATABASE: waiting-trucks-dev-turso-20260902192750
+      HUB: NE1
+      DAY: 2026-09-16
+    steps:
+      - name: Benchmark on isolated Turso branch
+        shell: bash
+        run: |
+          node <<'NODE'
+          const {createHash}=require('node:crypto');
+          (async()=>{
+            const p=process.env.TURSO_PLATFORM_API_TOKEN,o=process.env.TURSO_ORG,s=process.env.TURSO_SOURCE_DATABASE,hub=process.env.HUB,day=process.env.DAY;
+            if(!p||o!=='flashdevnak'||s!=='waiting-trucks-dev-turso-20260902192750'||hub!=='NE1') throw Error('DEV guard failed');
+            const name=`wt-hist-latest-${process.env.GITHUB_RUN_ID}`.toLowerCase(),ph={Authorization:`Bearer ${p}`};
+            const pj=async(u,i={})=>{const r=await fetch(u,{...i,headers:{...ph,...(i.headers||{})}}),x=await r.json();if(!r.ok)throw Error(`platform ${r.status} ${JSON.stringify(x).slice(0,500)}`);return x};
+            let created=false;
+            try{
+              const src=(await pj(`https://api.turso.tech/v1/organizations/${o}/databases/${s}`)).database;
+              const group=src.Group||src.group||'default';
+              const made=await pj(`https://api.turso.tech/v1/organizations/${o}/databases`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,group,seed:{type:'database',name:s}})});created=true;
+              const db=made.database||made,host=db.Hostname||db.hostname;
+              const tok=await pj(`https://api.turso.tech/v1/organizations/${o}/databases/${name}/auth/tokens?expiration=15m&authorization=read-only`,{method:'POST'});console.log(`::add-mask::${tok.jwt}`);
+              const pipe=async reqs=>{const r=await fetch(`https://${host}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${tok.jwt}`,'content-type':'application/json'},body:JSON.stringify({requests:[...reqs,{type:'close'}]})}),x=await r.json();if(!r.ok)throw Error(JSON.stringify(x));for(const z of x.results||[])if(z.type==='error')throw Error(JSON.stringify(z.error));return x.results||[]};
+              const val=c=>c?.type==='null'||!c?null:c.value,res=i=>i?.response?.result||{},canon=r=>{const a=(r.rows||[]).map(x=>JSON.stringify(x.map(val))).sort();return {n:a.length,h:createHash('sha256').update(a.join('\n')).digest('hex')}};
+              const b=`CASE WHEN COALESCE(json_extract(payload_json,'$.attendanceType'),'') LIKE '%ต้นทาง%' THEN date(datetime(COALESCE(NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),''),NULLIF(json_extract(payload_json,'$.actualDepartureAt'),''),NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),'')),'+7 hours')) ELSE date(datetime(COALESCE(NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),''),NULLIF(json_extract(payload_json,'$.actualArrivalAt'),''),NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),'')),'+7 hours')) END`;
+              const rb=`CASE WHEN COALESCE(attendance_type,'') LIKE '%ต้นทาง%' THEN date(datetime(COALESCE(NULLIF(estimated_departure_at,''),NULLIF(actual_departure_at,''),NULLIF(estimated_arrival_at,'')),'+7 hours')) ELSE date(datetime(COALESCE(NULLIF(estimated_arrival_at,''),NULLIF(actual_arrival_at,''),NULLIF(estimated_departure_at,'')),'+7 hours')) END`;
+              const old=`WITH latest AS (SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type FROM ms_route_registry r JOIN ms_route_history h ON h.rowid=(SELECT h2.rowid FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot WHERE h2.hub=r.hub AND h2.route_id=r.route_id ORDER BY h2.snapshot_at DESC,h2.rowid DESC LIMIT 1) WHERE r.hub='${hub}' AND h.hub='${hub}' AND json_valid(h.payload_json)=1),daily AS (SELECT route_id,payload_json,snapshot_at,synced_by,event_type,${b} business_day FROM latest) SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day FROM daily WHERE business_day='${day}' ORDER BY business_day DESC,snapshot_at DESC`;
+              const neu=`WITH ids AS (SELECT id route_id FROM ms_routes WHERE hub='${hub}' AND (${rb})='${day}') SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type,${b} business_day FROM ids i JOIN ms_route_history h ON h.rowid=(SELECT h2.rowid FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot WHERE h2.hub='${hub}' AND h2.route_id=i.route_id ORDER BY h2.snapshot_at DESC,h2.rowid DESC LIMIT 1) WHERE h.hub='${hub}' AND json_valid(h.payload_json)=1 ORDER BY business_day DESC,h.snapshot_at DESC`;
+              const x=await pipe([{type:'execute',stmt:{sql:old}},{type:'execute',stmt:{sql:neu}},{type:'execute',stmt:{sql:`EXPLAIN QUERY PLAN ${neu}`}}]),a=res(x[0]),n=res(x[1]),ap=canon(a),np=canon(n),ar=Number(a.rows_read||0),nr=Number(n.rows_read||0);
+              console.log(`OLD_ROWS=${ap.n}`);console.log(`NEW_ROWS=${np.n}`);console.log(`RESULT_PARITY=${ap.n===np.n&&ap.h===np.h?'PASS':'FAIL'}`);console.log(`OLD_SHA=${ap.h}`);console.log(`NEW_SHA=${np.h}`);console.log(`OLD_ROWS_READ=${ar}`);console.log(`NEW_ROWS_READ=${nr}`);console.log(`REDUCTION_PERCENT=${ar?((ar-nr)/ar*100).toFixed(2):'0'}`);console.log(`PLAN=${JSON.stringify((res(x[2]).rows||[]).map(r=>r.map(val)))}`);console.log('QUERY_ROWS_WRITTEN=0');console.log('UPSTREAM_MS_CALLS=0');console.log('SOURCE_DEV_SCHEMA_CHANGED=NO');console.log('PRODUCTION_TOUCHED=NO');
+              if(ap.n!==np.n||ap.h!==np.h)throw Error('parity mismatch');if(nr>=ar)throw Error('no reduction');
+            }finally{if(created){const r=await fetch(`https://api.turso.tech/v1/organizations/${o}/databases/${name}`,{method:'DELETE',headers:ph});console.log(`ISOLATED_BRANCH_DELETED=${r.ok?'YES':'NO'}`)}}
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

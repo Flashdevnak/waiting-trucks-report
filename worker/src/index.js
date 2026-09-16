@@ -2405,6 +2405,7 @@ async function msHistory(env, actor, hub, offset) {
 }
 
 // MS_DAILY_HISTORY_V1: read-only daily history. It never calls upstream MS and never writes history.
+// MS_DAILY_HISTORY_QUOTA_V2: force the existing covering latest-route index so a date search can never silently fall back to a full history scan.
 async function msDailyArchive(env, actor, hub, startValue, endValue) {
   if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
   const start = String(startValue || ""),
@@ -2424,7 +2425,7 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
         JOIN ms_route_history h
           ON h.rowid = (
             SELECT h2.rowid
-            FROM ms_route_history h2
+            FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot
             WHERE h2.hub=r.hub AND h2.route_id=r.route_id
             ORDER BY h2.snapshot_at DESC,h2.rowid DESC
             LIMIT 1

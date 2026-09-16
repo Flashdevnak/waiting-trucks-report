@@ -23,7 +23,8 @@ const version = JSON.parse(versionText);
 test("frontend daily history is explicit, database-only and keeps 4-second live polling", () => {
   assert.match(frontend, /MS_DAILY_HISTORY_V1/);
   assert.match(frontend, /pollMs:\s*4000/);
-  assert.match(frontend, /apiGet\("msDailyArchive"/);
+  assert.match(frontend, /apiGetOnce\("msDailyArchive"/);
+  assert.doesNotMatch(frontend, /apiGet\("msDailyArchive"/);
   assert.doesNotMatch(frontend, /const result = await apiGet\("msRange"/);
   assert.match(frontend, /เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา/);
   assert.match(frontend, /function rowBusinessDay\(row\)/);
@@ -43,6 +44,7 @@ test("worker daily history is read-only Turso history and never refreshes upstre
   assert.match(worker, /upstreamMsCalls:\s*0/);
   assert.match(worker, /historyWrites:\s*0/);
   assert.match(worker, /FROM ms_route_registry r/);
+  assert.match(worker, /INDEXED BY idx_ms_route_history_hub_route_snapshot/);
 
   const start = worker.indexOf("async function msDailyArchive");
   const end = worker.indexOf("async function msArchiveTotal", start);

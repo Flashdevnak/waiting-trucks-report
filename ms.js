@@ -843,7 +843,7 @@ async function ensureArchiveLoaded(userInitiated = false) {
   if (archiveLoadPromise?.rangeKey === rangeKey) return archiveLoadPromise.promise;
   const promise = (async () => {
     try {
-      const archive = await apiGet("msDailyArchive", { branch, start, end });
+      const archive = await apiGetOnce("msDailyArchive", { branch, start, end });
       if (state.branch !== branch) return false;
       const archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
       const archiveTotal = Number(archive?.total) || archiveRows.length;
@@ -1390,7 +1390,7 @@ async function loadRange() {
     end = rawEnd || rawStart;
   if (!start || !end) return toast("กรุณาเลือกวันที่อย่างน้อย 1 วัน", true);
   try {
-    const result = await apiGet("msDailyArchive", {
+    const result = await apiGetOnce("msDailyArchive", {
       branch: state.branch,
       start,
       end,
@@ -3048,7 +3048,7 @@ async function exportHistory() {
   try {
     const rangeKey = `${state.branch}|${start}|${end}`;
     if (!state.archiveLoaded || state.archiveRangeKey !== rangeKey) {
-      const archive = await apiGet("msDailyArchive", { branch: state.branch, start, end });
+      const archive = await apiGetOnce("msDailyArchive", { branch: state.branch, start, end });
       state.archiveRows = Array.isArray(archive?.rows) ? archive.rows : [];
       state.archiveTotal = Number(archive?.total) || state.archiveRows.length;
       state.archiveLoaded = true;

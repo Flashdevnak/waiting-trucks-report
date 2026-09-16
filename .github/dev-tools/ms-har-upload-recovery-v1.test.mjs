@@ -30,6 +30,7 @@ test("fresh valid Route HAR clears stale 401 cooldown immediately without extra 
   assert.match(staged, /async resetAfterCredentialAdoption/);
   assert.match(staged, /this\.lastResult = null/);
   assert.match(staged, /this\.recentUntil = 0/);
+  assert.match(staged, /this\.lastSourceAt = 0/);
   assert.match(staged, /nextRetryAt: 0/);
   assert.match(staged, /await notifyMsCredentialAdopted\(env, hub\)/);
 

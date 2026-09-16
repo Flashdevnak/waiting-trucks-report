@@ -23,7 +23,8 @@ test("DEV staging preserves the integrated daily-history frontend and stays idem
   assert.equal(frontendHasIntegratedDevRuntime(first), true);
   assert.match(first, /MS_DAILY_HISTORY_V1/);
   assert.match(first, /pollMs:\s*4000/);
-  assert.match(first, /apiGet\("msDailyArchive"/);
+  assert.match(first, /apiGetOnce\("msDailyArchive"/);
+  assert.doesNotMatch(first, /apiGet\("msDailyArchive"/);
   assert.match(first, /เลือกวันอย่างเดียวไม่อ่านฐานข้อมูล จนกว่าจะกดค้นหา/);
   assert.match(first, /function metricSourceRows\(\)/);
   assert.match(first, /data-cancel-ms-route/);
@@ -47,7 +48,8 @@ test("live polling stays live-only while explicit history search uses the daily 
   );
   assert.match(first, /DEV: archive stays lazy; realtime transport never auto-reads msArchive/);
   assert.match(first, /const useArchive =\s*queueMode === "completed" \|\|\s*\(queueMode === "all" && state\.archiveView\)/);
-  assert.match(first, /const result = await apiGet\("msDailyArchive", \{/);
+  assert.match(first, /const result = await apiGetOnce\("msDailyArchive", \{/);
+  assert.doesNotMatch(first, /const result = await apiGet\("msDailyArchive", \{/);
   assert.doesNotMatch(first, /const result = await apiGet\("msRange"/);
   assert.match(first, /input\.onchange = \(\) => \{\}/);
   assert.match(first, /function useMobileCardLayout\(/);
@@ -155,7 +157,9 @@ test("daily history remains read-only after worker staging", () => {
   assert.match(daily, /TURSO_DAILY_HISTORY/);
   assert.match(daily, /upstreamMsCalls:\s*0/);
   assert.match(daily, /historyWrites:\s*0/);
-  assert.match(daily, /31 \* 86400000/);
+  assert.match(daily, /MS_DAILY_HISTORY_MAX_7_DAYS_V1/);
+  assert.match(daily, /6 \* 86400000/);
+  assert.doesNotMatch(daily, /31 \* 86400000/);
   assert.doesNotMatch(daily, /readMsRoutes\(|syncMs\(|refreshMsIfStale\(/);
 });
 

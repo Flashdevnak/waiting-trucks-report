@@ -1093,6 +1093,23 @@ async function changePassword(body, actor, env) {
   return { changed: true };
 }
 
+// MS_DAILY_HISTORY_POINTER_V1: keep one tiny latest-history pointer per HUB/route.
+// The business-day rule is intentionally identical to the legacy Turso JSON query.
+export function msHistoryBusinessDay(row) {
+  const source = String(row?.attendanceType || "").includes("ต้นทาง")
+    ? row?.estimatedDepartureAt || row?.actualDepartureAt || row?.estimatedArrivalAt
+    : row?.estimatedArrivalAt || row?.actualArrivalAt || row?.estimatedDepartureAt;
+  const parsed = Date.parse(String(source || ""));
+  if (!Number.isFinite(parsed)) return "";
+  return new Date(parsed + 7 * 3600000).toISOString().slice(0, 10);
+}
+
+function msHistoryPointerUpsert(env, hub, routeId, historyId, row, updatedAt) {
+  return env.DB.prepare(
+    "INSERT INTO ms_route_latest_history(hub,route_id,history_id,business_day,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(hub,route_id) DO UPDATE SET history_id=excluded.history_id,business_day=excluded.business_day,updated_at=excluded.updated_at",
+  ).bind(hub, routeId, historyId, msHistoryBusinessDay(row), updatedAt);
+}
+
 async function syncMs(body, actor, env) {
   if (!Array.isArray(body.rows) || body.rows.length > 2000)
     fail("ข้อมูล MS ไม่ถูกต้องหรือเกิน 2,000 รายการ");
@@ -1226,11 +1243,12 @@ async function syncMs(body, actor, env) {
           "INSERT OR REPLACE INTO ms_routes(id,hub,proof_id,route_name,region,route_attribute,route_type,attendance_type,estimated_arrival_at,actual_arrival_at,estimated_departure_at,actual_departure_at,supplier,vehicle_type,plate,driver_name,driver_phone,tracking_status,vehicle_status,load_status,unloading_state,unloading_completed_at,source_updated_at,expected_parcels,entered_parcels,pending_parcels,schedule_kit_arrival_at,schedule_tbr_arrival_at,arrived_parcels,arrived_bags,synced_at,synced_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         ).bind(...item.values),
       );
+      const historyId = crypto.randomUUID();
       statements.push(
         env.DB.prepare(
           "INSERT INTO ms_route_history VALUES(?,?,?,?,?,?,?)",
         ).bind(
-          crypto.randomUUID(),
+          historyId,
           item.id,
           branch,
           old ? "UPDATED" : "FIRST_SEEN",
@@ -1239,24 +1257,31 @@ async function syncMs(body, actor, env) {
           actor.username,
         ),
       );
+      statements.push(
+        msHistoryPointerUpsert(env, branch, item.id, historyId, item.snapshot, now),
+      );
     }
   }
-  for (const old of oldRows)
-    if (removedIds.has(old.id))
-      statements.push(
-        env.DB.prepare(
-          "INSERT INTO ms_route_history VALUES(?,?,?,?,?,?,?)",
-        ).bind(
-          crypto.randomUUID(),
-          old.id,
-          branch,
-          "REMOVED",
-          now,
-          JSON.stringify(output(old)),
-          actor.username,
-        ),
-        env.DB.prepare("DELETE FROM ms_routes WHERE id=?").bind(old.id),
-      );
+  for (const old of oldRows) {
+    if (!removedIds.has(old.id)) continue;
+    const historyId = crypto.randomUUID();
+    const snapshot = output(old);
+    statements.push(
+      env.DB.prepare(
+        "INSERT INTO ms_route_history VALUES(?,?,?,?,?,?,?)",
+      ).bind(
+        historyId,
+        old.id,
+        branch,
+        "REMOVED",
+        now,
+        JSON.stringify(snapshot),
+        actor.username,
+      ),
+      msHistoryPointerUpsert(env, branch, old.id, historyId, snapshot, now),
+      env.DB.prepare("DELETE FROM ms_routes WHERE id=?").bind(old.id),
+    );
+  }
   if (statements.length) await batches(env, statements);
   const businessChanges = plan.changedIds.length + plan.removedIds.length;
   if (businessChanges) {
@@ -2404,22 +2429,8 @@ async function msHistory(env, actor, hub, offset) {
   return { rows, hasMore, nextOffset: offset + rows.length };
 }
 
-// MS_DAILY_HISTORY_V1: read-only daily history. It never calls upstream MS and never writes history.
-// MS_DAILY_HISTORY_QUOTA_V2: force the existing covering latest-route index so a date search can never silently fall back to a full history scan.
-async function msDailyArchive(env, actor, hub, startValue, endValue) {
-  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
-  const start = String(startValue || ""),
-    end = String(endValue || start);
-  const startMs = thaiDateBoundary(start, false),
-    endMs = thaiDateBoundary(end, true);
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs)
-    fail("กรุณาเลือกช่วงวันที่ให้ถูกต้อง", "INVALID_DATE_RANGE");
-  // MS_DAILY_HISTORY_MAX_7_DAYS_V1: 7 calendar days inclusive means at most 6 days between start/end.
-  if (endMs - startMs > 6 * 86400000)
-    fail("เลือกค้นหาข้อมูลย้อนหลังได้ครั้งละไม่เกิน 7 วัน", "DATE_RANGE_TOO_LARGE");
-
-  const [historyResult, cancellationResult] = await Promise.all([
-    env.DB.prepare(
+async function readLegacyMsDailyHistoryRows(env, hub, start, end) {
+  return env.DB.prepare(
       `WITH latest AS (
         SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type
         FROM ms_route_registry r
@@ -2456,7 +2467,45 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
       ORDER BY business_day DESC,snapshot_at DESC`,
     )
       .bind(hub, hub, start, end)
-      .all(),
+      .all();
+}
+
+async function readMsDailyHistoryRows(env, hub, start, end) {
+  try {
+    const ready = await env.DB.prepare(
+      "SELECT value FROM ms_route_latest_history_meta WHERE key='all_hubs_backfill_v1' LIMIT 1",
+    ).first();
+    if (ready?.value !== "complete") return readLegacyMsDailyHistoryRows(env, hub, start, end);
+    return env.DB.prepare(
+      `SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type,p.business_day
+       FROM ms_route_latest_history p INDEXED BY idx_ms_route_latest_history_hub_day
+       JOIN ms_route_history h ON h.history_id=p.history_id
+       WHERE p.hub=? AND p.business_day>=? AND p.business_day<=?
+       ORDER BY p.business_day DESC,h.snapshot_at DESC`,
+    ).bind(hub, start, end).all();
+  } catch (error) {
+    if (!isMissingTableError(error, "ms_route_latest_history") &&
+        !isMissingTableError(error, "ms_route_latest_history_meta")) throw error;
+    return readLegacyMsDailyHistoryRows(env, hub, start, end);
+  }
+}
+
+// MS_DAILY_HISTORY_V1: read-only daily history. It never calls upstream MS and never writes history.
+// MS_DAILY_HISTORY_QUOTA_V2: force the existing covering latest-route index so a date search can never silently fall back to a full history scan.
+async function msDailyArchive(env, actor, hub, startValue, endValue) {
+  if (!access(hub, actor)) fail("ไม่มีสิทธิ์ดู HUB นี้", "FORBIDDEN", 403);
+  const start = String(startValue || ""),
+    end = String(endValue || start);
+  const startMs = thaiDateBoundary(start, false),
+    endMs = thaiDateBoundary(end, true);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs)
+    fail("กรุณาเลือกช่วงวันที่ให้ถูกต้อง", "INVALID_DATE_RANGE");
+  // MS_DAILY_HISTORY_MAX_7_DAYS_V1: 7 calendar days inclusive means at most 6 days between start/end.
+  if (endMs - startMs > 6 * 86400000)
+    fail("เลือกค้นหาข้อมูลย้อนหลังได้ครั้งละไม่เกิน 7 วัน", "DATE_RANGE_TOO_LARGE");
+
+  const [historyResult, cancellationResult] = await Promise.all([
+    readMsDailyHistoryRows(env, hub, start, end),
     env.DB.prepare(
       "SELECT route_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1",
     )

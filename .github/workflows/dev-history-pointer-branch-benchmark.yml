@@ -1,6 +1,7 @@
 name: DEV History Thin Pointer Branch Benchmark
 
 # DEV ONLY. Creates pointer structures only on an isolated Turso copy, then deletes it.
+# Trigger marker: pointer-benchmark-v1
 on:
   push:
     branches:

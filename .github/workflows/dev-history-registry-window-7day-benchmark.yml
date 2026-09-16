@@ -1,0 +1,53 @@
+name: DEV History Registry Window 7-Day Benchmark
+
+# DEV ONLY. Seven-day exact-parity benchmark on an isolated Turso clone.
+on:
+  push:
+    branches:
+      - codex/dev-history-turso-index-probe
+    paths:
+      - .github/workflows/dev-history-registry-window-7day-benchmark.yml
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_SOURCE_DATABASE: waiting-trucks-dev-turso-20260902192750
+      ACCEPTANCE_HUB: NE1
+      START_DAY: 2026-09-10
+      END_DAY: 2026-09-16
+    steps:
+      - name: Seven-day exact parity and Rows Read benchmark
+        shell: bash
+        run: |
+          node <<'NODE'
+          const {createHash}=require('node:crypto');
+          (async()=>{
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN,org=process.env.TURSO_ORG,sourceDb=process.env.TURSO_SOURCE_DATABASE,hub=process.env.ACCEPTANCE_HUB,start=process.env.START_DAY,end=process.env.END_DAY;
+            const branchDb=`wt-hist-reg7-${process.env.GITHUB_RUN_ID}`.toLowerCase().slice(0,60);
+            if(!platform||org!=='flashdevnak'||sourceDb!=='waiting-trucks-dev-turso-20260902192750'||hub!=='NE1'||start!=='2026-09-10'||end!=='2026-09-16')throw new Error('DEV guard failed');
+            const headers={Authorization:`Bearer ${platform}`};
+            async function pj(url,init={}){const r=await fetch(url,{...init,headers:{...headers,...(init.headers||{})}});let j={};try{j=await r.json()}catch{};if(!r.ok)throw new Error(`Platform ${r.status}: ${JSON.stringify(j).slice(0,600)}`);return j;}
+            let made=false;async function cleanup(){if(!made)return;const r=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${branchDb}`,{method:'DELETE',headers});console.log(`ISOLATED_BRANCH_DELETED=${r.ok?'YES':r.status}`)}
+            try{
+              const sj=await pj(`https://api.turso.tech/v1/organizations/${org}/databases/${sourceDb}`),s=sj.database||sj,group=s.Group||s.group||s.GroupName||s.group_name||'default';
+              const cj=await pj(`https://api.turso.tech/v1/organizations/${org}/databases`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:branchDb,group,seed:{type:'database',name:sourceDb}})});made=true;const b=cj.database||cj;let hostname=b.Hostname||b.hostname||'';if(!hostname){const rb=await pj(`https://api.turso.tech/v1/organizations/${org}/databases/${branchDb}`),d=rb.database||rb;hostname=d.Hostname||d.hostname||'';}
+              const tj=await pj(`https://api.turso.tech/v1/organizations/${org}/databases/${branchDb}/auth/tokens?expiration=20m&authorization=full-access`,{method:'POST'});console.log(`::add-mask::${tj.jwt}`);console.log(`ISOLATED_BRANCH=${branchDb}`);
+              async function pipe(reqs){const r=await fetch(`https://${hostname}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${tj.jwt}`,'content-type':'application/json'},body:JSON.stringify({requests:[...reqs,{type:'close'}]})});const j=await r.json();if(!r.ok)throw new Error(`SQL HTTP ${r.status}: ${JSON.stringify(j).slice(0,600)}`);for(const x of j.results||[])if(x?.type==='error')throw new Error(JSON.stringify(x.error));return j.results||[];}
+              const ro=x=>x?.response?.result||{},val=c=>c?.type==='null'||c==null?null:c.value;
+              const canon=r=>{const rows=(r.rows||[]).map(row=>row.map(val)),lines=rows.map(x=>JSON.stringify(x)).sort();return{count:rows.length,hash:createHash('sha256').update(lines.join('\n')).digest('hex')}};
+              const bd=`CASE WHEN COALESCE(json_extract(payload_json,'$.attendanceType'),'') LIKE '%ต้นทาง%' THEN date(datetime(COALESCE(NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),''),NULLIF(json_extract(payload_json,'$.actualDepartureAt'),''),NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),'')),'+7 hours')) ELSE date(datetime(COALESCE(NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),''),NULLIF(json_extract(payload_json,'$.actualArrivalAt'),''),NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),'')),'+7 hours')) END`;
+              const idx=ro((await pipe([{type:'execute',stmt:{sql:`CREATE INDEX idx_probe_ms_registry_hub_first_seen_route ON ms_route_registry(hub,first_seen_at,route_id)`}}]))[0]);console.log(`REGISTRY_INDEX_BUILD_ROWS_READ=${Number(idx.rows_read||0)}`);console.log(`REGISTRY_INDEX_BUILD_ROWS_WRITTEN=${Number(idx.rows_written||0)}`);
+              const oldSql=`WITH latest AS (SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type FROM ms_route_registry r JOIN ms_route_history h ON h.rowid=(SELECT h2.rowid FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot WHERE h2.hub=r.hub AND h2.route_id=r.route_id ORDER BY h2.snapshot_at DESC,h2.rowid DESC LIMIT 1) WHERE r.hub='${hub}' AND h.hub='${hub}' AND json_valid(h.payload_json)=1), daily AS (SELECT route_id,payload_json,snapshot_at,synced_by,event_type,${bd} AS business_day FROM latest) SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day FROM daily WHERE business_day>='${start}' AND business_day<='${end}' ORDER BY business_day DESC,snapshot_at DESC`;
+              const firstSeenStartUtc='2026-09-08T17:00:00.000Z',firstSeenEndUtc='2026-09-17T17:00:00.000Z';
+              const candidateSql=`WITH candidates AS (SELECT route_id FROM ms_route_registry INDEXED BY idx_probe_ms_registry_hub_first_seen_route WHERE hub='${hub}' AND first_seen_at>='${firstSeenStartUtc}' AND first_seen_at<'${firstSeenEndUtc}'), latest AS (SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type FROM candidates c JOIN ms_route_history h ON h.rowid=(SELECT h2.rowid FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot WHERE h2.hub='${hub}' AND h2.route_id=c.route_id ORDER BY h2.snapshot_at DESC,h2.rowid DESC LIMIT 1) WHERE h.hub='${hub}' AND json_valid(h.payload_json)=1), daily AS (SELECT route_id,payload_json,snapshot_at,synced_by,event_type,${bd} AS business_day FROM latest) SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day FROM daily WHERE business_day>='${start}' AND business_day<='${end}' ORDER BY business_day DESC,snapshot_at DESC`;
+              const rs=await pipe([{type:'execute',stmt:{sql:oldSql}},{type:'execute',stmt:{sql:candidateSql}},{type:'execute',stmt:{sql:`SELECT route_id FROM ms_route_registry INDEXED BY idx_probe_ms_registry_hub_first_seen_route WHERE hub='${hub}' AND first_seen_at>='${firstSeenStartUtc}' AND first_seen_at<'${firstSeenEndUtc}'`}},{type:'execute',stmt:{sql:`EXPLAIN QUERY PLAN ${candidateSql}`}}]);
+              const old=ro(rs[0]),neo=ro(rs[1]),cand=ro(rs[2]),plan=ro(rs[3]),oc=canon(old),nc=canon(neo),oldRead=Number(old.rows_read||0),newRead=Number(neo.rows_read||0);
+              console.log(`RANGE_DAYS=7`);console.log(`WINDOW_CANDIDATE_ROUTES=${(cand.rows||[]).length}`);console.log(`WINDOW_CANDIDATE_ROWS_READ=${Number(cand.rows_read||0)}`);console.log(`OLD_RESULT_ROWS=${oc.count}`);console.log(`NEW_RESULT_ROWS=${nc.count}`);console.log(`OLD_RESULT_SHA256=${oc.hash}`);console.log(`NEW_RESULT_SHA256=${nc.hash}`);console.log(`RESULT_PARITY=${oc.count===nc.count&&oc.hash===nc.hash?'PASS':'FAIL'}`);console.log(`OLD_QUERY_ROWS_READ=${oldRead}`);console.log(`NEW_QUERY_ROWS_READ=${newRead}`);console.log(`ROWS_READ_REDUCTION_PERCENT=${oldRead?((oldRead-newRead)/oldRead*100).toFixed(2):'0.00'}`);console.log(`OLD_QUERY_ROWS_WRITTEN=${Number(old.rows_written||0)}`);console.log(`NEW_QUERY_ROWS_WRITTEN=${Number(neo.rows_written||0)}`);console.log(`CANDIDATE_PLAN=${JSON.stringify((plan.rows||[]).map(r=>r.map(val)))}`);console.log('INDEX_CREATED_ON_SOURCE_DEV=NO');console.log('SOURCE_DEV_SCHEMA_CHANGED=NO');console.log('UPSTREAM_MS_CALLS=0');console.log('PRODUCTION_TOUCHED=NO');
+              if(oc.count!==nc.count||oc.hash!==nc.hash)throw new Error('FAIL: seven-day result not 100% identical');if(newRead>=oldRead)throw new Error('FAIL: Rows Read not reduced');if(Number(old.rows_written||0)!==0||Number(neo.rows_written||0)!==0)throw new Error('FAIL: query wrote rows');console.log('REGISTRY_WINDOW_7DAY_BENCHMARK=PASS');
+            }finally{await cleanup()}
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

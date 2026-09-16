@@ -32,7 +32,8 @@ test("date inputs do not read history until Search and Search uses the daily Tur
   const rangeEnd = frontend.indexOf("let rangeTimer", rangeStart);
   assert.ok(rangeStart >= 0 && rangeEnd > rangeStart);
   const range = frontend.slice(rangeStart, rangeEnd);
-  assert.match(range, /apiGet\("msDailyArchive"/);
+  assert.match(range, /apiGetOnce\("msDailyArchive"/);
+  assert.doesNotMatch(range, /apiGet\("msDailyArchive"/);
   assert.doesNotMatch(range, /apiGet\("msRange"/);
   assert.match(range, /result\?\.complete === false \|\| rows\.length !== total/);
 });

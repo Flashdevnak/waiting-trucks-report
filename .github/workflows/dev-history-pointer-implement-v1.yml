@@ -6,7 +6,6 @@ on:
       - codex/dev-history-pointer-v1
     paths:
       - .github/workflows/dev-history-pointer-implement-v1.yml
-      - .github/dev-tools/implement-history-pointer-v1.py
 
 permissions:
   contents: write
@@ -19,7 +18,17 @@ jobs:
         with:
           ref: codex/dev-history-pointer-v1
       - name: Patch generic all-HUB history pointer
-        run: python .github/dev-tools/implement-history-pointer-v1.py
+        run: |
+          python .github/dev-tools/implement-history-pointer-v1.py
+          git checkout -- .github/workflows/deploy-worker-dev.yml
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path='worker/package.json';
+          const pkg=JSON.parse(fs.readFileSync(path,'utf8'));
+          if(!pkg.scripts.check.includes('tests/ms-history-pointer.test.mjs'))
+            pkg.scripts.check += ' && node --test tests/ms-history-pointer.test.mjs';
+          fs.writeFileSync(path,JSON.stringify(pkg,null,2)+'\n');
+          NODE
       - name: Verify implementation
         run: |
           node --check worker/src/index.js
@@ -29,6 +38,6 @@ jobs:
         run: |
           git config user.name "Flashdevnak"
           git config user.email "26nak.testdev@gmail.com"
-          git add worker/src/index.js worker/migrations/0012_ms_route_latest_history.sql worker/tests/ms-history-pointer.test.mjs .github/workflows/deploy-worker-dev.yml
+          git add worker/src/index.js worker/migrations/0012_ms_route_latest_history.sql worker/tests/ms-history-pointer.test.mjs worker/package.json
           git commit -m "perf(dev): add generic all-HUB history latest pointer"
           git push origin HEAD:codex/dev-history-pointer-v1

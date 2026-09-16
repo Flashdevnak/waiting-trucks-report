@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stageWorker } from "./stage-dev-runtime.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");
@@ -36,7 +37,7 @@ const {
 function stageBusReader() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bus-hot-lane-v14-"));
   const worker = path.join(dir, "index.js");
-  fs.copyFileSync(canonicalWorker, worker);
+  fs.writeFileSync(worker, stageWorker(fs.readFileSync(canonicalWorker, "utf8")));
   execFileSync(process.execPath, [readonlyPatch, worker], { stdio: "pipe" });
   execFileSync(process.execPath, [splitPatch, worker], { stdio: "pipe" });
   execFileSync(process.execPath, [hotPatch, worker], { stdio: "pipe" });

@@ -29,9 +29,10 @@ function patchSharedRouteSourceCadence(input) {
     "const MS_CRON_ACTIVE_SKIP_MS = 45 * 1000;",
     `const MS_CRON_ACTIVE_SKIP_MS = 45 * 1000;
 // ${SOURCE_CADENCE_MARKER}: visible WebSocket snapshots stay at 4 seconds,
-// while one per-HUB coordinator shares Route upstream work at a bounded 12-second cadence.
-// Explicit force refresh remains authoritative and bypasses this source gate.
-const MS_REALTIME_SOURCE_MIN_MS = 12 * 1000;`,
+// while one per-HUB coordinator shares Route upstream work. A 3-second dedupe floor
+// allows every existing 4-second leader cycle to observe fresh Route truth without
+// turning source work into per-client polling. Explicit force refresh still bypasses it.
+const MS_REALTIME_SOURCE_MIN_MS = 3 * 1000;`,
     "shared Route source cadence constant",
   );
   output = replaceUnique(
@@ -57,7 +58,7 @@ if (source.includes(MARKER)) {
   fs.writeFileSync(file, source);
   console.log(`${MARKER}=ALREADY_APPLIED`);
   console.log(`${SOURCE_CADENCE_MARKER}=PASS`);
-  console.log("MS_ROUTE_SHARED_SOURCE_MIN_MS=12000");
+  console.log("MS_ROUTE_SHARED_SOURCE_MIN_MS=3000");
   process.exit(0);
 }
 
@@ -287,7 +288,7 @@ if (!source.includes("readBusTimeData(env, branch, liveSourceDays(), routeHintRo
   throw new Error(`${MARKER}: parallel Route-hint handoff missing`);
 if (!source.includes(PARALLEL_MARKER))
   throw new Error(`${MARKER}: first-source parallel marker missing`);
-if (!source.includes(SOURCE_CADENCE_MARKER) || !source.includes("MS_REALTIME_SOURCE_MIN_MS = 12 * 1000"))
+if (!source.includes(SOURCE_CADENCE_MARKER) || !source.includes("MS_REALTIME_SOURCE_MIN_MS = 3 * 1000"))
   throw new Error(`${MARKER}: shared Route source cadence marker missing`);
 if (!source.includes("nowMs - this.lastSourceAt < MS_REALTIME_SOURCE_MIN_MS"))
   throw new Error(`${MARKER}: 4-second UI is still coupled to Route upstream refresh`);
@@ -319,7 +320,7 @@ console.log(`${SOURCE_CADENCE_MARKER}=PASS`);
 console.log("FIRST_SOURCE_ROUTE_LATENCY_GATE=0");
 console.log("FIRST_SOURCE_BUS_READS_PER_REFRESH=1");
 console.log("MS_VISIBLE_REALTIME_MS=4000");
-console.log("MS_ROUTE_SHARED_SOURCE_MIN_MS=12000");
+console.log("MS_ROUTE_SHARED_SOURCE_MIN_MS=3000");
 console.log("BUS_TIME_HOT_DETECTION_MS=4000");
 console.log("BUS_TIME_BACKGROUND_INTERVAL_MS=12000");
 console.log("BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE=1");

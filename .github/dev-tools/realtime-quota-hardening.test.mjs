@@ -25,13 +25,15 @@ test("visible realtime stays four seconds while direct HTTP 4s polling is remove
   assert.match(front, /REALTIME_AUTH_HEARTBEAT_MS = 60 \* 1000/);
 });
 
-test("4-second UI cadence is decoupled from shared Route upstream cadence", () => {
+test("4-second visible cycle can observe fresh shared Route source without per-client polling", () => {
   assert.match(hotLanePatch, /MS_ROUTE_SHARED_SOURCE_CADENCE_V1/);
-  assert.match(hotLanePatch, /MS_REALTIME_SOURCE_MIN_MS = 12 \* 1000/);
+  assert.match(hotLanePatch, /MS_REALTIME_SOURCE_MIN_MS = 3 \* 1000/);
   assert.match(hotLanePatch, /nowMs - this\.lastSourceAt < MS_REALTIME_SOURCE_MIN_MS/);
   assert.match(hotLanePatch, /!force &&[\s\S]*!cron &&[\s\S]*MS_REALTIME_SOURCE_MIN_MS/);
   assert.match(front, /pollMs:\s*4000/);
-  assert.doesNotMatch(hotLanePatch, /MS_REALTIME_SOURCE_MIN_MS = 4 \* 1000/);
+  assert.doesNotMatch(hotLanePatch, /MS_REALTIME_SOURCE_MIN_MS = 12 \* 1000/);
+  assert.match(front, /REALTIME_FOLLOWER_TAKEOVER_MS = 2 \* CONFIG\.pollMs \+ 1000/);
+  assert.match(front, /now - realtimeLastSnapshotAt > REALTIME_FOLLOWER_TAKEOVER_MS/);
 });
 
 test("BusTime session expiry preserves accepted cache, stops retry churn, and fresh HAR credentials recover immediately", async () => {

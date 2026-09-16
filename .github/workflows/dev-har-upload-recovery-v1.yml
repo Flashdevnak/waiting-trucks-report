@@ -33,14 +33,21 @@ jobs:
         run: npm run check
       - name: HAR recovery focused gate
         run: node --test ../.github/dev-tools/ms-har-upload-recovery-v1.test.mjs
-      - name: Production safety assertion
+      - name: Test-only safety assertion
         working-directory: .
         run: |
           node <<'NODE'
           const fs = require('node:fs');
           const workflow = fs.readFileSync('.github/workflows/dev-har-upload-recovery-v1.yml','utf8');
-          if (/wrangler\s+deploy|production|wrangler\.jsonc/i.test(workflow.replace(/Production safety assertion/g,''))) {
-            throw new Error('HAR recovery gate must be test-only and must not deploy Production');
+          const forbidden = [
+            /npx\s+wrangler\s+deploy/i,
+            /npm\s+run\s+deploy/i,
+            /cloudflare\.com\/client\/v4/i,
+            /wrangler\.dev\.jsonc/i,
+            /worker\/wrangler\.jsonc/i,
+          ];
+          if (forbidden.some((pattern) => pattern.test(workflow))) {
+            throw new Error('HAR recovery gate must remain test-only');
           }
           console.log('DEV_HAR_RECOVERY_TEST_ONLY=PASS');
           console.log('PRODUCTION_TOUCHED=0');

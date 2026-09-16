@@ -1,0 +1,44 @@
+name: DEV History Latest Pointer 7-Day Benchmark V4
+on:
+  push:
+    branches: [codex/dev-history-latest-state-benchmark-v2]
+    paths: [.github/workflows/dev-history-latest-pointer-7day-benchmark-v4.yml]
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      SOURCE_DB: waiting-trucks-dev-turso-20260902192750
+      HUB: NE1
+      START: 2026-09-10
+      END: 2026-09-16
+    steps:
+      - name: Seven-day parity and Rows Read on isolated Turso branch
+        shell: bash
+        run: |
+          node <<'NODE'
+          const {createHash}=require('node:crypto');
+          (async()=>{
+            const p=process.env.TURSO_PLATFORM_API_TOKEN,o=process.env.TURSO_ORG,s=process.env.SOURCE_DB,hub=process.env.HUB,start=process.env.START,end=process.env.END;
+            if(!p||o!=='flashdevnak'||s!=='waiting-trucks-dev-turso-20260902192750'||hub!=='NE1'||start!=='2026-09-10'||end!=='2026-09-16')throw Error('DEV/range guard failed');
+            const name=`wt-hist-7d-${process.env.GITHUB_RUN_ID}`.toLowerCase(),ph={Authorization:`Bearer ${p}`};
+            const pj=async(u,i={})=>{const r=await fetch(u,{...i,headers:{...ph,...(i.headers||{})}}),x=await r.json();if(!r.ok)throw Error(`platform ${r.status}`);return x};let made=false;
+            try{
+              const src=(await pj(`https://api.turso.tech/v1/organizations/${o}/databases/${s}`)).database,group=src.Group||src.group||'default';
+              const c=await pj(`https://api.turso.tech/v1/organizations/${o}/databases`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name,group,seed:{type:'database',name:s}})});made=true;
+              const db=c.database||c,host=db.Hostname||db.hostname,t=await pj(`https://api.turso.tech/v1/organizations/${o}/databases/${name}/auth/tokens?expiration=20m&authorization=full-access`,{method:'POST'});console.log(`::add-mask::${t.jwt}`);
+              const pipe=async q=>{const r=await fetch(`https://${host}/v2/pipeline`,{method:'POST',headers:{Authorization:`Bearer ${t.jwt}`,'content-type':'application/json'},body:JSON.stringify({requests:[...q,{type:'close'}]})}),x=await r.json();if(!r.ok)throw Error(JSON.stringify(x));for(const z of x.results||[])if(z.type==='error')throw Error(JSON.stringify(z.error));return x.results||[]};
+              const R=i=>i?.response?.result||{},V=c=>c?.type==='null'||!c?null:c.value,C=r=>{const a=(r.rows||[]).map(x=>JSON.stringify(x.map(V))).sort();return{n:a.length,h:createHash('sha256').update(a.join('\n')).digest('hex')}};
+              const b=`CASE WHEN COALESCE(json_extract(h.payload_json,'$.attendanceType'),'') LIKE '%ต้นทาง%' THEN date(datetime(COALESCE(NULLIF(json_extract(h.payload_json,'$.estimatedDepartureAt'),''),NULLIF(json_extract(h.payload_json,'$.actualDepartureAt'),''),NULLIF(json_extract(h.payload_json,'$.estimatedArrivalAt'),'')),'+7 hours')) ELSE date(datetime(COALESCE(NULLIF(json_extract(h.payload_json,'$.estimatedArrivalAt'),''),NULLIF(json_extract(h.payload_json,'$.actualArrivalAt'),''),NULLIF(json_extract(h.payload_json,'$.estimatedDepartureAt'),'')),'+7 hours')) END`;
+              const z=await pipe([{type:'execute',stmt:{sql:`CREATE TABLE ptr(hub TEXT,route_id TEXT,history_rowid INTEGER,business_day TEXT,PRIMARY KEY(hub,route_id))`}},{type:'execute',stmt:{sql:`CREATE INDEX ptr_day ON ptr(hub,business_day)`}},{type:'execute',stmt:{sql:`INSERT INTO ptr SELECT r.hub,r.route_id,h.rowid,${b} FROM ms_route_registry r JOIN ms_route_history h ON h.rowid=(SELECT h2.rowid FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot WHERE h2.hub=r.hub AND h2.route_id=r.route_id ORDER BY h2.snapshot_at DESC,h2.rowid DESC LIMIT 1) WHERE r.hub='${hub}' AND h.hub='${hub}' AND json_valid(h.payload_json)=1`}}]);console.log(`BUILD_READ=${Number(R(z[2]).rows_read||0)}`);console.log(`BUILD_WRITE=${Number(R(z[2]).rows_written||0)}`);
+              const raw=b.replaceAll('h.payload_json','payload_json');
+              const old=`WITH latest AS (SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type FROM ms_route_registry r JOIN ms_route_history h ON h.rowid=(SELECT h2.rowid FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot WHERE h2.hub=r.hub AND h2.route_id=r.route_id ORDER BY h2.snapshot_at DESC,h2.rowid DESC LIMIT 1) WHERE r.hub='${hub}' AND h.hub='${hub}' AND json_valid(h.payload_json)=1),daily AS (SELECT route_id,payload_json,snapshot_at,synced_by,event_type,${raw} business_day FROM latest) SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day FROM daily WHERE business_day>='${start}' AND business_day<='${end}' ORDER BY business_day DESC,snapshot_at DESC`;
+              const neu=`SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type,p.business_day FROM ptr p JOIN ms_route_history h ON h.rowid=p.history_rowid WHERE p.hub='${hub}' AND p.business_day>='${start}' AND p.business_day<='${end}' ORDER BY p.business_day DESC,h.snapshot_at DESC`;
+              const q=await pipe([{type:'execute',stmt:{sql:old}},{type:'execute',stmt:{sql:neu}}]),a=R(q[0]),n=R(q[1]),ac=C(a),nc=C(n),ar=Number(a.rows_read||0),nr=Number(n.rows_read||0);
+              console.log(`RANGE_DAYS=7`);console.log(`OLD_ROWS=${ac.n}`);console.log(`NEW_ROWS=${nc.n}`);console.log(`PARITY=${ac.n===nc.n&&ac.h===nc.h?'PASS':'FAIL'}`);console.log(`OLD_READ=${ar}`);console.log(`NEW_READ=${nr}`);console.log(`REDUCTION=${ar?((ar-nr)/ar*100).toFixed(2):'0'}%`);console.log('SOURCE_DEV_SCHEMA_CHANGED=NO');console.log('UPSTREAM_MS_CALLS=0');console.log('PRODUCTION_TOUCHED=NO');if(ac.n!==nc.n||ac.h!==nc.h)throw Error('parity mismatch');
+            }finally{if(made){const r=await fetch(`https://api.turso.tech/v1/organizations/${o}/databases/${name}`,{method:'DELETE',headers:ph});console.log(`ISOLATED_BRANCH_DELETED=${r.ok?'YES':'NO'}`)}}
+          })().catch(e=>{console.error(e);process.exit(1)});
+          NODE

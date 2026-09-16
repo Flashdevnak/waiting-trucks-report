@@ -1,0 +1,54 @@
+name: DEV HAR Upload Recovery Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/dev-tools/patch-ms-connection-error-kv.mjs'
+      - '.github/dev-tools/patch-ms-self-healing-supervisor.mjs'
+      - '.github/dev-tools/ms-har-upload-recovery-v1.test.mjs'
+      - 'worker/package.json'
+      - 'ms.js'
+      - 'worker/src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - name: Full DEV check
+        run: npm run check
+      - name: HAR recovery focused gate
+        run: node --test ../.github/dev-tools/ms-har-upload-recovery-v1.test.mjs
+      - name: Test-only safety assertion
+        working-directory: .
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const workflow = fs.readFileSync('.github/workflows/dev-har-upload-recovery-v1.yml','utf8');
+          const forbidden = [
+            /npx\s+wrangler\s+deploy/i,
+            /npm\s+run\s+deploy/i,
+            /cloudflare\.com\/client\/v4/i,
+            /wrangler\.dev\.jsonc/i,
+            /worker\/wrangler\.jsonc/i,
+          ];
+          if (forbidden.some((pattern) => pattern.test(workflow))) {
+            throw new Error('HAR recovery gate must remain test-only');
+          }
+          console.log('DEV_HAR_RECOVERY_TEST_ONLY=PASS');
+          console.log('PRODUCTION_TOUCHED=0');
+          NODE

@@ -1,0 +1,25 @@
+name: DEV History Pointer Backfill V1
+
+on:
+  push:
+    branches:
+      - codex/dev-history-pointer-v1
+    paths:
+      - .github/workflows/dev-history-pointer-backfill-v1.yml
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/dev-history-pointer-v1
+      - name: Backfill and verify all HUB pointers on DEV only
+        run: node .github/dev-tools/dev-history-pointer-backfill-v1.mjs

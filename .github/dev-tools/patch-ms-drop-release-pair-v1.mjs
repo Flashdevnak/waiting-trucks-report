@@ -8,7 +8,7 @@ export function patchMsDropReleasePairV1Frontend(source) {
   if (!output.includes(helperAnchor))
     throw new Error("MS Drop release pair V1 helper anchor missing");
 
-  const helper = `\n// ${FRONTEND_MARKER}: one Drop release box, split into planned and actual columns.\n// Planned release is display-only; Route actualDepartureAt remains the only actual departure truth.\nfunction classicDropReleasePair(row, release) {\n  const planned = shortDateTime(release?.plan);\n  const actual = shortDateTime(row.actualDepartureAt);\n  return \`<div class="classic-operation-facts drop-release-pair" style="grid-column:1/-1"><div class="classic-operation-fact"><span>กำหนดปล่อยรถ</span><strong>\${esc(planned)}</strong></div><div class="classic-operation-fact"><span>ออกจากจุดดรอปจริง</span><strong>\${esc(actual)}</strong></div></div>\`;\n}\n`;
+  const helper = `\n// ${FRONTEND_MARKER}: one Drop release box, split into planned and actual columns.\n// Planned release is display-only; Route actualDepartureAt remains the only actual departure truth.\nfunction classicDropReleasePair(row, release) {\n  const planned = shortDateTime(release?.plan || adjustedDropDeparturePlan(row)?.plan);\n  const actual = shortDateTime(row.actualDepartureAt);\n  return \`<div class="classic-operation-facts drop-release-pair" style="grid-column:1/-1"><div class="classic-operation-fact"><span>กำหนดปล่อยรถ</span><strong>\${esc(planned)}</strong></div><div class="classic-operation-fact"><span>ออกจากจุดดรอปจริง</span><strong>\${esc(actual)}</strong></div></div>\`;\n}\n`;
   output = output.replace(helperAnchor, `${helper}${helperAnchor}`);
 
   const oldFact = `drop.onwardDone ? classicOperationFact("ออกจากจุดดรอปจริง", shortDateTime(row.actualDepartureAt), true) : "",`;
@@ -20,7 +20,7 @@ export function patchMsDropReleasePairV1Frontend(source) {
   for (const expected of [
     FRONTEND_MARKER,
     "function classicDropReleasePair(row, release)",
-    "const planned = shortDateTime(release?.plan);",
+    "const planned = shortDateTime(release?.plan || adjustedDropDeparturePlan(row)?.plan);",
     "const actual = shortDateTime(row.actualDepartureAt);",
     'class="classic-operation-facts drop-release-pair" style="grid-column:1/-1"',
     "กำหนดปล่อยรถ",

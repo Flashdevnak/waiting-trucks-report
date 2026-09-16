@@ -148,7 +148,7 @@ test("Drop release display is one two-column box and keeps planned versus actual
     "function classicDropReleasePair(row, release)",
     "function classicOperationFacts(items)",
   );
-  assert.match(displayBlock, /const planned = shortDateTime\(release\?\.plan\);/);
+  assert.match(displayBlock, /const planned = shortDateTime\(release\?\.plan \|\| adjustedDropDeparturePlan\(row\)\?\.plan\);/);
   assert.match(displayBlock, /const actual = shortDateTime\(row\.actualDepartureAt\);/);
   assert.match(displayBlock, /classic-operation-facts drop-release-pair/);
   assert.match(displayBlock, /grid-column:1\/-1/);

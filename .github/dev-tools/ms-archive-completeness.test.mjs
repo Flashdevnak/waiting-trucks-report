@@ -38,12 +38,15 @@ test("date inputs do not read history until Search and Search uses the daily Tur
   assert.match(range, /result\?\.complete === false \|\| rows\.length !== total/);
 });
 
-test("daily-history Worker read is complete, database-only and bounded to 31 days", () => {
+test("daily-history Worker read is complete, database-only and bounded to 7 calendar days", () => {
   const start = worker.indexOf("async function msDailyArchive(env, actor, hub, startValue, endValue)");
   const end = worker.indexOf("async function msArchiveTotal", start);
   assert.ok(start >= 0 && end > start);
   const section = worker.slice(start, end);
-  assert.match(section, /31 \* 86400000/);
+  assert.match(section, /MS_DAILY_HISTORY_MAX_7_DAYS_V1/);
+  assert.match(section, /6 \* 86400000/);
+  assert.match(section, /เลือกค้นหาข้อมูลย้อนหลังได้ครั้งละไม่เกิน 7 วัน/);
+  assert.doesNotMatch(section, /31 \* 86400000/);
   assert.match(section, /DATE_RANGE_TOO_LARGE/);
   assert.match(section, /FROM ms_route_registry r/);
   assert.match(section, /ms_route_history/);

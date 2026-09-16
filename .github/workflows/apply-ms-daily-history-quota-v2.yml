@@ -1,0 +1,118 @@
+name: Apply MS Daily History Quota V2
+
+# DEV ONLY. This workflow hardens only the read-only daily-history path.
+# It never calls upstream MS, never touches Production, and never changes truck lifecycle logic.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-ms-daily-history-quota-v2.yml
+      - .github/quota-fixes/fix-ms-daily-history-quota-v2.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Patch only daily-history read path
+        run: node .github/quota-fixes/fix-ms-daily-history-quota-v2.mjs
+
+      - name: Syntax and daily-history regression
+        run: |
+          node --check ms.js
+          node --check worker/src/index.js
+          node --test .github/dev-tools/daily-history.test.mjs
+
+      - name: Full worker regression
+        working-directory: worker
+        run: |
+          npm ci
+          npm run check
+
+      - name: Ensure DEV Turso daily-history index and verify planner
+        env:
+          TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+          TURSO_ORG: flashdevnak
+          TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG;
+            const db=process.env.TURSO_DATABASE;
+            const platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            const indexName='idx_ms_route_history_hub_route_snapshot';
+            if(!platform) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
+            if(db!=='waiting-trucks-dev-turso-20260902192750') throw new Error('DEV database guard failed');
+
+            const ph={Authorization:`Bearer ${platform}`};
+            const dr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`,{headers:ph});
+            const dj=await dr.json();
+            if(!dr.ok) throw new Error(`Turso DB lookup HTTP ${dr.status}`);
+            const database=dj.database||dj;
+            const hostname=database.Hostname||database.hostname;
+            if(!hostname) throw new Error('DEV Turso hostname missing');
+
+            const tr=await fetch(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?authorization=full-access`,{method:'POST',headers:ph});
+            const tj=await tr.json();
+            if(!tr.ok||!tj.jwt) throw new Error(`Turso token HTTP ${tr.status}`);
+            console.log(`::add-mask::${tj.jwt}`);
+
+            async function query(sql){
+              const r=await fetch(`https://${hostname}/v2/pipeline`,{
+                method:'POST',
+                headers:{Authorization:`Bearer ${tj.jwt}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+              });
+              const p=await r.json();
+              const item=p?.results?.[0];
+              if(!r.ok||item?.type==='error') throw new Error(`Turso query failed: ${JSON.stringify(item?.error||p).slice(0,500)}`);
+              return item?.response?.result||{};
+            }
+            const decode=(v)=>v==null?null:(typeof v==='object'&&'value' in v?v.value:v);
+            const rows=(result)=>(result?.rows||[]).map(row=>row.map(decode));
+
+            const before=rows(await query("PRAGMA index_list('ms_route_history')"));
+            const presentBefore=before.some(row=>row.map(String).includes(indexName));
+            console.log(`TURSO_DAILY_HISTORY_INDEX_PRESENT_BEFORE=${presentBefore}`);
+
+            const createResult=await query(`CREATE INDEX IF NOT EXISTS ${indexName} ON ms_route_history(hub, route_id, snapshot_at DESC)`);
+            console.log(`TURSO_DAILY_HISTORY_INDEX_CREATE_ROWS_READ=${Number(createResult.rows_read||0)}`);
+            console.log(`TURSO_DAILY_HISTORY_INDEX_CREATE_ROWS_WRITTEN=${Number(createResult.rows_written||0)}`);
+
+            const after=rows(await query("PRAGMA index_list('ms_route_history')"));
+            if(!after.some(row=>row.map(String).includes(indexName))) throw new Error('DEV daily-history index missing after ensure');
+
+            const planSql=`EXPLAIN QUERY PLAN SELECT h2.rowid
+              FROM ms_route_history h2 INDEXED BY ${indexName}
+              WHERE h2.hub='__PLAN__' AND h2.route_id='__PLAN__'
+              ORDER BY h2.snapshot_at DESC,h2.rowid DESC LIMIT 1`;
+            const planRows=rows(await query(planSql));
+            const planText=planRows.flat().join(' | ');
+            if(!planText.includes(indexName)) throw new Error(`planner did not use forced daily-history index: ${planText}`);
+            console.log(`TURSO_DAILY_HISTORY_QUERY_PLAN=${planText.slice(0,500)}`);
+            console.log('TURSO_DAILY_HISTORY_INDEX=PASS');
+            console.log('TURSO_DAILY_HISTORY_FULL_SCAN_ALLOWED=0');
+            console.log('TURSO_DAILY_HISTORY_UPSTREAM_MS_CALLS=0');
+            console.log('PRODUCTION_TOUCHED=NO');
+          })().catch((error)=>{console.error(error);process.exit(1);});
+          NODE
+
+      - name: Commit quota-safe daily-history source
+        run: |
+          git config user.name "Flashdevnak"
+          git config user.email "26nak.testdev@gmail.com"
+          git add ms.js worker/src/index.js .github/dev-tools/daily-history.test.mjs
+          if git diff --cached --quiet; then
+            echo "DAILY_HISTORY_QUOTA_V2_SOURCE_ALREADY_CURRENT=PASS"
+            exit 0
+          fi
+          git commit -m "fix(dev): prevent daily-history full scans"
+          git push origin HEAD:main

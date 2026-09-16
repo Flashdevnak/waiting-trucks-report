@@ -1389,6 +1389,16 @@ async function loadRange() {
     start = rawStart || rawEnd,
     end = rawEnd || rawStart;
   if (!start || !end) return toast("กรุณาเลือกวันที่อย่างน้อย 1 วัน", true);
+  // MS_DAILY_HISTORY_MAX_7_DAYS_V1: one explicit search may cover at most 7 calendar days (inclusive).
+  // Reject in the browser before any archive request to keep quota cost at zero for invalid ranges.
+  const rangeStartMs = Date.parse(`${start}T00:00:00+07:00`);
+  const rangeEndMs = Date.parse(`${end}T00:00:00+07:00`);
+  if (
+    Number.isFinite(rangeStartMs) &&
+    Number.isFinite(rangeEndMs) &&
+    rangeEndMs >= rangeStartMs &&
+    rangeEndMs - rangeStartMs > 6 * 86400000
+  ) return toast("เลือกค้นหาได้ครั้งละไม่เกิน 7 วัน", true);
   try {
     const result = await apiGetOnce("msDailyArchive", {
       branch: state.branch,

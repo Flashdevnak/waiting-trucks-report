@@ -193,13 +193,25 @@ test("completed card displays the authoritative daily Destination rows represent
   assert.match(staged, /state\.archiveRows\.filter\(\(row\) => !isCompletedToday\(row\)\)/);
   assert.match(staged, /state\.completedToday = Number\(completed\?\.total\) \|\| completedRows\.length/);
   assert.match(staged, /state\.summary === "completed" && isDestination\(row\) && isCompletedToday\(row\)/);
+  assert.match(staged, /MS_LOWER_CARD_FILTER_TRUTH_V1/);
+  assert.match(staged, /completedTodayDatasetRows\(\)\s*\.filter\(matchesCompletedContext\)/);
+  const summary = between(
+    staged,
+    "function renderFilterSummary(rows) {",
+    "\nasync function applyMetricFilter(metric) {",
+  );
+  const completedClick = between(
+    summary,
+    'if (value === "completed" || value === "unload-overtime" || value === "drop") {',
+    '} else if (value === "cancelled") {',
+  );
   for (const field of ["query", "dateFrom", "dateTo"]) {
-    assert.match(staged, new RegExp(`state\\.${field} = ""`));
+    assert.doesNotMatch(completedClick, new RegExp(`state\\.${field} = ""`));
   }
   for (const field of ["attendance", "attribute", "region", "route", "status"]) {
-    assert.match(staged, new RegExp(`state\\.${field} = "all"`));
+    assert.doesNotMatch(completedClick, new RegExp(`state\\.${field} = "all"`));
   }
-  assert.match(staged, /state\.queue = "all";\s*el\("queue-filter"\)\.value = "all";/);
+  assert.match(completedClick, /state\.queue = "all";\s*el\("queue-filter"\)\.value = "all";/);
 });
 
 test("completed/drop views hydrate released and truthfully expired rows separately", () => {

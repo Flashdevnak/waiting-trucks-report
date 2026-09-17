@@ -1,0 +1,70 @@
+name: Branch MS Lower Card Truth V1
+
+on:
+  push:
+    branches:
+      - fix/ms-lower-card-truth-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          node --check .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
+          node --check .github/dev-tools/patch-ms-unloading-start-truth-v2.mjs
+          node --check .github/dev-tools/stage-dev-runtime.mjs
+      - name: Lower-card truth tests
+        id: lower_card
+        continue-on-error: true
+        run: |
+          set +e
+          node --test .github/dev-tools/ms-lower-card-truth-v1.test.mjs > lower-card-test-output.txt 2>&1
+          status=$?
+          cat lower-card-test-output.txt
+          exit "$status"
+      - name: Existing MS summary regressions
+        id: regressions
+        continue-on-error: true
+        run: |
+          set +e
+          {
+            node --test .github/dev-tools/ms-summary-filter-base.test.mjs
+            a=$?
+            node --test .github/dev-tools/ms-summary-filter.test.mjs
+            b=$?
+            node --test .github/dev-tools/daily-history.test.mjs
+            c=$?
+            exit $(( a || b || c ))
+          } > ms-summary-regression-output.txt 2>&1
+          status=$?
+          cat ms-summary-regression-output.txt
+          exit "$status"
+      - name: Upload branch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms-lower-card-gate-output
+          path: |
+            lower-card-test-output.txt
+            ms-summary-regression-output.txt
+          if-no-files-found: error
+          retention-days: 1
+      - name: Safety assertions
+        run: |
+          ! grep -R "wrangler deploy\|cloudflare deploy\|turso db shell\|curl .*workers.dev" .github/workflows/branch-ms-lower-card-truth-v1.yml
+          grep -q "MS_LOWER_CARD_FILTER_TRUTH_V1" .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
+          grep -q "MS_COMPLETED_CALENDAR_DAY_TRUTH_V2" .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
+      - name: Enforce test gates
+        if: always()
+        run: |
+          test "${{ steps.lower_card.outcome }}" = "success"
+          test "${{ steps.regressions.outcome }}" = "success"

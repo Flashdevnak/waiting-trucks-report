@@ -46,6 +46,7 @@ import {
   patchMsUnloadingStartTruthFrontend,
   patchMsUnloadingStartTruthWorker,
 } from "./patch-ms-unloading-start-truth-v2.mjs";
+import { patchPnoUltraLowQuotaFrontend } from "./patch-pno-ultra-low-quota-v1.mjs";
 import {
   patchMsDailyHistoryFrontend,
   patchMsDailyHistoryWorker,
@@ -385,6 +386,9 @@ export function stageFrontend(source) {
   output = patchMsDailyHistoryFrontend(output);
   output = patchMsConnectionErrorKvFrontend(output);
   output = patchDevProofHarConnectionFrontend(output);
+  // PNO frontend mutates HAR-save-adjacent anchors, so it must run after every
+  // HAR/connection patch. This preserves Post Cutover staging idempotency.
+  output = patchPnoUltraLowQuotaFrontend(output);
   return output;
 }
 

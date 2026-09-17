@@ -27,6 +27,9 @@ export function patchMsLowerCardTruthFrontend(source) {
     "frontend completed calendar day",
   );
 
+  // Staging can insert helper functions between matchesOvertimeContext() and
+  // the operation renderer. Replace only this one function and stop at the
+  // next top-level function declaration instead of depending on a later name.
   output = replaceBlock(
     output,
     "function matchesOvertimeContext(row) {",

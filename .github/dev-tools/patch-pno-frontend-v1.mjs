@@ -11,8 +11,32 @@ function injectPnoRuntimeUi(source) {
   return output;
 }
 
+const PREENTRY_RECOVERY_OBSERVER_LINE =
+  '      void reportMsConnectionObservation("recovered", source, hub).then(() => loadMsConnectionObservedError(hub));';
+const PREENTRY_PNO_INVALIDATION_ANCHOR =
+  '      const result = await apiPost("saveMsPreEntryConnection", { hub, credentials });\n' +
+  '      clearPnoBrowserCacheForHub(hub);\n' +
+  '      resetPendingParcelModal();';
+
 export function patchPnoUltraLowQuotaFrontend(source) {
   let output = String(source || "");
-  if (!output.includes(MARKER)) output = applyExactUnifiedDiff(output, FRONT_DIFF, "frontend-core");
+  if (!output.includes(MARKER)) {
+    // MS_CONNECTION_ERROR_KV_V1 owns the recovery-observer line immediately
+    // after saveMsPreEntryConnection(). The original PNO diff predates that
+    // insertion, so normalize only that one compatibility line, apply the
+    // exact PNO diff, then restore recovery after PNO cache invalidation.
+    const hadRecoveryObserver = output.includes(PREENTRY_RECOVERY_OBSERVER_LINE);
+    if (hadRecoveryObserver)
+      output = output.replace(PREENTRY_RECOVERY_OBSERVER_LINE + "\n", "");
+    output = applyExactUnifiedDiff(output, FRONT_DIFF, "frontend-core");
+    if (hadRecoveryObserver) {
+      if (!output.includes(PREENTRY_PNO_INVALIDATION_ANCHOR))
+        throw new Error("PNO_BROWSER_CACHE_V1: PreEntry invalidation anchor missing after staged diff");
+      output = output.replace(
+        PREENTRY_PNO_INVALIDATION_ANCHOR,
+        PREENTRY_PNO_INVALIDATION_ANCHOR + "\n" + PREENTRY_RECOVERY_OBSERVER_LINE,
+      );
+    }
+  }
   return injectPnoRuntimeUi(output);
 }

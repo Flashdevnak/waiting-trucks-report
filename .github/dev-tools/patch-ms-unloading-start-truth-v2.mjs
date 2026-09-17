@@ -9,13 +9,19 @@ import {
   patchMsLowerCardTruthFrontend,
   patchMsLowerCardTruthWorker,
 } from "./patch-ms-lower-card-truth-v1.mjs";
+import {
+  patchPnoUltraLowQuotaFrontend,
+  patchPnoUltraLowQuotaWorker,
+} from "./patch-pno-ultra-low-quota-v1.mjs";
 
 export function patchMsUnloadingStartTruthFrontend(source) {
-  return patchMsLowerCardTruthFrontend(
-    patchMsDropReleasePairV1Frontend(
-      patchMsOriginArrivalSourcesV1(
-        patchMsOperationalExpiryAnchorV2Frontend(
-          patchMsUnloadingStartTruthFrontendV2(source),
+  return patchPnoUltraLowQuotaFrontend(
+    patchMsLowerCardTruthFrontend(
+      patchMsDropReleasePairV1Frontend(
+        patchMsOriginArrivalSourcesV1(
+          patchMsOperationalExpiryAnchorV2Frontend(
+            patchMsUnloadingStartTruthFrontendV2(source),
+          ),
         ),
       ),
     ),
@@ -23,7 +29,9 @@ export function patchMsUnloadingStartTruthFrontend(source) {
 }
 
 export function patchMsUnloadingStartTruthWorker(source) {
-  return patchMsLowerCardTruthWorker(
-    patchMsUnloadingStartTruthWorkerV2(source),
+  return patchPnoUltraLowQuotaWorker(
+    patchMsLowerCardTruthWorker(
+      patchMsUnloadingStartTruthWorkerV2(source),
+    ),
   );
 }

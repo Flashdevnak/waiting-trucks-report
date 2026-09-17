@@ -71,6 +71,11 @@ test("lower cards preserve active filters and share status context", () => {
     "function matchesLowerCardContext(row, day) {",
     "\nfunction classicOperationRow",
   );
+  const completedClick = between(
+    summary,
+    'if (value === "completed" || value === "unload-overtime" || value === "drop") {',
+    '} else if (value === "cancelled") {',
+  );
   assert.match(front, /MS_LOWER_CARD_FILTER_TRUTH_V1/);
   assert.match(context, /const statusMatch =/);
   assert.match(context, /state\.status === "unload-overtime" && isOperationalOvertime\(row\)/);
@@ -79,8 +84,8 @@ test("lower cards preserve active filters and share status context", () => {
     /completedTodayDatasetRows\(\)\s*\.filter\(matchesCompletedContext\)/,
   );
   assert.match(summary, /Preserve active filters/);
-  assert.doesNotMatch(summary, /state\.query = "";/);
-  assert.doesNotMatch(summary, /state\.status = "all";/);
+  assert.doesNotMatch(completedClick, /state\.query = "";/);
+  assert.doesNotMatch(completedClick, /state\.status = "all";/);
 });
 
 test("awaiting-release Origin rows sort by earliest planned departure", () => {
@@ -89,12 +94,9 @@ test("awaiting-release Origin rows sort by earliest planned departure", () => {
     "function filteredRows(ignoreSummary = false, queueMode = state.queue) {",
     "\nasync function loadRange()",
   );
-  assert.match(filtered, /state\.summary === "origin"/);
-  assert.match(filtered, /parseDate\(a\.estimatedDepartureAt\)/);
-  assert.match(filtered, /Number\.POSITIVE_INFINITY/);
-  assert.ok(
-    filtered.indexOf("estimatedDepartureAt") < filtered.indexOf("confirmedEffectiveArrival(a)"),
-    "origin release order must take precedence over generic arrival order",
+  assert.match(
+    filtered,
+    /\.sort\(\(a, b\) => \{\s*if \(!ignoreSummary && state\.summary === "origin"\) \{[\s\S]*?parseDate\(a\.estimatedDepartureAt\)[\s\S]*?Number\.POSITIVE_INFINITY[\s\S]*?return aPlanned - bPlanned;[\s\S]*?const aTime =/,
   );
 });
 

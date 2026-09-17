@@ -27,10 +27,13 @@ export function patchMsLowerCardTruthFrontend(source) {
     "frontend completed calendar day",
   );
 
+  // Staging can insert helper functions between matchesOvertimeContext() and
+  // the operation renderer. Replace only this one function and stop at the
+  // next top-level function declaration instead of depending on a later name.
   output = replaceBlock(
     output,
     "function matchesOvertimeContext(row) {",
-    "\nfunction classicOperationRow",
+    "\nfunction ",
     () => `function matchesLowerCardContext(row, day) {\n  const haystack = [row.proofId, row.routeName, row.vehicleType, row.plate, row.driverName, row.supplier]\n    .join(" ").toLowerCase();\n  const status = routeState(row);\n  const statusMatch =\n    state.status === "all" ||\n    status.key === state.status ||\n    (state.status === "arrival-ontime" &&\n      isDestination(row) &&\n      punctuality(row).key === "ontime") ||\n    (state.status === "arrival-late" && status.arrivalLate) ||\n    (state.status === "departure-ontime" &&\n      isOrigin(row) &&\n      punctuality(row).key === "ontime") ||\n    (state.status === "departure-late" && status.departureLate) ||\n    (state.status === "unload-overtime" && isOperationalOvertime(row));\n  return (!state.query || haystack.includes(state.query)) &&\n    (!state.dateFrom || day >= state.dateFrom) &&\n    (!state.dateTo || day <= state.dateTo) &&\n    (state.attendance === "all" || normalizeAttendance(row.attendanceType) === state.attendance) &&\n    (state.attribute === "all" || row.routeAttribute === state.attribute) &&\n    (state.region === "all" || row.region === state.region) &&\n    (state.route === "all" || row.routeType === state.route) &&\n    statusMatch;\n}\n\nfunction matchesCompletedContext(row) {\n  const completedAt = trustedLowerCompletionAt(row);\n  const day = completedAt ? bangkokDateValue(completedAt) : "";\n  return Boolean(day) && matchesLowerCardContext(row, day);\n}\n\nfunction matchesOvertimeContext(row) {\n  return matchesLowerCardContext(row, rowBusinessDay(row));\n}\n`,
     "lower-card common filter context",
   );

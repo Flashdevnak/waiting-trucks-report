@@ -13,6 +13,7 @@ import { maybeHandleProofUiV15 } from "./proof-ui-v15.js";
 import { maybeHandleProofUiV16 } from "./proof-ui-v16.js";
 import { enrichProofRoutesV16, captureProofEditorMetaV16 } from "./proof-route-meta-v16.js";
 import { maybeHandleProofHistoryV10 } from "./proof-history-v10.js";
+import { maybeHandleMsDailyArchivePointer } from "./ms-history-pointer-v1.js";
 
 const DEV_TABLET_SHELL_CSS = `
 /* DEV_TABLET_SHELL_CONTAINMENT_V1 */
@@ -95,6 +96,8 @@ export default {
     if (proofV2Response) return enrichProofRoutesV16(request, proofV2Response, runtimeEnv, ctx);
     const proofResponse = await maybeHandleProofRequest(request, runtimeEnv, ctx, worker);
     if (proofResponse) return proofResponse;
+    const historyPointerResponse = await maybeHandleMsDailyArchivePointer(request, runtimeEnv, ctx, worker);
+    if (historyPointerResponse) return historyPointerResponse;
     const url = new URL(request.url);
     const response = await worker.fetch(request, runtimeEnv, ctx);
     if (request.method === 'GET' && url.pathname === '/proof-v2-core.js') return applyDevProofServiceDate(request, response);

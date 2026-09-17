@@ -20,10 +20,9 @@ function error(message, code, status = 400) {
   return json({ ok: false, code, message }, status);
 }
 
-function thaiDateBoundary(value, endOfDay) {
+function thaiDateStart(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return NaN;
-  const time = Date.parse(`${value}T00:00:00+07:00`);
-  return endOfDay ? time + 86400000 - 1000 : time;
+  return Date.parse(`${value}T00:00:00+07:00`);
 }
 
 function canonicalHub(value) {
@@ -105,19 +104,16 @@ export async function maybeHandleMsDailyArchivePointer(request, env, ctx, coreWo
   if (url.pathname !== "/api" || url.searchParams.get("action") !== "msDailyArchive")
     return null;
 
-  // Preserve the core Worker's branch-default behavior when a branch was not
-  // supplied explicitly. Normal ms.html history searches always send branch.
   const hub = canonicalHub(url.searchParams.get("branch"));
   if (!hub) return null;
 
-  // Reuse existing auth + HUB membership truth without duplicating auth rules.
   const authResponse = await authorize(request, env, ctx, coreWorker, hub);
   if (!authResponse.ok) return authResponse;
 
   const start = String(url.searchParams.get("start") || ""),
     end = String(url.searchParams.get("end") || start),
-    startMs = thaiDateBoundary(start, false),
-    endMs = thaiDateBoundary(end, true);
+    startMs = thaiDateStart(start),
+    endMs = thaiDateStart(end);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs)
     return error("กรุณาเลือกช่วงวันที่ให้ถูกต้อง", "INVALID_DATE_RANGE");
   if (endMs - startMs > MAX_RANGE_MS)
@@ -126,9 +122,6 @@ export async function maybeHandleMsDailyArchivePointer(request, env, ctx, coreWo
       "DATE_RANGE_TOO_LARGE",
     );
 
-  // Activation is atomic from the reader's point of view: before the global
-  // ready marker exists, return null so turso-index delegates to the old core
-  // implementation. No pointer query has been issued at that point.
   let meta;
   try {
     meta = await env.DB.prepare(
@@ -151,8 +144,6 @@ export async function maybeHandleMsDailyArchivePointer(request, env, ctx, coreWo
     const data = await queryMsDailyArchivePointer(env, hub, start, end);
     return json({ ok: true, data });
   } catch (cause) {
-    // Never auto-retry with the old heavy history query after the optimized
-    // query has started. One click remains one history query attempt.
     console.error(
       JSON.stringify({
         event: "ms_history_pointer_query_error",

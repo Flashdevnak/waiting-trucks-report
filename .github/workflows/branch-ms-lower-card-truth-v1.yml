@@ -31,25 +31,40 @@ jobs:
           status=$?
           cat lower-card-test-output.txt
           exit "$status"
-      - name: Upload lower-card diagnostic
+      - name: Existing MS summary regressions
+        id: regressions
+        continue-on-error: true
+        run: |
+          set +e
+          {
+            node --test .github/dev-tools/ms-summary-filter-base.test.mjs
+            a=$?
+            node --test .github/dev-tools/ms-summary-filter.test.mjs
+            b=$?
+            node --test .github/dev-tools/daily-history.test.mjs
+            c=$?
+            exit $(( a || b || c ))
+          } > ms-summary-regression-output.txt 2>&1
+          status=$?
+          cat ms-summary-regression-output.txt
+          exit "$status"
+      - name: Upload branch diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lower-card-test-output
-          path: lower-card-test-output.txt
+          name: ms-lower-card-gate-output
+          path: |
+            lower-card-test-output.txt
+            ms-summary-regression-output.txt
           if-no-files-found: error
           retention-days: 1
-      - name: Existing MS summary regressions
-        run: |
-          node --test .github/dev-tools/ms-summary-filter-base.test.mjs
-          node --test .github/dev-tools/ms-summary-filter.test.mjs
-          node --test .github/dev-tools/daily-history.test.mjs
       - name: Safety assertions
         run: |
           ! grep -R "wrangler deploy\|cloudflare deploy\|turso db shell\|curl .*workers.dev" .github/workflows/branch-ms-lower-card-truth-v1.yml
           grep -q "MS_LOWER_CARD_FILTER_TRUTH_V1" .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
           grep -q "MS_COMPLETED_CALENDAR_DAY_TRUTH_V2" .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
-      - name: Enforce lower-card gate
+      - name: Enforce test gates
         if: always()
         run: |
           test "${{ steps.lower_card.outcome }}" = "success"
+          test "${{ steps.regressions.outcome }}" = "success"

@@ -56,11 +56,13 @@ export function patchMsLowerCardTruthFrontend(source) {
         throw new Error("lower-card truth patch missing filteredRows day");
       next = next.replace(from, to);
 
-      const sortFrom = `    .sort((a, b) => {\n      const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;\n      const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;\n      return queueMode === "queue" ? aTime - bTime : bTime - aTime;\n    });`;
-      const sortTo = `    .sort((a, b) => {\n      if (!ignoreSummary && state.summary === "origin") {\n        const aDeparture = parseDate(a.estimatedDepartureAt)?.getTime();\n        const bDeparture = parseDate(b.estimatedDepartureAt)?.getTime();\n        const aPlanned = Number.isFinite(aDeparture) ? aDeparture : Number.POSITIVE_INFINITY;\n        const bPlanned = Number.isFinite(bDeparture) ? bDeparture : Number.POSITIVE_INFINITY;\n        if (aPlanned !== bPlanned) return aPlanned - bPlanned;\n      }\n      const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;\n      const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;\n      return queueMode === "queue" ? aTime - bTime : bTime - aTime;\n    });`;
-      if (!next.includes(sortFrom))
-        throw new Error("lower-card truth patch missing filteredRows sort");
-      next = next.replace(sortFrom, sortTo);
+      const sortAnchor = "    .sort((a, b) => {";
+      if (!next.includes(sortAnchor))
+        throw new Error("lower-card truth patch missing filteredRows sort anchor");
+      next = next.replace(
+        sortAnchor,
+        `${sortAnchor}\n      if (!ignoreSummary && state.summary === "origin") {\n        const aDeparture = parseDate(a.estimatedDepartureAt)?.getTime();\n        const bDeparture = parseDate(b.estimatedDepartureAt)?.getTime();\n        const aPlanned = Number.isFinite(aDeparture) ? aDeparture : Number.POSITIVE_INFINITY;\n        const bPlanned = Number.isFinite(bDeparture) ? bDeparture : Number.POSITIVE_INFINITY;\n        if (aPlanned !== bPlanned) return aPlanned - bPlanned;\n      }`,
+      );
       return next;
     },
     "completed filter day and origin release sort",

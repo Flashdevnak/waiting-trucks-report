@@ -1,0 +1,169 @@
+name: Apply DEV MS Route Latest Pointer V1
+
+# DEV ONLY. Generic for every HUB. No upstream MS call and no Production access.
+on:
+  push:
+    branches: [main]
+    paths:
+      - worker/migrations/0012_ms_route_latest_pointer.sql
+      - worker/src/ms-history-pointer-v1.js
+      - worker/src/turso-index.js
+      - worker/tests/ms-history-pointer-v1.test.mjs
+      - .github/workflows/apply-dev-ms-route-latest-pointer-v1.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-dev-ms-route-latest-pointer-v1
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Pointer source contract
+        run: |
+          node --check worker/src/ms-history-pointer-v1.js
+          node --check worker/src/turso-index.js
+          node --test worker/tests/ms-history-pointer-v1.test.mjs
+
+      - name: Apply pointer schema, backfill every HUB, verify, then activate
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          (async()=>{
+            const token=process.env.TURSO_PLATFORM_API_TOKEN;
+            const org=process.env.TURSO_ORG;
+            const db=process.env.TURSO_DATABASE;
+            if(!token) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
+            if(org!=='flashdevnak') throw new Error('DEV org guard failed');
+            if(db!=='waiting-trucks-dev-turso-20260902192750') throw new Error('DEV DB guard failed');
+
+            const ph={Authorization:`Bearer ${token}`};
+            const platformJson=async(url,init={})=>{
+              const r=await fetch(url,{...init,headers:{...ph,...(init.headers||{})}});
+              let j={}; try{j=await r.json();}catch{}
+              if(!r.ok) throw new Error(`Turso platform ${r.status}: ${JSON.stringify(j).slice(0,500)}`);
+              return j;
+            };
+            const dbJson=await platformJson(`https://api.turso.tech/v1/organizations/${org}/databases/${db}`);
+            const database=dbJson.database||dbJson;
+            const host=database.Hostname||database.hostname;
+            if(!host) throw new Error('DEV Turso hostname missing');
+            const auth=await platformJson(`https://api.turso.tech/v1/organizations/${org}/databases/${db}/auth/tokens?expiration=30m&authorization=full-access`,{method:'POST'});
+            if(!auth.jwt) throw new Error('DEV Turso token missing');
+            console.log(`::add-mask::${auth.jwt}`);
+
+            async function query(sql){
+              const r=await fetch(`https://${host}/v2/pipeline`,{
+                method:'POST',
+                headers:{Authorization:`Bearer ${auth.jwt}`,'content-type':'application/json'},
+                body:JSON.stringify({requests:[{type:'execute',stmt:{sql}},{type:'close'}]}),
+              });
+              const body=await r.json();
+              const item=body?.results?.[0];
+              if(!r.ok||item?.type==='error') throw new Error(`Turso SQL failed: ${JSON.stringify(item?.error||body).slice(0,700)}`);
+              return item?.response?.result||{};
+            }
+            const val=(cell)=>cell?.type==='null'||cell==null?null:cell.value;
+            const rows=(result)=>(result.rows||[]).map(row=>row.map(val));
+
+            let ready=0;
+            try {
+              const current=rows(await query("SELECT ready FROM ms_route_latest_meta WHERE id=1 LIMIT 1"));
+              ready=Number(current?.[0]?.[0]||0);
+            } catch {}
+
+            if(ready!==1){
+              const sql=fs.readFileSync('worker/migrations/0012_ms_route_latest_pointer.sql','utf8');
+              const statements=sql.split('--> statement-breakpoint').map(x=>x.trim()).filter(Boolean);
+              let totalRead=0,totalWritten=0;
+              for(let i=0;i<statements.length;i++){
+                const result=await query(statements[i]);
+                const rr=Number(result.rows_read||0),rw=Number(result.rows_written||0);
+                totalRead+=rr; totalWritten+=rw;
+                console.log(`POINTER_MIGRATION_STATEMENT_${i+1}_ROWS_READ=${rr}`);
+                console.log(`POINTER_MIGRATION_STATEMENT_${i+1}_ROWS_WRITTEN=${rw}`);
+              }
+              console.log(`POINTER_MIGRATION_ROWS_READ_TOTAL=${totalRead}`);
+              console.log(`POINTER_MIGRATION_ROWS_WRITTEN_TOTAL=${totalWritten}`);
+            } else {
+              console.log('POINTER_MIGRATION_ALREADY_READY=YES');
+            }
+
+            const objects=rows(await query("SELECT type,name FROM sqlite_master WHERE name IN ('ms_route_latest','ms_route_latest_meta','idx_ms_route_latest_hub_day','trg_ms_route_history_latest_pointer') ORDER BY name"));
+            const objectNames=new Set(objects.map(r=>String(r[1]||'')));
+            for(const name of ['ms_route_latest','ms_route_latest_meta','idx_ms_route_latest_hub_day','trg_ms_route_history_latest_pointer'])
+              if(!objectNames.has(name)) throw new Error(`Pointer object missing: ${name}`);
+
+            const missing=rows(await query(`SELECT COUNT(*)
+              FROM ms_route_registry r
+              WHERE EXISTS (
+                SELECT 1 FROM ms_route_history h INDEXED BY idx_ms_route_history_hub_route_snapshot
+                WHERE h.hub=r.hub AND h.route_id=r.route_id LIMIT 1
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM ms_route_latest p WHERE p.hub=r.hub AND p.route_id=r.route_id
+              )`));
+            const missingCount=Number(missing?.[0]?.[0]||0);
+            console.log(`POINTER_MISSING_ROUTES_ALL_HUBS=${missingCount}`);
+            if(missingCount!==0) throw new Error(`Pointer backfill incomplete: ${missingCount} routes missing`);
+
+            const registryHubs=rows(await query("SELECT DISTINCT hub FROM ms_route_registry WHERE hub<>'' ORDER BY hub")).map(r=>String(r[0]||''));
+            const pointerHubs=rows(await query("SELECT DISTINCT hub FROM ms_route_latest WHERE hub<>'' ORDER BY hub")).map(r=>String(r[0]||''));
+            const pointerHubSet=new Set(pointerHubs);
+            const absent=registryHubs.filter(h=>!pointerHubSet.has(h));
+            console.log(`REGISTRY_HUBS=${registryHubs.join(',')}`);
+            console.log(`POINTER_HUBS=${pointerHubs.join(',')}`);
+            console.log(`POINTER_HUB_COVERAGE=${absent.length===0?'PASS':'FAIL'}`);
+            if(absent.length) throw new Error(`Pointer missing HUBs: ${absent.join(',')}`);
+
+            const plan=rows(await query(`EXPLAIN QUERY PLAN SELECT h.route_id
+              FROM ms_route_latest p INDEXED BY idx_ms_route_latest_hub_day
+              JOIN ms_route_history h ON h.rowid=p.history_rowid
+              WHERE p.hub='__PLAN__' AND p.business_day>='2026-09-10' AND p.business_day<='2026-09-16'`));
+            const planText=plan.flat().join(' | ');
+            console.log(`POINTER_QUERY_PLAN=${planText}`);
+            if(!planText.includes('idx_ms_route_latest_hub_day')) throw new Error('Pointer planner index missing');
+
+            await query("INSERT INTO ms_route_latest_meta(id,ready,backfilled_at) VALUES(1,1,datetime('now')) ON CONFLICT(id) DO UPDATE SET ready=1,backfilled_at=excluded.backfilled_at");
+            const finalReady=rows(await query("SELECT ready FROM ms_route_latest_meta WHERE id=1"));
+            if(Number(finalReady?.[0]?.[0]||0)!==1) throw new Error('Pointer activation failed');
+
+            const oneDay=await query(`SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type,p.business_day
+              FROM ms_route_latest p INDEXED BY idx_ms_route_latest_hub_day
+              JOIN ms_route_history h ON h.rowid=p.history_rowid
+              WHERE p.hub='NE1' AND p.business_day>='2026-09-16' AND p.business_day<='2026-09-16'
+              ORDER BY p.business_day DESC,h.snapshot_at DESC`);
+            const oneDayRead=Number(oneDay.rows_read||0);
+            console.log(`POINTER_ACCEPTANCE_NE1_1D_ROWS=${(oneDay.rows||[]).length}`);
+            console.log(`POINTER_ACCEPTANCE_NE1_1D_ROWS_READ=${oneDayRead}`);
+            if(oneDayRead>=10000) throw new Error(`Pointer 1-day Rows Read too high: ${oneDayRead}`);
+
+            const sevenDay=await query(`SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type,p.business_day
+              FROM ms_route_latest p INDEXED BY idx_ms_route_latest_hub_day
+              JOIN ms_route_history h ON h.rowid=p.history_rowid
+              WHERE p.hub='NE1' AND p.business_day>='2026-09-10' AND p.business_day<='2026-09-16'
+              ORDER BY p.business_day DESC,h.snapshot_at DESC`);
+            const sevenDayRead=Number(sevenDay.rows_read||0);
+            console.log(`POINTER_ACCEPTANCE_NE1_7D_ROWS=${(sevenDay.rows||[]).length}`);
+            console.log(`POINTER_ACCEPTANCE_NE1_7D_ROWS_READ=${sevenDayRead}`);
+            if(sevenDayRead>=30000) throw new Error(`Pointer 7-day Rows Read too high: ${sevenDayRead}`);
+
+            console.log('POINTER_GENERIC_ALL_HUBS=PASS');
+            console.log('POINTER_UPSTREAM_MS_CALLS=0');
+            console.log('POINTER_ADDITIONAL_POLLING=0');
+            console.log('POINTER_PRODUCTION_TOUCHED=NO');
+          })().catch(error=>{console.error(error);process.exit(1)});
+          NODE

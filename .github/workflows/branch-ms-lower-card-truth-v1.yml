@@ -23,7 +23,22 @@ jobs:
           node --check .github/dev-tools/patch-ms-unloading-start-truth-v2.mjs
           node --check .github/dev-tools/stage-dev-runtime.mjs
       - name: Lower-card truth tests
-        run: node --test .github/dev-tools/ms-lower-card-truth-v1.test.mjs
+        id: lower_card
+        continue-on-error: true
+        run: |
+          set +e
+          node --test .github/dev-tools/ms-lower-card-truth-v1.test.mjs > lower-card-test-output.txt 2>&1
+          status=$?
+          cat lower-card-test-output.txt
+          exit "$status"
+      - name: Upload lower-card diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lower-card-test-output
+          path: lower-card-test-output.txt
+          if-no-files-found: error
+          retention-days: 1
       - name: Existing MS summary regressions
         run: |
           node --test .github/dev-tools/ms-summary-filter-base.test.mjs
@@ -34,3 +49,7 @@ jobs:
           ! grep -R "wrangler deploy\|cloudflare deploy\|turso db shell\|curl .*workers.dev" .github/workflows/branch-ms-lower-card-truth-v1.yml
           grep -q "MS_LOWER_CARD_FILTER_TRUTH_V1" .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
           grep -q "MS_COMPLETED_CALENDAR_DAY_TRUTH_V2" .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
+      - name: Enforce lower-card gate
+        if: always()
+        run: |
+          test "${{ steps.lower_card.outcome }}" = "success"

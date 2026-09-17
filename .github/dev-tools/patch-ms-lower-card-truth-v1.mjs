@@ -36,10 +36,6 @@ export function patchMsLowerCardTruthFrontend(source) {
   );
 
   output = output.replace(
-    /completedTodayDatasetRows\(\)\.filter\(matchesOvertimeContext\)/g,
-    "completedTodayDatasetRows().filter(matchesCompletedContext)",
-  );
-  output = output.replace(
     /isCompletedTodayOvertime\(row\) && matchesOvertimeContext\(row\)/g,
     "isCompletedTodayOvertime(row) && matchesCompletedContext(row)",
   );
@@ -73,19 +69,25 @@ export function patchMsLowerCardTruthFrontend(source) {
     "function renderFilterSummary(rows) {",
     "\nasync function applyMetricFilter(metric) {",
     (block) => {
-      const next = block.replace(
+      let next = block;
+      const completedCount = /(completed:\s*completedTodayDatasetRows\(\)\s*\.filter\()matchesOvertimeContext(\)\s*\.filter\(\(row\) => isDestination\(row\)\)\.length,)/;
+      if (!completedCount.test(next))
+        throw new Error("lower-card truth patch could not locate completed-card count");
+      next = next.replace(completedCount, "$1matchesCompletedContext$2");
+
+      next = next.replace(
         /\n\s*state\.query = "";\n\s*state\.dateFrom = "";\n\s*state\.dateTo = "";\n\s*state\.attendance = "all";\n\s*state\.attribute = "all";\n\s*state\.region = "all";\n\s*state\.route = "all";\n\s*state\.status = "all";\n\s*el\("search-input"\)\.value = "";\n\s*el\("date-from"\)\.value = "";\n\s*el\("date-to"\)\.value = "";\n\s*el\("attendance-filter"\)\.value = "all";\n\s*el\("attribute-filter"\)\.value = "all";\n\s*el\("region-filter"\)\.value = "all";\n\s*el\("route-filter"\)\.value = "all";\n\s*el\("status-filter"\)\.value = "all";/,
         "\n            // Preserve active filters: lower card total must equal the rows opened by the card.",
       );
       if (!next.includes("Preserve active filters"))
         throw new Error("lower-card truth patch could not preserve lower-card filters");
+      if (!/completed:\s*completedTodayDatasetRows\(\)[\s\S]*?\.filter\(matchesCompletedContext\)[\s\S]*?\.filter\(\(row\) => isDestination\(row\)\)\.length,/.test(next))
+        throw new Error("lower-card truth patch did not bind completed-card count to completion-day context");
       return next;
     },
-    "lower-card click keeps filters",
+    "lower-card count and click context",
   );
 
-  if (!output.includes("completedTodayDatasetRows().filter(matchesCompletedContext)"))
-    throw new Error("lower-card truth patch did not bind completed count to completion-day context");
   return output;
 }
 

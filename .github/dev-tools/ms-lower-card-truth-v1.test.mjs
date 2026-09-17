@@ -74,7 +74,10 @@ test("lower cards preserve active filters and share status context", () => {
   assert.match(front, /MS_LOWER_CARD_FILTER_TRUTH_V1/);
   assert.match(context, /const statusMatch =/);
   assert.match(context, /state\.status === "unload-overtime" && isOperationalOvertime\(row\)/);
-  assert.match(front, /completedTodayDatasetRows\(\)\.filter\(matchesCompletedContext\)/);
+  assert.match(
+    front,
+    /completedTodayDatasetRows\(\)\s*\.filter\(matchesCompletedContext\)/,
+  );
   assert.match(summary, /Preserve active filters/);
   assert.doesNotMatch(summary, /state\.query = "";/);
   assert.doesNotMatch(summary, /state\.status = "all";/);

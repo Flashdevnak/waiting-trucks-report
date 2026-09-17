@@ -1,0 +1,36 @@
+name: Branch MS Lower Card Truth V1
+
+on:
+  push:
+    branches:
+      - fix/ms-lower-card-truth-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          node --check .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
+          node --check .github/dev-tools/patch-ms-unloading-start-truth-v2.mjs
+          node --check .github/dev-tools/stage-dev-runtime.mjs
+      - name: Lower-card truth tests
+        run: node --test .github/dev-tools/ms-lower-card-truth-v1.test.mjs
+      - name: Existing MS summary regressions
+        run: |
+          node --test .github/dev-tools/ms-summary-filter-base.test.mjs
+          node --test .github/dev-tools/ms-summary-filter.test.mjs
+          node --test .github/dev-tools/daily-history.test.mjs
+      - name: Safety assertions
+        run: |
+          ! grep -R "wrangler deploy\|cloudflare deploy\|turso db shell\|curl .*workers.dev" .github/workflows/branch-ms-lower-card-truth-v1.yml
+          grep -q "MS_LOWER_CARD_FILTER_TRUTH_V1" .github/dev-tools/patch-ms-lower-card-truth-v1.mjs
+          grep -q "MS_COMPLETED_CALENDAR_DAY_TRUTH_V2" .github/dev-tools/patch-ms-lower-card-truth-v1.mjs

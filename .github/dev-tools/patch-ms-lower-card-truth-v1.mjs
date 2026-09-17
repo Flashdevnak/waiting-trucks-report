@@ -23,7 +23,7 @@ export function patchMsLowerCardTruthFrontend(source) {
     output,
     "function isCompletedToday(row, now = new Date()) {",
     "\nfunction isCompletedAccumulated(row)",
-    () => `// ${FRONTEND_MARKER}: daily completion belongs to the Bangkok calendar day\n// of the trusted unload-completion timestamp, never the planned/arrival business day.\nfunction isCompletedToday(row, now = new Date()) {\n  if (row.queueCancelledAt) return false;\n  if ((!isDestination(row) && !isDrop(row)) || Number(row.unloadingState) !== 2)\n    return false;\n  const completedAt = trustedLowerCompletionAt(row);\n  return Boolean(completedAt) &&\n    bangkokDateValue(completedAt) === bangkokDateValue(now);\n}\n`,
+    () => `// ${FRONTEND_MARKER}: daily completion belongs to the Bangkok calendar day\n// of the trusted unload-completion timestamp, never the planned/arrival business day.\n// MS_DAILY_COMPLETION_TRUSTED_SCHEDULE_V1: trusted Schedule E remains accepted completion truth.\nfunction isCompletedToday(row, now = new Date()) {\n  if (row.queueCancelledAt) return false;\n  if ((!isDestination(row) && !isDrop(row)) || Number(row.unloadingState) !== 2)\n    return false;\n  const completedAt = trustedLowerCompletionAt(row);\n  return Boolean(completedAt) &&\n    bangkokDateValue(completedAt) === bangkokDateValue(now);\n}\n`,
     "frontend completed calendar day",
   );
 

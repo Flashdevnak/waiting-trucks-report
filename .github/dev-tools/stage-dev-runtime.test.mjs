@@ -69,7 +69,9 @@ test("upper metrics use today or the explicitly searched date range", () => {
   assert.match(first, /metricRows\.filter\(\(row\) => isCompletedAccumulated\(row\)\)\.length/);
   assert.match(first, /state\.summary === "completed" && isDestination\(row\) && isCompletedToday\(row\)/);
   assert.match(first, /state\.summary === "drop" &&[\s\S]*queue\.released/);
-  assert.match(first, /return rowBusinessDay\(row\) === bangkokDateValue\(now\);/);
+  assert.match(first, /const completedAt = trustedLowerCompletionAt\(row\);/);
+  assert.match(first, /bangkokDateValue\(completedAt\) === bangkokDateValue\(now\)/);
+  assert.doesNotMatch(first, /return rowBusinessDay\(row\) === bangkokDateValue\(now\);/);
 });
 
 test("ลงรถเสร็จ reuses browser cache and progressively renders large result sets", () => {
@@ -127,18 +129,29 @@ test("live Route window includes tomorrow so midnight does not hide arrived cros
   assert.doesNotMatch(worker, /start \+ 2 \* 86400000 - 1000/);
 });
 
-test("daily completed counts accepted Route state 2 while timestamps remain SLA-only and views roll at Bangkok midnight", () => {
+test("daily completed counts require trusted completion day and views roll at Bangkok midnight", () => {
   const first = stageFrontend(frontendSource);
   const worker = stageWorker(workerSource);
   assert.match(worker, /completionTruth = resolveCompletionTruth/);
   assert.match(worker, /completionObservedLive:\s*Boolean\(item\.snapshot\?\.unloadingCompletedAt\)/);
-  assert.match(worker, /MS_COMPLETED_ROUTE_DAY_TRUTH_V1/);
+  assert.match(worker, /MS_COMPLETED_CALENDAR_DAY_TRUTH_V2/);
   assert.match(worker, /msCompletedRowBusinessDay\(row\) === day/);
+  const completedDay = worker.slice(
+    worker.indexOf("function msCompletedRowBusinessDay"),
+    worker.indexOf("function isCompletedForThaiDay"),
+  );
+  assert.match(completedDay, /scheduleUnloadingCompletedAt/);
+  assert.match(completedDay, /unloadingCompletedAt/);
+  assert.match(completedDay, /completionObservedLive/);
+  assert.match(completedDay, /completionSource === "SCHEDULE"/);
   const completedPredicate = worker.slice(
     worker.indexOf("function isCompletedForThaiDay"),
     worker.indexOf("function mergeCompletedToday"),
   );
-  assert.doesNotMatch(completedPredicate, /completionObservedLive|completionSource|unloadingCompletedAt/);
+  assert.match(completedPredicate, /msCompletedRowBusinessDay\(row\) === day/);
+  assert.match(worker, /cache\?\.format === 7/);
+  assert.match(worker, /version: 7,/);
+  assert.doesNotMatch(worker, /cache\?\.format === 6/);
   assert.match(worker, /item\.action !== "FIRST_SEEN" && item\.synced_by !== "MS_RANGE"/);
   assert.match(worker, /!completionCacheReady/);
   assert.match(worker, /MS_COMPLETION_DAILY_HISTORY_TRUTH_V2/);

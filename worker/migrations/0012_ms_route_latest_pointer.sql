@@ -87,9 +87,3 @@ ON CONFLICT(hub, route_id) DO UPDATE SET
 WHERE excluded.snapshot_at > ms_route_latest.snapshot_at
    OR (excluded.snapshot_at = ms_route_latest.snapshot_at
        AND excluded.history_rowid > ms_route_latest.history_rowid);
---> statement-breakpoint
-INSERT INTO ms_route_latest_meta(id, ready, backfilled_at)
-VALUES(1, 1, datetime('now'))
-ON CONFLICT(id) DO UPDATE SET
-  ready=1,
-  backfilled_at=excluded.backfilled_at;

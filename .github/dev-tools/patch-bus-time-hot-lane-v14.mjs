@@ -12,6 +12,7 @@ let source = fs.readFileSync(file, "utf8");
 const MARKER = "BUS_TIME_HOT_LANE_V14";
 const PARALLEL_MARKER = "MS_FIRST_SOURCE_PARALLEL_V2";
 const SOURCE_CADENCE_MARKER = "MS_ROUTE_SHARED_SOURCE_CADENCE_V1";
+const ROUTE_FAST_MARKER = "MS_ROUTE_LIFECYCLE_FAST_PUBLISH_V1";
 
 function replaceUnique(input, from, to, label) {
   const first = input.indexOf(from);
@@ -126,6 +127,67 @@ const busTimeProbeLane = createBusTimeHotLane({
 // existing BusTime reader start at the same time as the current Route request,
 // without adding a second BusTime read or waiting for Route completion.
 const busTimeRouteHints = new Map();
+// ${ROUTE_FAST_MARKER}: waiting -> unloading belongs to Route. Keep the
+// existing Route/PreEntry/BusTime source work shared, but when a previously
+// admitted inbound row changes to Route unloadingState=1, publish that Route
+// truth without waiting for optional enrichment. The previous accepted
+// enrichment is reused for that one snapshot and the already-started optional
+// work is kept alive by the Durable Object waitUntil hook.
+const routeLifecycleBaselineRows = new Map();
+
+function routeLifecycleQueueKey(row) {
+  const proofId = normalizeProofId(row?.proofId);
+  const attendance = normalizeMsAttendance(row?.attendanceType);
+  return proofId && attendance ? "P:" + proofId + "|A:" + attendance : "";
+}
+
+function routeLifecycleFastTransition(previousRows, routeRows) {
+  const previous = new Map(
+    (Array.isArray(previousRows) ? previousRows : [])
+      .map((row) => [routeLifecycleQueueKey(row), row])
+      .filter(([key]) => Boolean(key)),
+  );
+  return (Array.isArray(routeRows) ? routeRows : []).some((row) => {
+    if (Number(row?.unloadingState) !== 1) return false;
+    const attendance = normalizeMsAttendance(row?.attendanceType);
+    if (attendance !== "ปลายทาง" && attendance !== "จุดดรอป") return false;
+    const prior = previous.get(routeLifecycleQueueKey(row));
+    if (!prior) return false;
+    const priorState = Number(prior?.unloadingState);
+    return priorState !== 1 && priorState !== 2;
+  });
+}
+
+function routeLifecycleOptionalMaps(previousRows) {
+  const parcelCounts = new Map();
+  const busData = new Map();
+  for (const row of Array.isArray(previousRows) ? previousRows : []) {
+    const proofId = normalizeProofId(row?.proofId);
+    const attendance = normalizeMsAttendance(row?.attendanceType);
+    if (!proofId) continue;
+    parcelCounts.set("P:" + proofId, {
+      proofId: String(row?.proofId || "").slice(0, 100),
+      routeName: String(row?.routeName || "").slice(0, 300),
+      expectedParcels: row?.expectedParcels ?? null,
+      enteredParcels: row?.enteredParcels ?? null,
+      pendingParcels: row?.pendingParcels ?? null,
+    });
+    if (!attendance) continue;
+    busData.set("P:" + proofId + "|A:" + attendance, {
+      proofId: String(row?.proofId || "").slice(0, 100),
+      routeName: String(row?.routeName || "").slice(0, 300),
+      scheduleKitArrivalAt: String(row?.scheduleKitArrivalAt || ""),
+      scheduleTbrArrivalAt: String(row?.scheduleTbrArrivalAt || ""),
+      arrivedParcels: Number(row?.arrivedParcels) || 0,
+      arrivedBags: Number(row?.arrivedBags) || 0,
+      scheduleUnloadingStartedAt: String(row?.scheduleUnloadingStartedAt || ""),
+      scheduleUnloadingCompletedAt: String(row?.scheduleUnloadingCompletedAt || ""),
+      scheduleCompletionAmbiguous: Boolean(row?.scheduleCompletionAmbiguous),
+    });
+  }
+  return { parcelCounts, busData };
+}
+
 async function readBusTimeData(
   env,
   hub,
@@ -175,18 +237,43 @@ const stagedRefreshAnchor = `    const rows = await readMsRoutes(credentials);
       readPreEntryCounts(env, branch),
       readBusTimeData(env, branch),
     ]);`;
-const stagedRefreshReplacement = `    // ${PARALLEL_MARKER}: Route, PreEntry and the existing shared BusTime reader
-    // start together. BusTime uses only the previous successful Route set as a
-    // pagination hint, so a slow/timeout Route request cannot delay TBR admission.
-    // Legacy active-route handoff reference: readBusTimeData(env, branch, liveSourceDays(), routeRows)
+const stagedRefreshReplacement = `    // ${PARALLEL_MARKER}: normal cycles keep Route, PreEntry and BusTime parallel.
+    // ${ROUTE_FAST_MARKER}: if an already-admitted inbound row changes to
+    // Route unloadingState=1, Route publishes immediately with the last accepted
+    // optional enrichment while the already-started optional work finishes in
+    // Durable Object waitUntil. No extra upstream call is created.
     const routeHintRows = busTimeRouteHints.get(branch) || [];
-    const [rows, parcelCounts, busData] = await Promise.all([
-      readMsRoutes(credentials),
+    const lifecycleBaselineRows = routeLifecycleBaselineRows.get(branch) || [];
+    const routePromise = readMsRoutes(credentials);
+    let optionalReady = false;
+    let optionalValues = null;
+    const optionalPromise = Promise.all([
       readPreEntryCounts(env, branch),
       readBusTimeData(env, branch, liveSourceDays(), routeHintRows),
-    ]);
+    ]).then((value) => {
+      optionalValues = value;
+      optionalReady = true;
+      return value;
+    });
+    const rows = await routePromise;
     const routeRows = rows.map(mapMsRow);
-    if (!rows.routeSourceError) busTimeRouteHints.set(branch, routeRows);`;
+    if (!rows.routeSourceError) busTimeRouteHints.set(branch, routeRows);
+    const routeLifecycleFastPublish =
+      routeLifecycleFastTransition(lifecycleBaselineRows, routeRows);
+    let parcelCounts;
+    let busData;
+    if (
+      routeLifecycleFastPublish &&
+      !optionalReady &&
+      typeof waitUntil === "function"
+    ) {
+      ({ parcelCounts, busData } = routeLifecycleOptionalMaps(lifecycleBaselineRows));
+      waitUntil(optionalPromise.then(() => undefined, () => undefined));
+    } else {
+      [parcelCounts, busData] = optionalReady
+        ? optionalValues
+        : await optionalPromise;
+    }`;
 
 if (source.includes(stagedRefreshAnchor)) {
   source = replaceUnique(
@@ -210,15 +297,41 @@ if (source.includes(stagedRefreshAnchor)) {
     const mappedRows = rows.map((row) =>
       enrichMsRow(mapMsRow(row), parcelCounts, busData),
     );`;
-  const canonicalRefreshReplacement = `    // ${PARALLEL_MARKER}: keep one BusTime reader and remove Route as a latency gate.
+  const canonicalRefreshReplacement = `    // ${PARALLEL_MARKER}: normal cycles keep Route, PreEntry and BusTime parallel.
+    // ${ROUTE_FAST_MARKER}: Route 0/null -> 1 may publish without waiting for
+    // optional enrichment when a Durable Object waitUntil hook is available.
     const routeHintRows = busTimeRouteHints.get(branch) || [];
-    const [rows, parcelCounts, busData] = await Promise.all([
-      readMsRoutes(credentials),
+    const lifecycleBaselineRows = routeLifecycleBaselineRows.get(branch) || [];
+    const routePromise = readMsRoutes(credentials);
+    let optionalReady = false;
+    let optionalValues = null;
+    const optionalPromise = Promise.all([
       readPreEntryCounts(env, branch),
       readBusTimeData(env, branch, liveSourceDays(), routeHintRows),
-    ]);
+    ]).then((value) => {
+      optionalValues = value;
+      optionalReady = true;
+      return value;
+    });
+    const rows = await routePromise;
     const routeRows = rows.map(mapMsRow);
     if (!rows.routeSourceError) busTimeRouteHints.set(branch, routeRows);
+    const routeLifecycleFastPublish =
+      routeLifecycleFastTransition(lifecycleBaselineRows, routeRows);
+    let parcelCounts;
+    let busData;
+    if (
+      routeLifecycleFastPublish &&
+      !optionalReady &&
+      typeof waitUntil === "function"
+    ) {
+      ({ parcelCounts, busData } = routeLifecycleOptionalMaps(lifecycleBaselineRows));
+      waitUntil(optionalPromise.then(() => undefined, () => undefined));
+    } else {
+      [parcelCounts, busData] = optionalReady
+        ? optionalValues
+        : await optionalPromise;
+    }
     const mappedRows = routeRows.map((row) =>
       enrichMsRow(row, parcelCounts, busData),
     );`;
@@ -229,6 +342,51 @@ if (source.includes(stagedRefreshAnchor)) {
     "runMsRefresh canonical block",
   );
 }
+
+// ${ROUTE_FAST_MARKER}: only the per-HUB Durable Object supplies waitUntil.
+source = replaceUnique(
+  source,
+  "async function runMsRefresh(env, branch) {",
+  "async function runMsRefresh(env, branch, waitUntil = null) {",
+  "Route lifecycle fast-publish waitUntil signature",
+);
+source = replaceUnique(
+  source,
+  `    const task = runMsRefresh(this.env, branch)
+      .then((result) => {`,
+  `    const task = runMsRefresh(
+      this.env,
+      branch,
+      (promise) => this.ctx.waitUntil(promise),
+    )
+      .then((result) => {`,
+  "Route lifecycle fast-publish Durable Object hook",
+);
+
+const liveResultAnchor = `    const result = {
+      status: "synced",
+      syncedAt: sync.syncedAt,
+      changes: sync.changes,
+      rows: msQueueFirstSourceRows(sync.rows, busData, branch),
+      completedToday: completedRows.length,
+      tbrShadowFeed,
+    };`;
+const liveResultReplacement = `    const liveRows = msQueueFirstSourceRows(sync.rows, busData, branch);
+    routeLifecycleBaselineRows.set(branch, liveRows);
+    const result = {
+      status: "synced",
+      syncedAt: sync.syncedAt,
+      changes: sync.changes,
+      rows: liveRows,
+      completedToday: completedRows.length,
+      tbrShadowFeed,
+    };`;
+source = replaceUnique(
+  source,
+  liveResultAnchor,
+  liveResultReplacement,
+  "Route lifecycle accepted baseline",
+);
 
 const saveAnchor =
   '  await audit(env, "SAVE_MS_BUS_CONNECTION", hub, `ทดสอบสำเร็จ ${test.total} รายการ`, actor.username);';
@@ -276,7 +434,7 @@ source = replaceUnique(
   "connectorBusDiagnostics function",
 );
 
-const refreshStart = source.indexOf("async function runMsRefresh(env, branch) {");
+const refreshStart = source.indexOf("async function runMsRefresh(env, branch, waitUntil = null) {");
 const refreshEnd = source.indexOf("\nasync function readMsLiveCache(", refreshStart);
 const refreshSection = refreshStart >= 0 && refreshEnd > refreshStart
   ? source.slice(refreshStart, refreshEnd)
@@ -292,11 +450,17 @@ if (!source.includes(SOURCE_CADENCE_MARKER) || !source.includes("MS_REALTIME_SOU
   throw new Error(`${MARKER}: shared Route source cadence marker missing`);
 if (!source.includes("nowMs - this.lastSourceAt < MS_REALTIME_SOURCE_MIN_MS"))
   throw new Error(`${MARKER}: 4-second UI is still coupled to Route upstream refresh`);
-if (!refreshSection.includes("Promise.all([\n      readMsRoutes(credentials),") ||
-    !refreshSection.includes("readBusTimeData(env, branch, liveSourceDays(), routeHintRows)"))
-  throw new Error(`${MARKER}: Route and BusTime are not started in the same shared refresh`);
-if (refreshSection.includes("const rows = await readMsRoutes(credentials);"))
-  throw new Error(`${MARKER}: sequential Route latency gate survived`);
+if (!refreshSection.includes("const routePromise = readMsRoutes(credentials);") ||
+    !refreshSection.includes("const optionalPromise = Promise.all([") ||
+    !refreshSection.includes("readBusTimeData(env, branch, liveSourceDays(), routeHintRows)") ||
+    !refreshSection.includes("const rows = await routePromise;"))
+  throw new Error(`${MARKER}: Route/optional parallel start or Route-first observation missing`);
+if (!refreshSection.includes(ROUTE_FAST_MARKER) ||
+    !refreshSection.includes("routeLifecycleFastTransition(lifecycleBaselineRows, routeRows)") ||
+    !refreshSection.includes('typeof waitUntil === "function"') ||
+    !refreshSection.includes("routeLifecycleOptionalMaps(lifecycleBaselineRows)") ||
+    !refreshSection.includes("waitUntil(optionalPromise.then(() => undefined, () => undefined))"))
+  throw new Error(`${MARKER}: Route waiting-to-unloading fast publish contract missing`);
 const liveBusCalls = (
   refreshSection.match(/^\s*readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\),$/gm) || []
 ).length;
@@ -317,6 +481,9 @@ fs.writeFileSync(file, source);
 console.log(`${MARKER}=PASS`);
 console.log(`${PARALLEL_MARKER}=PASS`);
 console.log(`${SOURCE_CADENCE_MARKER}=PASS`);
+console.log(`${ROUTE_FAST_MARKER}=PASS`);
+console.log("ROUTE_WAIT_TO_UNLOAD_OPTIONAL_GATE=0");
+console.log("ROUTE_WAIT_TO_UNLOAD_EXTRA_UPSTREAM_CALLS=0");
 console.log("FIRST_SOURCE_ROUTE_LATENCY_GATE=0");
 console.log("FIRST_SOURCE_BUS_READS_PER_REFRESH=1");
 console.log("MS_VISIBLE_REALTIME_MS=4000");

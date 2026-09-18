@@ -42,7 +42,7 @@ test("Route waiting-to-unloading fast path is keyed by proof+attendance and does
   assert.match(staged, /const rows = await routePromise/);
   assert.match(staged, /routeLifecycleOptionalMaps\(lifecycleBaselineRows\)/);
   assert.match(staged, /waitUntil\(optionalPromise\.then\(\(\) => undefined, \(\) => undefined\)\)/);
-  assert.match(staged, /routeLifecycleBaselineRows\.set\(branch, liveRows\)/);
+  assert.match(staged, /rememberRouteLifecycleRows\(branch, msQueueFirstSourceRows\(sync\.rows, busData, branch\)\)/);
 
   const start = staged.indexOf("// MS_ROUTE_LIFECYCLE_FAST_PUBLISH_V1");
   const end = staged.indexOf("\nasync function readBusTimeData", start);

@@ -235,7 +235,7 @@ test("staging replaces the legacy 60s guard, adds the runtime module, and keeps 
     assert.match(staged.source, /routeLifecycleFastTransition\(lifecycleBaselineRows, routeRows\)/);
     assert.match(staged.source, /typeof waitUntil === "function"/);
     assert.match(staged.source, /this\.ctx\.waitUntil\(promise\)/);
-    assert.match(staged.source, /routeLifecycleBaselineRows\.set\(branch, liveRows\)/);
+    assert.match(staged.source, /rememberRouteLifecycleRows\(branch, msQueueFirstSourceRows\(sync\.rows, busData, branch\)\)/);
     const refresh = staged.source.slice(
       staged.source.indexOf("async function runMsRefresh(env, branch, waitUntil = null) {"),
       staged.source.indexOf("\nasync function readMsLiveCache(", staged.source.indexOf("async function runMsRefresh(env, branch, waitUntil = null) {")),

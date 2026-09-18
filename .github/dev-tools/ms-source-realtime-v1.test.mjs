@@ -35,6 +35,90 @@ test("shared Route source is eligible on every existing 4-second leader cycle", 
   assert.match(staged, /!force &&[\s\S]*!cron &&[\s\S]*MS_REALTIME_SOURCE_MIN_MS/);
 });
 
+test("Route waiting-to-unloading fast path is keyed by proof+attendance and does not wait for optional truth", () => {
+  assert.match(staged, /MS_ROUTE_LIFECYCLE_FAST_PUBLISH_V1/);
+  assert.match(staged, /const routePromise = readMsRoutes\(credentials\)/);
+  assert.match(staged, /const optionalPromise = Promise\.all\(\[/);
+  assert.match(staged, /const rows = await routePromise/);
+  assert.match(staged, /routeLifecycleOptionalMaps\(lifecycleBaselineRows\)/);
+  assert.match(staged, /waitUntil\(optionalPromise\.then\(\(\) => undefined, \(\) => undefined\)\)/);
+  assert.match(staged, /routeLifecycleBaselineRows\.set\(branch, liveRows\)/);
+
+  const start = staged.indexOf("// MS_ROUTE_LIFECYCLE_FAST_PUBLISH_V1");
+  const end = staged.indexOf("\nasync function readBusTimeData", start);
+  assert.ok(start >= 0 && end > start, "Route lifecycle fast helper block missing");
+  const helperSource = staged.slice(start, end);
+  const context = {
+    Map,
+    Boolean,
+    Number,
+    String,
+    normalizeProofId(value) {
+      return String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+    },
+    normalizeMsAttendance(value) {
+      const text = String(value || "").trim();
+      if (text.includes("จุดดร")) return "จุดดรอป";
+      if (text.includes("ปลายทาง")) return "ปลายทาง";
+      if (text.includes("ต้นทาง")) return "ต้นทาง";
+      return text;
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(
+    helperSource +
+      "\nthis.fast = routeLifecycleFastTransition;" +
+      "\nthis.optional = routeLifecycleOptionalMaps;",
+    context,
+  );
+
+  const tbrWaiting = [{
+    id: "TBR:NE1:P1:ปลายทาง",
+    proofId: "P1",
+    attendanceType: "ปลายทาง",
+    unloadingState: null,
+    scheduleTbrArrivalAt: "2026-09-18T10:00:00.000Z",
+    expectedParcels: 100,
+    enteredParcels: 20,
+  }];
+  const routeUnloading = [{
+    id: "ROUTE-1",
+    proofId: "P1",
+    attendanceType: "ปลายทาง",
+    unloadingState: 1,
+    actualArrivalAt: "2026-09-18T10:01:00.000Z",
+  }];
+  assert.equal(context.fast(tbrWaiting, routeUnloading), true);
+  assert.equal(context.fast([{ ...tbrWaiting[0], unloadingState: 0 }], routeUnloading), true);
+  assert.equal(context.fast([{ ...tbrWaiting[0], unloadingState: 1 }], routeUnloading), false);
+  assert.equal(
+    context.fast([{ ...tbrWaiting[0], unloadingState: 0 }], [{ ...routeUnloading[0], unloadingState: 2 }]),
+    false,
+  );
+
+  const preserved = context.optional(tbrWaiting);
+  assert.equal(preserved.parcelCounts.get("P:P1").expectedParcels, 100);
+  assert.equal(
+    preserved.busData.get("P:P1|A:ปลายทาง").scheduleTbrArrivalAt,
+    "2026-09-18T10:00:00.000Z",
+  );
+});
+
+test("Route fast publish adds no new upstream cadence or database path", () => {
+  const refresh = staged.slice(
+    staged.indexOf("async function runMsRefresh(env, branch, waitUntil = null) {"),
+    staged.indexOf("\nasync function readMsLiveCache(", staged.indexOf("async function runMsRefresh(env, branch, waitUntil = null) {")),
+  );
+  assert.equal((refresh.match(/readMsRoutes\(credentials\)/g) || []).length, 1);
+  assert.equal((refresh.match(/readPreEntryCounts\(env, branch\)/g) || []).length, 1);
+  assert.equal(
+    (refresh.match(/readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\)/g) || []).length,
+    1,
+  );
+  assert.doesNotMatch(refresh, /setInterval\s*\(/);
+  assert.doesNotMatch(refresh, /INSERT INTO|UPDATE\s+ms_|DELETE FROM/i);
+});
+
 test("existing unload and drop truth stay behind their dedicated regressions while the 12-second Route gate is removed", () => {
   assert.match(staged, /MS_ROUTE_SHARED_SOURCE_CADENCE_V1/);
   assert.doesNotMatch(staged, /MS_REALTIME_SOURCE_MIN_MS = 12 \* 1000/);

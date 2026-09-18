@@ -106,10 +106,10 @@ function patchOperationalCardState(source) {
   output = replaceUnique(
     output,
     `function renderFilterSummary(rows) {`,
-    `// ${OPERATIONAL_CARD_STATE_MARKER}: lower operational cards follow Route unload truth.
-// KIT/TBR may provide arrival/start timing context only; schedule completion never
-// changes lifecycle state. Origin release remains Route actualDepartureAt truth.
-// A Drop stays tracked after Route state 2 until Route supplies real departure.
+    `// ${OPERATIONAL_CARD_STATE_MARKER}: lower operational cards follow the actual
+// unload lifecycle, not shared queue bookkeeping. KIT/TBR decides only admission
+// time/source; Origin release remains separate. A Drop stays unloading after its
+// unload completes until Route supplies the real departure/release timestamp.
 function inboundOperationalStage(row, now = new Date()) {
   if (!isDestination(row) && !isDrop(row)) return "none";
 
@@ -122,14 +122,14 @@ function inboundOperationalStage(row, now = new Date()) {
   if (ageHours > 12) return "none";
 
   const unloadingState = Number(row.unloadingState);
-  // MS_ROUTE_UNLOAD_LIFECYCLE_TRUTH_V20:
-  // Route unloadingState owns lifecycle completion. Schedule start remains the
-  // accepted start fallback; schedule completion is display/timing evidence only.
   const hasStarted =
     unloadingState === 1 ||
     unloadingState === 2 ||
-    Boolean(parseDate(row.scheduleUnloadingStartedAt));
-  const hasFinished = unloadingState === 2;
+    Boolean(parseDate(row.scheduleUnloadingStartedAt)) ||
+    Boolean(parseDate(row.scheduleUnloadingCompletedAt));
+  const hasFinished =
+    unloadingState === 2 ||
+    Boolean(parseDate(row.scheduleUnloadingCompletedAt));
   const released = Boolean(parseDate(row.actualDepartureAt));
 
   if (isDrop(row)) {

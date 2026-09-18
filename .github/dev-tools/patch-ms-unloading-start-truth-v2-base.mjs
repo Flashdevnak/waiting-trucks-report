@@ -177,7 +177,8 @@ function inboundOperationalStage(row, now = new Date()) {
     parseDate(row.scheduleUnloadingStartedAt) ||
     parseDate(row.unloadingStartedAt) ||
     parseDate(row.unloadingStartedObservedAt);
-  const scheduleEnd = parseDate(row.scheduleUnloadingCompletedAt);
+  // MS_ROUTE_UNLOAD_LIFECYCLE_TRUTH_V20: Route owns completion. Schedule E
+  // remains timing/display evidence only and must never change lifecycle.
   const released = Boolean(parseDate(row.actualDepartureAt));
 
   // ${DROP_RELEASE_PRECEDENCE_MARKER}: actual Route departure is final for a
@@ -189,9 +190,9 @@ function inboundOperationalStage(row, now = new Date()) {
   if (unloadingState === 1) return "unloading";
 
   if (isDrop(row)) {
-    if (unloadingState === 2 || scheduleEnd || scheduleStart) return "unloading";
+    if (unloadingState === 2 || scheduleStart) return "unloading";
   } else {
-    if (unloadingState === 2 || scheduleEnd) return "none";
+    if (unloadingState === 2) return "none";
     if (scheduleStart) return "unloading";
   }
 

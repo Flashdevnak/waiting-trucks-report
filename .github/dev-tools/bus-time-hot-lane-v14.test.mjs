@@ -81,18 +81,23 @@ function harness({
   acceptedRows = [],
   fetchHandler = async () => response(),
   start = Date.parse("2026-09-13T03:00:00+07:00"),
+  rateLeaseStore = { row: null },
+  connectionState = { lastError: "", lastSuccessAt: "" },
 } = {}) {
   let clock = start;
   let credentialReads = 0;
   let seedReads = 0;
   let statusWrites = 0;
+  let rateLeaseReads = 0;
+  let rateLeaseUpserts = 0;
+  let rateLeaseDeletes = 0;
   const calls = [];
 
   const env = {
     DB: {
       prepare(sql) {
         return {
-          bind() {
+          bind(...args) {
             return {
               async first() {
                 if (String(sql).includes("FROM ms_live_cache")) {
@@ -103,9 +108,34 @@ function harness({
                 }
                 if (String(sql).includes("FROM ms_bus_connections")) {
                   credentialReads += 1;
-                  return { credentials_cipher: "cipher" };
+                  return {
+                    credentials_cipher: "cipher",
+                    last_error: connectionState.lastError || "",
+                  };
+                }
+                if (String(sql).includes("FROM ms_sync_claims")) {
+                  rateLeaseReads += 1;
+                  return rateLeaseStore.row;
                 }
                 return null;
+              },
+              async run() {
+                if (String(sql).startsWith("INSERT INTO ms_sync_claims")) {
+                  rateLeaseUpserts += 1;
+                  rateLeaseStore.row = {
+                    source_hash: args[1],
+                    claim_token: args[2],
+                    state: args[3],
+                    lease_until: args[4],
+                  };
+                } else if (String(sql).startsWith("DELETE FROM ms_sync_claims")) {
+                  rateLeaseDeletes += 1;
+                  if (
+                    rateLeaseStore.row &&
+                    rateLeaseStore.row.source_hash === args[1]
+                  ) rateLeaseStore.row = null;
+                }
+                return { success: true };
               },
             };
           },
@@ -134,8 +164,15 @@ function harness({
       statusWrites += 1;
       await promise;
     },
-    markSuccess: async () => ({ success: true }),
-    markError: async () => ({ success: true }),
+    markSuccess: async () => {
+      connectionState.lastError = "";
+      connectionState.lastSuccessAt = new Date(clock).toISOString();
+      return { success: true };
+    },
+    markError: async (_env, _table, _hub, message) => {
+      connectionState.lastError = String(message || "");
+      return { success: true };
+    },
     classifyFailure: (message, httpStatus = 0) => {
       const text = String(message || "");
       if (Number(httpStatus) === 429 || /request\s+exceeds\s+the\s+limit|rate.?limit|too many requests/i.test(text))
@@ -170,7 +207,19 @@ function harness({
     lane,
     calls,
     advance(ms) { clock += ms; },
-    stats() { return { credentialReads, seedReads, statusWrites, clock }; },
+    stats() {
+      return {
+        credentialReads,
+        seedReads,
+        statusWrites,
+        rateLeaseReads,
+        rateLeaseUpserts,
+        rateLeaseDeletes,
+        clock,
+        connectionState,
+        rateLeaseRow: rateLeaseStore.row,
+      };
+    },
   };
 }
 
@@ -237,6 +286,27 @@ test("active BusTime keeps KIT/TBR at ~12s while Route/UI can continue their ~4s
   assert.equal(h.calls.every((call) => call.page === 1), true);
   assert.equal(h.calls.every((call) => call.fleetStatus === "1"), true);
   assert.equal(h.stats().credentialReads, 1, "credentials stay shared/cached");
+});
+
+
+test("cold cron recovers active Route hints from the existing accepted cache with no extra Turso read", async () => {
+  const acceptedRows = [{
+    proofId: "P1",
+    attendanceType: "ปลายทาง",
+    unloadingState: 0,
+    estimatedArrivalAt: "2026-09-13T01:00:00.000Z",
+  }];
+  const h = harness({
+    acceptedRows,
+    fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
+  });
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, []);
+  assert.equal(h.calls.length, 1, "cold cron must still execute one shared KIT/TBR page-1 read");
+  assert.equal(h.stats().seedReads, 1, "fallback reuses the existing accepted-cache seed read");
+  assert.equal(h.stats().credentialReads, 1);
+  assert.equal(h.stats().rateLeaseReads, 0, "healthy HUB must not pay a persistent-lease read");
+  assert.equal(h.stats().rateLeaseUpserts, 0);
+  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
 });
 
 test("deep pagination and KIT/TBR page 1 remain bounded at ~12s", async () => {
@@ -456,4 +526,75 @@ test("JSON Request exceeds the limit without Retry-After uses 5m-to-60m provider
   assert.equal(h.calls.length, 2, "one retry is allowed when the provider cooldown expires");
   diag = h.lane.diagnostics("NE1");
   assert.equal(Date.parse(diag.busCooldownUntil) - h.stats().clock, 10 * 60 * 1000);
+});
+
+
+test("provider cooldown survives a fresh hot-lane instance and recovery starts hot-only", async () => {
+  const rateLeaseStore = { row: null };
+  const connectionState = { lastError: "", lastSuccessAt: "" };
+  const acceptedRows = [{
+    proofId: "P3",
+    attendanceType: "ปลายทาง",
+    unloadingState: 0,
+    estimatedArrivalAt: "2026-09-13T01:00:00.000Z",
+  }];
+  const routes = [{ ...acceptedRows[0] }];
+
+  const first = harness({
+    acceptedRows,
+    rateLeaseStore,
+    connectionState,
+    fetchHandler: async () => response({ message: "Request exceeds the limit" }),
+  });
+  await first.lane.readBusTimeData(first.env, "NE1", undefined, routes);
+  assert.equal(first.calls.length, 1);
+  assert.equal(first.stats().rateLeaseUpserts, 1);
+  assert.equal(connectionState.lastError, "Request exceeds the limit");
+  const leaseUntil = Date.parse(rateLeaseStore.row?.lease_until || "");
+  assert.equal(leaseUntil - first.stats().clock, 5 * 60 * 1000);
+
+  const second = harness({
+    acceptedRows,
+    rateLeaseStore,
+    connectionState,
+    start: first.stats().clock + 4_000,
+    fetchHandler: async () => { throw new Error("persistent cooldown must block upstream"); },
+  });
+  await second.lane.readBusTimeData(second.env, "NE1", undefined, routes);
+  assert.equal(second.calls.length, 0);
+  assert.equal(second.stats().rateLeaseReads, 1);
+  assert.equal(second.stats().rateLeaseUpserts, 0);
+
+  const recovered = harness({
+    acceptedRows,
+    rateLeaseStore,
+    connectionState,
+    start: leaseUntil,
+    fetchHandler: async ({ page }) => page === 1
+      ? response({ total: 300, items: [item("P1")] })
+      : response({ total: 300, items: [item("P" + page)] }),
+  });
+  await recovered.lane.readBusTimeData(recovered.env, "NE1", undefined, routes);
+  assert.deepEqual(recovered.calls.map((call) => call.page), [1], "first recovery cycle must be hot-only");
+  assert.equal(recovered.stats().rateLeaseReads, 1);
+  assert.equal(recovered.stats().rateLeaseDeletes, 1);
+  assert.equal(rateLeaseStore.row, null);
+  assert.equal(connectionState.lastError, "");
+
+  recovered.advance(12_000);
+  await recovered.lane.readBusTimeData(recovered.env, "NE1", undefined, routes);
+  assert.deepEqual(recovered.calls.map((call) => call.page), [1, 1, 2]);
+});
+
+test("healthy steady state adds no rate-limit lease reads or writes", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
+  });
+  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }];
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  h.advance(12_000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.stats().rateLeaseReads, 0);
+  assert.equal(h.stats().rateLeaseUpserts, 0);
+  assert.equal(h.stats().rateLeaseDeletes, 0);
 });

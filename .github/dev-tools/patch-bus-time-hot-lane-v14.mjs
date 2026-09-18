@@ -12,6 +12,7 @@ let source = fs.readFileSync(file, "utf8");
 const MARKER = "BUS_TIME_HOT_LANE_V14";
 const PARALLEL_MARKER = "MS_FIRST_SOURCE_PARALLEL_V2";
 const SOURCE_CADENCE_MARKER = "MS_ROUTE_SHARED_SOURCE_CADENCE_V1";
+const ACTIVE_JOIN_MARKER = "MS_ROUTE_ACTIVE_REFRESH_JOIN_V1";
 
 function replaceUnique(input, from, to, label) {
   const first = input.indexOf(from);
@@ -23,7 +24,7 @@ function replaceUnique(input, from, to, label) {
 
 function patchSharedRouteSourceCadence(input) {
   let output = String(input || "");
-  if (output.includes(SOURCE_CADENCE_MARKER)) return output;
+  if (output.includes(SOURCE_CADENCE_MARKER) && output.includes(ACTIVE_JOIN_MARKER)) return output;
   output = replaceUnique(
     output,
     "const MS_CRON_ACTIVE_SKIP_MS = 45 * 1000;",
@@ -49,6 +50,29 @@ const MS_REALTIME_SOURCE_MIN_MS = 3 * 1000;`,
     if (!force && this.lastResult && this.recentUntil > nowMs)
       return this.lastResult;`,
     "shared Route source cadence gate",
+  );
+  output = replaceUnique(
+    output,
+    `    if (this.active) {
+      if (!force && this.lastResult) return this.lastResult;
+      try {
+        await this.active;
+      } catch {}
+      if (!force && this.lastResult && this.recentUntil > Date.now())
+        return this.lastResult;
+    }`,
+    `    // ${ACTIVE_JOIN_MARKER}: if the shared Route refresh is already in flight,
+    // join that exact request instead of returning the previous snapshot and
+    // making unloading_state=1 wait for another 4-second visible cycle.
+    // This adds zero Route requests and keeps the existing per-HUB dedupe.
+    if (this.active) {
+      try {
+        await this.active;
+      } catch {}
+      if (!force && this.lastResult)
+        return this.lastResult;
+    }`,
+    "join in-flight shared Route refresh",
   );
   return output;
 }
@@ -292,6 +316,8 @@ if (!source.includes(SOURCE_CADENCE_MARKER) || !source.includes("MS_REALTIME_SOU
   throw new Error(`${MARKER}: shared Route source cadence marker missing`);
 if (!source.includes("nowMs - this.lastSourceAt < MS_REALTIME_SOURCE_MIN_MS"))
   throw new Error(`${MARKER}: 4-second UI is still coupled to Route upstream refresh`);
+if (!source.includes(ACTIVE_JOIN_MARKER) || source.includes("if (!force && this.lastResult) return this.lastResult;"))
+  throw new Error(`${MARKER}: in-flight Route refresh still returns stale snapshot instead of joining`);
 if (!refreshSection.includes("Promise.all([\n      readMsRoutes(credentials),") ||
     !refreshSection.includes("readBusTimeData(env, branch, liveSourceDays(), routeHintRows)"))
   throw new Error(`${MARKER}: Route and BusTime are not started in the same shared refresh`);
@@ -317,6 +343,7 @@ fs.writeFileSync(file, source);
 console.log(`${MARKER}=PASS`);
 console.log(`${PARALLEL_MARKER}=PASS`);
 console.log(`${SOURCE_CADENCE_MARKER}=PASS`);
+console.log(`${ACTIVE_JOIN_MARKER}=PASS`);
 console.log("FIRST_SOURCE_ROUTE_LATENCY_GATE=0");
 console.log("FIRST_SOURCE_BUS_READS_PER_REFRESH=1");
 console.log("MS_VISIBLE_REALTIME_MS=4000");

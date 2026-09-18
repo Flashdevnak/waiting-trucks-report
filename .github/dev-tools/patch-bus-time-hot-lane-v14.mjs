@@ -75,7 +75,7 @@ const busEnd = source.indexOf("\nasync function preEntryTrips(", legacyStart);
 if (legacyStart < 0 || busEnd <= legacyStart)
   throw new Error(`${MARKER}: staged legacy BusTime guard not found`);
 
-const adapter = `// ${MARKER}: DEV-only 4-second hot lane + shared incremental cache.
+const adapter = `// ${MARKER}: DEV-only ~12-second KIT/TBR lane + shared incremental cache.
 // Keep PREENTRY_RATE_GUARD_V12 independent; this task does not change PreEntry.
 const OPTIONAL_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
 const OPTIONAL_RATE_LIMIT_MAX_COOLDOWN_MS = 60 * 60 * 1000;
@@ -321,7 +321,7 @@ console.log("FIRST_SOURCE_ROUTE_LATENCY_GATE=0");
 console.log("FIRST_SOURCE_BUS_READS_PER_REFRESH=1");
 console.log("MS_VISIBLE_REALTIME_MS=4000");
 console.log("MS_ROUTE_SHARED_SOURCE_MIN_MS=3000");
-console.log("BUS_TIME_HOT_DETECTION_MS=4000");
+console.log("BUS_TIME_HOT_DETECTION_MS=12000");
 console.log("BUS_TIME_BACKGROUND_INTERVAL_MS=12000");
 console.log("BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE=1");
 console.log("BUS_TIME_MAX_CALLS_PER_CYCLE=3");

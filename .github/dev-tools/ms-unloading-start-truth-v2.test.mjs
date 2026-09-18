@@ -60,6 +60,33 @@ test("Schedule S fallback still marks unloading without changing Route truth", (
   assert.equal(stage({ attendanceType: "ปลายทาง", unloadingState: 0, scheduleUnloadingStartedAt: "2026-09-13T13:45:00.000Z" }), "unloading");
 });
 
+test("Schedule E and PreEntry progress never complete or advance unload lifecycle", () => {
+  const stage = loadOperationalStage();
+  const now = new Date("2026-09-13T14:00:00.000Z");
+  const arrived = {
+    attendanceType: "ปลายทาง",
+    unloadingState: 0,
+    actualArrivalAt: "2026-09-13T13:30:00.000Z",
+    scheduleUnloadingCompletedAt: "2026-09-13T13:50:00.000Z",
+    expectedParcels: 100,
+  };
+
+  assert.equal(stage({ ...arrived, enteredParcels: 90, pendingParcels: 10 }, now), "waiting");
+  assert.equal(stage({ ...arrived, enteredParcels: 100, pendingParcels: 0 }, now), "waiting");
+  assert.equal(stage({ ...arrived, unloadingState: 1, enteredParcels: 100, pendingParcels: 0 }, now), "unloading");
+  assert.equal(stage({ ...arrived, unloadingState: 2, enteredParcels: 100, pendingParcels: 0 }, now), "none");
+
+  const drop = { ...arrived, attendanceType: "จุดดรอป" };
+  assert.equal(stage({ ...drop, enteredParcels: 100, pendingParcels: 0 }, now), "waiting");
+  assert.equal(stage({ ...drop, unloadingState: 2, enteredParcels: 100, pendingParcels: 0 }, now), "unloading");
+});
+
+test("final staged operational lifecycle contains no Schedule E decision branch", () => {
+  const code = between(front, "function inboundOperationalStage", "function renderFilterSummary");
+  assert.match(code, /MS_ROUTE_UNLOAD_LIFECYCLE_TRUTH_V20/);
+  assert.doesNotMatch(code, /scheduleEnd|scheduleUnloadingCompletedAt/);
+});
+
 test("Schedule parser scans tags in any order and derives S from E-D", () => {
   const code = between(worker, "// MS_SCHEDULE_UNLOAD_TIMING_PARSE_V2", "export function scheduleStoreMatchesHub")
     .replaceAll("export ", "");

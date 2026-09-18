@@ -9,6 +9,11 @@ const canonical = await readFile(new URL("ms.js", root), "utf8");
 const staged = stageFrontend(canonical);
 const patchSource = await readFile(new URL("./patch-pno-approved-modal-v18.mjs", import.meta.url), "utf8");
 
+test("fully staged browser script parses without duplicate bindings", () => {
+  assert.doesNotThrow(() => new Function(staged));
+  assert.doesNotMatch(staged, /async function openPendingParcels\(proofId, day\)[\s\S]*PNO_APPROVED_MODAL_V18[\s\S]*async function openPendingParcels\(proofId, day\)/);
+});
+
 test("approved PNO modal v18 is staged after Round2", () => {
   assert.match(staged, /PNO_APPROVED_MODAL_V18/);
   assert.match(staged, /รายการพัสดุเข้าคลัง/);

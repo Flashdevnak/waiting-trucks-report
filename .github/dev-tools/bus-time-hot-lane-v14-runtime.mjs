@@ -1,6 +1,7 @@
 export const BUS_TIME_HOT_LANE_MARKER = "BUS_TIME_HOT_LANE_V14";
 export const BUS_TIME_HOT_REUSE_MS = 3000;
-export const BUS_TIME_SOURCE_HEARTBEAT_MS = 60 * 1000;
+// BUS_TIME_ACTIVE_FILTER_V18: verified MS filterCriteria says fleetStatus=1 means unfinished.
+export const BUS_TIME_ACTIVE_FLEET_STATUS = "1";
 export const BUS_TIME_BACKGROUND_INTERVAL_MS = 12_000;
 export const BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_MAX_CALLS_PER_CYCLE = 3;
@@ -413,7 +414,7 @@ export function createBusTimeHotLane(deps) {
       if (credential?.[key]) url.searchParams.set(key, credential[key]);
     const filters = {
       startDate: day, endDate: day, lineMode: "", lineArea: "", lineType: "",
-      proofId: "", fleetStatus: "", transportModeCategory: "",
+      proofId: "", fleetStatus: BUS_TIME_ACTIVE_FLEET_STATUS, transportModeCategory: "",
       transportDetailCategory: "", driverType: "", attendanceType: "",
       attendanceStatus: "", storeId: "", originId: "", targetId: "",
       plateNum: "", belongCcd: "", lineSort: "", lineName: "",
@@ -489,8 +490,7 @@ export function createBusTimeHotLane(deps) {
 
       const hotDue =
         !state.lastHotAt ||
-        (newlyActive && at - state.lastHotAt >= BUS_TIME_HOT_REUSE_MS) ||
-        at - state.lastHotAt >= BUS_TIME_SOURCE_HEARTBEAT_MS;
+        at - state.lastHotAt >= BUS_TIME_HOT_REUSE_MS;
       const backgroundDueBefore =
         missingKeys.length > 0 &&
         (newlyActive || at - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS);

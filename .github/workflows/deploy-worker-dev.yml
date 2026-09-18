@@ -84,6 +84,11 @@ jobs:
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
       - run: node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs
       - run: node --test ../.github/dev-tools/realtime-quota-hardening.test.mjs
+      - name: Verify PNO click-only quota and approved modal V18
+        run: |
+          node --test ../.github/dev-tools/pno-ultra-low-quota-stage.test.mjs
+          node --test ../.github/dev-tools/pno-round2-backing.test.mjs
+          node --test ../.github/dev-tools/pno-approved-modal-v18.test.mjs
       - name: Verify LH Manifest session replay and compact HAR actions
         run: node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs --self-test
 
@@ -314,6 +319,7 @@ jobs:
           if(!msJs.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('live compact HAR action marker missing');
           if(!msJs.includes('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2')) throw new Error('live origin manifest session replay marker missing');
           if(!msJs.includes('MS_REALTIME_WS_V1')) throw new Error('live WebSocket-first marker missing');
+          if(!msJs.includes('PNO_APPROVED_MODAL_V18')) throw new Error('live approved PNO modal V18 marker missing');
           if(!/pollMs:\s*4000/.test(msJs)||!msJs.includes('setInterval(realtimeTick, CONFIG.pollMs)')) throw new Error('live 4-second visible cadence missing');
           if(msJs.includes('setInterval(() => state.auth && loadData(true), CONFIG.pollMs)')) throw new Error('live direct HTTP 4-second timer restored');
           const cssResponse=await fetch(`${base}/${style}`,{cache:'no-store'});

@@ -402,3 +402,31 @@ test("diagnostics expose quota-safe required counters without a telemetry DB wri
   ]) assert.ok(Object.hasOwn(diag, key), `missing ${key}`);
   assert.equal(diag.mode, "BUS_TIME_HOT_LANE_V14");
 });
+
+
+test("JSON Request exceeds the limit without Retry-After uses 5m-to-60m provider cooldown", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ message: "Request exceeds the limit" }),
+  });
+  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }];
+
+  const first = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1);
+  assert.equal(first.sourceCode, "BUS_TIME_RATE_LIMIT");
+  let diag = h.lane.diagnostics("NE1");
+  assert.equal(Date.parse(diag.busCooldownUntil) - h.stats().clock, 5 * 60 * 1000);
+
+  h.advance(4_000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1, "4-second visible refresh must not re-hit limited BusTime");
+
+  h.advance(5 * 60 * 1000 - 4_000 - 1);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1, "provider cooldown must hold for the full first five minutes");
+
+  h.advance(1);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 2, "one retry is allowed when the provider cooldown expires");
+  diag = h.lane.diagnostics("NE1");
+  assert.equal(Date.parse(diag.busCooldownUntil) - h.stats().clock, 10 * 60 * 1000);
+});

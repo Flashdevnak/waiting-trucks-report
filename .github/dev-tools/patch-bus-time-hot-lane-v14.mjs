@@ -133,6 +133,7 @@ const busTimeRouteHints = new Map();
 // truth without waiting for optional enrichment. The previous accepted
 // enrichment is reused for that one snapshot and the already-started optional
 // work is kept alive by the Durable Object waitUntil hook.
+// Quota contract: zero additional upstream calls and zero additional DB I/O.
 const routeLifecycleBaselineRows = new Map();
 
 function rememberRouteLifecycleRows(branch, rows) {

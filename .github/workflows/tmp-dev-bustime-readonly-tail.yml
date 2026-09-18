@@ -47,7 +47,7 @@ jobs:
             kept++;
           }
           if(err) console.log('TAIL_STDERR='+err.replace(/\s+/g,' ').slice(0,800));
-          console.log('DEV_TAIL_MATCHES='+kept);
+          console.log('DEV_TAIL_EVENTS='+kept);
           console.log('UPSTREAM_CALLS_ADDED_BY_DIAGNOSTIC=0');
           console.log('TURSO_WRITES_ADDED_BY_DIAGNOSTIC=0');
           console.log('PRODUCTION_TOUCHED=0');

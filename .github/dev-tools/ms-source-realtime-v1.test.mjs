@@ -56,5 +56,5 @@ test("in-flight shared Route refresh is joined instead of replaying stale unload
   assert.match(activeBlock, /await this\.active/);
   assert.doesNotMatch(activeBlock, /if \(!force && this\.lastResult\) return this\.lastResult/);
   assert.match(activeBlock, /if \(!force && this\.lastResult\)/);
-  assert.match(staged, /MS_ROUTE_SHARED_SOURCE_MIN_MS = 3 \* 1000/);
+  assert.match(staged, /MS_REALTIME_SOURCE_MIN_MS = 3 \* 1000/);
 });

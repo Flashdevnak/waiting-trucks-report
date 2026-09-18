@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - main
+      - codex/dev-bustime-readonly-tail-v20
     paths:
       - .github/workflows/deploy-worker-dev.yml
       - .github/dev-tools/**
@@ -49,6 +50,7 @@ permissions:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -350,3 +352,47 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  readonly-bustime-tail:
+    if: github.ref == 'refs/heads/codex/dev-bustime-readonly-tail-v20'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci
+      - name: Tail existing DEV cron only
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          timeout 75s npx wrangler tail --config wrangler.dev.jsonc --format json > /tmp/dev-tail.log 2>/tmp/dev-tail.err
+          code=$?
+          set -e
+          echo "TAIL_EXIT=$code"
+          node <<'NODE'
+          const fs=require('fs');
+          const raw=fs.existsSync('/tmp/dev-tail.log')?fs.readFileSync('/tmp/dev-tail.log','utf8'):'';
+          const err=fs.existsSync('/tmp/dev-tail.err')?fs.readFileSync('/tmp/dev-tail.err','utf8'):'';
+          const allow=/bus_time|ms_cron|ms_sync_error|ms_bus_|BUS_TIME|rate.limit|exceeds.the.limit/i;
+          const deny=/(auth|cookie|token|secret|authorization|credentials_cipher)/i;
+          let kept=0;
+          for(const line of raw.split(/\r?\n/).filter(Boolean)){
+            if(!allow.test(line) || deny.test(line)) continue;
+            console.log('DEV_TAIL='+line.slice(0,1800));
+            kept++;
+          }
+          if(err) console.log('TAIL_STDERR='+err.replace(/\s+/g,' ').slice(0,800));
+          console.log('DEV_TAIL_MATCHES='+kept);
+          console.log('UPSTREAM_CALLS_ADDED_BY_DIAGNOSTIC=0');
+          console.log('TURSO_WRITES_ADDED_BY_DIAGNOSTIC=0');
+          console.log('PRODUCTION_TOUCHED=0');
+          NODE

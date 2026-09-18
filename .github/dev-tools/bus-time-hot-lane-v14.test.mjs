@@ -151,6 +151,7 @@ function harness({
         day: parsed.searchParams.get("startDate"),
         page: Number(parsed.searchParams.get("page")),
         pageSize: Number(parsed.searchParams.get("pageSize")),
+        fleetStatus: parsed.searchParams.get("fleetStatus"),
         storeId: parsed.searchParams.get("storeId"),
         targetId: parsed.searchParams.get("targetId"),
         attendanceStatus: parsed.searchParams.get("attendanceStatus"),
@@ -220,7 +221,7 @@ test("idle/origin/completed-only Route state makes zero BusTime upstream calls",
   assert.equal(h.lane.diagnostics("NE1").busActiveRows, 0);
 });
 
-test("active BusTime reuses cache across 4s visible ticks and heartbeats source at 60s", async () => {
+test("active BusTime keeps the original ~4s hot detection with one page-1 request per cycle", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -229,30 +230,29 @@ test("active BusTime reuses cache across 4s visible ticks and heartbeats source 
   assert.equal(h.calls.length, 1);
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 1, "4-second visible refresh must reuse BusTime cache");
-  h.advance(56_000);
-  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 2, "BusTime page 1 heartbeat resumes at 60 seconds");
+  assert.equal(h.calls.length, 2, "active BusTime page 1 must still refresh on the ~4s visible cycle");
   assert.equal(h.calls.every((call) => call.page === 1), true);
+  assert.equal(h.calls.every((call) => call.fleetStatus === "1"), true);
   assert.equal(h.stats().credentialReads, 1, "credentials stay shared/cached");
 });
 
-test("deep pagination runs only while an active proof is missing and stays at one page per 12s cycle", async () => {
+test("deep pagination remains incremental at 12s while page 1 stays hot at ~4s", async () => {
   const h = harness({
     fetchHandler: async ({ page }) => page === 1
       ? response({ total: 300, items: [item("P1")] })
-      : response({ total: 300, items: [item(`P${page}`)] }),
+      : response({ total: 300, items: [item("P" + page)] }),
   });
   const routes = [{ proofId: "P3", attendanceType: "ปลายทาง", unloadingState: 0 }];
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
   assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 2, "no 4-second page-1 repeat while deep search is pending");
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2, 1]);
   h.advance(8000);
   const map = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.deepEqual(h.calls.map((call) => call.page), [1, 2, 3]);
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2, 1, 1, 3]);
   assert.ok(map.has("P:P3|A:ปลายทาง"));
+  assert.equal(h.calls.every((call) => call.fleetStatus === "1"), true);
   assert.ok(h.lane.diagnostics("NE1").busPagesLastCycle <= BUS_TIME_MAX_CALLS_PER_CYCLE);
 });
 
@@ -316,7 +316,7 @@ test("origin routes never enter BusTime active scope or force yesterday hot read
   assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
 });
 
-test("persistent deep misses stay 12s while a newly active proof bypasses the 60s heartbeat", async () => {
+test("persistent deep misses stay 12s while newly active proof gets immediate background priority", async () => {
   const h = harness({
     fetchHandler: async ({ page }) => page === 1
       ? response({ total: 300, items: [item("P1")] })
@@ -330,10 +330,10 @@ test("persistent deep misses stay 12s while a newly active proof bypasses the 60
   const callsAfterNewActive = h.calls.length;
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
-  assert.equal(h.calls.length, callsAfterNewActive);
+  assert.equal(h.calls.length, callsAfterNewActive + 1);
   h.advance(8000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
-  assert.equal(h.calls.length, callsAfterNewActive + 1);
+  assert.equal(h.calls.length, callsAfterNewActive + 3);
 });
 
 test("cross-midnight active route adds yesterday page 1; completed-only routes make zero BusTime calls", async () => {
@@ -389,13 +389,14 @@ test("Retry-After parser supports both seconds and HTTP dates", () => {
   assert.equal(parseBusRetryAfter("Sun, 13 Sep 2026 00:00:30 GMT", now), 30000);
 });
 
-test("unverified upstream filters remain empty instead of inventing HUB/store IDs", async () => {
+test("verified unfinished filter is used while unverified HUB/store filters stay empty", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [
     { proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 },
   ]);
+  assert.equal(h.calls[0].fleetStatus, "1");
   assert.equal(h.calls[0].storeId, "");
   assert.equal(h.calls[0].targetId, "");
   assert.equal(h.calls[0].attendanceStatus, "");

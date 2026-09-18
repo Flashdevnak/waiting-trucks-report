@@ -2,6 +2,10 @@ name: Current System Acceptance
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/current-system-acceptance.yml
   workflow_run:
     workflows: ["Deploy Worker DEV"]
     types: [completed]
@@ -221,31 +225,50 @@ jobs:
             for(const hub of configuredHubs){
               const connector=connectors.get(hub)||[];
               const [liveResult,routeResult,preentryResult,busResult]=await Promise.all([
-                query('SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub=? LIMIT 1',[hub]),
+                query('SELECT hub,synced_at,rows_json FROM ms_live_cache WHERE hub=? LIMIT 1',[hub]),
                 query('SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub=? LIMIT 1',[hub]),
                 query('SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub=? LIMIT 1',[hub]),
                 query('SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub=? LIMIT 1',[hub]),
               ]);
               const live=first(liveResult), route=first(routeResult), preentry=first(preentryResult), bus=first(busResult);
               const livePresent=String(live[0]||'')===hub;
+              const parseLiveRows=(raw)=>{
+                try{
+                  const parsed=typeof raw==='string'?JSON.parse(raw):raw;
+                  if(Array.isArray(parsed)) return parsed;
+                  if(Array.isArray(parsed?.rows)) return parsed.rows;
+                }catch{}
+                return null;
+              };
+              const busActiveInbound=(row)=>{
+                const proof=String(row?.proofId||'').trim();
+                if(!proof||Number(row?.unloadingState)===2) return false;
+                const attendance=String(row?.attendanceType||'').trim().toLowerCase();
+                return attendance==='ปลายทาง'||attendance==='จุดดรอป'||attendance==='destination'||attendance==='drop'||attendance==='drop point';
+              };
+              const liveRows=parseLiveRows(live[2]);
+              const liveShapeValid=Array.isArray(liveRows);
+              const activeInboundRows=liveShapeValid?liveRows.filter(busActiveInbound).length:null;
               const healthy=row=>Boolean(row?.[2])&&!String(row?.[3]||'')&&age(row[2])>=0&&age(row[2])<=20*60;
               const routeHealthy=healthy(route);
               const preentryConfigured=String(preentry[0]||'')===hub;
               const busConfigured=String(bus[0]||'')===hub;
               const preentryHealthy=!preentryConfigured||healthy(preentry);
-              const busHealthy=!busConfigured||healthy(bus);
-              const overall=livePresent&&routeHealthy&&preentryHealthy&&busHealthy;
-              const item={hub,livePresent,routeHealthy,preentryConfigured,preentryHealthy,busConfigured,busHealthy,overall};
+              const busRequired=busConfigured&&liveShapeValid&&activeInboundRows>0;
+              const busHealthy=!busConfigured||(liveShapeValid&&!busRequired)||healthy(bus);
+              const overall=livePresent&&liveShapeValid&&routeHealthy&&preentryHealthy&&busHealthy;
+              const busState=!busConfigured?'optional_unconfigured':!liveShapeValid?'cache_invalid':!busRequired?'idle_not_required':busHealthy?'healthy':'unhealthy';
+              const item={hub,livePresent,liveShapeValid,activeInboundRows,routeHealthy,preentryConfigured,preentryHealthy,busConfigured,busRequired,busHealthy,busState,overall};
               matrix.push(item);
               if(!overall) failures.push(item);
-              console.log(`HUB=${hub} CONNECTOR_ACTIVE=${Number(connector[1]||0)===1} CONNECTOR_LAST_USED=${connector[2]||'-'} LIVE_SNAPSHOT_AT=${live[1]||'-'} LIVE_ROWS=${Number(live[2]||0)}`);
+              console.log(`HUB=${hub} CONNECTOR_ACTIVE=${Number(connector[1]||0)===1} CONNECTOR_LAST_USED=${connector[2]||'-'} LIVE_SNAPSHOT_AT=${live[1]||'-'} LIVE_ROWS=${liveShapeValid?liveRows.length:'INVALID'} ACTIVE_INBOUND=${activeInboundRows??'UNKNOWN'}`);
               console.log(`HUB=${hub} ROUTE_CONFIGURED=true ROUTE_LAST_SUCCESS=${route[2]||'-'} AGE=${age(route[2])} ERROR=${route[3]||'-'}`);
               console.log(`HUB=${hub} PREENTRY_CONFIGURED=${preentryConfigured} PREENTRY_LAST_SUCCESS=${preentry[2]||'-'} AGE=${age(preentry[2])} ERROR=${preentry[3]||'-'}`);
-              console.log(`HUB=${hub} BUS_CONFIGURED=${busConfigured} BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
+              console.log(`HUB=${hub} BUS_CONFIGURED=${busConfigured} BUS_REQUIRED=${busRequired} BUS_STATE=${busState} BUS_LAST_SUCCESS=${bus[2]||'-'} AGE=${age(bus[2])} ERROR=${bus[3]||'-'}`);
             }
             console.log('ALL_HUB_HEALTH_MATRIX_BEGIN');
             for(const item of matrix)
-              console.log(`HUB_HEALTH HUB=${item.hub} LIVE=${item.livePresent} ROUTE=${item.routeHealthy} PREENTRY=${item.preentryConfigured?item.preentryHealthy:'optional_unconfigured'} BUS=${item.busConfigured?item.busHealthy:'optional_unconfigured'} OVERALL=${item.overall?'PASS':'FAIL'}`);
+              console.log(`HUB_HEALTH HUB=${item.hub} LIVE=${item.livePresent&&item.liveShapeValid} ROUTE=${item.routeHealthy} PREENTRY=${item.preentryConfigured?item.preentryHealthy:'optional_unconfigured'} BUS=${item.busState} ACTIVE_INBOUND=${item.activeInboundRows??'UNKNOWN'} OVERALL=${item.overall?'PASS':'FAIL'}`);
             console.log('ALL_HUB_HEALTH_MATRIX_END');
             console.log(`CONFIGURED_HUB_CONTRACT_COUNT=${configuredHubs.length}`);
             console.log(`CONFIGURED_HUBS=${configuredHubs.join(',')}`);

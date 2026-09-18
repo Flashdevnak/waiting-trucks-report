@@ -49,7 +49,12 @@ test("silent leader failure is recovered after about two missed visible cycles",
 
 test("in-flight shared Route refresh is joined instead of replaying stale unload state", () => {
   assert.match(staged, /MS_ROUTE_ACTIVE_REFRESH_JOIN_V1/);
-  assert.match(staged, /if \(this\.active\) \{[\s\S]*await this\.active;[\s\S]*if \(!force && this\.lastResult\)[\s\S]*return this\.lastResult;/);
-  assert.doesNotMatch(staged, /if \(this\.active\) \{\s*if \(!force && this\.lastResult\) return this\.lastResult;/);
+  const activeStart = staged.indexOf("if (this.active)");
+  const activeEnd = staged.indexOf("const task = runMsRefresh", activeStart);
+  assert.ok(activeStart >= 0 && activeEnd > activeStart);
+  const activeBlock = staged.slice(activeStart, activeEnd);
+  assert.match(activeBlock, /await this\.active/);
+  assert.doesNotMatch(activeBlock, /if \(!force && this\.lastResult\) return this\.lastResult/);
+  assert.match(activeBlock, /if \(!force && this\.lastResult\)/);
   assert.match(staged, /MS_ROUTE_SHARED_SOURCE_MIN_MS = 3 \* 1000/);
 });

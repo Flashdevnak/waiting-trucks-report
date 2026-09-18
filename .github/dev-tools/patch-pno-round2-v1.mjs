@@ -1,57 +1,67 @@
-const WORKER_MARKER = "PNO_ROUND2_BARCODE_BACKING_V1";
-const FRONTEND_MARKER = "PNO_ROUND2_UI_V1";
+const WORKER_MARKER = "PNO_ROUND2_BARCODE_BACKING_V2";
+const FRONTEND_MARKER = "PNO_ROUND2_UI_V2";
 
-function replaceOnce(source, from, to, label) {
+function replaceUnique(source, from, to, label) {
   const first = source.indexOf(from);
   const last = source.lastIndexOf(from);
   if (first < 0 || first !== last) throw new Error(`${label}: anchor missing or non-unique`);
   return source.slice(0, first) + to + source.slice(first + from.length);
 }
 
+function replaceRegexOnce(source, pattern, replacement, label) {
+  const matches = [...source.matchAll(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g"))];
+  if (matches.length !== 1) throw new Error(`${label}: expected 1 match, got ${matches.length}`);
+  return source.replace(pattern, replacement);
+}
+
+const DESTINATION = "\u0e1b\u0e25\u0e32\u0e22\u0e17\u0e32\u0e07";
+const DROP = "\u0e08\u0e38\u0e14\u0e14\u0e23\u0e2d\u0e1b";
+
 export function patchPnoRound2Worker(source) {
   let output = String(source || "");
   if (output.includes(WORKER_MARKER)) return output;
   if (!output.includes("PNO_ULTRA_LOW_QUOTA_V1")) return output;
 
-  output = replaceOnce(
+  output = replaceUnique(
     output,
-    '  if (mapped.attendanceType === "‡∏õ‡∏•‡∏≤‡∏¢‡∏ó‡∏≤‡∏á") {',
-    '  // PNO_ROUND2_BARCODE_BACKING_V1: destination and drop-point are inbound PNO truth; origin remains excluded.\n' +
-      '  if (mapped.attendanceType === "‡∏õ‡∏•‡∏≤‡∏¢‡∏ó‡∏≤‡∏á" || mapped.attendanceType === "‡∏à‡∏∏‡∏î‡∏î‡∏£‡∏≠‡∏õ") {',
-    "round2 attendance eligibility",
+    `  if (mapped.attendanceType === "${DESTINATION}") {`,
+    `  // ${WORKER_MARKER}: destination + drop-point are inbound PNO truth; origin stays excluded.\n  if (mapped.attendanceType === "${DESTINATION}" || mapped.attendanceType === "${DROP}") {`,
+    "Round2 attendance eligibility",
   );
 
-  output = replaceOnce(
+  output = replaceUnique(
     output,
-    'function pnoViewKey(row) {\n  return `${normalizeProofId(row?.proofId)}|${normalizeMsAttendance(row?.attendanceType)}`;\n}',
-    'function pnoViewKey(row) {\n  // Barcode/proofId is the one-truck primary key.\n  return normalizeProofId(row?.proofId);\n}',
-    "round2 proof-only metadata key",
+    `function pnoViewKey(row) {\n  return \`${'${normalizeProofId(row?.proofId)}'}|${'${normalizeMsAttendance(row?.attendanceType)}'}\`;\n}`,
+    `function pnoViewKey(row) {\n  // One truck has one exact Barcode/proofId. Attendance is not part of identity.\n  return normalizeProofId(row?.proofId);\n}`,
+    "Round2 proof-only metadata key",
   );
 
-  output = replaceOnce(
+  output = replaceUnique(
     output,
-    '    if (normalizeMsAttendance(row?.attendanceType) !== "‡∏õ‡∏•‡∏≤‡∏¢‡∏ó‡∏≤‡∏á") continue;',
-    '    if (!["‡∏õ‡∏•‡∏≤‡∏¢‡∏ó‡∏≤‡∏á", "‡∏à‡∏∏‡∏î‡∏î‡∏£‡∏≠‡∏õ"].includes(normalizeMsAttendance(row?.attendanceType))) continue;',
-    "round2 drop metadata eligibility",
+    `    if (normalizeMsAttendance(row?.attendanceType) !== "${DESTINATION}") continue;`,
+    `    if (!["${DESTINATION}", "${DROP}"].includes(normalizeMsAttendance(row?.attendanceType))) continue;`,
+    "Round2 drop metadata eligibility",
   );
 
-  output = replaceOnce(
+  output = replaceRegexOnce(
     output,
-    'function preEntrySemanticKey(value) {\n  // Duplicate conflict is about trip identity/source truth, not a normal count\n  // progression between yesterday/today snapshots of the same trip.\n  return JSON.stringify({\n    lineId: value.pnoLineId || "",\n    vanLineId: value.pnoVanLineId || "",\n    storeId: value.pnoStoreId || "",\n    nextStoreId: value.pnoNextStoreId || "",\n    expected: value.expectedParcels,\n  });\n}',
-    'function preEntrySemanticKey(value) {\n  // Business truth: one truck has one Barcode. Exact proofId is the primary key;\n  // overlapping source-day snapshots are revisions of the same trip, not duplicates.\n  return normalizeProofId(value?.proofId);\n}',
-    "round2 barcode-primary collapse",
+    /function preEntrySemanticKey\(value\) \{[\s\S]*?\n\}/,
+    `function preEntrySemanticKey(value) {\n  // Barcode/proofId is the primary trip key. Overlapping source-day snapshots are revisions, not duplicates.\n  return normalizeProofId(value?.proofId);\n}`,
+    "Round2 barcode-primary collapse",
   );
 
-  const oldBacking = '      backingNo: text(row.bag_no || row.bagging_no || row.backing_no || row.pack_no || row.bag_code || row.package_no || row.backingNo, 120),';
-  const newBacking = '      // HAR truth: FBI route_followstart_list exposes Backing/Bagging in pack_no.\n' +
-    '      backingNo: text(row.pack_no || row.backingNo || row.backing_no || row.bagging_no || row.bag_no || row.bag_code || row.package_no, 120),';
-  output = replaceOnce(output, oldBacking, newBacking, "round2 pack_no primary mapping");
-
-  output = replaceOnce(
+  output = replaceUnique(
     output,
-    '    })).filter((row) => row.pno);',
-    '    })).filter((row) => row.pno || row.backingNo);',
-    "round2 retain backing rows",
+    `      backingNo: text(row.bag_no || row.bagging_no || row.backing_no || row.pack_no || row.bag_code || row.package_no || row.backingNo, 120),`,
+    `      // HAR truth: route_followstart_list exposes Backing/Bagging in pack_no.\n      backingNo: text(row.pack_no || row.backingNo || row.backing_no || row.bagging_no || row.bag_no || row.bag_code || row.package_no, 120),`,
+    "Round2 pack_no primary mapping",
+  );
+
+  output = replaceUnique(
+    output,
+    `    })).filter((row) => row.pno);`,
+    `    })).filter((row) => row.pno || row.backingNo);`,
+    "Round2 retain Backing rows",
   );
 
   return output;
@@ -62,28 +72,62 @@ export function patchPnoRound2Frontend(source) {
   if (output.includes(FRONTEND_MARKER)) return output;
   if (!output.includes("PNO_BROWSER_CACHE_V1")) return output;
 
-  output = replaceOnce(
+  // Duplicate Barcode is not a valid user-facing state: exact Barcode is the one-truck primary key.
+  output = output.replace(/\n\s*if \(row\.pnoState === "AMBIGUOUS"\)\s*\n\s*return '[^']*';/g, "");
+  output = output.replace(/row\?\.pnoState === "AMBIGUOUS"\s*\n\s*\? "[^"]*"\s*\n\s*:\s*row\?\.pnoState === "COUNT_MISMATCH"/g, 'row?.pnoState === "COUNT_MISMATCH"');
+
+  output = replaceUnique(
     output,
-    'function pnoProgressClass(percent) {\n  if (percent >= 100) return "is-complete";\n  if (percent >= 90) return "is-green";\n  if (percent >= 60) return "is-amber";\n  return "is-red";\n}',
-    'function pnoProgressClass(percent) {\n  if (percent >= 100) return "is-complete";\n  if (percent >= 90) return "is-green";\n  if (percent >= 60) return "is-amber";\n  return "is-red";\n}\n\n' +
-    'function pnoProgressStatus(percent) {\n  if (percent >= 100) return "‡πÄ‡∏Ç‡πâ‡∏≤‡∏Ñ‡∏•‡∏±‡∏á‡∏Ñ‡∏£‡∏ö";\n  if (percent >= 90) return "‡∏ú‡πà‡∏≤‡∏ô‡πÄ‡∏õ‡πâ‡∏≤";\n  if (percent >= 60) return "‡∏Å‡∏≥‡∏•‡∏±‡∏á‡πÄ‡∏Ç‡πâ‡∏≤‡∏Ñ‡∏•‡∏±‡∏á";\n  return "‡∏ï‡πà‡∏≥‡∏Å‡∏ß‡πà‡∏≤‡πÄ‡∏õ‡πâ‡∏≤";\n}',
-    "round2 progress status",
+    `<th>PNO / \u0e41\u0e1a\u0e47\u0e01\u0e01\u0e34\u0e49\u0e07</th>`,
+    `<th>PNO</th><th>Backing / Bagging</th>`,
+    "Round2 separate Backing header",
   );
 
-  const duplicateBadge = '  if (row.pnoState === "AMBIGUOUS")\n    return \'<div class="expected-parcels-badge pno-summary pno-warning"><strong>‡∏Ç‡πâ‡∏≠‡∏°‡∏π‡∏• Barcode ‡∏ã‡πâ‡∏≥ ‚Äî ‡∏ï‡πâ‡∏≠‡∏á‡∏ï‡∏£‡∏ß‡∏à‡∏™‡∏≠‡∏ö</strong><span>‡πÑ‡∏°‡πà‡πÅ‡∏™‡∏î‡∏á‡πÄ‡∏õ‡∏≠‡∏£‡πå‡πÄ‡∏ã‡πá‡∏ô‡∏ï‡πå‡πÅ‡∏•‡∏∞‡∏õ‡∏¥‡∏î PNO ‡πÄ‡∏û‡∏∑‡πà‡∏≠‡πÑ‡∏°‡πà‡πÉ‡∏´‡πâ‡πÄ‡∏î‡∏≤‡∏Ç‡πâ‡∏≠‡∏°‡∏π‡∏•‡∏ú‡∏¥‡∏î‡πÄ‡∏ó‡∏µ‡πà‡∏¢‡∏ß</span></div>\';\n';
-  if (output.includes(duplicateBadge)) output = output.replace(duplicateBadge, "");
-
-  output = replaceOnce(
+  output = replaceRegexOnce(
     output,
-    '<div class="pno-progress-head"><strong>${pnoDisplayPercent(percent)}</strong><span>‡πÄ‡∏Ç‡πâ‡∏≤‡∏Ñ‡∏•‡∏±‡∏á‡πÅ‡∏•‡πâ‡∏ß</span></div>',
-    '<div class="pno-progress-head"><strong>${pnoDisplayPercent(percent)}</strong><span>${pnoProgressStatus(percent)} ¬∑ ‡πÄ‡∏õ‡πâ‡∏≤ 90%</span></div>',
-    "round2 v8 status label",
-   );
+    /<td><strong>\$\{esc\(item\.pno\)\}<\/strong><small>[^<]*\$\{esc\(item\.backingNo \|\| "-"\)\}<\/small><\/td>/,
+    `<td><strong>${'${esc(item.pno || "-")}'}<\/strong><\/td><td><strong>${'${esc(item.backingNo || "-")}'}<\/strong><\/td>`,
+    "Round2 separate Backing cell",
+  );
 
-  const oldMessage = '    const message = row?.pnoState === "AMBIGUOUS"\n      ? "‡∏Ç‡πâ‡∏≠‡∏°‡∏π‡∏•‡∏ã‡πâ‡∏≥ ‚Äî ‡∏ï‡πâ‡∏≠‡∏á‡∏ï‡∏£‡∏ß‡∏à‡∏™‡∏≠‡∏ö‡∏Å‡πà‡∏≠‡∏ô‡πÄ‡∏õ‡∏¥‡∏î PNO"\n      : row?.pnoState === "COUNT_MISMATCH"\n        ? "‡∏Ç‡πâ‡∏≠‡∏°‡∏π‡∏•‡∏à‡∏≥‡∏ô‡∏ß‡∏ô‡πÑ‡∏°‡πà‡∏™‡∏°‡∏ö‡∏π‡∏£‡∏ì‡πå ‡∏à‡∏∂‡∏á‡∏¢‡∏±‡∏á‡πÄ‡∏õ‡∏¥‡∏î PNO ‡πÑ‡∏°‡πà‡πÑ‡∏î‡πâ"\n        : "‡∏¢‡∏±‡∏á‡πÑ‡∏°‡πà‡∏°‡∏µ‡∏Ç‡πâ‡∏≠‡∏°‡∏π‡∏•‡πÄ‡∏Ç‡πâ‡∏≤‡∏Ñ‡∏•‡∏±‡∏á‡∏™‡∏≥‡∏´‡∏£‡∏±‡∏ö‡πÄ‡∏õ‡∏¥‡∏î PNO";';
-  const newMessage = '    const message = row?.pnoState === "COUNT_MISMATCH"\n      ? "‡∏Ç‡πâ‡∏≠‡∏°‡∏π‡∏•‡∏à‡∏≥‡∏ô‡∏ß‡∏ô‡πÑ‡∏°‡πà‡∏™‡∏°‡∏ö‡∏π‡∏£‡∏ì‡πå ‡∏à‡∏∂‡∏á‡∏¢‡∏±‡∏á‡πÄ‡∏õ‡∏¥‡∏î PNO ‡πÑ‡∏°‡πà‡πÑ‡∏î‡πâ"\n      : "‡∏¢‡∏±‡∏á‡πÑ‡∏°‡πà‡∏°‡∏µ‡∏Ç‡πâ‡∏≠‡∏°‡∏π‡∏•‡πÄ‡∏Ç‡πâ‡∏≤‡∏Ñ‡∏•‡∏±‡∏á‡∏™‡∏≥‡∏´‡∏£‡∏±‡∏ö‡πÄ‡∏õ‡∏¥‡∏î PNO";';
-  if (output.includes(oldMessage)) output = output.replace(oldMessage, newMessage);
-
-  output = replaceOnce(
+  output = replaceUnique(
     output,
-    '<table><thead><tr><th>‡∏•‡∏∞‡∏î‡∏±‡∫hΩ—†¯Ò—†˘A9<ÄºÉÇÊÇ‚kÇÊÇ‚Ç‚Ç‚”ÇÊ'Ç‚Ω—†¯Ò—†˚Ç‚´Ç‚[Ç‚ÀÇ‚gÇ‚¿ÅA9<Ω—†¯Ò—†˚Ç‚Ç‚ÀÇ‚èÇ‚SÇ‚œÇÊÇ‚gÇ‚”Ç‚gÇ‚Ç‚ÀÇ‚èÇ‚óÇÊ#Ç‚ÀÇ‚´Ç‚„Ç‚PÄºÉÇÊÇ‚üÇ‚óÇ‚»Ω—†¯Ò—†˘!UÄºÉÇ‚´Ç‚ÀÇ‚Ç‚»Ω—†¯Ω—»¯Ω—°ïÖê¯Ò—âΩë‰¯ëÌ¡ïπë•πùAÖ…çï±IΩ›ÃπµÖ¿†°•—ï¥∞Å•πëï‡§ÄÙ¯ÅÄÒ—»¯Ò—ê¯ëÌπòπôΩ…µÖ–°ΩôôÕï–Ä¨Å•πëï‡Ä¨Äƒ•ÙΩ—ê¯Ò—ê¯ÒÕ—…Ωπú¯ëÌïÕå°•—ï¥π¡πº•ÙΩÕ—…Ωπú¯ÒÕµÖ±∞˚ÇÊÇ‚kÇÊÇ‚Ç‚Ç‚”ÇÊ'Ç‚ËÄëÌïÕå°•—ï¥πâÖç≠•πù9ºÅÒÄà¥à•ÙΩÕµÖ±∞¯Ω—ê¯Ò—ê¯ÒÕ—…Ωπú¯ëÌïÕå°çÖ—ïùΩ…‰•ÙΩÕ—…Ωπú¯ÒÕµÖ±∞˚Ç‚ãÇ‚ﬂÇ‚gÇ‚ãÇ‚«Ç‚gÇ‚#Ç‚ÀÇ‚Å	$Åëï—Ö•∞Å—Â¡îÙëÌïÕå°—Â¡î•ÙΩÕµÖ±∞¯Ω—ê¯Ò—ê¯ÒÕ—…Ωπú¯ëÌïÕå°•—ï¥π±ÖÕ—ç—•Ω∏ÅÒÅ•—ï¥πÕ—Ö—’ÃÅÒÄà¥à•ÙΩÕ—…Ωπú¯ÒÕµÖ±∞¯ëÌïÕå°•—ï¥π±ÖÕ—ç—•Ωπ–ÅÒÄà¥à•ÙΩÕµÖ±∞¯Ω—ê¯Ò—ê¯ÒÕ—…Ωπú¯ëÌïÕå°•—ï¥π—Ö…ùï—!’àÅÒÄà¥à•ÙΩÕ—…Ωπú¯ÒÕµÖ±∞¯ëÌïÕå°•—ï¥π—Ö…ùï—	…Öπç†ÅÒÄà¥à•ÙΩÕµÖ±∞¯Ω—ê¯Ω—»˘Ä§π©Ω•∏†àà•ÙΩ—âΩë‰¯Ω—Öâ±îú∞(ÄÄÄÄúÒ—Öâ±î¯Ò—°ïÖê¯Ò—»¯Ò—†˚Ç‚óÇ‚œÇ‚SÇ‚«Ç‚hΩ—†¯Ò—†˘A9<Ω—†¯Ò—†˘	Öç≠•πúÄºÅ	Öùù•πúΩ—†¯Ò—†˚Ç‚´Ç‚[Ç‚ÀÇ‚gÇ‚¿ÅA9<Ω—†¯Ò—†˚Ç‚Ç‚ÀÇ‚èÇ‚SÇ‚œÇÊÇ‚gÇ‚”Ç‚gÇ‚Ç‚ÀÇ‚èÇ‚óÇÊ#Ç‚ÀÇ‚´Ç‚„Ç‚PÄºÉÇÊÇ‚üÇ‚óÇ‚»Ω—†¯Ò—†˘!UÄºÉÇ‚´Ç‚ÀÇ‚Ç‚»Ω—†¯Ω—»¯Ω—°ïÖê¯Ò—âΩë‰¯ëÌ¡ïπë•πùAÖ…çï±IΩ›ÃπµÖ¿†°•—ï¥∞Å•πëï‡§ÄÙ¯ÅÄÒ—»¯Ò—ê¯ëÌπòπôΩ…µÖ–°ΩôôÕï–Ä¨Å•πëï‡Ä¨Äƒ•ÙΩ—ê¯Ò—ê¯ÒÕ—…Ωπú¯ëÌïÕå°•—ï¥π¡πºÅÒÄà¥à•ÙΩÕ—…Ωπú¯Ω—ê¯Ò—ê¯ÒÕ—…Ωπú¯ëÌïÕå°•—ï¥πâÖç≠•πù9ºÅÒÄà¥à•ÙΩÕ—…Ωπú¯Ω—ê¯Ò—ê¯ÒÕ—…Ωπú¯ëÌïÕå°çÖ—ïùΩ…‰•ÙΩÕ—…Ωπú¯ÒÕµÖ±∞˚Ç‚ãÇ‚ﬂÇ‚gÇ‚ãÇ‚«Ç‚gÇ‚#Ç‚ÀÇ‚d$íFWFñ¬GóS“G∂W62áGóRó”¬˜6÷∆√„¬˜FC„«FC„«7G&ˆÊs‚G∂W62ÜóFV“Ê∆7D7Fñˆ‚«¬óFV“Á7FGW2«¬"“"ó”¬˜7G&ˆÊs„«6÷∆√‚G∂W62ÜóFV“Ê∆7D7Fñˆ‰B«¬"“"ó”¬˜6÷∆√„¬˜FC„«FC„«7G&ˆÊs‚G∂W62ÜóFV“ÁF&vWDáV"«¬"“"ó”¬˜7G&ˆÊs„«6÷∆√‚G∂W62ÜóFV“ÁF&vWD'&Ê6Ç«¬"“"ó”¬˜6÷∆√„¬˜FC„¬˜G#ÊíÊ¶ˆñ‚Ç""ó”¬˜F&ˆGì„¬˜F&∆Rr¿¢'&˜VÊC"6W&FR&6∂ñÊr6ˆ«V÷‚"¿¢ì∞†¢˜WGWB“&W∆6TˆÊ6RÄ¢˜WGWB¿¢rvóBÊfñvF˜"Ê6∆ó&ˆ&BÁw&óFUFWáBá&˜w2Ê÷Çá&˜rí”‚&˜rÁÊÚíÊ¶ˆñ‚Ç%≈∆‚"íìµ∆‚Fˆ7BÜàNãâNä^äﬁà‰Úâ~ã^òéò.äæä^âNòä^òûärG∂ÊbÊf˜&÷Bá&˜w2Ê∆VÊwFÇó“ä>ã.ä.àã.ä>òä^òûävì≤r¿¢rvóBÊfñvF˜"Ê6∆ó&ˆ&BÁw&óFUFWáBá&˜w2Ê÷Çá&˜rí”‚G∑&˜rÁÊÚ«¬"'’≈«BG∑&˜rÊ&6∂ñÊtÊÚ«¬"'÷íÊ¶ˆñ‚Ç%≈∆‚"íìµ∆‚Fˆ7BÜàNãâNä^äﬁà‰Ú≤&6∂ñÊrâ~ã^òéò.äæä^âNòä^òûärG∂ÊbÊf˜&÷Bá&˜w2Ê∆VÊwFÇó“ä>ã.ä.àã.ä>òä^òûävì≤r¿¢'&˜VÊC"6˜í&6∂ñÊr"¿¢ì∞†¢˜WGWB“&W∆6TˆÊ6RÜ˜WGWB¬r.òä^à.òâÆò~ààãNòûàr#¢&˜rÊ&6∂ñÊtÊÚ«¬""r¬r$&6∂ñÊrÚ&vvñÊr#¢&˜rÊ&6∂ñÊtÊÚ«¬""r¬'&˜VÊC"Wá˜'B&6∂ñÊr∆&V¬"ì∞†¢ÚÚ∆FW7B66WFVBcÇ∆WGFRÊB&ˆw&W72&VÜfñ˜"‡¢˜WGWB“&W∆6TˆÊ6RÜ˜WGWB¬r&6∂w&˜VÊC¢6V6VVV#≤r¬r&6∂w&˜VÊC¢6SVSÜV≤r¬'&˜VÊC"cÇG&6≤"ì∞¢˜WGWB“&W∆6TˆÊ6RÜ˜WGWB¬r&6∂w&˜VÊC¢6CsCC6S≤r¬r&6∂w&˜VÊC¢∆ñÊV"÷w&FñVÁBÉìFVr¬6#ì6&b¬6SCfVRì≤r¬'&˜VÊC"cÇ&VB"ì∞¢˜WGWB“&W∆6TˆÊ6RÜ˜WGWB¬rÊ◊2◊vRÁÊÚ◊7V÷÷'íÊó2÷÷&W"ÁÊÚ◊&ˆw&W72÷fñ∆¬≤&6∂w&˜VÊC¢6CìñÉ≤“r¬rÊ◊2◊vRÁÊÚ◊7V÷÷'íÊó2÷÷&W"ÁÊÚ◊&ˆw&W72÷fñ∆¬≤&6∂w&˜VÊC¢∆ñÊV"÷w&FñVÁBÉìFVr¬6#Ésì¬6c#S2ì≤“r¬'&˜VÊC"cÇ÷&W""ì∞¢˜WGWB“&W∆6TˆÊ6RÜ˜WGWB¬rÊ◊2◊vRÁÊÚ◊7V÷÷'íÊó2÷w&VV‚ÁÊÚ◊&ˆw&W72÷fñ∆¬≤&6∂w&˜VÊC¢3sV#Cvc≤“r¬rÊ◊2◊vRÁÊÚ◊7V÷÷'íÊó2÷w&VV‚ÁÊÚ◊&ˆw&W72÷fñ∆¬≤&6∂w&˜VÊC¢∆ñÊV"÷w&FñVÁBÉìFVr¬36#Ü#SÇ¬3sF&cÜBì≤“r¬'&˜VÊC"cÇw&VV‚"ì∞¢˜WGWB“&W∆6TˆÊ6RÜ˜WGWB¬rÊ◊2◊vRÁÊÚ◊7V÷÷'íÊó2÷6ˆ◊∆WFRÁÊÚ◊&ˆw&W72÷fñ∆¬≤&6∂w&˜VÊC¢36CÜCSc≤“r¬rÊ◊2◊vRÁÊÚ◊7V÷÷'íÊó2÷6ˆ◊∆WFRÁÊÚ◊&ˆw&W72÷fñ∆¬≤&6∂w&˜VÊC¢∆ñÊV"÷w&FñVÁBÉìFVr¬3##C#ÇR¬333c6SÇR¬36#CCRÉ"R¬6#CÜcìBR¬6ffCC&bRì≤“r¬'&˜VÊC"cÇ6ˆ◊∆WFR"ì∞¢˜WGWB“&W∆6TˆÊ6RÜ˜WGWB¬r&6∂w&˜VÊC¢3S3SìS3≤r¬r&6∂w&˜VÊC¢333c3É≤r¬'&˜VÊC"cÇ÷&∂W""ì∞†¢ÚÚ÷&∂W"ó2ñÁ6W'FVBñ‚WÜV7WF&∆R6˜W&6R&FÜW"FÜ‚5526ÚñFV◊˜FVÊ7íó2Wá∆ñ6óB‡¢˜WGWB“&W∆6TˆÊ6RÄ¢˜WGWB¿¢vgVÊ7Fñˆ‚Êı&ˆw&W757FGW2áW&6VÁBí≤r¿¢ÚÚG¥e$ÙÂDT‰EÙ‘$¥U'”¢∆FW7B66WFVBcÇ7FGW2∆WGFR≤&6∂ñÊrÙ&vvñÊr&W6VÁFFñˆ‚Â∆ÊgVÊ7Fñˆ‚Êı&ˆw&W757FGW2áW&6VÁBí∂¿¢'&˜VÊC"g&ˆÁFVÊB÷&∂W""¿¢ì∞¢&WGW&‚˜WGWC∞ß–
+    `  await navigator.clipboard.writeText(rows.map((row) => row.pno).join("\\n"));`,
+    `  await navigator.clipboard.writeText(rows.map((row) => \`${'${row.pno || ""}'}\\t${'${row.backingNo || ""}'}\`).join("\\n"));`,
+    "Round2 copy Backing",
+  );
+
+  output = output.replace(
+    `"\u0e40\u0e25\u0e02\u0e41\u0e1a\u0e47\u0e01\u0e01\u0e34\u0e49\u0e07": row.backingNo || ""`,
+    `"Backing / Bagging": row.backingNo || ""`,
+  );
+
+  // Latest accepted v8 status labels.
+  const classFn = `function pnoProgressClass(percent) {\n  if (percent >= 100) return "is-complete";\n  if (percent >= 90) return "is-green";\n  if (percent >= 60) return "is-amber";\n  return "is-red";\n}`;
+  if (output.includes(classFn) && !output.includes("function pnoProgressStatus(percent)")) {
+    output = output.replace(
+      classFn,
+      `${classFn}\n\nfunction pnoProgressStatus(percent) {\n  if (percent >= 100) return "\u0e40\u0e02\u0e49\u0e32\u0e04\u0e25\u0e31\u0e07\u0e04\u0e23\u0e1a";\n  if (percent >= 90) return "\u0e1c\u0e48\u0e32\u0e19\u0e40\u0e1b\u0e49\u0e32";\n  if (percent >= 60) return "\u0e01\u0e33\u0e25\u0e31\u0e07\u0e40\u0e02\u0e49\u0e32\u0e04\u0e25\u0e31\u0e07";\n  return "\u0e15\u0e48\u0e33\u0e01\u0e27\u0e48\u0e32\u0e40\u0e1b\u0e49\u0e32";\n}`,
+    );
+  }
+  output = output.replace(
+    `<div class="pno-progress-head"><strong>${'${pnoDisplayPercent(percent)}'}<\/strong><span>\u0e40\u0e02\u0e49\u0e32\u0e04\u0e25\u0e31\u0e07\u0e41\u0e25\u0e49\u0e27<\/span><\/div>`,
+    `<div class="pno-progress-head"><strong>${'${pnoDisplayPercent(percent)}'}<\/strong><span>${'${pnoProgressStatus(percent)}'} \u00b7 \u0e40\u0e1b\u0e49\u0e32 90%<\/span><\/div>`,
+  );
+
+  output = replaceUnique(output, `  background: #eceeeb;`, `  background: #e5e8ea;`, "Round2 v8 track");
+  output = replaceUnique(output, `  background: #d7443e;`, `  background: linear-gradient(90deg, #b93a2f, #e46a5e);`, "Round2 v8 red");
+  output = replaceUnique(output, `.ms-page .pno-summary.is-amber .pno-progress-fill { background: #d99a18; }`, `.ms-page .pno-summary.is-amber .pno-progress-fill { background: linear-gradient(90deg, #b87900, #f0b51c); }`, "Round2 v8 amber");
+  output = replaceUnique(output, `.ms-page .pno-summary.is-green .pno-progress-fill { background: #75b47f; }`, `.ms-page .pno-summary.is-green .pno-progress-fill { background: linear-gradient(90deg, #3b8b58, #74bf8d); }`, "Round2 v8 green");
+  output = replaceUnique(output, `.ms-page .pno-summary.is-complete .pno-progress-fill { background: #3d8d56; }`, `.ms-page .pno-summary.is-complete .pno-progress-fill { background: linear-gradient(90deg, #202428 0%, #30363a 58%, #3b4145 82%, #b48f00 94%, #ffd42f 100%); }`, "Round2 v8 complete");
+  output = replaceUnique(output, `  background: #535953;`, `  background: #313638;`, "Round2 v8 marker");
+
+  // Executable marker keeps idempotency explicit without depending on CSS formatting.
+  output = replaceUnique(
+    output,
+    `function pnoProgressClass(percent) {`,
+    `// ${FRONTEND_MARKER}: v8 palette + Backing/Bagging presentation.\nfunction pnoProgressClass(percent) {`,
+    "Round2 frontend marker",
+  );
+  return output;
+}

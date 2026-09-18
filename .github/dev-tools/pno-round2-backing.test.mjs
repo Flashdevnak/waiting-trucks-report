@@ -16,27 +16,27 @@ const [canonicalFrontend, canonicalWorker, patchSource] = await Promise.all([
 const frontend = stageFrontend(canonicalFrontend);
 const worker = stageWorker(canonicalWorker);
 
-test("Round2 staged Worker enables PNO for destination + drop and keeps origin excluded", () => {
-  assert.match(worker, /mapped\.attendanceType === "ปลายทาง" \|\| mapped\.attendanceType === "จุดดรอป"/);
-  assert.match(worker, /\["ปลายทาง", "จุดดรอป"\]\.includes\(normalizeMsAttendance/);
-  assert.match(worker, /PNO_ROUND2_BARCODE_BACKING_V1/);
+test("Round2 stages PNO for destination + drop-point while origin remains excluded", () => {
+  assert.match(worker, /PNO_ROUND2_BARCODE_BACKING_V2/);
+  assert.ok(worker.includes('mapped.attendanceType === "ปลายทาง" || mapped.attendanceType === "จุดดรอป"'));
+  assert.ok(worker.includes('["ปลายทาง", "จุดดรอป"].includes(normalizeMsAttendance(row?.attendanceType))'));
 });
 
-test("Round2 uses exact Barcode proofId as trip key without user-facing duplicate state", () => {
+test("Round2 uses exact Barcode proofId as the one-truck identity", () => {
   assert.match(worker, /function pnoViewKey\(row\)[\s\S]*return normalizeProofId\(row\?\.proofId\)/);
   assert.match(worker, /function preEntrySemanticKey\(value\)[\s\S]*return normalizeProofId\(value\?\.proofId\)/);
   assert.ok(!frontend.includes("ข้อมูล Barcode ซ้ำ"));
 });
 
-test("Round2 preserves FBI pack_no as Backing/Bagging without creating a new piece", () => {
+test("Round2 maps FBI pack_no first and preserves Backing rows", () => {
   assert.match(worker, /backingNo: text\(row\.pack_no \|\| row\.backingNo/);
   assert.match(worker, /filter\(\(row\) => row\.pno \|\| row\.backingNo\)/);
   assert.ok(frontend.includes("<th>PNO</th><th>Backing / Bagging</th>"));
-  assert.match(frontend, /row\.pno \|\| ""}\t\$\{row\.backingNo \|\| ""/);
-  assert.match(frontend, /"Backing \/ Bagging": row\.backingNo \|\| ""/);
+  assert.ok(frontend.includes('"Backing / Bagging": row.backingNo || ""'));
+  assert.ok(frontend.includes('row.pno || ""') && frontend.includes('row.backingNo || ""'));
 });
 
-test("Round2 stages the latest accepted v8 progress palette and labels", () => {
+test("Round2 locks latest accepted v8 progress/status palette", () => {
   for (const token of [
     "#b93a2f", "#e46a5e", "#b87900", "#f0b51c", "#3b8b58", "#74bf8d",
     "#202428", "#30363a", "#3b4145", "#b48f00", "#ffd42f", "#e5e8ea", "#313638",
@@ -44,7 +44,7 @@ test("Round2 stages the latest accepted v8 progress palette and labels", () => {
   ]) assert.ok(frontend.includes(token), `missing v8 token ${token}`);
 });
 
-test("Round2 patch is idempotent and adds no background timer or SQL persistence", () => {
+test("Round2 patch remains idempotent and adds no background PNO timer/SQL persistence", () => {
   assert.equal(patchPnoRound2Frontend(frontend), frontend);
   assert.equal(patchPnoRound2Worker(worker), worker);
   assert.ok(!/setInterval\s*\(|setTimeout\s*\(/.test(patchSource));

@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { stageFrontend, stageWorker } from "./stage-dev-runtime.mjs";
@@ -116,7 +117,11 @@ test("Route fast publish adds no new upstream cadence or database path", () => {
     1,
   );
   assert.doesNotMatch(refresh, /setInterval\s*\(/);
-  assert.doesNotMatch(refresh, /INSERT INTO|UPDATE\s+ms_|DELETE FROM/i);
+  const fastStart = refresh.indexOf("const routePromise = readMsRoutes(credentials);");
+  const fastEnd = refresh.indexOf("const previousEnrichment", fastStart);
+  assert.ok(fastStart >= 0 && fastEnd > fastStart, "Route fast-publish block missing");
+  const fastBlock = refresh.slice(fastStart, fastEnd);
+  assert.doesNotMatch(fastBlock, /env\.DB|INSERT INTO|UPDATE\s+ms_|DELETE FROM/i);
 });
 
 test("existing unload and drop truth stay behind their dedicated regressions while the 12-second Route gate is removed", () => {

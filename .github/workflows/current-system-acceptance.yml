@@ -221,7 +221,7 @@ jobs:
             for(const hub of configuredHubs){
               const connector=connectors.get(hub)||[];
               const [liveResult,routeResult,preentryResult,busResult]=await Promise.all([
-                query('SELECT hub,synced_at,json_array_length(rows_json) FROM ms_live_cache WHERE hub=? LIMIT 1',[hub]),
+                query(`SELECT hub,synced_at,CASE WHEN json_valid(rows_json)=0 THEN 0 WHEN json_type(rows_json)='array' THEN json_array_length(rows_json) WHEN json_type(rows_json,'$.rows')='array' THEN json_array_length(json_extract(rows_json,'$.rows')) ELSE 0 END FROM ms_live_cache WHERE hub=? LIMIT 1`,[hub]),
                 query('SELECT hub,updated_at,last_success_at,last_error FROM ms_connections WHERE hub=? LIMIT 1',[hub]),
                 query('SELECT hub,updated_at,last_success_at,last_error FROM ms_preentry_connections WHERE hub=? LIMIT 1',[hub]),
                 query('SELECT hub,updated_at,last_success_at,last_error FROM ms_bus_connections WHERE hub=? LIMIT 1',[hub]),

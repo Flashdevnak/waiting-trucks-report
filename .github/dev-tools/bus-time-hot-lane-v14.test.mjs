@@ -229,9 +229,16 @@ test("staging replaces the legacy 60s guard, adds the runtime module, and keeps 
     assert.match(staged.source, /BUS_TIME_HOT_LANE_V14/);
     assert.match(staged.source, /createBusTimeHotLane/);
     assert.match(staged.source, /readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\)/);
+    assert.match(staged.source, /MS_ROUTE_LIFECYCLE_FAST_PUBLISH_V1/);
+    assert.match(staged.source, /const routePromise = readMsRoutes\(credentials\)/);
+    assert.match(staged.source, /const rows = await routePromise/);
+    assert.match(staged.source, /routeLifecycleFastTransition\(lifecycleBaselineRows, routeRows\)/);
+    assert.match(staged.source, /typeof waitUntil === "function"/);
+    assert.match(staged.source, /this\.ctx\.waitUntil\(promise\)/);
+    assert.match(staged.source, /routeLifecycleBaselineRows\.set\(branch, liveRows\)/);
     const refresh = staged.source.slice(
-      staged.source.indexOf("async function runMsRefresh(env, branch) {"),
-      staged.source.indexOf("\nasync function readMsLiveCache(", staged.source.indexOf("async function runMsRefresh(env, branch) {")),
+      staged.source.indexOf("async function runMsRefresh(env, branch, waitUntil = null) {"),
+      staged.source.indexOf("\nasync function readMsLiveCache(", staged.source.indexOf("async function runMsRefresh(env, branch, waitUntil = null) {")),
     );
     assert.equal(
       (refresh.match(/^\s*readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\),$/gm) || []).length,

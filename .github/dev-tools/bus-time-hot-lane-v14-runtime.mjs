@@ -125,6 +125,9 @@ export function createBusTimeHotLane(deps) {
         busLastError: "",
         busActiveRows: 0,
         previousActiveKeys: new Set(),
+        acceptedRouteHints: [],
+        rateLeaseLoaded: false,
+        rateLeasePresent: false,
       });
     }
     return states.get(key);
@@ -220,19 +223,22 @@ export function createBusTimeHotLane(deps) {
   }
 
   async function seedAccepted(env, hub, state) {
-    if (state.seeded) return;
+    if (state.seeded) return state.acceptedRouteHints;
     state.seeded = true;
     try {
       const row = await env.DB.prepare(
         "SELECT rows_json FROM ms_live_cache WHERE hub=?",
       ).bind(hub).first();
-      if (!row?.rows_json) return;
+      if (!row?.rows_json) return state.acceptedRouteHints;
       const parsed = JSON.parse(row.rows_json);
       const rows = Array.isArray(parsed)
         ? parsed
         : Array.isArray(parsed?.rows)
           ? parsed.rows
           : [];
+      // BUS_TIME_COLD_HINT_V21: reuse the same accepted-cache point read to
+      // recover the previous Route snapshot after Durable Object hibernation.
+      state.acceptedRouteHints = rows;
       const at = now();
       for (const item of rows) {
         const seeded = seedCandidate(item);
@@ -240,26 +246,99 @@ export function createBusTimeHotLane(deps) {
         state.cache.set(seeded.key, seeded.value);
         state.seen.set(seeded.key, at);
       }
+      return state.acceptedRouteHints;
     } catch (error) {
       logger.warn?.(JSON.stringify({
         event: "bus_time_seed_cache_error",
         hub,
         message: error?.message || String(error),
       }));
+      return state.acceptedRouteHints;
     }
+  }
+
+  const RATE_LEASE_SOURCE = "BUS_TIME_RATE_LIMIT";
+  const rateLeaseHub = (hub) => `__BUS_RATE_LIMIT__:${String(hub || "").trim().toUpperCase()}`;
+  const isRateLimitMessage = (value) =>
+    /request\s+exceeds\s+the\s+limit|rate.?limit|too many requests/i.test(String(value || ""));
+
+  async function loadRateLimitLease(env, hub, state) {
+    if (state.rateLeaseLoaded) return;
+    state.rateLeaseLoaded = true;
+    try {
+      const row = await env.DB.prepare(
+        "SELECT source_hash,claim_token,state,lease_until FROM ms_sync_claims WHERE hub=? LIMIT 1",
+      ).bind(rateLeaseHub(hub)).first();
+      if (!row || String(row.source_hash || "") !== RATE_LEASE_SOURCE) return;
+      state.rateLeasePresent = true;
+      const strikes = Number(String(row.claim_token || "").split(":").at(-1));
+      if (Number.isFinite(strikes) && strikes > 0)
+        state.rateLimitStrikes = Math.min(8, strikes);
+      const until = Date.parse(String(row.lease_until || ""));
+      if (String(row.state || "") === "ACTIVE" && Number.isFinite(until)) {
+        state.cooldownUntil = Math.max(state.cooldownUntil, until);
+        state.cooldownCode = "BUS_TIME_RATE_LIMIT";
+      }
+    } catch (error) {
+      logger.warn?.(JSON.stringify({
+        event: "bus_time_rate_lease_read_error",
+        hub,
+        message: error?.message || String(error),
+      }));
+    }
+  }
+
+  async function persistRateLimitLease(env, hub, state) {
+    const leaseUntil = new Date(state.cooldownUntil).toISOString();
+    const claimedAt = isoNow();
+    const token = `BUS_TIME_RATE_LIMIT:${Math.max(1, Number(state.rateLimitStrikes) || 1)}`;
+    const result = await safeStatusWrite(
+      env.DB.prepare(
+        "INSERT INTO ms_sync_claims(hub,source_hash,claim_token,state,lease_until,claimed_at,finished_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(hub) DO UPDATE SET source_hash=excluded.source_hash,claim_token=excluded.claim_token,state=excluded.state,lease_until=excluded.lease_until,claimed_at=excluded.claimed_at,finished_at=excluded.finished_at",
+      ).bind(rateLeaseHub(hub), RATE_LEASE_SOURCE, token, "ACTIVE", leaseUntil, claimedAt, "").run(),
+      "ms_bus_rate_lease_write_error",
+      hub,
+    );
+    if (result !== null) {
+      state.rateLeaseLoaded = true;
+      state.rateLeasePresent = true;
+    }
+    return result;
+  }
+
+  async function clearRateLimitLease(env, hub, state) {
+    if (!state.rateLeasePresent) return true;
+    const result = await safeStatusWrite(
+      env.DB.prepare(
+        "DELETE FROM ms_sync_claims WHERE hub=? AND source_hash=?",
+      ).bind(rateLeaseHub(hub), RATE_LEASE_SOURCE).run(),
+      "ms_bus_rate_lease_clear_error",
+      hub,
+    );
+    if (result !== null) state.rateLeasePresent = false;
+    return result !== null;
   }
 
   async function credentials(env, hub, state) {
     const at = now();
     if (state.credentialsUntil > at) return state.credentials;
     const row = await env.DB.prepare(
-      "SELECT credentials_cipher FROM ms_bus_connections WHERE hub=?",
+      "SELECT credentials_cipher,last_error FROM ms_bus_connections WHERE hub=?",
     ).bind(hub).first();
     if (!row?.credentials_cipher) {
       state.credentials = null;
       state.credentialsUntil = at + BUS_TIME_CREDENTIAL_CACHE_MS;
       return null;
     }
+    const storedError = String(row.last_error || "");
+    if (storedError) {
+      state.lastPersistedError = storedError;
+      state.lastErrorWriteAt = at;
+    }
+    // BUS_TIME_PERSISTENT_RATE_LEASE_V21: healthy HUBs pay no lease read.
+    // Only a persisted provider-limit error causes one namespaced point read.
+    if (isRateLimitMessage(storedError))
+      await loadRateLimitLease(env, hub, state);
     state.credentials = JSON.parse(await decryptMs(row.credentials_cipher, env));
     state.credentialsUntil = at + BUS_TIME_CREDENTIAL_CACHE_MS;
     return state.credentials;
@@ -384,13 +463,21 @@ export function createBusTimeHotLane(deps) {
 
   async function persistSuccess(env, hub, state) {
     const at = now();
-    if (at - state.lastHeartbeatAt < connectionHeartbeatMs) return;
+    const recovering = Boolean(
+      state.lastPersistedError ||
+      state.rateLeasePresent ||
+      state.cooldownCode,
+    );
+    if (!recovering && at - state.lastHeartbeatAt < connectionHeartbeatMs)
+      return true;
     state.lastHeartbeatAt = at;
-    await safeStatusWrite(
+    const result = await safeStatusWrite(
       markSuccess(env, "ms_bus_connections", hub),
       "ms_bus_success_write_error",
       hub,
     );
+    if (result !== null) state.lastPersistedError = "";
+    return result !== null;
   }
 
   async function persistError(env, hub, state, error) {
@@ -455,7 +542,8 @@ export function createBusTimeHotLane(deps) {
   async function readBusTimeData(env, hub, wantedDays = liveSourceDays(), routeRows = []) {
     const key = String(hub || "").trim().toUpperCase();
     const state = stateFor(key);
-    const routes = activeRows(routeRows);
+    const routeHintsProvided = Array.isArray(routeRows) && routeRows.length > 0;
+    let routes = activeRows(routeRows);
     state.busActiveRows = routes.length;
     state.busPagesLastCycle = 0;
 
@@ -465,7 +553,10 @@ export function createBusTimeHotLane(deps) {
     }
 
     const task = (async () => {
-      await seedAccepted(env, key, state);
+      const acceptedRows = await seedAccepted(env, key, state);
+      if (!routeHintsProvided && routes.length === 0 && acceptedRows.length > 0)
+        routes = activeRows(acceptedRows);
+      state.busActiveRows = routes.length;
       prune(state, routes);
       state.cycleSchedule = new Map();
 
@@ -508,6 +599,18 @@ export function createBusTimeHotLane(deps) {
         return result(state, state.cache.size > 0, "BUS_TIME_NOT_CONFIGURED");
       }
 
+      // A fresh isolate learns a persisted provider cooldown while loading the
+      // already-required credentials row. Re-check before any upstream fetch.
+      const afterCredentialAt = now();
+      if (state.cooldownUntil > afterCredentialAt) {
+        state.busCacheHits += 1;
+        return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
+      }
+      const recoveringFromRateLimit =
+        state.cooldownCode === "BUS_TIME_RATE_LIMIT" &&
+        state.cooldownUntil > 0 &&
+        state.cooldownUntil <= afterCredentialAt;
+
       const days = hotDays(wantedDays, routes);
       let cycleCalls = 0;
       let sourceSucceeded = false;
@@ -527,8 +630,10 @@ export function createBusTimeHotLane(deps) {
             sourceSucceeded = true;
           } catch (error) {
             state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
-            if (error?.code === "BUS_TIME_RATE_LIMIT") applyRateLimit(state, error);
-            else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
+            if (error?.code === "BUS_TIME_RATE_LIMIT") {
+              applyRateLimit(state, error);
+              await persistRateLimitLease(env, key, state);
+            } else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
             await persistError(env, key, state, error);
             logger.warn?.(JSON.stringify({
               event: "bus_time_hot_lane_error",
@@ -550,6 +655,7 @@ export function createBusTimeHotLane(deps) {
       else state.busCacheHits += 1;
 
       const backgroundDue =
+        !recoveringFromRateLimit &&
         missing > 0 &&
         (newlyActive || now() - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS);
       let backgroundCalls = 0;
@@ -573,8 +679,10 @@ export function createBusTimeHotLane(deps) {
             sourceSucceeded = true;
           } catch (error) {
             state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
-            if (error?.code === "BUS_TIME_RATE_LIMIT") applyRateLimit(state, error);
-            else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
+            if (error?.code === "BUS_TIME_RATE_LIMIT") {
+              applyRateLimit(state, error);
+              await persistRateLimitLease(env, key, state);
+            } else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
             await persistError(env, key, state, error);
             logger.warn?.(JSON.stringify({
               event: "bus_time_background_error",
@@ -590,10 +698,11 @@ export function createBusTimeHotLane(deps) {
       if (sourceSucceeded) {
         state.busLastSuccessAt = isoNow();
         state.busLastError = "";
+        const persisted = await persistSuccess(env, key, state);
+        if (persisted) await clearRateLimitLease(env, key, state);
         state.rateLimitStrikes = 0;
         state.cooldownUntil = 0;
         state.cooldownCode = "";
-        await persistSuccess(env, key, state);
       }
       return result(state);
     })().finally(() => active.delete(key));

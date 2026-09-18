@@ -135,6 +135,12 @@ const busTimeRouteHints = new Map();
 // work is kept alive by the Durable Object waitUntil hook.
 const routeLifecycleBaselineRows = new Map();
 
+function rememberRouteLifecycleRows(branch, rows) {
+  const value = Array.isArray(rows) ? rows : [];
+  routeLifecycleBaselineRows.set(String(branch || "").trim().toUpperCase(), value);
+  return value;
+}
+
 function routeLifecycleQueueKey(row) {
   const proofId = normalizeProofId(row?.proofId);
   const attendance = normalizeMsAttendance(row?.attendanceType);
@@ -363,28 +369,10 @@ source = replaceUnique(
   "Route lifecycle fast-publish Durable Object hook",
 );
 
-const liveResultAnchor = `    const result = {
-      status: "synced",
-      syncedAt: sync.syncedAt,
-      changes: sync.changes,
-      rows: msQueueFirstSourceRows(sync.rows, busData, branch),
-      completedToday: completedRows.length,
-      tbrShadowFeed,
-    };`;
-const liveResultReplacement = `    const liveRows = msQueueFirstSourceRows(sync.rows, busData, branch);
-    routeLifecycleBaselineRows.set(branch, liveRows);
-    const result = {
-      status: "synced",
-      syncedAt: sync.syncedAt,
-      changes: sync.changes,
-      rows: liveRows,
-      completedToday: completedRows.length,
-      tbrShadowFeed,
-    };`;
 source = replaceUnique(
   source,
-  liveResultAnchor,
-  liveResultReplacement,
+  "      rows: msQueueFirstSourceRows(sync.rows, busData, branch),",
+  "      rows: rememberRouteLifecycleRows(branch, msQueueFirstSourceRows(sync.rows, busData, branch)),",
   "Route lifecycle accepted baseline",
 );
 

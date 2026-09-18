@@ -1,5 +1,6 @@
 export const BUS_TIME_HOT_LANE_MARKER = "BUS_TIME_HOT_LANE_V14";
-export const BUS_TIME_HOT_REUSE_MS = 3000;
+// BUS_TIME_CADENCE_RESTORE_V20: keep KIT/TBR on its original ~12s source cadence; Route/UI realtime remains independent at ~4s.
+export const BUS_TIME_HOT_REUSE_MS = 12_000;
 // BUS_TIME_ACTIVE_FILTER_V18: verified MS filterCriteria says fleetStatus=1 means unfinished.
 export const BUS_TIME_ACTIVE_FLEET_STATUS = "1";
 export const BUS_TIME_BACKGROUND_INTERVAL_MS = 12_000;
@@ -8,7 +9,7 @@ export const BUS_TIME_MAX_CALLS_PER_CYCLE = 3;
 export const BUS_TIME_CACHE_RETENTION_MS = 36 * 60 * 60 * 1000;
 export const BUS_TIME_CREDENTIAL_CACHE_MS = 10 * 60 * 1000;
 // BUS_TIME_PROVIDER_COOLDOWN_V15: provider-limit recovery must not re-hit the source every few seconds.
-// Preserve the hot lane when healthy, but back off optional BusTime for 5m -> 60m on provider limits.
+// Preserve the ~12s KIT/TBR lane when healthy, but back off optional BusTime for 5m -> 60m on provider limits.
 export const BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
 export const BUS_TIME_RATE_LIMIT_MAX_COOLDOWN_MS = 60 * 60 * 1000;
 export const BUS_TIME_SESSION_COOLDOWN_MS = 60 * 60 * 1000;

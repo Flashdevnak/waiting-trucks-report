@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stageWorker } from "./stage-dev-runtime.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "../..");
@@ -36,7 +37,7 @@ const {
 function stageBusReader() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bus-hot-lane-v14-"));
   const worker = path.join(dir, "index.js");
-  fs.copyFileSync(canonicalWorker, worker);
+  fs.writeFileSync(worker, stageWorker(fs.readFileSync(canonicalWorker, "utf8")));
   execFileSync(process.execPath, [readonlyPatch, worker], { stdio: "pipe" });
   execFileSync(process.execPath, [splitPatch, worker], { stdio: "pipe" });
   execFileSync(process.execPath, [hotPatch, worker], { stdio: "pipe" });
@@ -150,6 +151,7 @@ function harness({
         day: parsed.searchParams.get("startDate"),
         page: Number(parsed.searchParams.get("page")),
         pageSize: Number(parsed.searchParams.get("pageSize")),
+        fleetStatus: parsed.searchParams.get("fleetStatus"),
         storeId: parsed.searchParams.get("storeId"),
         targetId: parsed.searchParams.get("targetId"),
         attendanceStatus: parsed.searchParams.get("attendanceStatus"),
@@ -177,7 +179,16 @@ test("staging replaces the legacy 60s guard, adds the runtime module, and keeps 
   try {
     assert.match(staged.source, /BUS_TIME_HOT_LANE_V14/);
     assert.match(staged.source, /createBusTimeHotLane/);
-    assert.match(staged.source, /readBusTimeData\(env, branch, liveSourceDays\(\), routeRows\)/);
+    assert.match(staged.source, /readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\)/);
+    const refresh = staged.source.slice(
+      staged.source.indexOf("async function runMsRefresh(env, branch) {"),
+      staged.source.indexOf("\nasync function readMsLiveCache(", staged.source.indexOf("async function runMsRefresh(env, branch) {")),
+    );
+    assert.equal(
+      (refresh.match(/^\s*readBusTimeData\(env, branch, liveSourceDays\(\), routeHintRows\),$/gm) || []).length,
+      1,
+      "one shared refresh must execute exactly one BusTime read",
+    );
     assert.match(staged.source, /busDiagnostics: busTimeDiagnostics\(hub\)/);
     assert.doesNotMatch(staged.source, /BUS_TIME_SOURCE_TTL_MS\s*=\s*60\s*\*\s*1000/);
     assert.equal(fs.existsSync(staged.runtime), true);
@@ -195,7 +206,22 @@ test("legacy amplification is 30/90/300/600 calls per minute for 50/250/1000/200
   );
 });
 
-test("steady state detects current-day BusTime every ~4s with one hot request when one page is enough", async () => {
+test("idle/origin/completed-only Route state makes zero BusTime upstream calls", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
+  });
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, []);
+  h.advance(60_000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [
+    { proofId: "P-ORG", attendanceType: "ต้นทาง", unloadingState: 0 },
+    { proofId: "P-DONE", attendanceType: "จุดดรอป", unloadingState: 2 },
+  ]);
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.stats().credentialReads, 0);
+  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 0);
+});
+
+test("active BusTime keeps KIT/TBR at ~12s while Route/UI can continue their ~4s cycle", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -204,28 +230,32 @@ test("steady state detects current-day BusTime every ~4s with one hot request wh
   assert.equal(h.calls.length, 1);
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls.length, 1, "4-second Route/UI refresh must reuse KIT/TBR cache");
+  h.advance(8000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 2, "KIT/TBR page 1 refreshes at ~12 seconds");
   assert.equal(h.calls.every((call) => call.page === 1), true);
-  assert.equal(h.stats().credentialReads, 1, "credentials must be cached, not read every 4 seconds");
+  assert.equal(h.calls.every((call) => call.fleetStatus === "1"), true);
+  assert.equal(h.stats().credentialReads, 1, "credentials stay shared/cached");
 });
 
-test("deep pagination is incremental and bounded to one background page per cycle", async () => {
+test("deep pagination and KIT/TBR page 1 remain bounded at ~12s", async () => {
   const h = harness({
     fetchHandler: async ({ page }) => page === 1
-      ? response({ total: 250, items: [item("P1")] })
-      : response({ total: 250, items: [item(`P${page}`)] }),
+      ? response({ total: 300, items: [item("P1")] })
+      : response({ total: 300, items: [item("P" + page)] }),
   });
-  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }];
+  const routes = [{ proofId: "P3", attendanceType: "ปลายทาง", unloadingState: 0 }];
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 2);
   assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 3);
-  assert.equal(h.calls.at(-1).page, 1);
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
   h.advance(8000);
-  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.deepEqual(h.calls.slice(-2).map((call) => call.page), [1, 3]);
+  const map = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2, 1, 3]);
+  assert.ok(map.has("P:P3|A:ปลายทาง"));
+  assert.equal(h.calls.every((call) => call.fleetStatus === "1"), true);
   assert.ok(h.lane.diagnostics("NE1").busPagesLastCycle <= BUS_TIME_MAX_CALLS_PER_CYCLE);
 });
 
@@ -261,20 +291,55 @@ test("100 concurrent clients on one HUB coalesce into one BusTime source reader"
   assert.equal(h.lane.diagnostics("NE1").busHotCalls, 1);
 });
 
-test("two HUBs keep isolated state and each gets only its own shared reader", async () => {
+test("two HUBs keep isolated active-demand state and each gets only its own shared reader", async () => {
   const h = harness({
-    fetchHandler: async ({ day }) => response({ total: 50, items: [item(`P-${day}`)] }),
+    fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
+  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }];
   await Promise.all([
-    h.lane.readBusTimeData(h.env, "NE1", undefined, []),
-    h.lane.readBusTimeData(h.env, "EA2", undefined, []),
+    h.lane.readBusTimeData(h.env, "NE1", undefined, routes),
+    h.lane.readBusTimeData(h.env, "EA2", undefined, routes),
   ]);
   assert.equal(h.calls.length, 2);
   assert.equal(h.lane.diagnostics("NE1").busHotCalls, 1);
   assert.equal(h.lane.diagnostics("EA2").busHotCalls, 1);
 });
 
-test("cross-midnight active route adds at most yesterday page 1; completed route does not", async () => {
+test("origin routes never enter BusTime active scope or force yesterday hot reads", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ total: 50, items: [item("P-DST")] }),
+  });
+  const routes = [
+    { proofId: "P-ORG", attendanceType: "ต้นทาง", unloadingState: 0, estimatedArrivalAt: "2026-09-12T14:00:00.000Z" },
+    { proofId: "P-DST", attendanceType: "ปลายทาง", unloadingState: 0, estimatedArrivalAt: "2026-09-13T01:00:00.000Z" },
+    { proofId: "P-DROP-DONE", attendanceType: "จุดดรอป", unloadingState: 2, estimatedArrivalAt: "2026-09-12T15:00:00.000Z" },
+  ];
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.deepEqual(h.calls.map((call) => call.day), ["2026-09-13"]);
+  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
+});
+
+test("persistent deep misses stay 12s while newly active proof gets immediate background priority", async () => {
+  const h = harness({
+    fetchHandler: async ({ page }) => page === 1
+      ? response({ total: 300, items: [item("P1")] })
+      : response({ total: 300, items: [item("P" + page)] }),
+  });
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P2", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
+  h.advance(4000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.deepEqual(h.calls.slice(-1).map((call) => call.page), [3]);
+  const callsAfterNewActive = h.calls.length;
+  h.advance(4000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.equal(h.calls.length, callsAfterNewActive);
+  h.advance(8000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.equal(h.calls.length, callsAfterNewActive + 2);
+});
+
+test("cross-midnight active route adds yesterday page 1; completed-only routes make zero BusTime calls", async () => {
   const h1 = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -292,7 +357,8 @@ test("cross-midnight active route adds at most yesterday page 1; completed route
   });
   const completedYesterday = [{ ...activeYesterday[0], unloadingState: 2 }];
   await h2.lane.readBusTimeData(h2.env, "NE1", undefined, completedYesterday);
-  assert.deepEqual(h2.calls.map((call) => call.day), ["2026-09-13"]);
+  assert.deepEqual(h2.calls, []);
+  assert.equal(h2.stats().credentialReads, 0);
 });
 
 test("429 is BUS_TIME_RATE_LIMIT, honors Retry-After, preserves accepted cache and does not retry during cooldown", async () => {
@@ -326,11 +392,14 @@ test("Retry-After parser supports both seconds and HTTP dates", () => {
   assert.equal(parseBusRetryAfter("Sun, 13 Sep 2026 00:00:30 GMT", now), 30000);
 });
 
-test("unverified upstream filters remain empty instead of inventing HUB/store IDs", async () => {
+test("verified unfinished filter is used while unverified HUB/store filters stay empty", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
-  await h.lane.readBusTimeData(h.env, "NE1", undefined, []);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [
+    { proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 },
+  ]);
+  assert.equal(h.calls[0].fleetStatus, "1");
   assert.equal(h.calls[0].storeId, "");
   assert.equal(h.calls[0].targetId, "");
   assert.equal(h.calls[0].attendanceStatus, "");
@@ -341,7 +410,9 @@ test("diagnostics expose quota-safe required counters without a telemetry DB wri
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
-  await h.lane.readBusTimeData(h.env, "NE1", undefined, []);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [
+    { proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 },
+  ]);
   const diag = h.lane.diagnostics("NE1");
   for (const key of [
     "busHotCalls",
@@ -358,4 +429,31 @@ test("diagnostics expose quota-safe required counters without a telemetry DB wri
     "busTotalKnownRows",
   ]) assert.ok(Object.hasOwn(diag, key), `missing ${key}`);
   assert.equal(diag.mode, "BUS_TIME_HOT_LANE_V14");
+});
+
+test("JSON Request exceeds the limit without Retry-After uses 5m-to-60m provider cooldown", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ message: "Request exceeds the limit" }),
+  });
+  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }];
+
+  const first = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1);
+  assert.equal(first.sourceCode, "BUS_TIME_RATE_LIMIT");
+  let diag = h.lane.diagnostics("NE1");
+  assert.equal(Date.parse(diag.busCooldownUntil) - h.stats().clock, 5 * 60 * 1000);
+
+  h.advance(4_000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1, "4-second visible refresh must not re-hit limited BusTime");
+
+  h.advance(5 * 60 * 1000 - 4_000 - 1);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1, "provider cooldown must hold for the full first five minutes");
+
+  h.advance(1);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 2, "one retry is allowed when the provider cooldown expires");
+  diag = h.lane.diagnostics("NE1");
+  assert.equal(Date.parse(diag.busCooldownUntil) - h.stats().clock, 10 * 60 * 1000);
 });

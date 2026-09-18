@@ -4,8 +4,8 @@ This file intentionally lives under `.github/dev-tools/**` so the normal `Deploy
 
 Contract:
 - DEV only; no Production deployment.
-- Frontend/Route cadence remains 4 seconds.
-- BusTime hot detection remains ~4 seconds without full pagination on every cycle.
+- Frontend/Route cadence remains 4 seconds and is not changed by the KIT/TBR cadence.
+- BusTime KIT/TBR source cadence remains ~12 seconds without full pagination on every cycle.
 - Deep BusTime pagination is incremental and bounded.
 - Per-HUB shared reader/cache; client count must not amplify upstream calls.
 - HTTP 429 / `Request exceeds the limit` is BusTime degradation, not session expiry.

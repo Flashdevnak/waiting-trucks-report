@@ -67,3 +67,17 @@ test("DEV-only frontend staging is complete, idempotent, and stays out of canoni
   assert.match(first, /pollMs:\s*4000/);
   assert.ok(first.includes("DEV: archive stays lazy"));
 });
+
+
+test("DEV operational lifecycle stays Route-owned; PreEntry and Schedule completion cannot finish a truck", () => {
+  const staged = stageFrontend(source);
+  const start = staged.indexOf("function inboundOperationalStage(row, now = new Date())");
+  const end = staged.indexOf("\nfunction renderFilterSummary(rows)", start);
+  assert.ok(start >= 0 && end > start, "staged operational lifecycle helper must exist");
+  const lifecycle = staged.slice(start, end);
+  assert.match(lifecycle, /MS_ROUTE_UNLOAD_LIFECYCLE_TRUTH_V20/);
+  assert.match(lifecycle, /Boolean\(parseDate\(row\.scheduleUnloadingStartedAt\)\)/);
+  assert.match(lifecycle, /const hasFinished = unloadingState === 2;/);
+  assert.doesNotMatch(lifecycle, /scheduleUnloadingCompletedAt/);
+  assert.doesNotMatch(lifecycle, /expectedParcels|enteredParcels|pendingParcels|percent|percentage/i);
+});

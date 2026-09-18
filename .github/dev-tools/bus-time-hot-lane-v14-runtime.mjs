@@ -5,8 +5,10 @@ export const BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_MAX_CALLS_PER_CYCLE = 3;
 export const BUS_TIME_CACHE_RETENTION_MS = 36 * 60 * 60 * 1000;
 export const BUS_TIME_CREDENTIAL_CACHE_MS = 10 * 60 * 1000;
-export const BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 8_000;
-export const BUS_TIME_RATE_LIMIT_MAX_COOLDOWN_MS = 5 * 60 * 1000;
+// BUS_TIME_PROVIDER_COOLDOWN_V15: provider-limit recovery must not re-hit the source every few seconds.
+// Preserve the hot lane when healthy, but back off optional BusTime for 5m -> 60m on provider limits.
+export const BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
+export const BUS_TIME_RATE_LIMIT_MAX_COOLDOWN_MS = 60 * 60 * 1000;
 export const BUS_TIME_SESSION_COOLDOWN_MS = 60 * 60 * 1000;
 
 export function parseBusRetryAfter(value, nowMs = Date.now()) {

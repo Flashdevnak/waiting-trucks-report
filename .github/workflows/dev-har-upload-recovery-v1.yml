@@ -8,6 +8,9 @@ on:
       - '.github/dev-tools/patch-ms-self-healing-supervisor.mjs'
       - '.github/dev-tools/ms-har-upload-recovery-v1.test.mjs'
       - 'worker/package.json'
+      - '.github/dev-tools/bus-time-hot-lane-v14-runtime.mjs'
+      - '.github/dev-tools/bus-time-hot-lane-v14.test.mjs'
+      - '.github/dev-tools/patch-bus-time-hot-lane-v14.mjs'
       - 'ms.js'
       - 'worker/src/**'
   workflow_dispatch:

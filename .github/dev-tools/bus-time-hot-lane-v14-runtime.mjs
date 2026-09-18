@@ -1,5 +1,6 @@
 export const BUS_TIME_HOT_LANE_MARKER = "BUS_TIME_HOT_LANE_V14";
 export const BUS_TIME_HOT_REUSE_MS = 3000;
+export const BUS_TIME_SOURCE_HEARTBEAT_MS = 60 * 1000;
 export const BUS_TIME_BACKGROUND_INTERVAL_MS = 12_000;
 export const BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_MAX_CALLS_PER_CYCLE = 3;
@@ -452,19 +453,10 @@ export function createBusTimeHotLane(deps) {
   async function readBusTimeData(env, hub, wantedDays = liveSourceDays(), routeRows = []) {
     const key = String(hub || "").trim().toUpperCase();
     const state = stateFor(key);
-    const at = now();
     const routes = activeRows(routeRows);
     state.busActiveRows = routes.length;
     state.busPagesLastCycle = 0;
 
-    if (state.cooldownUntil > at) {
-      state.busCacheHits += 1;
-      return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
-    }
-    if (state.lastHotAt && at - state.lastHotAt < BUS_TIME_HOT_REUSE_MS) {
-      state.busCacheHits += 1;
-      return result(state);
-    }
     if (active.has(key)) {
       state.busCacheHits += 1;
       return active.get(key);
@@ -474,6 +466,41 @@ export function createBusTimeHotLane(deps) {
       await seedAccepted(env, key, state);
       prune(state, routes);
       state.cycleSchedule = new Map();
+
+      const activeKeys = new Set(routes.map(cacheKey).filter(Boolean));
+      const newlyActive = [...activeKeys].some(
+        (activeKey) => !state.previousActiveKeys.has(activeKey),
+      );
+      let missingKeys = [...activeKeys].filter(
+        (activeKey) => !state.cache.has(activeKey),
+      );
+      state.previousActiveKeys = activeKeys;
+
+      if (routes.length === 0) {
+        state.busCacheHits += 1;
+        return result(state);
+      }
+
+      const at = now();
+      if (state.cooldownUntil > at) {
+        state.busCacheHits += 1;
+        return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
+      }
+
+      const hotDue =
+        !state.lastHotAt ||
+        (newlyActive && at - state.lastHotAt >= BUS_TIME_HOT_REUSE_MS) ||
+        at - state.lastHotAt >= BUS_TIME_SOURCE_HEARTBEAT_MS;
+      const backgroundDueBefore =
+        missingKeys.length > 0 &&
+        (newlyActive || at - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS);
+
+      if (!hotDue && !backgroundDueBefore) {
+        if (missingKeys.length > 0) state.busCacheMisses += missingKeys.length;
+        else state.busCacheHits += 1;
+        return result(state);
+      }
+
       const credential = await credentials(env, key, state);
       if (!credential) {
         state.busLastError = "BUS_TIME_NOT_CONFIGURED";
@@ -482,58 +509,48 @@ export function createBusTimeHotLane(deps) {
 
       const days = hotDays(wantedDays, routes);
       let cycleCalls = 0;
-      let hotSucceeded = false;
+      let sourceSucceeded = false;
 
-      for (const day of days) {
-        if (cycleCalls >= BUS_TIME_MAX_CALLS_PER_CYCLE) break;
-        try {
-          recordCall(state, "hot");
-          cycleCalls += 1;
-          const first = await readPage(credential, 1, day);
-          state.pageCounts.set(
-            day,
-            Math.min(20, Math.max(1, Math.ceil((first.total || first.items.length) / 100))),
-          );
-          mergeItems(state, first.items, key);
-          hotSucceeded = true;
-        } catch (error) {
-          state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
-          if (error?.code === "BUS_TIME_RATE_LIMIT") applyRateLimit(state, error);
-          else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
-          await persistError(env, key, state, error);
-          logger.warn?.(JSON.stringify({
-            event: "bus_time_hot_lane_error",
-            hub: key,
-            code: error?.code || "BUS_TIME_SOURCE_ERROR",
-            message: error?.message || String(error),
-          }));
-          return result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR");
+      if (hotDue) {
+        for (const day of days) {
+          if (cycleCalls >= BUS_TIME_MAX_CALLS_PER_CYCLE) break;
+          try {
+            recordCall(state, "hot");
+            cycleCalls += 1;
+            const first = await readPage(credential, 1, day);
+            state.pageCounts.set(
+              day,
+              Math.min(20, Math.max(1, Math.ceil((first.total || first.items.length) / 100))),
+            );
+            mergeItems(state, first.items, key);
+            sourceSucceeded = true;
+          } catch (error) {
+            state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
+            if (error?.code === "BUS_TIME_RATE_LIMIT") applyRateLimit(state, error);
+            else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
+            await persistError(env, key, state, error);
+            logger.warn?.(JSON.stringify({
+              event: "bus_time_hot_lane_error",
+              hub: key,
+              code: error?.code || "BUS_TIME_SOURCE_ERROR",
+              message: error?.message || String(error),
+            }));
+            return result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR");
+          }
         }
+        state.lastHotAt = now();
       }
 
-      state.lastHotAt = now();
-      if (hotSucceeded) {
-        state.busLastSuccessAt = isoNow();
-        state.busLastError = "";
-        state.rateLimitStrikes = 0;
-        state.cooldownUntil = 0;
-        state.cooldownCode = "";
-        await persistSuccess(env, key, state);
-      }
-
-      const activeKeys = new Set(routes.map(cacheKey).filter(Boolean));
-      const missingKeys = [...activeKeys].filter((key) => !state.cache.has(key));
-      const newlyMissing = missingKeys.some(
-        (key) => !state.previousActiveKeys.has(key),
+      missingKeys = [...activeKeys].filter(
+        (activeKey) => !state.cache.has(activeKey),
       );
-      state.previousActiveKeys = activeKeys;
       const missing = missingKeys.length;
       if (missing > 0) state.busCacheMisses += missing;
       else state.busCacheHits += 1;
 
       const backgroundDue =
-        newlyMissing ||
-        now() - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS;
+        missing > 0 &&
+        (newlyActive || now() - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS);
       let backgroundCalls = 0;
       if (
         backgroundDue &&
@@ -552,6 +569,7 @@ export function createBusTimeHotLane(deps) {
             const page = await readPage(credential, background.page, background.day);
             mergeItems(state, page.items, key);
             state.lastBackgroundAt = now();
+            sourceSucceeded = true;
           } catch (error) {
             state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
             if (error?.code === "BUS_TIME_RATE_LIMIT") applyRateLimit(state, error);
@@ -568,6 +586,14 @@ export function createBusTimeHotLane(deps) {
         }
       }
 
+      if (sourceSucceeded) {
+        state.busLastSuccessAt = isoNow();
+        state.busLastError = "";
+        state.rateLimitStrikes = 0;
+        state.cooldownUntil = 0;
+        state.cooldownCode = "";
+        await persistSuccess(env, key, state);
+      }
       return result(state);
     })().finally(() => active.delete(key));
 

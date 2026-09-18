@@ -205,7 +205,22 @@ test("legacy amplification is 30/90/300/600 calls per minute for 50/250/1000/200
   );
 });
 
-test("steady state detects current-day BusTime every ~4s with one hot request when one page is enough", async () => {
+test("idle/origin/completed-only Route state makes zero BusTime upstream calls", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
+  });
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, []);
+  h.advance(60_000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [
+    { proofId: "P-ORG", attendanceType: "ต้นทาง", unloadingState: 0 },
+    { proofId: "P-DONE", attendanceType: "จุดดรอป", unloadingState: 2 },
+  ]);
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.stats().credentialReads, 0);
+  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 0);
+});
+
+test("active BusTime reuses cache across 4s visible ticks and heartbeats source at 60s", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -214,28 +229,30 @@ test("steady state detects current-day BusTime every ~4s with one hot request wh
   assert.equal(h.calls.length, 1);
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls.length, 1, "4-second visible refresh must reuse BusTime cache");
+  h.advance(56_000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 2, "BusTime page 1 heartbeat resumes at 60 seconds");
   assert.equal(h.calls.every((call) => call.page === 1), true);
-  assert.equal(h.stats().credentialReads, 1, "credentials must be cached, not read every 4 seconds");
+  assert.equal(h.stats().credentialReads, 1, "credentials stay shared/cached");
 });
 
-test("deep pagination is incremental and bounded to one background page per cycle", async () => {
+test("deep pagination runs only while an active proof is missing and stays at one page per 12s cycle", async () => {
   const h = harness({
     fetchHandler: async ({ page }) => page === 1
-      ? response({ total: 250, items: [item("P1")] })
-      : response({ total: 250, items: [item(`P${page}`)] }),
+      ? response({ total: 300, items: [item("P1")] })
+      : response({ total: 300, items: [item(`P${page}`)] }),
   });
-  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }];
+  const routes = [{ proofId: "P3", attendanceType: "ปลายทาง", unloadingState: 0 }];
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 2);
   assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 3);
-  assert.equal(h.calls.at(-1).page, 1);
+  assert.equal(h.calls.length, 2, "no 4-second page-1 repeat while deep search is pending");
   h.advance(8000);
-  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.deepEqual(h.calls.slice(-2).map((call) => call.page), [1, 3]);
+  const map = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2, 3]);
+  assert.ok(map.has("P:P3|A:ปลายทาง"));
   assert.ok(h.lane.diagnostics("NE1").busPagesLastCycle <= BUS_TIME_MAX_CALLS_PER_CYCLE);
 });
 
@@ -271,13 +288,14 @@ test("100 concurrent clients on one HUB coalesce into one BusTime source reader"
   assert.equal(h.lane.diagnostics("NE1").busHotCalls, 1);
 });
 
-test("two HUBs keep isolated state and each gets only its own shared reader", async () => {
+test("two HUBs keep isolated active-demand state and each gets only its own shared reader", async () => {
   const h = harness({
-    fetchHandler: async ({ day }) => response({ total: 50, items: [item(`P-${day}`)] }),
+    fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
+  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }];
   await Promise.all([
-    h.lane.readBusTimeData(h.env, "NE1", undefined, []),
-    h.lane.readBusTimeData(h.env, "EA2", undefined, []),
+    h.lane.readBusTimeData(h.env, "NE1", undefined, routes),
+    h.lane.readBusTimeData(h.env, "EA2", undefined, routes),
   ]);
   assert.equal(h.calls.length, 2);
   assert.equal(h.lane.diagnostics("NE1").busHotCalls, 1);
@@ -298,7 +316,7 @@ test("origin routes never enter BusTime active scope or force yesterday hot read
   assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
 });
 
-test("persistent deep-page misses respect 12s cadence while a newly active proof gets immediate priority", async () => {
+test("persistent deep misses stay 12s while a newly active proof bypasses the 60s heartbeat", async () => {
   const h = harness({
     fetchHandler: async ({ page }) => page === 1
       ? response({ total: 300, items: [item("P1")] })
@@ -312,12 +330,13 @@ test("persistent deep-page misses respect 12s cadence while a newly active proof
   const callsAfterNewActive = h.calls.length;
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
-  assert.equal(h.calls.length, callsAfterNewActive + 1);
+  assert.equal(h.calls.length, callsAfterNewActive);
   h.advance(8000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
-  assert.equal(h.calls.length, callsAfterNewActive + 3);
+  assert.equal(h.calls.length, callsAfterNewActive + 1);
 });
-test("cross-midnight active route adds at most yesterday page 1; completed route does not", async () => {
+
+test("cross-midnight active route adds yesterday page 1; completed-only routes make zero BusTime calls", async () => {
   const h1 = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -335,7 +354,8 @@ test("cross-midnight active route adds at most yesterday page 1; completed route
   });
   const completedYesterday = [{ ...activeYesterday[0], unloadingState: 2 }];
   await h2.lane.readBusTimeData(h2.env, "NE1", undefined, completedYesterday);
-  assert.deepEqual(h2.calls.map((call) => call.day), ["2026-09-13"]);
+  assert.deepEqual(h2.calls, []);
+  assert.equal(h2.stats().credentialReads, 0);
 });
 
 test("429 is BUS_TIME_RATE_LIMIT, honors Retry-After, preserves accepted cache and does not retry during cooldown", async () => {
@@ -373,7 +393,9 @@ test("unverified upstream filters remain empty instead of inventing HUB/store ID
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
-  await h.lane.readBusTimeData(h.env, "NE1", undefined, []);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [
+    { proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 },
+  ]);
   assert.equal(h.calls[0].storeId, "");
   assert.equal(h.calls[0].targetId, "");
   assert.equal(h.calls[0].attendanceStatus, "");
@@ -384,7 +406,9 @@ test("diagnostics expose quota-safe required counters without a telemetry DB wri
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
-  await h.lane.readBusTimeData(h.env, "NE1", undefined, []);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [
+    { proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 },
+  ]);
   const diag = h.lane.diagnostics("NE1");
   for (const key of [
     "busHotCalls",
@@ -402,7 +426,6 @@ test("diagnostics expose quota-safe required counters without a telemetry DB wri
   ]) assert.ok(Object.hasOwn(diag, key), `missing ${key}`);
   assert.equal(diag.mode, "BUS_TIME_HOT_LANE_V14");
 });
-
 
 test("JSON Request exceeds the limit without Retry-After uses 5m-to-60m provider cooldown", async () => {
   const h = harness({

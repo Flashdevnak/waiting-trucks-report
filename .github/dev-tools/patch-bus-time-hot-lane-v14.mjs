@@ -353,13 +353,13 @@ source = replaceUnique(
 source = replaceUnique(
   source,
   `    const task = runMsRefresh(this.env, branch)
-      .then((result) => {`,
+      .then(async (result) => {`,
   `    const task = runMsRefresh(
       this.env,
       branch,
       (promise) => this.ctx.waitUntil(promise),
     )
-      .then((result) => {`,
+      .then(async (result) => {`,
   "Route lifecycle fast-publish Durable Object hook",
 );
 

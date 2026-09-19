@@ -137,6 +137,7 @@ export function patchLiveEvidenceV29Worker(source) {
   );
 
   const mergeReplacement = `function mergeCompletedToday(previousRows, liveRows, day) {
+  // completion cache only trusts observed live unloading transitions
   const latest = new Map();
   const merge = (row) => {
     const id = row?.id || row?.routeId || row?.proofId;

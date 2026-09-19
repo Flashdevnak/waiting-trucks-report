@@ -96,14 +96,14 @@ test("V18 summary remains bound to clicked/live row counts", () => {
 
 test("V18 visible palette applies gold black theme and Backing option E to actual controls", () => {
   assert.match(staged, /pno-v18-head\{[^}]*background:#FFD400/);
-  assert.match(staged, /pno-v18-table th\{[^}]*background:#FFD400[^}]*border-bottom:2px solid #151515[^}]*color:#151515/);
-  assert.match(staged, /button\[data-pno-v18-type=\\?"bag\\?"\][^}]*#5F70DB[^}]*#4C5CC4/);
-  assert.match(staged, /button\[data-pno-v18-type=\\?"bag\\?"\]\.is-active\{[^}]*background:#7B8CFF[^}]*color:#fff/);
-  assert.match(staged, /pno-v18-bag-card\{border-left-color:#7B8CFF/);
+  assert.match(staged, /pno-v18-table th\{[^}]*background:#242424[^}]*color:#fff[^}]*text-align:center/);
+  assert.match(staged, /button\[data-pno-v18-type=\\?"bag\\?"\][^}]*#c8cac6[^}]*#202124/);
+  assert.match(staged, /button\[data-pno-v18-type=\\?"bag\\?"\]\.is-active\{[^}]*background:#f1f2f3[^}]*color:#202124/);
+  assert.match(staged, /pno-v18-bag-card\{border-left-color:#d7dad5/);
 });
 
 test("V18 classic mobile keeps vertical cards and hides wide desktop tables", () => {
-  assert.match(staged, /PNO_V18_CLASSIC_GOLD_TABLE_V5/);
+  assert.match(staged, /PNO_V18_NEUTRAL_GRID_V6/);
   assert.match(staged, /pno-v18-mobile-card pno-v18-parcel-card/);
   assert.match(staged, /pno-v18-mobile-card pno-v18-bag-card/);
   assert.ok(staged.includes("pno-v18-desktop{display:none!important}"));
@@ -124,7 +124,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-classic-gold-table-v5/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-neutral-grid-v6/);
 });
 
 
@@ -142,14 +142,15 @@ test("V18 CSS text uses real newlines so all rules and mobile media queries pars
 });
 
 
-test("V18 classic presentation stays compact while table uses approved gold black palette", () => {
-  assert.match(staged, /PNO_V18_CLASSIC_GOLD_TABLE_V5/);
-  assert.match(staged, /pno-v18-toolbar/);
-  assert.match(staged, /<th>#<\/th><th>PNO<\/th><th>สถานะ<\/th><th>ล่าสุด<\/th><th>ปลายทาง<\/th><th>เวลา<\/th>/);
-  assert.ok(staged.includes("pno-v18-table th{padding:10px 12px;background:#FFD400;border-bottom:2px solid #151515;color:#151515"));
-  assert.ok(staged.includes("pno-v18-table tbody tr:nth-child(even)>td{background:#fcfcfa}"));
-  assert.ok(staged.includes("pno-v18-table tbody tr:hover>td{background:#fff7cc}"));
-  assert.ok(staged.includes("pno-v18-inner th{padding:9px 11px;background:#7B8CFF;color:#fff;border-bottom:1px solid #5F70DB"));
+test("V18 classic presentation uses neutral summary cards and centered grid table", () => {
+  assert.match(staged, /PNO_V18_NEUTRAL_GRID_V6/);
+  assert.ok(staged.includes("pno-v18-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 16px"));
+  assert.ok(staged.includes("pno-v18-summary-item{min-height:70px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #dfe3e6;border-radius:7px;background:#fff"));
+  assert.ok(staged.includes("pno-v18-table th{padding:10px 12px;background:#242424;border:1px solid #4a4a4a;color:#fff;text-align:center"));
+  assert.ok(staged.includes("pno-v18-table td{padding:11px 12px;border:1px solid #e3e6e8;background:#fff"));
+  assert.ok(staged.includes("pno-v18-table tbody tr:nth-child(even)>td{background:#fafafa}"));
+  assert.ok(staged.includes("pno-v18-table tbody tr:hover>td{background:#f4f5f6}"));
+  assert.ok(staged.includes("pno-v18-badge{display:inline;color:#252525"));
   assert.match(staged, /PNO_V18_VIEW_CACHE_MS = 60 \* 1000/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
 });

@@ -24,12 +24,12 @@ test("approved PNO modal v18 is staged after Round2", () => {
   assert.match(staged, /data-pno-v18-type="bag"/);
 });
 
-test("approved palette stays Flash yellow black with Backing option E", () => {
-  assert.match(staged, /#ffd400/);
-  assert.match(staged, /#151515/);
-  assert.match(staged, /#7B8CFF/);
-  assert.match(staged, /#5F70DB/);
+test("approved PNO palette is neutral black white with light-gray grid", () => {
+  assert.match(staged, /#242424/);
+  assert.match(staged, /#dfe3e6/);
+  assert.match(staged, /#e3e6e8/);
   assert.match(staged, /is-backing/);
+  assert.doesNotMatch(staged.slice(staged.indexOf("PNO_V18_NEUTRAL_GRID_V6")), /#7B8CFF|#5F70DB|background:#FFD400/);
 });
 
 test("Backing is grouped by bag and expands inline", () => {
@@ -94,9 +94,11 @@ test("V18 summary remains bound to clicked/live row counts", () => {
 });
 
 
-test("V18 visible palette applies gold black theme and Backing option E to actual controls", () => {
-  assert.match(staged, /pno-v18-head\{[^}]*background:#FFD400/);
+test("V18 visible palette applies neutral cards and centered black table header", () => {
+  assert.match(staged, /pno-v18-head\{[^}]*background:#fff/);
+  assert.match(staged, /pno-v18-summary-item\{[^}]*border:1px solid #dfe3e6[^}]*background:#fff/);
   assert.match(staged, /pno-v18-table th\{[^}]*background:#242424[^}]*color:#fff[^}]*text-align:center/);
+  assert.match(staged, /pno-v18-table td\{[^}]*border:1px solid #e3e6e8[^}]*background:#fff/);
   assert.match(staged, /button\[data-pno-v18-type=\\?"bag\\?"\][^}]*#c8cac6[^}]*#202124/);
   assert.match(staged, /button\[data-pno-v18-type=\\?"bag\\?"\]\.is-active\{[^}]*background:#f1f2f3[^}]*color:#202124/);
   assert.match(staged, /pno-v18-bag-card\{border-left-color:#d7dad5/);

@@ -95,3 +95,34 @@ jobs:
             console.log('DEV_LIVE_READONLY_ACCEPTANCE=PASS');
           })().catch(error=>{ console.error(error); process.exit(1); });
           NODE
+      - name: Verify deployed DEV UI asset contains PNO affordance and completed sort
+        env:
+          WORKER_ORIGIN: https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const origin=process.env.WORKER_ORIGIN;
+            const stamp=Date.now();
+            const [jsResponse,htmlResponse]=await Promise.all([
+              fetch(origin+'/ms.js?v='+stamp,{cache:'no-store'}),
+              fetch(origin+'/ms.html?v='+stamp,{cache:'no-store'})
+            ]);
+            if(!jsResponse.ok) throw new Error('DEV ms.js HTTP '+jsResponse.status);
+            if(!htmlResponse.ok) throw new Error('DEV ms.html HTTP '+htmlResponse.status);
+            const js=await jsResponse.text();
+            const html=await htmlResponse.text();
+            if(!js.includes('ดูรายละเอียดพัสดุ')) throw new Error('live PNO visible detail CTA missing');
+            if(!js.includes('data-pno-detail-card')) throw new Error('live PNO detail card hook missing');
+            if(!js.includes('pnoV29OpenDetail')) throw new Error('live PNO open-detail handler missing');
+            if(!js.includes('trustedLowerCompletionAt')) throw new Error('live trusted completed sort hook missing');
+            if(!/return bCompleted - aCompleted/.test(js)) throw new Error('live newest-first completion comparator missing');
+            if(!html.includes('pending-parcels-dialog')) throw new Error('live PNO modal shell missing');
+            new Function(js);
+            console.log('DEV_LIVE_PNO_VISIBLE_CTA=PASS');
+            console.log('DEV_LIVE_PNO_CLICK_HANDLER=PASS');
+            console.log('DEV_LIVE_PNO_MODAL_SHELL=PASS');
+            console.log('DEV_LIVE_COMPLETED_SORT_HOOK=PASS');
+            console.log('DEV_LIVE_MS_JS_SYNTAX=PASS');
+            console.log('PRODUCTION_TOUCHED=0');
+          })().catch(error=>{console.error(error);process.exit(1);});
+          NODE

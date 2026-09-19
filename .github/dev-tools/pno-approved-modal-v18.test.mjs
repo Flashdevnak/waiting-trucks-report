@@ -131,7 +131,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-ownhub-single-truth-v24/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-ownhub-bag-evidence-v25/);
 });
 
 
@@ -352,8 +352,8 @@ test("V22 operational resolver refuses origin without new timers or DB work", ()
 });
 
 
-test("V24 final staged runtime has one correction authority and no V23 overlap", () => {
-  assert.match(staged, /PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V24/);
+test("V25 final staged runtime has one correction authority and no V23 overlap", () => {
+  assert.match(staged, /PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V25/);
   assert.doesNotMatch(staged, /PNO_PENDING_TOTAL_INTERSECTION_V23/);
   assert.doesNotMatch(staged, /function pnoOperationalNeedsTotalMetadata/);
   assert.doesNotMatch(staged, /function pnoOperationalEnrichPendingFromTotal/);
@@ -361,7 +361,7 @@ test("V24 final staged runtime has one correction authority and no V23 overlap",
   assert.equal((staged.match(/function pnoOperationalBuildTruth\(row, totalRows, alreadyRows\)/g) || []).length, 1);
 });
 
-test("V24 correction uses MS total universe minus MS already baseline only", () => {
+test("V25 correction uses MS total universe minus MS already baseline only", () => {
   const build = staged.slice(staged.indexOf("function pnoOperationalBuildTruth"), staged.indexOf("async function pnoOperationalLoadAllRaw"));
   assert.match(build, /const totalMap = pnoOperationalUniqueMap\(totalRows\)/);
   assert.match(build, /const alreadyMap = pnoOperationalUniqueMap\(alreadyRows\)/);
@@ -373,17 +373,17 @@ test("V24 correction uses MS total universe minus MS already baseline only", () 
   assert.doesNotMatch(build, /no_entry|EnrichPending|unresolved/);
 });
 
-test("V24 own-HUB isolation uses the currently selected HUB and exact canonical equality", () => {
+test("V25 own-HUB isolation uses the currently selected HUB and exact canonical equality", () => {
   const section = staged.slice(staged.indexOf("function pnoOperationalCanonicalHub"), staged.indexOf("function pnoOperationalRawSummary"));
   assert.match(section, /function pnoOperationalCurrentHub\(\)/);
   assert.match(section, /pnoOperationalCanonicalHub\(state\.branch\)/);
   assert.match(section, /pnoOperationalCanonicalHub\(targetHub\) === current/);
   assert.match(section, /String\(item\?\.backingNo \|\| ""\)\.trim\(\)/);
-  assert.match(section, /String\(item\?\.lastAction \|\| ""\)\.trim\(\) === "สแกนเข้าคลัง"/);
+  assert.doesNotMatch(section, /lastAction/);
   assert.doesNotMatch(section, /row\?\.hub\)\s*\|\||AYU1TS8R72|KKC1TSBP54|02 NE1_HUB|["']NE1["']/);
 });
 
-test("V24 verifies detail counts before correction and fails safe to raw MS counts", () => {
+test("V25 verifies detail counts before correction and fails safe to raw MS counts", () => {
   const build = staged.slice(staged.indexOf("function pnoOperationalBuildTruth"), staged.indexOf("async function pnoOperationalLoadAllRaw"));
   assert.match(build, /totalMap\.size !== raw\.expected/);
   assert.match(build, /alreadyMap\.size !== raw\.entered/);
@@ -391,7 +391,7 @@ test("V24 verifies detail counts before correction and fails safe to raw MS coun
   assert.match(build, /CORRECTED_DETAIL_COUNT_MISMATCH/);
 });
 
-test("V24 resolver loads total first and loads already only when an own-HUB exception exists", () => {
+test("V25 resolver loads total first and loads already only when an own-HUB exception exists", () => {
   const resolver = staged.slice(staged.indexOf("async function pnoOperationalResolve"), staged.indexOf("function pnoOperationalPaginate"));
   assert.match(resolver, /await pnoOperationalLoadAllRaw\(row, "total"\)/);
   assert.match(resolver, /ownHubCandidatesExist/);
@@ -401,7 +401,7 @@ test("V24 resolver loads total first and loads already only when an own-HUB exce
   assert.doesNotMatch(resolver, /pnoOperationalLoadAllRaw\(row, "no_entry"\)/);
 });
 
-test("V24 corrected already and remaining modal pages share the same verified truth", () => {
+test("V25 corrected already and remaining modal pages share the same verified truth", () => {
   const virtual = staged.slice(staged.indexOf("async function pnoOperationalVirtualPage"), staged.indexOf("function pnoOperationalRefreshCard"));
   assert.match(virtual, /!truth\?\.verified \|\| truth\.correction <= 0/);
   assert.match(virtual, /type === "no_entry"/);
@@ -410,7 +410,7 @@ test("V24 corrected already and remaining modal pages share the same verified tr
   assert.match(virtual, /truth\.enteredRows \|\| \[\]/);
 });
 
-test("V24 remains destination/drop only and quota-safe", () => {
+test("V25 remains destination/drop only and quota-safe", () => {
   const runtimeStart = staged.indexOf("const PNO_OPERATIONAL_TRUTH_CACHE_MS");
   const runtimeEnd = staged.indexOf("function expectedParcelsBadge", runtimeStart);
   assert.ok(runtimeStart >= 0 && runtimeEnd > runtimeStart);
@@ -423,7 +423,29 @@ test("V24 remains destination/drop only and quota-safe", () => {
   assert.doesNotMatch(section, /setInterval\s*\(|setTimeout\s*\(|apiPost\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i);
 });
 
-test("V24 does not hardcode any example truck or HUB", () => {
-  const section = staged.slice(staged.indexOf("PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V24"));
+test("V25 does not hardcode any example truck or HUB", () => {
+  const section = staged.slice(staged.indexOf("PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V25"));
   assert.doesNotMatch(section, /AYU1TS8R72|KKC1TSBP54|02 NE1_HUB|20 NE6_HUB|["']NE1["']|["']NE6["']/);
+});
+
+
+test("V25 own-HUB Backing remains receipt evidence after latest action changes", () => {
+  const section = staged.slice(staged.indexOf("function pnoOperationalCandidate"), staged.indexOf("function pnoOperationalRawSummary"));
+  assert.match(section, /pnoOperationalNormalizePno\(item\?\.pno\)/);
+  assert.match(section, /String\(item\?\.backingNo \|\| ""\)\.trim\(\)/);
+  assert.match(section, /pnoOperationalHubMatches\(item\?\.targetHub\)/);
+  assert.doesNotMatch(section, /lastAction|สแกนเข้าคลัง|แบ็กกิ้ง|ปริ้นท์ใบลาเบล/);
+});
+
+test("V25 current 355 fixture allows mixed later actions without changing own-HUB bag membership", () => {
+  const current = [
+    ...Array.from({ length: 96 }, (_, i) => ({ pno: "SCAN-" + i, backingNo: "B1", lastAction: "สแกนเข้าคลัง", targetHub: "02 NE1_HUB-นครราชสีมา" })),
+    ...Array.from({ length: 16 }, (_, i) => ({ pno: "BAG-" + i, backingNo: "B2", lastAction: "แบ็กกิ้ง", targetHub: "02 NE1_HUB-นครราชสีมา" })),
+    { pno: "LABEL-1", backingNo: "B3", lastAction: "ปริ้นท์ใบลาเบล", targetHub: "02 NE1_HUB-นครราชสีมา" },
+  ];
+  assert.equal(current.length, 113);
+  const ownHub = current.filter((item) => /(^|\s)NE1_(?:B?HUB)\b/.test(String(item.targetHub).toUpperCase()) && item.backingNo);
+  assert.equal(ownHub.length, 113);
+  assert.equal(ownHub.filter((item) => item.lastAction === "สแกนเข้าคลัง").length, 96);
+  assert.equal(ownHub.filter((item) => item.lastAction !== "สแกนเข้าคลัง").length, 17);
 });

@@ -1,4 +1,4 @@
-const MARKER = "PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V24";
+const MARKER = "PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V25";
 
 function replaceUnique(source, from, to, label) {
   const first = source.indexOf(from);
@@ -17,7 +17,7 @@ export function patchPnoOwnHubSingleTruthV24(source) {
   output = replaceUnique(
     output,
     `// PNO_PENDING_TOTAL_INTERSECTION_V23: pending PNO membership is authoritative; when no_entry omits Backing metadata, enrich only those pending PNOs from total before correction.`,
-    `// ${MARKER}: one clean operational-truth authority. MS total is the universe, MS already is the baseline entered set, and only own-HUB Backing rows with real lastAction=สแกนเข้าคลัง can correct receipt counts.`,
+    `// ${MARKER}: one clean operational-truth authority. MS total is the universe, MS already is the baseline entered set, and own-HUB Backing membership itself is receipt evidence because later branch bagging/label actions can replace the earlier inbound-scan lastAction.`,
     "replace V23 correction authority marker",
   );
 
@@ -67,7 +67,6 @@ function pnoOperationalCandidate(item) {
   return Boolean(
     pnoOperationalNormalizePno(item?.pno) &&
     String(item?.backingNo || "").trim() &&
-    String(item?.lastAction || "").trim() === "สแกนเข้าคลัง" &&
     pnoOperationalHubMatches(item?.targetHub)
   );
 }

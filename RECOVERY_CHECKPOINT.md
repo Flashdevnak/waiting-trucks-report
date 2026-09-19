@@ -33,6 +33,20 @@
 - Recovery slice 2: run the staged Drop/KIT/TBR queue-lifecycle regression as part of the standard `npm run check`, not only inside the deploy workflow.
 - Recovery slice 3: bound daily-history snapshots, cancellations, and completion verification to the selected range cutoff so future snapshots cannot rewrite an earlier report.
 
+## DEV deployment status
+
+- Recovery PR: `#121`
+- Merged `main` commit: `aa0f0f4586ccb61c6e91fd2d2bde4cb9b73d9ab9`
+- Deploy Worker DEV run: `#713` — PASS
+- TBR Test Runtime Regression run: `#114` — PASS
+- Cutover Dry Run: `#466` — PASS
+- Mobile Shell Responsive DEV run: `#432` — PASS
+- Current System Acceptance run: `#211` — FAIL only at per-HUB source health
+  - `NE1`: PASS (Route, PreEntry, BusTime and live snapshot healthy)
+  - `EA2`: FAIL because Route credentials still return `401`; BusTime and live snapshot are present, PreEntry is optional/unconfigured
+- Live DEV page after deploy: ready; staged asset contains `MS_QUEUE_LIFECYCLE_SINGLE_TRUTH_V1`, `MS_REALTIME_WS_V1`, and `pollMs: 4000`.
+- Do not rerun or suppress the EA2 failure. It requires valid EA2 Route authentication evidence, not a lifecycle/history code patch.
+
 ## Next safe slices
 
 1. Expand the executable lifecycle contract to cover exact 12-hour expiry, summary/list parity, and Supervisor parity against the final staged runtime.

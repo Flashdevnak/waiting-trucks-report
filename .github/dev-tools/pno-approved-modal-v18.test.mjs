@@ -88,14 +88,14 @@ test("V18 preserves the staged row-object PNO opener contract", () => {
   assert.doesNotMatch(opener, /String\(row\s*\|\|/);
 });
 
-test("V21 modal summary stays bound to clicked row through corrected operational truth", () => {
+test("V28 modal summary stays bound to clicked row through corrected pending-membership truth", () => {
   const source = staged.slice(staged.indexOf("function pnoV18SourceRow"), staged.indexOf("function pnoV18EnsureUi"));
   assert.match(source, /pnoV18State\.sourceRow/);
   const summary = staged.slice(staged.indexOf("function pnoV18RenderSummary"), staged.indexOf("function pnoV18SetActive"));
-  assert.match(summary, /const truth = pnoOperationalSummaryForRow\(row\)/);
-  assert.match(summary, /const total = truth\.expected/);
-  assert.match(summary, /const entered = truth\.entered/);
-  assert.match(summary, /const pending = truth\.pending/);
+  assert.match(summary, /const truth = typeof pnoOperationalSummaryForRow === "function"/);
+  assert.match(summary, /truth\?\.expected \?\? row\?\.expectedParcels/);
+  assert.match(summary, /truth\?\.entered \?\? row\?\.enteredParcels/);
+  assert.match(summary, /truth\?\.pending \?\? row\?\.pendingParcels/);
 });
 
 
@@ -163,14 +163,16 @@ test("V18 classic presentation uses neutral summary cards and centered grid tabl
 });
 
 
-test("V18 table UX splits destinations, summarizes bags, unlocks scrolling, and copies TSV", () => {
+test("V27/V28 table UX keeps display detail while copy uses latest-only and one route HUB", () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.ok(staged.includes("<th>HUB ปลายทาง</th><th>สาขาปลายทาง</th><th>เวลา</th>"));
   assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>ล่าสุด</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>สาขาถัดไป</th><th></th>"));
   assert.match(staged, /function pnoV18BagSummary/);
   assert.match(staged, /หลายสถานะ/);
-  assert.match(staged, /หลาย HUB/);
   assert.match(staged, /หลายสาขา/);
+  const bagSummary = staged.slice(staged.indexOf("function pnoV18BagSummary"), staged.indexOf("function pnoV18RenderBags"));
+  assert.match(bagSummary, /sourceRow\?\.pnoNextStoreName/);
+  assert.doesNotMatch(bagSummary, /หลาย HUB|\(item\) => item\.targetHub/);
   const bagRender = staged.slice(staged.indexOf("function pnoV18RenderBags"), staged.indexOf("async function pnoV18LoadBags"));
   assert.doesNotMatch(bagRender, />Backing</);
   assert.ok(staged.includes("pno-v18-table td{padding:11px 12px;border:1px solid #e3e6e8;background:#fff;color:#252525;text-align:center"));
@@ -179,12 +181,15 @@ test("V18 table UX splits destinations, summarizes bags, unlocks scrolling, and 
   assert.ok(staged.includes("#pending-parcels-dialog{width:min(1120px,calc(100vw - 24px));max-width:1120px;max-height:calc(100dvh - 20px);overflow-y:auto"));
   assert.match(staged, /function pnoV18WriteClipboard/);
   assert.match(staged, /พร้อมวางใน Excel\/Sheets/);
-  assert.match(staged, /\["#", "PNO", "สถานะ", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"\]\.join\("\\t"\)/);
+  const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
+  assert.match(copy, /\["#", "PNO", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"\]/);
+  assert.match(copy, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "สาขาถัดไป"\]/);
+  assert.doesNotMatch(copy, /"สถานะ"/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
 });
 
 
-test("V18 LINE copy button uses loaded data only and formats readable LINE text", () => {
+test("V27 LINE copy uses loaded filtered data, sorts HUB-status-bag, and shows every bag", () => {
   assert.match(staged, /id="copy-line-pending-parcels"[^>]*>คัดลอก LINE<\/button>/);
   assert.match(staged, /copy-line-pending-parcels"\)\.onclick = pnoV18CopyLine/);
   assert.match(staged, /function pnoV18LineHeader/);
@@ -192,10 +197,15 @@ test("V18 LINE copy button uses loaded data only and formats readable LINE text"
   assert.match(staged, /📦 รายการพัสดุเข้าคลัง/);
   assert.match(staged, /หมวด: แบ็กกิ้ง/);
   assert.match(staged, /คัดลอกสำหรับ LINE/);
-  const lineCopy = staged.slice(staged.indexOf("async function pnoV18CopyLine"), staged.indexOf("function pnoV18Export"));
+  const lineCopy = staged.slice(staged.indexOf("async function pnoV18CopyLine"), staged.indexOf("async function pnoV18Export"));
   assert.doesNotMatch(lineCopy, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
-  assert.match(lineCopy, /pnoV18VisibleParcelEntries\(\)/);
+  assert.match(lineCopy, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(lineCopy, /pnoV18FilteredBagGroups\(\)/);
+  assert.match(lineCopy, /a\.summary\.hub\.localeCompare/);
+  assert.match(lineCopy, /a\.summary\.status\.localeCompare/);
+  assert.match(lineCopy, /a\.bag\.localeCompare/);
+  assert.match(lineCopy, /groups\.forEach/);
+  assert.doesNotMatch(lineCopy, /pnoV18AppendLineLimited\(lines, groups/);
   assert.match(lineCopy, /pnoV18WriteClipboard/);
 });
 
@@ -308,11 +318,14 @@ test("V20 Backing adds latest-action filter and keeps it local-only", () => {
   assert.doesNotMatch(bagFilter, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
 });
 
-test("V21 copy LINE and export preserve the raw MS action helper", () => {
+test("V27 copy and LINE expose raw latest action without a duplicate status column", () => {
   const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
-  assert.match(copy, /pnoV18ParcelAction\(row\)/);
+  assert.match(copy, /row\.lastAction \|\| ""/);
+  assert.match(copy, /summary\.latest/);
+  assert.doesNotMatch(copy, /"สถานะ"/);
   const line = staged.slice(staged.indexOf("async function pnoV18CopyLine()"), staged.indexOf("async function pnoV18Export()"));
-  assert.match(line, /pnoV18ParcelAction\(row\)/);
+  assert.match(line, /pnoV18LineCell\(row\.lastAction\)/);
+  assert.match(line, /group\.summary\.status/);
   const exp = staged.slice(staged.indexOf("async function pnoV18Export()"), staged.indexOf("openPendingParcels = async function"));
   assert.match(exp, /"การดำเนินการล่าสุด": pnoV18ParcelAction\(row\)/);
 });
@@ -352,26 +365,31 @@ test("V22 operational resolver refuses origin without new timers or DB work", ()
 });
 
 
-test("V25 final staged runtime has one correction authority and no V23 overlap", () => {
+test("V28 final staged runtime has one pending-membership correction authority and no V23 overlap", () => {
   assert.match(staged, /PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V25/);
+  assert.match(staged, /PNO_PENDING_MEMBERSHIP_INTERSECTION_V28/);
   assert.doesNotMatch(staged, /PNO_PENDING_TOTAL_INTERSECTION_V23/);
   assert.doesNotMatch(staged, /function pnoOperationalNeedsTotalMetadata/);
   assert.doesNotMatch(staged, /function pnoOperationalEnrichPendingFromTotal/);
   assert.equal((staged.match(/async function pnoOperationalResolve\(row\)/g) || []).length, 1);
-  assert.equal((staged.match(/function pnoOperationalBuildTruth\(row, totalRows, alreadyRows\)/g) || []).length, 1);
+  assert.equal((staged.match(/function pnoOperationalBuildTruth\(row, totalRows, pendingRows\)/g) || []).length, 1);
 });
 
-test("V25 correction uses MS total universe minus MS already baseline only", () => {
+
+test("V28 correction uses MS total universe intersected with provider pending membership", () => {
   const build = staged.slice(staged.indexOf("function pnoOperationalBuildTruth"), staged.indexOf("async function pnoOperationalLoadAllRaw"));
   assert.match(build, /const totalMap = pnoOperationalUniqueMap\(totalRows\)/);
-  assert.match(build, /const alreadyMap = pnoOperationalUniqueMap\(alreadyRows\)/);
-  assert.match(build, /if \(alreadyMap\.has\(pno\)\) continue/);
-  assert.match(build, /if \(pnoOperationalCandidate\(item\)\) candidates\.push\(item\)/);
+  assert.match(build, /const pendingMap = pnoOperationalUniqueMap\(pendingRows\)/);
+  assert.match(build, /pendingMap\.size !== raw\.pending/);
+  assert.match(build, /for \(const pno of pendingMap\.keys\(\)\)/);
+  assert.match(build, /const totalItem = totalMap\.get\(pno\)/);
+  assert.match(build, /pnoOperationalCandidate\(totalItem\)/);
   assert.match(build, /correctedEntered = enteredRows\.length/);
   assert.match(build, /correctedPending = remainingRows\.length/);
   assert.match(build, /correctedEntered \+ correctedPending !== raw\.expected/);
-  assert.doesNotMatch(build, /no_entry|EnrichPending|unresolved/);
+  assert.doesNotMatch(build, /alreadyMap|alreadyRows/);
 });
+
 
 test("V25 own-HUB isolation uses the currently selected HUB and exact canonical equality", () => {
   const section = staged.slice(staged.indexOf("function pnoOperationalCanonicalHub"), staged.indexOf("function pnoOperationalRawSummary"));
@@ -383,23 +401,25 @@ test("V25 own-HUB isolation uses the currently selected HUB and exact canonical 
   assert.doesNotMatch(section, /row\?\.hub\)\s*\|\||AYU1TS8R72|KKC1TSBP54|02 NE1_HUB|["']NE1["']/);
 });
 
-test("V25 verifies detail counts before correction and fails safe to raw MS counts", () => {
+test("V28 verifies total and pending detail counts before correction and fails safe to raw MS counts", () => {
   const build = staged.slice(staged.indexOf("function pnoOperationalBuildTruth"), staged.indexOf("async function pnoOperationalLoadAllRaw"));
   assert.match(build, /totalMap\.size !== raw\.expected/);
-  assert.match(build, /alreadyMap\.size !== raw\.entered/);
-  assert.match(build, /ALREADY_NOT_SUBSET_OF_TOTAL/);
+  assert.match(build, /pendingMap\.size !== raw\.pending/);
+  assert.match(build, /PENDING_NOT_SUBSET_OF_TOTAL/);
   assert.match(build, /CORRECTED_DETAIL_COUNT_MISMATCH/);
 });
 
-test("V25 resolver loads total first and loads already only when an own-HUB exception exists", () => {
+
+test("V28 resolver loads total first and pending only when an own-HUB exception exists", () => {
   const resolver = staged.slice(staged.indexOf("async function pnoOperationalResolve"), staged.indexOf("function pnoOperationalPaginate"));
   assert.match(resolver, /await pnoOperationalLoadAllRaw\(row, "total"\)/);
   assert.match(resolver, /ownHubCandidatesExist/);
   assert.match(resolver, /if \(!ownHubCandidatesExist\)/);
-  assert.match(resolver, /await pnoOperationalLoadAllRaw\(row, "already"\)/);
-  assert.match(resolver, /pnoOperationalBuildTruth\(row, total\.rows, already\.rows\)/);
-  assert.doesNotMatch(resolver, /pnoOperationalLoadAllRaw\(row, "no_entry"\)/);
+  assert.match(resolver, /await pnoOperationalLoadAllRaw\(row, "no_entry"\)/);
+  assert.match(resolver, /pnoOperationalBuildTruth\(row, total\.rows, pending\.rows\)/);
+  assert.doesNotMatch(resolver, /pnoOperationalLoadAllRaw\(row, "already"\)/);
 });
+
 
 test("V25 corrected already and remaining modal pages share the same verified truth", () => {
   const virtual = staged.slice(staged.indexOf("async function pnoOperationalVirtualPage"), staged.indexOf("function pnoOperationalRefreshCard"));

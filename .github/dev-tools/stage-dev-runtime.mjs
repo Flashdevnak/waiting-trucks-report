@@ -48,6 +48,7 @@ import {
 } from "./patch-ms-unloading-start-truth-v2.mjs";
 import { patchPnoUltraLowQuotaFrontend } from "./patch-pno-ultra-low-quota-v1.mjs";
 import { patchPnoRound2Frontend, patchPnoRound2Worker } from "./patch-pno-round2-v1.mjs";
+import { patchPnoDetailTruthFrontend, patchPnoDetailTruthWorker } from "./patch-pno-detail-truth-v1.mjs";
 import { patchPnoApprovedModalV18 } from "./patch-pno-approved-modal-v18.mjs";
 import {
   patchMsDailyHistoryFrontend,
@@ -392,6 +393,7 @@ export function stageFrontend(source) {
   // HAR/connection patch. This preserves Post Cutover staging idempotency.
   output = patchPnoUltraLowQuotaFrontend(output);
   output = patchPnoRound2Frontend(output);
+  output = patchPnoDetailTruthFrontend(output);
   output = patchPnoApprovedModalV18(output);
   return output;
 }
@@ -426,6 +428,7 @@ export function stageWorker(source) {
   output = patchSupervisorSharedSnapshot(output);
   output = patchDevRootEntryWorker(output);
   output = patchPnoRound2Worker(output);
+  output = patchPnoDetailTruthWorker(output);
   return output;
 }
 

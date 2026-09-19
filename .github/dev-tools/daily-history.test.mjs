@@ -65,7 +65,7 @@ test("daily history UI release and lower-reference SW revision are current", () 
   assert.match(html, /รายการรายวัน/);
   assert.match(html, /วันนี้ หรือช่วงวันที่ที่กดค้นหา/);
   assert.match(html, /Export ช่วงวันที่/);
-  assert.match(html, /ms\.js\?v=20260919-pno-test-v2-presentation-v4/);
+  assert.match(html, /ms\.js\?v=20260919-pno-classic-gold-table-v5/);
   assert.equal(version.version, "20260904-01");
   // The data-release manifest remains frozen. The scoped MS asset revision
   // identifies the current lower presentation/freshness revision without changing pipelines.

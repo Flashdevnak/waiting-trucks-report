@@ -2468,6 +2468,10 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
   // MS_DAILY_HISTORY_MAX_7_DAYS_V1: 7 calendar days inclusive means at most 6 days between start/end.
   if (endMs - startMs > 6 * 86400000)
     fail("เลือกค้นหาข้อมูลย้อนหลังได้ครั้งละไม่เกิน 7 วัน", "DATE_RANGE_TOO_LARGE");
+  // MS_DAILY_HISTORY_POINT_IN_TIME_V1: a historical search may only use
+  // evidence observed by the end of the selected Bangkok calendar range.
+  // Later snapshots must never rewrite an earlier report.
+  const historyCutoff = new Date(endMs).toISOString();
 
   const [historyResult, cancellationResult] = await Promise.all([
     env.DB.prepare(
@@ -2479,6 +2483,7 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
             SELECT h2.rowid
             FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot
             WHERE h2.hub=r.hub AND h2.route_id=r.route_id
+              AND h2.snapshot_at<=?
             ORDER BY h2.snapshot_at DESC,h2.rowid DESC
             LIMIT 1
           )
@@ -2506,12 +2511,12 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
       WHERE business_day>=? AND business_day<=?
       ORDER BY business_day DESC,snapshot_at DESC`,
     )
-      .bind(hub, hub, start, end)
+      .bind(historyCutoff, hub, hub, start, end)
       .all(),
     env.DB.prepare(
-      "SELECT route_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1",
+      "SELECT route_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1 AND cancelled_at<=?",
     )
-      .bind(hub)
+      .bind(hub, historyCutoff)
       .all(),
   ]);
 
@@ -2544,6 +2549,8 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
     start,
     end,
     source: "TURSO_DAILY_HISTORY",
+    historyMode: "POINT_IN_TIME",
+    asOf: historyCutoff,
     upstreamMsCalls: 0,
     historyWrites: 0,
   };

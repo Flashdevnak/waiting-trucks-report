@@ -48,12 +48,32 @@ test("daily-history Worker read is complete, database-only and bounded to 7 cale
   assert.match(section, /เลือกค้นหาข้อมูลย้อนหลังได้ครั้งละไม่เกิน 7 วัน/);
   assert.doesNotMatch(section, /31 \* 86400000/);
   assert.match(section, /DATE_RANGE_TOO_LARGE/);
+  assert.match(section, /MS_DAILY_HISTORY_POINT_IN_TIME_V1/);
+  assert.match(section, /const historyCutoff = new Date\(endMs\)\.toISOString\(\)/);
+  assert.match(section, /h2\.snapshot_at<=\?/);
+  assert.match(section, /\.bind\(historyCutoff, hub, hub, start, end\)/);
+  assert.match(section, /cancelled_at<=\?/);
+  assert.match(section, /verifiedCompletionRouteIds\(env, hub, historyCutoff\)/);
+  assert.match(section, /historyMode:\s*"POINT_IN_TIME"/);
+  assert.match(section, /asOf:\s*historyCutoff/);
   assert.match(section, /FROM ms_route_registry r/);
   assert.match(section, /ms_route_history/);
   assert.match(section, /upstreamMsCalls:\s*0/);
   assert.match(section, /historyWrites:\s*0/);
   assert.doesNotMatch(section, /readMsRoutes\(|syncMs\(/);
   assert.doesNotMatch(section, /\b(?:INSERT|UPDATE|DELETE)\b/i);
+});
+
+test("historical completion evidence is bounded by the same point-in-time cutoff", () => {
+  const start = worker.indexOf(
+    "async function verifiedCompletionRouteIds(env, hub, snapshotCutoff = \"\")",
+  );
+  const end = worker.indexOf("async function ensureMsCompletionRepair", start);
+  assert.ok(start >= 0 && end > start);
+  const section = worker.slice(start, end);
+  assert.match(section, /MS_COMPLETION_HISTORY_CUTOFF_V1/);
+  assert.match(section, /\(\?='' OR snapshot_at<=\?\)/);
+  assert.match(section, /\.bind\(hub, cutoff, cutoff\)\.all\(\)/);
 });
 
 test("daily UI no longer offers lifetime accumulated export", () => {

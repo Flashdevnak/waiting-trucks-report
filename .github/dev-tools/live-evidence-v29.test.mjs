@@ -70,7 +70,7 @@ test("V29 staged worker preserves stored TBR on sync completion and recovers his
   assert.match(worker, /async function recoverCompletedTbrV29/);
   const recover = worker.slice(worker.indexOf("async function recoverCompletedTbrV29"), worker.indexOf("async function readMsCompletedToday"));
   assert.match(recover, /ms_route_history INDEXED BY idx_ms_route_history_hub_route_snapshot/);
-  assert.match(recover, /route_id IN \(\$\{placeholders\}\)/);
+  assert.match(recover, /"WHERE hub=\\? AND route_id IN \\(" \\+ placeholders \\+ "\\) "/);
   assert.match(recover, /scheduleTbrArrivalAt/);
   assert.doesNotMatch(recover, /fetch\s*\(|readBusPage|readBusTimeData|INSERT|UPDATE|DELETE/i);
   const completed = worker.slice(worker.indexOf("async function readMsCompletedToday"), worker.indexOf("async function markConnectionSuccess"));

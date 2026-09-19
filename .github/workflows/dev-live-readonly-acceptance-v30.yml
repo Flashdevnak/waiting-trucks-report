@@ -1,0 +1,97 @@
+name: DEV Live Readonly Acceptance V30
+
+on:
+  push:
+    branches: [codex/dev-live-readonly-acceptance-v30]
+    paths:
+      - '.github/workflows/dev-live-readonly-acceptance-v30.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_PLATFORM_API_TOKEN: ${{ secrets.TURSO_PLATFORM_API_TOKEN }}
+      TURSO_ORG: flashdevnak
+      TURSO_DATABASE: waiting-trucks-dev-turso-20260902192750
+    steps:
+      - name: Read one accepted NE1 live snapshot
+        run: |
+          node <<'NODE'
+          (async()=>{
+            const org=process.env.TURSO_ORG, db=process.env.TURSO_DATABASE, platform=process.env.TURSO_PLATFORM_API_TOKEN;
+            if(!platform) throw new Error('TURSO_PLATFORM_API_TOKEN missing');
+            async function json(url,options={},label='request'){
+              const response=await fetch(url,options);
+              const text=await response.text();
+              let body;
+              try{ body=JSON.parse(text); }catch{ throw new Error(label+' non-JSON HTTP '+response.status); }
+              if(!response.ok) throw new Error(label+' HTTP '+response.status);
+              return body;
+            }
+            const meta=await json('https://api.turso.tech/v1/organizations/'+org+'/databases/'+db,{headers:{Authorization:'Bearer '+platform}},'db lookup');
+            const database=meta.database||meta;
+            const hostname=database.Hostname||database.hostname;
+            const tokenBody=await json('https://api.turso.tech/v1/organizations/'+org+'/databases/'+db+'/auth/tokens?authorization=full-access',{method:'POST',headers:{Authorization:'Bearer '+platform}},'token');
+            const token=tokenBody.jwt;
+            if(!hostname||!token) throw new Error('Turso credentials unavailable');
+            console.log('::add-mask::'+token);
+            const body=JSON.stringify({requests:[
+              {type:'execute',stmt:{sql:"SELECT rows_json,synced_at FROM ms_live_cache WHERE hub='NE1' LIMIT 1"}},
+              {type:'close'}
+            ]});
+            const pipe=await json('https://'+hostname+'/v2/pipeline',{method:'POST',headers:{Authorization:'Bearer '+token,'content-type':'application/json'},body},'pipeline');
+            const result=pipe?.results?.[0];
+            if(result?.type==='error') throw new Error(JSON.stringify(result.error));
+            const dbRows=result?.response?.result?.rows||[];
+            if(dbRows.length!==1) throw new Error('NE1 live cache row missing');
+            const cell=(v)=>v&&typeof v==='object'&&'value' in v?v.value:v;
+            const raw=String(cell(dbRows[0][0])||'');
+            const syncedAt=String(cell(dbRows[0][1])||'');
+            const parsed=JSON.parse(raw||'[]');
+            const live=Array.isArray(parsed)?parsed:(Array.isArray(parsed.rows)?parsed.rows:[]);
+            const completed=(!Array.isArray(parsed)&&Array.isArray(parsed.completedRows))?parsed.completedRows:[];
+            const proof=(row)=>String(row?.proofId||row?.proof_id||row?.id||'').trim().toUpperCase();
+            const att=(row)=>String(row?.attendanceType||row?.attendance_type||'').trim().toLowerCase();
+            const tbr=(row)=>String(row?.scheduleTbrArrivalAt||row?.schedule_tbr_arrival_at||'').trim();
+            const dep=(row)=>String(row?.actualDepartureAt||row?.actual_departure_at||'').trim();
+            const state=(row)=>Number(row?.unloadingState??row?.unloading_state??-1);
+            const isDrop=(row)=>/จุดดร|drop/.test(att(row));
+            const target='AYU1TS8R72';
+            const ayu=[...live,...completed].find(row=>proof(row)===target)||null;
+            const awaiting=live.filter(row=>isDrop(row)&&state(row)===2&&!dep(row));
+            const awaitingTbr=awaiting.filter(row=>tbr(row));
+            const completedTbr=completed.filter(row=>tbr(row));
+            const safe=(row)=>row?{
+              proofId:proof(row),
+              attendanceType:row.attendanceType??row.attendance_type??null,
+              unloadingState:state(row),
+              actualDepartureAt:dep(row)||null,
+              scheduleTbrArrivalAt:tbr(row)||null,
+              expectedParcels:row.expectedParcels??row.expected_parcels??null,
+              enteredParcels:row.enteredParcels??row.entered_parcels??null,
+              pendingParcels:row.pendingParcels??row.pending_parcels??null,
+              pnoEnabled:row.pnoEnabled??null,
+              pnoState:row.pnoState??null,
+              pnoCanReport:row.pnoCanReport??null,
+              pnoSourceDay:row.pnoSourceDay??null,
+              pnoLineId:row.pnoLineId??null,
+              pnoVanLineId:row.pnoVanLineId??null
+            }:null;
+            console.log('READONLY_QUERY_COUNT=1');
+            console.log('DB_WRITES=0');
+            console.log('MS_UPSTREAM_CALLS=0');
+            console.log('NE1_LIVE_SNAPSHOT_AT='+syncedAt);
+            console.log('NE1_LIVE_ROWS='+live.length);
+            console.log('NE1_COMPLETED_ROWS='+completed.length);
+            console.log('AYU1TS8R72='+JSON.stringify(safe(ayu)));
+            console.log('DROP_AWAIT_RELEASE_COUNT='+awaiting.length);
+            console.log('DROP_AWAIT_RELEASE_WITH_TBR_COUNT='+awaitingTbr.length);
+            console.log('DROP_AWAIT_RELEASE_WITH_TBR_SAMPLES='+JSON.stringify(awaitingTbr.slice(0,8).map(safe)));
+            console.log('COMPLETED_WITH_TBR_COUNT='+completedTbr.length);
+            console.log('COMPLETED_WITH_TBR_SAMPLES='+JSON.stringify(completedTbr.slice(0,8).map(safe)));
+            console.log('DEV_LIVE_READONLY_ACCEPTANCE=PASS');
+          })().catch(error=>{ console.error(error); process.exit(1); });
+          NODE

@@ -57,6 +57,7 @@ import { patchPnoInboundScopeAndEagerTruthV22 } from "./patch-pno-inbound-scope-
 import { patchPnoSourceContractFrontendV23, patchPnoSourceContractWorkerV23 } from "./patch-pno-source-contract-v23.mjs";
 import { patchPnoOwnHubSingleTruthV24 } from "./patch-pno-ownhub-single-truth-v24.mjs";
 import { patchPnoV27Frontend, patchPnoV27Worker, patchPnoV28PendingIntersection, patchTbrSeedV28Frontend, patchTbrSeedV28Worker } from "./patch-pno-v27-multidrop-copy.mjs";
+import { patchLiveEvidenceV29Frontend, patchLiveEvidenceV29Worker } from "./patch-live-evidence-v29.mjs";
 import {
   patchMsDailyHistoryFrontend,
   patchMsDailyHistoryWorker,
@@ -411,6 +412,7 @@ export function stageFrontend(source) {
   output = patchPnoV27Frontend(output);
   output = patchPnoV28PendingIntersection(output);
   output = patchTbrSeedV28Frontend(output);
+  output = patchLiveEvidenceV29Frontend(output);
   return output;
 }
 
@@ -448,6 +450,7 @@ export function stageWorker(source) {
   output = patchPnoSourceContractWorkerV23(output);
   output = patchPnoV27Worker(output);
   output = patchTbrSeedV28Worker(output);
+  output = patchLiveEvidenceV29Worker(output);
   return output;
 }
 

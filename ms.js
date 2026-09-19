@@ -1382,6 +1382,21 @@ function filteredRows(ignoreSummary = false, queueMode = state.queue) {
         const bRemaining = unloadRemainingMinutes(b);
         if (aRemaining !== bRemaining) return aRemaining - bRemaining;
       }
+      // LIVE_EVIDENCE_COMPLETED_SORT_V29: completed work is searched by the
+      // trusted actual completion timestamp, newest first.
+      const completedSort =
+        (!ignoreSummary && (
+          state.summary === "completed" ||
+          state.summary === "completed-all" ||
+          state.summary === "unload-overtime" ||
+          state.status === "unload-overtime"
+        )) ||
+        queueMode === "completed";
+      if (completedSort) {
+        const aCompleted = parseDate(trustedLowerCompletionAt(a))?.getTime() || 0;
+        const bCompleted = parseDate(trustedLowerCompletionAt(b))?.getTime() || 0;
+        if (aCompleted !== bCompleted) return bCompleted - aCompleted;
+      }
       const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;
       const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;
       return queueMode === "queue" ? aTime - bTime : bTime - aTime;

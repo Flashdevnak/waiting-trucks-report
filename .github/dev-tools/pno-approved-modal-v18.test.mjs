@@ -80,7 +80,10 @@ test("V18 preserves the staged row-object PNO opener contract", () => {
   assert.match(opener, /pnoV18State\.sourceRow = args\.row/);
   assert.match(opener, /pnoV18State\.proofId = args\.proofId/);
   assert.match(opener, /pnoV18State\.day = args\.day/);
-  assert.match(opener, /pnoV18State\.type = args\.type/);\n  assert.match(opener, /pnoV18State\.page = args\.page/);\n  assert.match(opener, /await pnoV18Load\(args\.type, args\.page\)/);\n  assert.doesNotMatch(opener, /await pnoV18Load\("total", 1\)/);
+  assert.match(opener, /pnoV18State\.type = args\.type/);
+  assert.match(opener, /pnoV18State\.page = args\.page/);
+  assert.match(opener, /await pnoV18Load\(args\.type, args\.page\)/);
+  assert.doesNotMatch(opener, /await pnoV18Load\("total", 1\)/);
   assert.doesNotMatch(opener, /String\(row\s*\|\|/);
 });
 

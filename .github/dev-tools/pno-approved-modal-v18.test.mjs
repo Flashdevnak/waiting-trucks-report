@@ -193,13 +193,13 @@ test("V18 LINE copy button uses loaded data only and formats readable LINE text"
   assert.match(staged, /คัดลอกสำหรับ LINE/);
   const lineCopy = staged.slice(staged.indexOf("async function pnoV18CopyLine"), staged.indexOf("function pnoV18Export"));
   assert.doesNotMatch(lineCopy, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
-  assert.match(lineCopy, /pnoV18FilteredParcelEntries\(\)/);
+  assert.match(lineCopy, /pnoV18VisibleParcelEntries\(\)/);
   assert.match(lineCopy, /pnoV18FilteredBagGroups\(\)/);
   assert.match(lineCopy, /pnoV18WriteClipboard/);
 });
 
 
-test("V18 client filters and bag summary are local-only and copy respects filters", () => {
+test("V19 client filters stay explicit-click and copy respects the visible filtered page", () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.match(staged, /id="pno-v18-filterbar"/);
   assert.match(staged, /id="pno-v18-bag-summary"/);
@@ -211,7 +211,7 @@ test("V18 client filters and bag summary are local-only and copy respects filter
   assert.match(staged, /สาขาถัดไป/);
   assert.match(staged, /จำนวนถุงแบ็กกิ้ง/);
   assert.match(staged, /จำนวนชิ้นในถุง/);
-  assert.match(staged, /กรองเฉพาะข้อมูล/);
+  assert.match(staged, /เลือกฟิลเตอร์เพื่อรวมข้อมูลทุกหน้าอัตโนมัติ/);
   assert.match(staged, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(staged, /pnoV18FilteredBagGroups\(\)/);
   const filterCode = staged.slice(staged.indexOf("function pnoV18FilteredParcelEntries"), staged.indexOf("function pnoV18RenderRows"));

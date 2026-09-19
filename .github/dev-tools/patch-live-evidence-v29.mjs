@@ -51,39 +51,6 @@ export function patchLiveEvidenceV29Frontend(source) {
   if (!output.includes("PNO_PENDING_MEMBERSHIP_INTERSECTION_V28"))
     throw new Error(`${MARKER}: V28 frontend prerequisite missing`);
 
-  const filteredStart = output.indexOf("function filteredRows(");
-  const filteredEnd = output.indexOf("\nasync function loadRange", filteredStart);
-  const arrivalNeedle =
-    '      const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;';
-  const arrivalAt = output.indexOf(arrivalNeedle, filteredStart);
-  if (
-    filteredStart < 0 ||
-    filteredEnd < 0 ||
-    arrivalAt < filteredStart ||
-    arrivalAt >= filteredEnd
-  ) throw new Error(`${MARKER}: completed actual-time sort boundary missing`);
-  const completedSortRuntime = `      // ${FRONTEND_MARKER}: completed work is operationally searched by the
-      // trusted actual completion time, newest first. Never fall back to arrival
-      // ordering while the user is looking at a completed/overtime view.
-      const completedSort =
-        (!ignoreSummary && (
-          state.summary === "completed" ||
-          state.summary === "completed-all" ||
-          state.summary === "unload-overtime" ||
-          state.status === "unload-overtime"
-        )) ||
-        queueMode === "completed";
-      if (completedSort) {
-        const aCompleted = parseDate(trustedLowerCompletionAt(a))?.getTime() || 0;
-        const bCompleted = parseDate(trustedLowerCompletionAt(b))?.getTime() || 0;
-        if (aCompleted !== bCompleted) return bCompleted - aCompleted;
-      }
-`;
-  output =
-    output.slice(0, arrivalAt) +
-    completedSortRuntime +
-    output.slice(arrivalAt);
-
   output = replaceUnique(
     output,
     `  const attr = enabled ? ' data-pno-operational-row="' + rowId + '"' : "";`,

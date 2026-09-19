@@ -130,7 +130,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-noentry-global-filter-v1/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-noentry-bag-action-v20/);
 });
 
 
@@ -284,4 +284,37 @@ test("V19 filter keeps normal tab open lazy until user selects a filter", () => 
   const load = staged.slice(staged.indexOf("async function pnoV18Load(type, page)"), staged.indexOf("function pnoV18BagGroups"));
   assert.match(load, /const result = await pnoV18Fetch\(type, pnoV18State\.page\)/);
   assert.doesNotMatch(load, /pnoV18EnsureParcelFilterRows/);
+});
+
+
+test("V20 no-entry display suppresses contradictory inbound scan labels", () => {
+  assert.match(staged, /PNO_NOENTRY_DISPLAY_BAG_ACTION_V20/);
+  assert.match(staged, /function pnoV20NoEntryDisplayAction/);
+  assert.match(staged, /type !== "no_entry"/);
+  assert.match(staged, /สแกน\\s\*เข้าคลัง/);
+  assert.match(staged, /return "ยังไม่เข้าคลัง"/);
+  const render = staged.slice(staged.indexOf("function pnoV18RenderRows"), staged.indexOf("function pnoV18ApplyPageResult"));
+  assert.match(render, /const action = pnoV18ParcelAction\(item\)/);
+  assert.match(render, /pnoV18ActionClass\(action\)/);
+  assert.doesNotMatch(render, /esc\(item\.lastAction \|\| "-"\)/);
+});
+
+test("V20 Backing adds latest-action filter and keeps it local-only", () => {
+  assert.match(staged, /bagAction: ""/);
+  assert.match(staged, /pno-v18-filter-bag-action/);
+  assert.match(staged, /"การดำเนินการล่าสุด", actions/);
+  assert.match(staged, /!action \|\| summary\.latest === action/);
+  assert.match(staged, /f\.bagStatus \|\| f\.bagAction \|\| f\.bagHub \|\| f\.bagBranch/);
+  assert.match(staged, /if \(f\.bagAction\) parts\.push\("ล่าสุด=" \+ f\.bagAction\)/);
+  const bagFilter = staged.slice(staged.indexOf("function pnoV18FilteredBagGroups"), staged.indexOf("function pnoV18RenderBagSummary"));
+  assert.doesNotMatch(bagFilter, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
+});
+
+test("V20 copy LINE and export use derived no-entry action", () => {
+  const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
+  assert.match(copy, /pnoV18ParcelAction\(row\)/);
+  const line = staged.slice(staged.indexOf("async function pnoV18CopyLine()"), staged.indexOf("async function pnoV18Export()"));
+  assert.match(line, /pnoV18ParcelAction\(row\)/);
+  const exp = staged.slice(staged.indexOf("async function pnoV18Export()"), staged.indexOf("openPendingParcels = async function"));
+  assert.match(exp, /"การดำเนินการล่าสุด": pnoV18ParcelAction\(row\)/);
 });

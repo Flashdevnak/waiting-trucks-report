@@ -57,6 +57,7 @@ test("PNO detail is click-only and never joins the four-second refresh upstream 
 });
 
 test("PNO detail no longer performs a summary rescan before loading the requested page", () => {
+  { const s = stagedWorker.indexOf("async function readPendingParcelPage"); const e = stagedWorker.indexOf("\nfunction ", s + 10); console.log("DIAG_READ_PENDING_BEGIN\\n" + stagedWorker.slice(s, e > s ? e : s + 7000) + "\\nDIAG_READ_PENDING_END"); }
   const route = between(stagedWorker, "async function pendingParcels", "function pnoOwnerState");
   assert.match(route, /MS_REFRESH_COORDINATOR/);
   assert.match(route, /\/pno/);

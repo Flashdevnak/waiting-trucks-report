@@ -35,7 +35,7 @@ test("PNO uses 200-row lazy pages with shared 60s page cache and 10m credential 
 });
 
 test("same-page concurrent PNO requests coalesce through one shared inflight promise", () => {
-  console.log("DIAG_SHARED_PNO_BEGIN\\n" + between(stagedWorker, "export async function readSharedPnoPage", "export function pnoDiagnostics") + "\\nDIAG_SHARED_PNO_END");
+
   const section = between(stagedWorker, "export async function readSharedPnoPage", "export function pnoDiagnostics");
   assert.match(section, /state\.pnoPageActive\.has\(activeKey\)/);
   assert.match(section, /return state\.pnoPageActive\.get\(activeKey\)/);
@@ -57,9 +57,23 @@ test("PNO detail is click-only and never joins the four-second refresh upstream 
 });
 
 test("PNO detail no longer performs a summary rescan before loading the requested page", () => {
-  { const s = stagedWorker.indexOf("async function readPendingParcelPage"); const e = stagedWorker.indexOf("\nfunction ", s + 10); console.log("DIAG_READ_PENDING_BEGIN\\n" + stagedWorker.slice(s, e > s ? e : s + 7000) + "\\nDIAG_READ_PENDING_END"); }
+
   const route = between(stagedWorker, "async function pendingParcels", "function pnoOwnerState");
   assert.match(route, /MS_REFRESH_COORDINATOR/);
   assert.match(route, /\/pno/);
   assert.doesNotMatch(route, /preEntryTrips\s*\(|readPreEntryCounts\s*\(|readPendingParcelPage\s*\(/);
+});
+
+
+test("PNO detail preserves can_report without adding requests", () => {
+  assert.match(stagedWorker, /PNO_DETAIL_TYPE_TRUTH_V1/);
+  assert.match(stagedWorker, /pnoCanReport: Number\(row\?\.can_report\) \|\| 0/);
+  assert.match(stagedWorker, /canReport: locator\.canReport/);
+  assert.match(stagedWorker, /canReport: url\.searchParams\.get\("canReport"\)/);
+  assert.match(stagedWorker, /canReport: String\(locator\.canReport \?\? 0\)/);
+  assert.match(stagedFront, /PNO_DETAIL_TYPE_TRUTH_FRONTEND_V1/);
+  assert.match(stagedFront, /canReport: row\.pnoCanReport \?\? 0/);
+  const detail = between(stagedWorker, "async function readPendingParcelPage", "// BUS_TIME_RATE_LIMIT_V11");
+  assert.equal((detail.match(/await fetch\(/g) || []).length, 1);
+  assert.doesNotMatch(detail, /SELECT|INSERT|UPDATE|DELETE|setInterval|setTimeout/i);
 });

@@ -194,17 +194,17 @@ async function probePnoModal(cdp,sessionId,width,label){
     'if(typeof openPendingParcels!==\'function\') return {ok:false,reason:\'openPendingParcels missing\'};'+
     'const originalBrowserPnoPage=browserPnoPage;'+
     'try{'+
-      'const row={id:\'pno-smoke-row\',proofId:\'SMOKE-BC-001\',routeName:\'SMOKE ROUTE\',pnoState:\'OK\',pnoEnabled:true,pnoSourceDay:\'2026-09-19\',pnoLineId:\'LINE-SMOKE\',pnoVanLineId:\'\',pnoStoreId:\'STORE-A\',pnoNextStoreId:\'STORE-B\',expectedParcels:3,enteredParcels:2,pendingParcels:1};'+
-      'const parcels=[{pno:\'PNO-SMOKE-001\',status:\'เข้าคลังแล้ว\',lastAction:\'Backing\',lastActionAt:\'2026-09-19 08:01:00\',targetHub:\'NAK\',targetBranch:\'A\',backingNo:\'BAG-SMOKE-01\'},{pno:\'PNO-SMOKE-002\',status:\'เข้าคลังแล้ว\',lastAction:\'Backing\',lastActionAt:\'2026-09-19 08:02:00\',targetHub:\'NAK\',targetBranch:\'A\',backingNo:\'BAG-SMOKE-01\'},{pno:\'PNO-SMOKE-003\',status:\'คงเหลือ\',lastAction:\'-\',lastActionAt:\'-\',targetHub:\'NAK\',targetBranch:\'B\',backingNo:\'\'}];'+
-      'browserPnoPage=async (_row,type,page)=>({proofId:row.proofId,routeName:row.routeName,total:3,page,parcels:type===\'no_entry\'?[parcels[2]]:type===\'already\'?parcels.slice(0,2):parcels});'+
+      'const row={id:\'pno-smoke-row\',proofId:\'SMOKE-BC-001\',routeName:\'SMOKE ROUTE\',pnoState:\'OK\',pnoEnabled:true,pnoSourceDay:\'2026-09-19\',pnoLineId:\'LINE-SMOKE\',pnoVanLineId:\'\',pnoStoreId:\'STORE-A\',pnoNextStoreId:\'STORE-B\',expectedParcels:60,enteredParcels:60,pendingParcels:0};'+
+      'const parcels=Array.from({length:60},(_,i)=>({pno:\'PNO-SMOKE-\'+String(i+1).padStart(3,\'0\'),status:\'เข้าคลังแล้ว\',lastAction:\'สแกนเข้าคลัง\',lastActionAt:\'2026-09-19 08:\'+String(i%60).padStart(2,\'0\')+\':00\',targetHub:\'NAK\',targetBranch:\'A\',backingNo:\'BAG-SMOKE-01\'}));'+
+      'browserPnoPage=async (_row,type,page)=>({proofId:row.proofId,routeName:row.routeName,total:60,page,parcels:type===\'no_entry\'?[]:parcels});'+
       'state.currentRows=[row];'+
       'await openPendingParcels(row,\'total\',1);await new Promise(r=>setTimeout(r,30));'+
       'const style=(sel)=>{const node=document.querySelector(sel);if(!node)return null;const s=getComputedStyle(node),r=node.getBoundingClientRect();return{display:s.display,backgroundColor:s.backgroundColor,color:s.color,borderColor:s.borderColor,width:r.width,right:r.right,x:r.x,scrollWidth:node.scrollWidth,clientWidth:node.clientWidth}};'+
       'const head=style(\'.pno-v18-head\'),tableHead=style(\'.pno-v18-table th\'),desktop=style(\'.pno-v18-desktop\'),mobile=style(\'.pno-v18-mobile\'),parcelTableHeaders=[...document.querySelectorAll(\'.pno-v18-desktop .pno-v18-table thead th\')].map(x=>x.textContent.trim()),parcelMobileBagBox=style(\'.pno-v18-mobile-bagbox\');'+
       'document.querySelector(\'[data-pno-v18-type="bag"]\')?.click();await new Promise(r=>setTimeout(r,30));'+
-      'const bagTabStyle=style(\'[data-pno-v18-type="bag"].is-active\'),bagCard=style(\'.pno-v18-bag-card\'),backingBadge=style(\'.pno-v18-badge.is-backing\'),bagTableHeaders=[...document.querySelectorAll(\'.pno-v18-desktop .pno-v18-table thead th\')].map(x=>x.textContent.trim());'+
-      'const dialog=document.querySelector(\'#pending-parcels-dialog\'),dr=dialog?.getBoundingClientRect();'+
-      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,parcelMobileBagBox,parcelTableHeaders,bagTableHeaders,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
+      'const bagTabStyle=style(\'[data-pno-v18-type="bag"].is-active\'),bagCard=style(\'.pno-v18-bag-card\'),backingBadge=style(\'.pno-v18-badge.is-backing\'),bagTableHeaders=[...document.querySelectorAll(\'.pno-v18-desktop .pno-v18-table thead th\')].map(x=>x.textContent.trim());document.querySelector(\'[data-pno-v18-bag]\')?.click();await new Promise(r=>setTimeout(r,30));'+
+      'const dialog=document.querySelector(\'#pending-parcels-dialog\'),dr=dialog?.getBoundingClientRect();if(dialog)dialog.scrollTop=160;await new Promise(r=>setTimeout(r,20));const scrollInfo=dialog?{scrollTop:dialog.scrollTop,scrollHeight:dialog.scrollHeight,clientHeight:dialog.clientHeight}:null;'+
+      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,parcelMobileBagBox,parcelTableHeaders,bagTableHeaders,scrollInfo,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
     '}finally{browserPnoPage=originalBrowserPnoPage;document.querySelector(\'#pending-parcels-dialog\')?.close();}'+
   '})()';
   const result=await evaluate(cdp,sessionId,expression);
@@ -217,7 +217,9 @@ async function probePnoModal(cdp,sessionId,width,label){
   assert.equal(result.tableHead?.color,'rgb(255, 255, 255)',`${label}: PNO table header text is not white`);
   assert.equal(result.bagTabStyle?.backgroundColor,'rgb(241, 242, 243)',`${label}: Backing tab is not neutral active style`);
   assert.equal(result.bagTabStyle?.color,'rgb(32, 33, 36)',`${label}: Backing tab text is not neutral dark`);
-  assert.equal(result.backingBadge?.color,'rgb(37, 37, 37)',`${label}: Backing label is not neutral dark`);
+  assert.equal(result.backingBadge,null,`${label}: literal Backing label should not be rendered`);
+  assert.ok(result.scrollInfo&&result.scrollInfo.scrollHeight>result.scrollInfo.clientHeight,`${label}: expanded bag does not create scrollable modal content`);
+  assert.ok(result.scrollInfo.scrollTop>0,`${label}: PNO modal scroll is locked ${JSON.stringify(result.scrollInfo)}`);
   if(width>720) { assert.deepEqual(result.parcelTableHeaders?.slice(0,7),['#','PNO','สถานะ','ล่าสุด','HUB ปลายทาง','สาขาปลายทาง','เวลา'],`${label}: desktop parcel table columns are wrong`); assert.deepEqual(result.bagTableHeaders?.slice(0,7),['#','เลขถุงแบ็กกิ้ง','สถานะ','จำนวนพัสดุ','HUB ถัดไป','สาขาถัดไป',''],`${label}: desktop bag table columns are wrong`); }
   if(width<=720){
     assert.equal(result.desktop?.display,'none',`${label}: desktop table still visible on mobile`);

@@ -287,16 +287,13 @@ test("V19 filter keeps normal tab open lazy until user selects a filter", () => 
 });
 
 
-test("V20 no-entry display suppresses contradictory inbound scan labels", () => {
-  assert.match(staged, /PNO_NOENTRY_DISPLAY_BAG_ACTION_V20/);
-  assert.match(staged, /function pnoV20NoEntryDisplayAction/);
-  assert.match(staged, /type !== "no_entry"/);
-  assert.match(staged, /สแกน\\s\*เข้าคลัง/);
-  assert.match(staged, /return "ยังไม่เข้าคลัง"/);
+test("V21 keeps real MS lastAction words and removes V20 no-entry inference", () => {
+  assert.match(staged, /PNO_OPERATIONAL_RECEIPT_TRUTH_V21/);
+  assert.doesNotMatch(staged, /function pnoV20NoEntryDisplayAction/);
+  assert.match(staged, /function pnoV18ParcelAction\(item\) \{\s*return pnoV18TextValue\(item\?\.lastAction\);\s*\}/);
   const render = staged.slice(staged.indexOf("function pnoV18RenderRows"), staged.indexOf("function pnoV18ApplyPageResult"));
   assert.match(render, /const action = pnoV18ParcelAction\(item\)/);
   assert.match(render, /pnoV18ActionClass\(action\)/);
-  assert.doesNotMatch(render, /esc\(item\.lastAction \|\| "-"\)/);
 });
 
 test("V20 Backing adds latest-action filter and keeps it local-only", () => {
@@ -310,7 +307,7 @@ test("V20 Backing adds latest-action filter and keeps it local-only", () => {
   assert.doesNotMatch(bagFilter, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
 });
 
-test("V20 copy LINE and export use derived no-entry action", () => {
+test("V21 copy LINE and export preserve the raw MS action helper", () => {
   const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
   assert.match(copy, /pnoV18ParcelAction\(row\)/);
   const line = staged.slice(staged.indexOf("async function pnoV18CopyLine()"), staged.indexOf("async function pnoV18Export()"));
@@ -322,4 +319,32 @@ test("V20 copy LINE and export use derived no-entry action", () => {
 
 test("V20 mobile Backing filters do not overflow narrow viewport", () => {
   assert.match(staged, /pno-v18-filter-field select\{width:100%;min-width:0\}/);
+});
+
+
+test("V21 operational receipt truth is exact own-HUB Backing scan only", () => {
+  assert.match(staged, /PNO_OPERATIONAL_RECEIPT_TRUTH_V21/);
+  assert.match(staged, /String\(item\?\.backingNo \|\| ""\)\.trim\(\)/);
+  assert.match(staged, /String\(item\?\.lastAction \|\| ""\)\.trim\(\) === "สแกนเข้าคลัง"/);
+  assert.match(staged, /pnoOperationalHubMatches\(item\?\.targetHub, state\.branch \|\| row\?\.hub\)/);
+  assert.match(staged, /if \(!pno \|\| seen\.has\(pno\)\) continue/);
+  assert.doesNotMatch(staged.slice(staged.indexOf("PNO_OPERATIONAL_RECEIPT_TRUTH_V21")), /NE1_HUB|["']NE1["']/);
+});
+
+test("V21 uses one corrected truth for card, modal counts, and entered/remaining pages", () => {
+  assert.match(staged, /const correctedEntered = Math\.min\(raw\.expected, raw\.entered \+ correction\)/);
+  assert.match(staged, /const correctedPending = Math\.max\(0, raw\.expected - correctedEntered\)/);
+  assert.match(staged, /const truth = pnoOperationalSummaryForRow\(row\)/);
+  assert.match(staged, /pnoOperationalVirtualPage\(sourceRow, type, page\)/);
+  assert.match(staged, /if \(type === "no_entry"\)/);
+  assert.match(staged, /if \(type !== "already"\) return null/);
+});
+
+test("V21 operational truth stays quota-safe and uses the existing shared PNO page path", () => {
+  const section = staged.slice(staged.indexOf("PNO_OPERATIONAL_RECEIPT_TRUTH_V21"), staged.indexOf("function expectedParcelsBadge"));
+  assert.match(section, /IntersectionObserver/);
+  assert.match(section, /queueMicrotask\(pnoOperationalObserveCards\)/);
+  assert.match(section, /await browserPnoPage\(row, type, page, false\)/);
+  assert.match(section, /PNO_OPERATIONAL_TRUTH_CACHE_MS = 60 \* 1000/);
+  assert.doesNotMatch(section, /setInterval\s*\(|setTimeout\s*\(|apiPost\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i);
 });

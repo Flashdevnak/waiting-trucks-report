@@ -189,8 +189,8 @@ test("V18 LINE copy button uses loaded data only and formats readable LINE text"
   assert.match(staged, /คัดลอกสำหรับ LINE/);
   const lineCopy = staged.slice(staged.indexOf("async function pnoV18CopyLine"), staged.indexOf("function pnoV18Export"));
   assert.doesNotMatch(lineCopy, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
-  assert.match(lineCopy, /pnoV18State\.rows/);
-  assert.match(lineCopy, /pnoV18State\.bagRows/);
+  assert.match(lineCopy, /pnoV18FilteredParcelEntries\(\)/);
+  assert.match(lineCopy, /pnoV18FilteredBagGroups\(\)/);
   assert.match(lineCopy, /pnoV18WriteClipboard/);
 });
 

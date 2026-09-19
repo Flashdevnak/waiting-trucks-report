@@ -29,6 +29,7 @@ const canonicalWorker = path.join(repoRoot, "worker/src/index.js");
 
 const {
   createBusTimeHotLane,
+  extractBusTbrAtV28,
   parseBusRetryAfter,
   legacyBusCallsPerMinute,
   BUS_TIME_MAX_CALLS_PER_CYCLE,
@@ -649,4 +650,43 @@ test("healthy steady state adds no rate-limit lease reads or writes", async () =
   assert.equal(h.stats().rateLeaseReads, 0);
   assert.equal(h.stats().rateLeaseUpserts, 0);
   assert.equal(h.stats().rateLeaseDeletes, 0);
+});
+
+
+test("V28 TBR parser scans later labelled fleet_sign_info values without stealing KIT labels", () => {
+  const parse = (value) => {
+    const raw = String(value || "").trim();
+    const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+      ? raw.replace(" ", "T") + "+07:00"
+      : raw;
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+  };
+  assert.equal(
+    extractBusTbrAtV28([{ value:"-" }, { value:"TBR: 2026-09-19 20:33:00" }], parse),
+    "2026-09-19T13:33:00.000Z",
+  );
+  assert.equal(
+    extractBusTbrAtV28([{ value:"KIT: 2026-09-19 20:30:00" }, { value:"-" }], parse),
+    "",
+  );
+  assert.equal(
+    extractBusTbrAtV28([{ value:"2026-09-19T13:34:00.000Z" }], parse),
+    "2026-09-19T13:34:00.000Z",
+  );
+});
+
+test("V28 HAR-seeded labelled TBR still paints immediately with zero duplicate provider request", async () => {
+  const h = harness({ fetchHandler: async () => response({ total: 50, items: [item("P1")] }) });
+  const seeded = item("P1");
+  seeded.fleet_sign_info = [{ value:"-" }, { value:"TBR: 2026-09-13 07:02:00" }];
+  h.lane.resetCredentials("NE1", {
+    auth:"auth", lang:"th", fbid:"fbid", time:"time", _from:"fbi",
+    seededAt:new Date(h.stats().clock).toISOString(), seedItems:[seeded],
+  });
+  const map = await h.lane.readBusTimeData(h.env, "NE1", undefined, [
+    { proofId:"P1", attendanceType:"ปลายทาง", unloadingState:0, estimatedArrivalAt:"2026-09-13T01:00:00Z" },
+  ]);
+  assert.equal(h.calls.length, 0);
+  assert.equal(map.get("P:P1|A:ปลายทาง")?.scheduleTbrArrivalAt, "2026-09-13T00:02:00.000Z");
 });

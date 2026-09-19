@@ -5,6 +5,10 @@ import {
   aggregatePreEntryFixtureV27,
   patchPnoV27Frontend,
   patchPnoV27Worker,
+  correctPendingFixtureV28,
+  patchPnoV28PendingIntersection,
+  patchTbrSeedV28Frontend,
+  patchTbrSeedV28Worker,
 } from "./patch-pno-v27-multidrop-copy.mjs";
 import { stageFrontend, stageWorker } from "./stage-dev-runtime.mjs";
 
@@ -91,4 +95,54 @@ test("V27 is staging-idempotent and does not touch BusTime cadence", async () =>
   const busRuntime = await readFile(new URL(".github/dev-tools/bus-time-hot-lane-v14-runtime.mjs", root), "utf8");
   assert.match(busRuntime, /BUS_TIME_HOT_REUSE_MS = 12_000/);
   assert.match(busRuntime, /BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 5 \* 60 \* 1000/);
+});
+
+
+test("V28 current AYU pending-membership fixture resolves 355/301/54 to 355/310/45", () => {
+  const total = Array.from({ length: 355 }, (_, i) => ({ pno: "P" + i, ownHubBacking: false }));
+  const pending = total.slice(301).map((item) => ({ ...item }));
+  for (let i = 0; i < 9; i += 1) total[301 + i].ownHubBacking = true;
+  assert.deepEqual(
+    correctPendingFixtureV28({ expected:355, entered:301, pending:54 }, total, pending),
+    { valid:true, expected:355, entered:310, pending:45, correction:9 },
+  );
+});
+
+test("V28 preserves previous 355/253/102 -> 354/1 acceptance and prevents already-side double count", () => {
+  const total = Array.from({ length: 355 }, (_, i) => ({ pno: "Q" + i, ownHubBacking: false }));
+  const pending = total.slice(253).map((item) => ({ ...item }));
+  for (let i = 0; i < 101; i += 1) total[253 + i].ownHubBacking = true;
+  assert.deepEqual(
+    correctPendingFixtureV28({ expected:355, entered:253, pending:102 }, total, pending),
+    { valid:true, expected:355, entered:354, pending:1, correction:101 },
+  );
+  total[0].ownHubBacking = true;
+  assert.equal(
+    correctPendingFixtureV28({ expected:355, entered:253, pending:102 }, total, pending).correction,
+    101,
+    "Backing outside provider pending set must never be added again",
+  );
+});
+
+test("V28 staged frontend replaces already-detail correction with provider pending membership", () => {
+  const front = stageFrontend(frontendSource);
+  assert.match(front, /PNO_PENDING_MEMBERSHIP_INTERSECTION_V28/);
+  const start = front.indexOf("async function pnoOperationalResolve(row)");
+  const end = front.indexOf("function pnoOperationalPaginate", start);
+  const block = front.slice(start, end);
+  assert.match(block, /pnoOperationalLoadAllRaw\(row, "no_entry"\)/);
+  assert.doesNotMatch(block, /pnoOperationalLoadAllRaw\(row, "already"\)/);
+  assert.match(front, /OWN_HUB_PENDING_BACKING_CORRECTED/);
+});
+
+test("V28 HAR seed keeps bounded fleet_sign_info candidates on both frontend and worker", () => {
+  const front = stageFrontend(frontendSource);
+  const worker = stageWorker(workerSource);
+  assert.match(front, /BUS_TIME_TBR_FIELD_TRUTH_V28/);
+  assert.match(front, /fleet_sign_info: compactBusHarField\(item\?\.fleet_sign_info, 6\)/);
+  assert.match(worker, /BUS_TIME_TBR_FIELD_TRUTH_V28/);
+  assert.match(worker, /fleet_sign_info: compactBusSeedField\(item\?\.fleet_sign_info, 6\)/);
+  assert.equal(patchPnoV28PendingIntersection(front), front);
+  assert.equal(patchTbrSeedV28Frontend(front), front);
+  assert.equal(patchTbrSeedV28Worker(worker), worker);
 });

@@ -204,12 +204,14 @@ async function probePnoModal(cdp,sessionId,width,label){
       'document.querySelector(\'[data-pno-v18-type="bag"]\')?.click();await new Promise(r=>setTimeout(r,30));'+
       'const bagTabStyle=style(\'[data-pno-v18-type="bag"].is-active\'),bagCard=style(\'.pno-v18-bag-card\'),backingBadge=style(\'.pno-v18-badge.is-backing\');'+
       'const dialog=document.querySelector(\'#pending-parcels-dialog\'),dr=dialog?.getBoundingClientRect();'+
-      'return {ok:true,marker:document.querySelector(\'#pno-approved-modal-v18-style\')?.textContent?.includes(\'PNO_V18_MOBILE_CACHE_UI_V2\')||false,head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
+      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
     '}finally{browserPnoPage=originalBrowserPnoPage;document.querySelector(\'#pending-parcels-dialog\')?.close();}'+
   '})()';
   const result=await evaluate(cdp,sessionId,expression);
+  console.log(`PNO_VISUAL_RESULT_${label.toUpperCase().replace(/[^A-Z0-9]+/g,'_')}=${JSON.stringify(result)}`);
   assert.equal(result?.ok,true,`${label}: PNO probe failed ${JSON.stringify(result)}`);
-  assert.equal(result.marker,true,`${label}: live PNO V18 mobile/cache marker missing`);
+  assert.equal(result.styleElement,true,`${label}: live PNO style element missing`);
+  assert.equal(result.runtimeV2,true,`${label}: live PNO V18 mobile/cache runtime missing`);
   assert.equal(result.head?.backgroundColor,'rgb(255, 212, 0)',`${label}: PNO head is not Flash gold ${JSON.stringify(result.head)}`);
   assert.equal(result.tableHead?.backgroundColor,'rgb(21, 21, 21)',`${label}: desktop PNO table header is not black`);
   assert.equal(result.tableHead?.color,'rgb(255, 255, 255)',`${label}: desktop PNO table header text is not white`);

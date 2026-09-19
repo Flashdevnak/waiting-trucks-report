@@ -88,13 +88,14 @@ test("V18 preserves the staged row-object PNO opener contract", () => {
   assert.doesNotMatch(opener, /String\(row\s*\|\|/);
 });
 
-test("V18 summary remains bound to clicked/live row counts", () => {
+test("V21 modal summary stays bound to clicked row through corrected operational truth", () => {
   const source = staged.slice(staged.indexOf("function pnoV18SourceRow"), staged.indexOf("function pnoV18EnsureUi"));
   assert.match(source, /pnoV18State\.sourceRow/);
   const summary = staged.slice(staged.indexOf("function pnoV18RenderSummary"), staged.indexOf("function pnoV18SetActive"));
-  assert.match(summary, /row\?\.expectedParcels/);
-  assert.match(summary, /row\?\.enteredParcels/);
-  assert.match(summary, /row\?\.pendingParcels/);
+  assert.match(summary, /const truth = pnoOperationalSummaryForRow\(row\)/);
+  assert.match(summary, /const total = truth\.expected/);
+  assert.match(summary, /const entered = truth\.entered/);
+  assert.match(summary, /const pending = truth\.pending/);
 });
 
 
@@ -130,7 +131,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-noentry-bag-action-v20b/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-operational-truth-v21/);
 });
 
 
@@ -341,7 +342,7 @@ test("V21 uses one corrected truth for card, modal counts, and entered/remaining
 });
 
 test("V21 operational truth stays quota-safe and uses the existing shared PNO page path", () => {
-  const section = staged.slice(staged.indexOf("PNO_OPERATIONAL_RECEIPT_TRUTH_V21"), staged.indexOf("function expectedParcelsBadge"));
+  const section = staged.slice(staged.indexOf("const PNO_OPERATIONAL_TRUTH_CACHE_MS"), staged.indexOf("function expectedParcelsBadge"));
   assert.match(section, /IntersectionObserver/);
   assert.match(section, /queueMicrotask\(pnoOperationalObserveCards\)/);
   assert.match(section, /await browserPnoPage\(row, type, page, false\)/);

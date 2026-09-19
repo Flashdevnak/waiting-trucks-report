@@ -181,6 +181,13 @@ function pnoV18ParcelAction(item) {
 
   output = replaceUnique(
     output,
+    `.ms-page .pno-v18-filter-field{min-width:0}.ms-page .pno-v18-filter-result`,
+    `.ms-page .pno-v18-filter-field{min-width:0}.ms-page .pno-v18-filter-field select{width:100%;min-width:0}.ms-page .pno-v18-filter-result`,
+    "mobile filter select width",
+  );
+
+  output = replaceUnique(
+    output,
     `  pnoV18State.filters.bagStatus = "";
   pnoV18State.filters.bagHub = "";`,
     `  pnoV18State.filters.bagStatus = "";

@@ -29,7 +29,7 @@ test("approved PNO palette is neutral black white with light-gray grid", () => {
   assert.match(staged, /#dfe3e6/);
   assert.match(staged, /#e3e6e8/);
   assert.match(staged, /is-backing/);
-  assert.doesNotMatch(staged.slice(staged.indexOf("PNO_V18_NEUTRAL_GRID_V6")), /#7B8CFF|#5F70DB|background:#FFD400/);
+  assert.doesNotMatch(staged.slice(staged.indexOf("PNO_V18_TABLE_UX_V7")), /#7B8CFF|#5F70DB|background:#FFD400/);
 });
 
 test("Backing is grouped by bag and expands inline", () => {
@@ -105,7 +105,7 @@ test("V18 visible palette applies neutral cards and centered black table header"
 });
 
 test("V18 classic mobile keeps vertical cards and hides wide desktop tables", () => {
-  assert.match(staged, /PNO_V18_NEUTRAL_GRID_V6/);
+  assert.match(staged, /PNO_V18_TABLE_UX_V7/);
   assert.match(staged, /pno-v18-mobile-card pno-v18-parcel-card/);
   assert.match(staged, /pno-v18-mobile-card pno-v18-bag-card/);
   assert.ok(staged.includes("pno-v18-desktop{display:none!important}"));
@@ -126,7 +126,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-neutral-grid-v6/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-table-ux-v7/);
 });
 
 
@@ -145,7 +145,7 @@ test("V18 CSS text uses real newlines so all rules and mobile media queries pars
 
 
 test("V18 classic presentation uses neutral summary cards and centered grid table", () => {
-  assert.match(staged, /PNO_V18_NEUTRAL_GRID_V6/);
+  assert.match(staged, /PNO_V18_TABLE_UX_V7/);
   assert.ok(staged.includes("pno-v18-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 16px"));
   assert.ok(staged.includes("pno-v18-summary-item{min-height:70px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #dfe3e6;border-radius:7px;background:#fff"));
   assert.ok(staged.includes("pno-v18-table th{padding:10px 12px;background:#242424;border:1px solid #4a4a4a;color:#fff;text-align:center"));
@@ -154,5 +154,26 @@ test("V18 classic presentation uses neutral summary cards and centered grid tabl
   assert.ok(staged.includes("pno-v18-table tbody tr:hover>td{background:#f4f5f6}"));
   assert.ok(staged.includes("pno-v18-badge{display:inline;color:#252525"));
   assert.match(staged, /PNO_V18_VIEW_CACHE_MS = 60 \* 1000/);
+  assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
+});
+
+
+test("V18 table UX splits destinations, summarizes bags, unlocks scrolling, and copies TSV", () => {
+  assert.match(staged, /PNO_V18_TABLE_UX_V7/);
+  assert.ok(staged.includes("<th>HUB ปลายทาง</th><th>สาขาปลายทาง</th><th>เวลา</th>"));
+  assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>สาขาถัดไป</th><th></th>"));
+  assert.match(staged, /function pnoV18BagSummary/);
+  assert.match(staged, /หลายสถานะ/);
+  assert.match(staged, /หลาย HUB/);
+  assert.match(staged, /หลายสาขา/);
+  const bagRender = staged.slice(staged.indexOf("function pnoV18RenderBags"), staged.indexOf("async function pnoV18LoadBags"));
+  assert.doesNotMatch(bagRender, />Backing</);
+  assert.ok(staged.includes("pno-v18-table td{padding:11px 12px;border:1px solid #e3e6e8;background:#fff;color:#252525;text-align:center"));
+  assert.ok(staged.includes("pno-v18-inner td{padding:10px 11px;border:1px solid #e3e6e8;text-align:center"));
+  assert.ok(staged.includes("pno-v18-list{max-height:none!important;overflow:visible!important"));
+  assert.ok(staged.includes("#pending-parcels-dialog{width:min(1120px,calc(100vw - 24px));max-width:1120px;max-height:calc(100dvh - 20px);overflow-y:auto"));
+  assert.match(staged, /function pnoV18WriteClipboard/);
+  assert.match(staged, /พร้อมวางใน Excel\/Sheets/);
+  assert.match(staged, /\["#", "PNO", "สถานะ", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"\]\.join\("\\t"\)/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
 });

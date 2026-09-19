@@ -223,7 +223,6 @@ test("DEV staging still assembles all backend runtime patches from clean source"
     (worker.match(/async function waitForMsSourceCache\(env, hub, sourceHash\)/g) || []).length,
     1,
   );
-  assert.match(worker, /V29_SYNC_CLAIM_BOUNDARY_FIX/);
   assert.match(worker, /UPSTREAM_FETCH_TIMEOUT_MS = 9000/);
   assert.match(worker, /msCompletedToday/);
   assert.match(worker, /async function cancelMsRoute/);

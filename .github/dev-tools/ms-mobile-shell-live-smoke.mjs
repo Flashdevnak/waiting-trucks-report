@@ -213,11 +213,11 @@ async function probePnoModal(cdp,sessionId,width,label){
   assert.equal(result.styleElement,true,`${label}: live PNO style element missing`);
   assert.equal(result.runtimeV2,true,`${label}: live PNO V18 mobile/cache runtime missing`);
   assert.equal(result.head?.backgroundColor,'rgb(255, 212, 0)',`${label}: PNO head is not Flash gold ${JSON.stringify(result.head)}`);
-  assert.equal(result.tableHead?.backgroundColor,'rgb(255, 212, 0)',`${label}: PNO table header is not Flash gold`);
-  assert.equal(result.tableHead?.color,'rgb(21, 21, 21)',`${label}: PNO table header text is not black`);
-  assert.equal(result.bagTabStyle?.backgroundColor,'rgb(123, 140, 255)',`${label}: Backing tab is not Option E`);
-  assert.equal(result.bagTabStyle?.color,'rgb(255, 255, 255)',`${label}: Backing tab text is not white`);
-  assert.equal(result.backingBadge?.backgroundColor,'rgb(123, 140, 255)',`${label}: Backing badge is not Option E`);
+  assert.equal(result.tableHead?.backgroundColor,'rgb(36, 36, 36)',`${label}: PNO table header is not black`);
+  assert.equal(result.tableHead?.color,'rgb(255, 255, 255)',`${label}: PNO table header text is not white`);
+  assert.equal(result.bagTabStyle?.backgroundColor,'rgb(241, 242, 243)',`${label}: Backing tab is not neutral active style`);
+  assert.equal(result.bagTabStyle?.color,'rgb(32, 33, 36)',`${label}: Backing tab text is not neutral dark`);
+  assert.equal(result.backingBadge?.color,'rgb(37, 37, 37)',`${label}: Backing label is not neutral dark`);
   if(width>720) assert.deepEqual(result.parcelTableHeaders?.slice(0,6),['#','PNO','สถานะ','ล่าสุด','ปลายทาง','เวลา'],`${label}: desktop table does not match classic columns`);
   if(width<=720){
     assert.equal(result.desktop?.display,'none',`${label}: desktop table still visible on mobile`);

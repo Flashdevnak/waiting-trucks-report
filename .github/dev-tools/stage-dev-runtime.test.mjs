@@ -207,7 +207,23 @@ test("DEV staging still assembles all backend runtime patches from clean source"
   const worker = stageWorker(workerSource);
   assert.match(worker, /export class MsRefreshCoordinator/);
   assert.match(worker, /bootstrapConnector\(body, env\)/);
-  assert.match(worker, /acquireMsSyncClaim/);
+  assert.match(worker, /const claim = await acquireMsSyncClaim\(env, branch, sourceHash\)/);
+  assert.match(worker, /async function acquireMsSyncClaim\(env, hub, sourceHash\)/);
+  assert.match(worker, /async function finishMsSyncClaim\(env, hub, claim, success\)/);
+  assert.match(worker, /async function waitForMsSourceCache\(env, hub, sourceHash\)/);
+  assert.equal(
+    (worker.match(/async function acquireMsSyncClaim\(env, hub, sourceHash\)/g) || []).length,
+    1,
+  );
+  assert.equal(
+    (worker.match(/async function finishMsSyncClaim\(env, hub, claim, success\)/g) || []).length,
+    1,
+  );
+  assert.equal(
+    (worker.match(/async function waitForMsSourceCache\(env, hub, sourceHash\)/g) || []).length,
+    1,
+  );
+  assert.match(worker, /V29_SYNC_CLAIM_BOUNDARY_FIX/);
   assert.match(worker, /UPSTREAM_FETCH_TIMEOUT_MS = 9000/);
   assert.match(worker, /msCompletedToday/);
   assert.match(worker, /async function cancelMsRoute/);

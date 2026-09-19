@@ -5,6 +5,7 @@ const UPPER_METRIC_MARKER = "MS_UNLOADING_METRIC_TRUTH_V3";
 const HBI_DROP_PHOTO_FRONTEND_MARKER = "HBI_TRUCK_PHOTO_DESTINATION_DROP_V2";
 const HBI_DROP_PHOTO_WORKER_MARKER = "HBI_DROP_PHOTO_WORKER_V2";
 const EXPIRY_MARKER = "MS_OPERATIONAL_12H_EXPIRY_V1";
+const QUEUE_LIFECYCLE_MARKER = "MS_QUEUE_LIFECYCLE_SINGLE_TRUTH_V1";
 const DROP_RELEASE_PRECEDENCE_MARKER = "MS_DROP_RELEASE_PRECEDENCE_V1";
 
 function replaceUnique(output, from, to, label) {
@@ -154,6 +155,7 @@ export function patchMsUnloadingStartTruthFrontend(source) {
     output.includes(UPPER_METRIC_MARKER) &&
     output.includes(HBI_DROP_PHOTO_FRONTEND_MARKER) &&
     output.includes(EXPIRY_MARKER) &&
+    output.includes(QUEUE_LIFECYCLE_MARKER) &&
     output.includes(DROP_RELEASE_PRECEDENCE_MARKER)
   ) return output;
 
@@ -275,6 +277,40 @@ function inboundOperationalStage(row, now = new Date()) {
     state.summary = "unloading";
   }`,
       "upper unloading metric opens the shared operational view",
+    );
+  }
+
+  if (!output.includes(QUEUE_LIFECYCLE_MARKER)) {
+    output = replaceUnique(
+      output,
+      `    unloadingState = Number(row.unloadingState),
+    unloadFinished =
+      (isDestination(row) || isDrop(row)) &&
+      (unloadingState === 2 ||
+        Boolean(parseDate(row.scheduleUnloadingCompletedAt))),
+    released = Boolean(parseDate(row.actualDepartureAt)),
+    done = isDestination(row) ? unloadFinished : released,
+    started =
+      (isDestination(row) || isDrop(row)) &&
+      (unloadingState === 1 ||
+        unloadFinished ||
+        Boolean(parseDate(row.scheduleUnloadingStartedAt))),
+    awaitingRelease = isDrop(row) && unloadFinished && !released,`,
+      `    unloadingState = Number(row.unloadingState),
+    // ${QUEUE_LIFECYCLE_MARKER}: Route owns lifecycle completion. Schedule E
+    // is timing/display evidence only and must not complete Destination or
+    // move Drop into awaiting-release without Route state 2.
+    unloadFinished =
+      (isDestination(row) || isDrop(row)) && unloadingState === 2,
+    released = Boolean(parseDate(row.actualDepartureAt)),
+    done = isDestination(row) ? unloadFinished : released,
+    started =
+      (isDestination(row) || isDrop(row)) &&
+      (unloadingState === 1 ||
+        unloadFinished ||
+        Boolean(parseDate(row.scheduleUnloadingStartedAt))),
+    awaitingRelease = isDrop(row) && unloadFinished && !released,`,
+      "queue lifecycle uses Route completion truth",
     );
   }
 

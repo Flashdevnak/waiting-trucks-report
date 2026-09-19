@@ -43,6 +43,32 @@ function earliestDate(...values) {
   return valid.sort((a, b) => Date.parse(a) - Date.parse(b))[0];
 }
 
+// BUS_TIME_TBR_FIELD_TRUTH_V28: scan bounded fleet_sign_info candidates without
+// reinterpreting unrelated labels such as KIT:. Preserve the historical bare-date
+// shape and support an explicit TBR: label or numeric epoch when providers vary serialization.
+export function extractBusTbrAtV28(field, msDateFn) {
+  if (!Array.isArray(field) || typeof msDateFn !== "function") return "";
+  const parsed = [];
+  for (const entry of field) {
+    const raw = String(entry?.value ?? "").trim();
+    if (!raw || raw === "-") continue;
+    const candidates = [];
+    const directDate = /^\\d{4}-\\d{1,2}-\\d{1,2}(?:[ T]\\d{1,2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,3})?)?(?:Z|[+-]\\d{2}:?\\d{2})?)?$/.test(raw);
+    if (directDate || /^\\d{10}(?:\\d{3})?$/.test(raw)) candidates.push(raw);
+    const labelled = raw.match(/^\\s*TBR\\s*[:：=\\-]?\\s*(.+)$/i);
+    if (labelled?.[1]) candidates.push(labelled[1].trim());
+    for (const candidate of candidates) {
+      let value = candidate;
+      if (/^\\d{10}$/.test(value)) value = new Date(Number(value) * 1000).toISOString();
+      else if (/^\\d{13}$/.test(value)) value = new Date(Number(value)).toISOString();
+      const iso = msDateFn(value);
+      if (iso && Number.isFinite(Date.parse(String(iso)))) parsed.push(String(iso));
+    }
+  }
+  if (!parsed.length) return "";
+  return parsed.sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+}
+
 function sourceError(message, code, status, retryAfterMs = 0) {
   const error = new Error(String(message || "BusTime source error"));
   error.code = code || "BUS_TIME_SOURCE_ERROR";
@@ -362,7 +388,7 @@ export function createBusTimeHotLane(deps) {
       const current = state.cache.get(key) || {};
       const cycle = state.cycleSchedule.get(key) || { start: "", end: "", ambiguous: false };
       const kit = msDate(nestedValue(item.kit_arrive_time, 0));
-      const tbr = msDate(nestedValue(item.fleet_sign_info, 0));
+      const tbr = extractBusTbrAtV28(item.fleet_sign_info, msDate);
       const start = parseUnloadingStart(item.fleet_unloading_time);
       const end = parseUnloadingEnd(item.fleet_unloading_time);
       const conflictStart = Boolean(cycle.start) && Boolean(start) && cycle.start !== start;

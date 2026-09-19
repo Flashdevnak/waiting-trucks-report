@@ -80,7 +80,10 @@ test("V18 preserves the staged row-object PNO opener contract", () => {
   assert.match(opener, /pnoV18State\.sourceRow = args\.row/);
   assert.match(opener, /pnoV18State\.proofId = args\.proofId/);
   assert.match(opener, /pnoV18State\.day = args\.day/);
-  assert.match(opener, /await pnoV18Load\("total", 1\)/);
+  assert.match(opener, /pnoV18State\.type = args\.type/);
+  assert.match(opener, /pnoV18State\.page = args\.page/);
+  assert.match(opener, /await pnoV18Load\(args\.type, args\.page\)/);
+  assert.doesNotMatch(opener, /await pnoV18Load\("total", 1\)/);
   assert.doesNotMatch(opener, /String\(row\s*\|\|/);
 });
 
@@ -126,7 +129,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-card-right-export-all-v1/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-bag-only-latest-noentry-v1/);
 });
 
 
@@ -161,7 +164,7 @@ test("V18 classic presentation uses neutral summary cards and centered grid tabl
 test("V18 table UX splits destinations, summarizes bags, unlocks scrolling, and copies TSV", () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.ok(staged.includes("<th>HUB ปลายทาง</th><th>สาขาปลายทาง</th><th>เวลา</th>"));
-  assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>สาขาถัดไป</th><th></th>"));
+  assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>ล่าสุด</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>สาขาถัดไป</th><th></th>"));
   assert.match(staged, /function pnoV18BagSummary/);
   assert.match(staged, /หลายสถานะ/);
   assert.match(staged, /หลาย HUB/);
@@ -241,4 +244,22 @@ test("V18 Export loads every parcel page only when Export is explicitly clicked"
   assert.match(staged, /await pnoV18Fetch\(type, page\)/);
   assert.match(staged, /all\.slice\(0, total\)/);
   assert.match(staged, /PNO_V18_CARD_RIGHT_EXPORT_ALL_V1/);
+});
+
+
+test("V18 Backing summary is visible only in Backing view", () => {
+  const apply = staged.slice(staged.indexOf("function pnoV18ApplyPageResult"), staged.indexOf("async function pnoV18Load(type"));
+  assert.match(apply, /pnoV18RenderBagSummary\(\[\]\)/);
+  const summary = staged.slice(staged.indexOf("function pnoV18RenderBagSummary"), staged.indexOf("function pnoV18RenderCurrentFilteredView"));
+  assert.match(summary, /pnoV18State\.type !== "bag"/);
+  assert.match(summary, /box\.classList\.add\("hidden"\)/);
+});
+
+test("V18 Backing table derives Latest from the newest loaded parcel action", () => {
+  assert.match(staged, /function pnoV18BagLatest\(items\)/);
+  assert.match(staged, /stamp > best\.stamp/);
+  assert.match(staged, /latest: pnoV18BagLatest\(items\)/);
+  assert.match(staged, /esc\(summary\.latest\)/);
+  assert.match(staged, /colspan="8"/);
+  assert.match(staged, /PNO_V18_BAG_ONLY_LATEST_NOENTRY_V1/);
 });

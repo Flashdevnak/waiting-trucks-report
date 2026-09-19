@@ -126,7 +126,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-client-filters-summary-v1/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-compact-bag-summary-v1/);
 });
 
 
@@ -223,4 +223,13 @@ test("V18 LINE copy caps detail length and reports remaining rows", () => {
   assert.match(staged, /สรุป: /);
   assert.match(staged, /ฟิลเตอร์: /);
   assert.match(staged, /พบ .*รายการในหน้านี้/);
+});
+
+
+test("V18 bag summary cards stay compact with slightly right-shifted values", () => {
+  assert.ok(staged.includes("pno-v18-bag-summary{display:grid;grid-template-columns:repeat(2,minmax(0,180px));gap:8px;padding:6px 16px"));
+  assert.ok(staged.includes("pno-v18-bag-summary-card{padding:5px 10px"));
+  assert.ok(staged.includes("pno-v18-bag-summary-card strong{display:block;margin-top:1px"));
+  assert.ok(staged.includes("transform:translateX(6px)"));
+  assert.ok(staged.includes("pno-v18-bag-summary-card em{display:block;margin-top:1px"));
 });

@@ -196,6 +196,13 @@ test("DEV staging preserves classic lower UI and route cancellation controls onc
   assert.equal(stageStyle(first), first);
 });
 
+test("unload SLA warning presentation is source-level orange and staging-idempotent", () => {
+  const first = stageStyle(styleSource);
+  assert.match(first, /classic-operation-summary\.is-warning\{border-color:#e3ad55;background:#fff6df\}/);
+  assert.match(first, /classic-operation-summary\.is-warning span,.ms-page \.classic-operation-summary\.is-warning strong\{color:#9a5a00\}/);
+  assert.equal(stageStyle(first), first);
+});
+
 test("DEV staging still assembles all backend runtime patches from clean source", () => {
   const worker = stageWorker(workerSource);
   assert.match(worker, /export class MsRefreshCoordinator/);

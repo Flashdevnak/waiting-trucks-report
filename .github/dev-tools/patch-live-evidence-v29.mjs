@@ -221,7 +221,7 @@ async function readMsCompletedToday(env, actor, hub) {
 `;
   // V29_SYNC_CLAIM_BOUNDARY_FIX: multi-client dedupe stages its shared
   // sync-claim helpers between readMsCompletedToday() and markConnectionSuccess().
-  // Replace only readMsCompletedToday() so V29 can never delete those helpers.
+  // Replace only readMsCompletedToday() so V29 can never remove those helpers.
   const completedReadStart = output.indexOf(
     "async function readMsCompletedToday(env, actor, hub) {",
   );

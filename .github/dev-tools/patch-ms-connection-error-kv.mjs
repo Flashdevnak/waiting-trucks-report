@@ -236,8 +236,8 @@ export function patchMsConnectionErrorKvFrontend(source) {
 
   output = replaceUnique(
     output,
-    `      const result = await apiPost("saveMsBusConnection", { hub, credentials });\n      errorEl.classList.add("hidden");`,
-    `      const result = await apiPost("saveMsBusConnection", { hub, credentials });\n      void reportMsConnectionObservation("recovered", source, hub).then(() => loadMsConnectionObservedError(hub));\n      errorEl.classList.add("hidden");`,
+    `      const result = await apiPost("saveMsBusConnection", { hub, credentials, seedItems });\n      errorEl.classList.add("hidden");`,
+    `      const result = await apiPost("saveMsBusConnection", { hub, credentials, seedItems });\n      void reportMsConnectionObservation("recovered", source, hub).then(() => loadMsConnectionObservedError(hub));\n      errorEl.classList.add("hidden");`,
     "mark BusTime recovery",
   );
 

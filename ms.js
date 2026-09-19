@@ -1377,6 +1377,11 @@ function filteredRows(ignoreSummary = false, queueMode = state.queue) {
       );
     })
     .sort((a, b) => {
+      if (!ignoreSummary && (state.summary === "unloading" || state.status === "unloading")) {
+        const aRemaining = unloadRemainingMinutes(a);
+        const bRemaining = unloadRemainingMinutes(b);
+        if (aRemaining !== bRemaining) return aRemaining - bRemaining;
+      }
       const aTime = (confirmedEffectiveArrival(a) || parseDate(a.estimatedArrivalAt))?.getTime() || 0;
       const bTime = (confirmedEffectiveArrival(b) || parseDate(b.estimatedArrivalAt))?.getTime() || 0;
       return queueMode === "queue" ? aTime - bTime : bTime - aTime;
@@ -2010,6 +2015,8 @@ function classicOperationSummary(label, value, severity = "neutral") {
   return `<div class="classic-operation-summary compact-summary is-${severity}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
 }
 
+// MS_UNLOAD_SLA_WARNING_V26: preserve each vehicle's existing standard.
+// Active unload turns orange only in the final 20% of that standard, then red after it is exceeded.
 function unloadSlaSummary(timing) {
   if (timing.slaMinutes === null) {
     if (!timing.arrival) return { text: "รอ Route ยืนยันรถถึงคลัง", severity: "neutral" };
@@ -2021,7 +2028,19 @@ function unloadSlaSummary(timing) {
   const delta = timing.slaMinutes - timing.standard;
   if (delta > 0) return { text: `เกินมาตรฐาน ${nf.format(delta)} นาที`, severity: "danger" };
   if (timing.completed) return { text: "อยู่ในมาตรฐาน", severity: "safe" };
-  return { text: `เหลือเวลา ${nf.format(Math.abs(delta))} นาที`, severity: "safe" };
+  const remaining = Math.max(0, -delta);
+  const warningBand = Math.max(1, Math.ceil(timing.standard * 0.2));
+  return {
+    text: `เหลือเวลา ${nf.format(remaining)} นาที`,
+    severity: remaining <= warningBand ? "warning" : "safe",
+  };
+}
+
+function unloadRemainingMinutes(row, now = new Date()) {
+  const timing = unloadTiming(row, now);
+  if (timing.standard === null || timing.slaMinutes === null)
+    return Number.POSITIVE_INFINITY;
+  return timing.standard - timing.slaMinutes;
 }
 
 function renderOperation(row) {
@@ -2040,7 +2059,7 @@ function renderOperation(row) {
     const statusClass = currentSlaOver ? "is-danger" : active ? "is-working" : done ? "is-done" : "is-waiting";
     const facts = [
       classicOperationFact("ถึงคลังจริง", shortDateTime(confirmedEffectiveArrival(row))),
-      classicOperationFact("เริ่มลงรถ", shortDateTime(row.scheduleUnloadingStartedAt)),
+      classicOperationFact("เริ่มลงรถ", shortDateTime(timing.start)),
       done ? classicOperationFact("ลงเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : "",
       done
         ? classicOperationFact("ใช้เวลาลงรถจริง", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`)
@@ -2062,7 +2081,7 @@ function renderOperation(row) {
     const headline = drop.onwardDone ? "ออกจากจุดดรอปแล้ว" : drop.unloadingDone ? "ลงของเสร็จ รอไปต่อ" : active ? "กำลังลงของที่จุดดรอป" : timing.arrival ? "รอลงของที่จุดดรอป" : "รอรถถึงจุดดรอป";
     const facts = [
       classicOperationFact("ถึงจุดดรอปจริง", shortDateTime(confirmedEffectiveArrival(row))),
-      classicOperationFact("เริ่มลงของ", shortDateTime(row.scheduleUnloadingStartedAt)),
+      classicOperationFact("เริ่มลงของ", shortDateTime(timing.start)),
       drop.unloadingDone ? classicOperationFact("ลงของเสร็จจริง", shortDateTime(row.unloadingCompletedAt)) : "",
       drop.unloadingDone
         ? classicOperationFact("ใช้เวลาลงของจริง", timing.workMinutes === null ? "-" : `${nf.format(timing.workMinutes)} นาที`)
@@ -2832,6 +2851,66 @@ async function startQrConnection() {
   }
 }
 
+// BUS_TIME_HAR_SEED_TRUTH_V26: a successful BusTime HAR response is already source data.
+// Keep only the fields needed for KIT/TBR/unload timing; raw HAR is never uploaded or stored.
+function harResponseJson(entry) {
+  try {
+    let raw = String(entry?.response?.content?.text || "");
+    if (!raw) return null;
+    if (String(entry?.response?.content?.encoding || "").toLowerCase() === "base64") {
+      const binary = atob(raw);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      raw = new TextDecoder().decode(bytes);
+    }
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function compactBusHarField(field, limit = 6) {
+  if (!Array.isArray(field)) return [];
+  return field.slice(0, limit).map((entry) => ({
+    value: String(entry?.value ?? "").slice(0, 500),
+  }));
+}
+
+function busHarSeedItems(entries, limit = 1000) {
+  const output = [];
+  const seen = new Set();
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const payload = harResponseJson(entry);
+    if (Number(payload?.code) !== 1) continue;
+    const rows = Array.isArray(payload?.data?.dataList)
+      ? payload.data.dataList
+      : Array.isArray(payload?.data?.DataList)
+        ? payload.data.DataList
+        : [];
+    for (const item of rows) {
+      const seed = {
+        proof_id: compactBusHarField(item?.proof_id, 2),
+        line_info: compactBusHarField(item?.line_info, 2),
+        next_store_info: compactBusHarField(item?.next_store_info, 3),
+        kit_arrive_time: compactBusHarField(item?.kit_arrive_time, 2),
+        fleet_sign_info: compactBusHarField(item?.fleet_sign_info, 2),
+        parcel_count: compactBusHarField(item?.parcel_count, 2),
+        pack_count: compactBusHarField(item?.pack_count, 2),
+        fleet_unloading_time: compactBusHarField(item?.fleet_unloading_time, 6),
+      };
+      const proofId = String(seed.proof_id?.[0]?.value || "").trim().toUpperCase();
+      const attendance = String(seed.next_store_info?.[1]?.value || "").trim();
+      const target = String(seed.next_store_info?.[0]?.value || "").trim();
+      if (!proofId || !attendance || !target) continue;
+      const key = [proofId, attendance, target].join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      output.push(seed);
+      if (output.length >= limit) return output;
+    }
+  }
+  return output;
+}
+
 async function saveMsConnection(source, button) {
   const errorEl = el("ms-connection-error"),
     inputIds = { routes: "ms-har-routes", preEntry: "ms-har-preentry", busTime: "ms-har-bustime", hbiPhotos: "ms-har-hbi-photos" },
@@ -2860,11 +2939,12 @@ async function saveMsConnection(source, button) {
         return new URL(item.request?.url).pathname.includes("/api/route/route_followstart") && item.response?.status === 200;
       } catch { return false; }
     });
-    const busEntry = entries.find((item) => {
+    const busEntries = entries.filter((item) => {
       try {
         return new URL(item.request?.url).pathname === "/api/fleet_time/getList" && item.response?.status === 200;
       } catch { return false; }
     });
+    const busEntry = busEntries[0] || null;
     const hbiEntry = entries.find((item) => {
       try {
         const url = new URL(item.request?.url);
@@ -2912,9 +2992,12 @@ async function saveMsConnection(source, button) {
       const credentials = {};
       for (const key of ["auth", "lang", "fbid", "time", "_from"])
         credentials[key] = url.searchParams.get(key) || "";
-      const result = await apiPost("saveMsBusConnection", { hub, credentials });
+      const seedItems = busHarSeedItems(busEntries);
+      if (!seedItems.length)
+        throw new Error("HAR ตารางเวลานี้ไม่มี response ข้อมูลสำเร็จ · หากหน้า MS ขึ้น Request exceeds the limit ให้รอ provider เปิดแล้วบันทึก HAR ใหม่");
+      const result = await apiPost("saveMsBusConnection", { hub, credentials, seedItems });
       errorEl.classList.add("hidden");
-      toast(`เชื่อมข้อมูลการจัดการตารางเวลา ${hub} สำเร็จ · พบ ${nf.format(result.total)} รายการ`);
+      toast(`เชื่อมข้อมูลการจัดการตารางเวลา ${hub} สำเร็จ · ใช้ข้อมูล HAR ตั้งต้น ${nf.format(result.seedCount || seedItems.length)} รายการ`);
       await loadData();
       await loadMsConnectionStatus();
       return;

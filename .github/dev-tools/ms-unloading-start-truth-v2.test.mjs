@@ -155,3 +155,22 @@ test("frontend timing and worker snapshots carry start provenance without new po
   assert.match(worker, /unloadingStartSource: unloadingStartTruth\.source/);
   assert.match(front, /pollMs: 4000/);
 });
+
+
+test("operation cards display the effective unload start truth instead of Schedule-only dash", () => {
+  const render = between(front, "function renderOperation(row) {", "// LOCAL_ROUTE_BARCODE_V1");
+  assert.equal(
+    (render.match(/shortDateTime\(timing\.start\)/g) || []).length,
+    2,
+    "Destination and Drop must both display effective timing.start",
+  );
+  assert.doesNotMatch(render, /shortDateTime\(row\.scheduleUnloadingStartedAt\)/);
+});
+
+test("active unload SLA exposes an orange warning band before red without changing vehicle standards", () => {
+  const summary = between(front, "// MS_UNLOAD_SLA_WARNING_V26", "function renderOperation(row) {");
+  assert.match(summary, /warningBand = Math\.max\(1, Math\.ceil\(timing\.standard \* 0\.2\)\)/);
+  assert.match(summary, /severity: remaining <= warningBand \? "warning" : "safe"/);
+  assert.match(summary, /if \(delta > 0\).*severity: "danger"/s);
+  assert.match(summary, /function unloadRemainingMinutes\(row, now = new Date\(\)\)/);
+});

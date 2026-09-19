@@ -1759,6 +1759,43 @@ function numberOrNull(value) {
     ? null : Number(value);
 }
 
+// BUS_TIME_HAR_SEED_TRUTH_V26: explicit HAR upload is already a successful
+// provider response. Store only bounded schedule fields and do not re-hit BusTime
+// just to validate the same HAR; this removes one avoidable upstream request.
+function compactBusSeedField(field, limit = 6) {
+  if (!Array.isArray(field)) return [];
+  return field.slice(0, limit).map((entry) => ({
+    value: text(entry?.value, 500),
+  }));
+}
+
+function sanitizeBusSeedItems(input) {
+  const rows = Array.isArray(input) ? input.slice(0, 1000) : [];
+  const output = [];
+  const seen = new Set();
+  for (const item of rows) {
+    const seed = {
+      proof_id: compactBusSeedField(item?.proof_id, 2),
+      line_info: compactBusSeedField(item?.line_info, 2),
+      next_store_info: compactBusSeedField(item?.next_store_info, 3),
+      kit_arrive_time: compactBusSeedField(item?.kit_arrive_time, 2),
+      fleet_sign_info: compactBusSeedField(item?.fleet_sign_info, 2),
+      parcel_count: compactBusSeedField(item?.parcel_count, 2),
+      pack_count: compactBusSeedField(item?.pack_count, 2),
+      fleet_unloading_time: compactBusSeedField(item?.fleet_unloading_time, 6),
+    };
+    const proofId = normalizeProofId(seed.proof_id?.[0]?.value);
+    const attendance = String(seed.next_store_info?.[1]?.value || "").trim();
+    const target = String(seed.next_store_info?.[0]?.value || "").trim();
+    if (!proofId || !attendance || !target) continue;
+    const key = [proofId, attendance, target].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(seed);
+  }
+  return output;
+}
+
 async function saveMsBusConnection(body, actor, env) {
   const hub = canonicalHubCode(body.hub);
   if (!hub || !access(hub, actor))
@@ -1768,13 +1805,27 @@ async function saveMsBusConnection(body, actor, env) {
     credentials[key] = text(body.credentials?.[key], 2000);
   if (!credentials.auth || !credentials.fbid || !credentials.time)
     fail("ไฟล์ HAR ไม่มีข้อมูลเชื่อมต่อการจัดการตารางเวลา", "INVALID_HAR");
-  const test = await readBusPage(credentials, 1, thaiDay());
+
+  const seedItems = sanitizeBusSeedItems(body.seedItems);
+  if (!seedItems.length)
+    fail("HAR ตารางเวลาไม่มี response ข้อมูลสำเร็จสำหรับตั้งต้น KIT/TBR", "INVALID_HAR");
   const now = new Date().toISOString();
+  credentials.seedItems = seedItems;
+  credentials.seededAt = now;
+  const test = { total: seedItems.length };
+
   await env.DB.prepare(
     "INSERT INTO ms_bus_connections(hub,credentials_cipher,updated_at,updated_by,last_success_at,last_error) VALUES(?,?,?,?,?,?) ON CONFLICT(hub) DO UPDATE SET credentials_cipher=excluded.credentials_cipher,updated_at=excluded.updated_at,updated_by=excluded.updated_by,last_success_at=excluded.last_success_at,last_error=''",
   ).bind(hub, await encryptMs(JSON.stringify(credentials), env), now, actor.username, now, "").run();
   await audit(env, "SAVE_MS_BUS_CONNECTION", hub, `ทดสอบสำเร็จ ${test.total} รายการ`, actor.username);
-  return { hub, total: test.total, updatedAt: now, source: "busTimeManagement" };
+  return {
+    hub,
+    total: test.total,
+    seedCount: seedItems.length,
+    updatedAt: now,
+    source: "busTimeManagement",
+    upstreamValidationCalls: 0,
+  };
 }
 
 

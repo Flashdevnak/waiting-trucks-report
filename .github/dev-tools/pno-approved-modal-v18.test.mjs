@@ -131,7 +131,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-ownhub-bag-evidence-v25/);
+  assert.match(msHtml, /ms\.js\?v=20260919-ops-truth-v26/);
 });
 
 

@@ -100,6 +100,22 @@ test("awaiting-release Origin rows sort by earliest planned departure", () => {
   );
 });
 
+test("กำลังลงรถ sorts by least remaining SLA first and leaves other view order intact", () => {
+  const filtered = between(
+    front,
+    "function filteredRows(ignoreSummary = false, queueMode = state.queue) {",
+    "\nasync function loadRange()",
+  );
+  assert.match(
+    filtered,
+    /state\.summary === "unloading" \|\| state\.status === "unloading"/,
+  );
+  assert.match(filtered, /const aRemaining = unloadRemainingMinutes\(a\)/);
+  assert.match(filtered, /const bRemaining = unloadRemainingMinutes\(b\)/);
+  assert.match(filtered, /return aRemaining - bRemaining/);
+  assert.match(filtered, /return queueMode === "queue" \? aTime - bTime : bTime - aTime/);
+});
+
 test("completedToday cache is invalidated from v6 to v7", () => {
   assert.match(worker, /MS_COMPLETED_CALENDAR_DAY_TRUTH_V2/);
   assert.match(worker, /cache\?\.format === 7/);

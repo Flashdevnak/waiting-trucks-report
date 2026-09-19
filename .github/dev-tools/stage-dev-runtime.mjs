@@ -50,6 +50,7 @@ import { patchPnoUltraLowQuotaFrontend } from "./patch-pno-ultra-low-quota-v1.mj
 import { patchPnoRound2Frontend, patchPnoRound2Worker } from "./patch-pno-round2-v1.mjs";
 import { patchPnoDetailTruthFrontend, patchPnoDetailTruthWorker } from "./patch-pno-detail-truth-v1.mjs";
 import { patchPnoApprovedModalV18 } from "./patch-pno-approved-modal-v18.mjs";
+import { patchPnoGlobalFilterV19 } from "./patch-pno-global-filter-v19.mjs";
 import {
   patchMsDailyHistoryFrontend,
   patchMsDailyHistoryWorker,
@@ -395,6 +396,7 @@ export function stageFrontend(source) {
   output = patchPnoRound2Frontend(output);
   output = patchPnoDetailTruthFrontend(output);
   output = patchPnoApprovedModalV18(output);
+  output = patchPnoGlobalFilterV19(output);
   return output;
 }
 

@@ -35,6 +35,7 @@ test("PNO uses 200-row lazy pages with shared 60s page cache and 10m credential 
 });
 
 test("same-page concurrent PNO requests coalesce through one shared inflight promise", () => {
+  console.log("DIAG_SHARED_PNO_BEGIN\\n" + between(stagedWorker, "export async function readSharedPnoPage", "export function pnoDiagnostics") + "\\nDIAG_SHARED_PNO_END");
   const section = between(stagedWorker, "export async function readSharedPnoPage", "export function pnoDiagnostics");
   assert.match(section, /state\.pnoPageActive\.has\(activeKey\)/);
   assert.match(section, /return state\.pnoPageActive\.get\(activeKey\)/);

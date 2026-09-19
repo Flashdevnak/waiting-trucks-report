@@ -59,6 +59,7 @@ import { patchPnoSourceContractFrontendV23, patchPnoSourceContractWorkerV23 } fr
 import { patchPnoOwnHubSingleTruthV24 } from "./patch-pno-ownhub-single-truth-v24.mjs";
 import { patchPnoV27Frontend, patchPnoV27Worker, patchPnoV28PendingIntersection, patchTbrSeedV28Frontend, patchTbrSeedV28Worker } from "./patch-pno-v27-multidrop-copy.mjs";
 import { patchLiveEvidenceV29Frontend, patchLiveEvidenceV29Worker } from "./patch-live-evidence-v29.mjs";
+import { patchMsHistoryPointInTimeWorker } from "./patch-ms-history-point-in-time-v1.mjs";
 // V29_SYNC_CLAIM_HOTFIX_GATE: shared sync-claim helpers must survive V29 staging.
 // V29_STAGE_CONTRACT_HOTFIX: retain prior completed-cache truth marker while staging V29.
 import {
@@ -454,6 +455,7 @@ export function stageWorker(source) {
   output = patchPnoV27Worker(output);
   output = patchTbrSeedV28Worker(output);
   output = patchLiveEvidenceV29Worker(output);
+  output = patchMsHistoryPointInTimeWorker(output);
   return output;
 }
 

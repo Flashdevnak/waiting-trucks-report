@@ -214,13 +214,12 @@ export function patchLiveEvidenceV29Worker(source) {
   // This is Turso-only, read-only, user/detail-path work: upstream BusTime calls = 0.
   const placeholders = missingIds.map(() => "?").join(",");
   const history = await env.DB.prepare(
-    `SELECT route_id,payload_json
-       FROM ms_route_history INDEXED BY idx_ms_route_history_hub_route_snapshot
-       WHERE hub=?
-         AND route_id IN (${placeholders})
-         AND json_valid(payload_json)=1
-         AND COALESCE(json_extract(payload_json,'$.scheduleTbrArrivalAt'),'')<>''
-       ORDER BY route_id,snapshot_at DESC,rowid DESC`,
+    "SELECT route_id,payload_json " +
+    "FROM ms_route_history INDEXED BY idx_ms_route_history_hub_route_snapshot " +
+    "WHERE hub=? AND route_id IN (" + placeholders + ") " +
+    "AND json_valid(payload_json)=1 " +
+    "AND COALESCE(json_extract(payload_json,'$.scheduleTbrArrivalAt'),'')<>'' " +
+    "ORDER BY route_id,snapshot_at DESC,rowid DESC",
   ).bind(hub, ...missingIds).all();
 
   const tbrByRoute = new Map();

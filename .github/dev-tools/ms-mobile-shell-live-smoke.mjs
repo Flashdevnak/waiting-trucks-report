@@ -228,7 +228,7 @@ async function probePnoModal(cdp,sessionId,width,label){
   assert.match(result.lineCopyText||'',/หมวด: แบ็กกิ้ง/,`${label}: LINE copy bag section missing`);
   assert.ok(result.scrollInfo&&result.scrollInfo.scrollHeight>result.scrollInfo.clientHeight,`${label}: expanded bag does not create scrollable modal content`);
   assert.ok(result.scrollInfo.scrollTop>0,`${label}: PNO modal scroll is locked ${JSON.stringify(result.scrollInfo)}`);
-  if(width>720) { assert.deepEqual(result.parcelTableHeaders?.slice(0,7),['#','PNO','สถานะ','ล่าสุด','HUB ปลายทาง','สาขาปลายทาง','เวลา'],`${label}: desktop parcel table columns are wrong`); assert.deepEqual(result.bagTableHeaders?.slice(0,7),['#','เลขถุงแบ็กกิ้ง','สถานะ','จำนวนพัสดุ','HUB ถัดไป','สาขาถัดไป',''],`${label}: desktop bag table columns are wrong`); }
+  if(width>720) { assert.deepEqual(result.parcelTableHeaders?.slice(0,7),['#','PNO','สถานะ','ล่าสุด','HUB ปลายทาง','สาขาปลายทาง','เวลา'],`${label}: desktop parcel table columns are wrong`); assert.deepEqual(result.bagTableHeaders?.slice(0,8),['#','เลขถุงแบ็กกิ้ง','สถานะ','ล่าสุด','จำนวนพัสดุ','HUB ถัดไป','สาขาถัดไป',''],`${label}: desktop bag table columns are wrong`); }
   if(width<=720){
     assert.equal(result.desktop?.display,'none',`${label}: desktop table still visible on mobile`);
     assert.notEqual(result.mobile?.display,'none',`${label}: mobile cards are hidden on mobile`);

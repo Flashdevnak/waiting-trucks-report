@@ -29,7 +29,7 @@ test("approved PNO palette is neutral black white with light-gray grid", () => {
   assert.match(staged, /#dfe3e6/);
   assert.match(staged, /#e3e6e8/);
   assert.match(staged, /is-backing/);
-  assert.doesNotMatch(staged.slice(staged.indexOf("PNO_V18_LINE_COPY_V1")), /#7B8CFF|#5F70DB|background:#FFD400/);
+  assert.doesNotMatch(staged.slice(staged.indexOf("PNO_V18_CLIENT_FILTERS_SUMMARY_V1")), /#7B8CFF|#5F70DB|background:#FFD400/);
 });
 
 test("Backing is grouped by bag and expands inline", () => {
@@ -105,7 +105,7 @@ test("V18 visible palette applies neutral cards and centered black table header"
 });
 
 test("V18 classic mobile keeps vertical cards and hides wide desktop tables", () => {
-  assert.match(staged, /PNO_V18_LINE_COPY_V1/);
+  assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.match(staged, /pno-v18-mobile-card pno-v18-parcel-card/);
   assert.match(staged, /pno-v18-mobile-card pno-v18-bag-card/);
   assert.ok(staged.includes("pno-v18-desktop{display:none!important}"));
@@ -126,7 +126,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-line-copy-v1/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-client-filters-summary-v1/);
 });
 
 
@@ -145,7 +145,7 @@ test("V18 CSS text uses real newlines so all rules and mobile media queries pars
 
 
 test("V18 classic presentation uses neutral summary cards and centered grid table", () => {
-  assert.match(staged, /PNO_V18_LINE_COPY_V1/);
+  assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.ok(staged.includes("pno-v18-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 16px"));
   assert.ok(staged.includes("pno-v18-summary-item{min-height:70px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #dfe3e6;border-radius:7px;background:#fff"));
   assert.ok(staged.includes("pno-v18-table th{padding:10px 12px;background:#242424;border:1px solid #4a4a4a;color:#fff;text-align:center"));
@@ -159,7 +159,7 @@ test("V18 classic presentation uses neutral summary cards and centered grid tabl
 
 
 test("V18 table UX splits destinations, summarizes bags, unlocks scrolling, and copies TSV", () => {
-  assert.match(staged, /PNO_V18_LINE_COPY_V1/);
+  assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.ok(staged.includes("<th>HUB ปลายทาง</th><th>สาขาปลายทาง</th><th>เวลา</th>"));
   assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>สาขาถัดไป</th><th></th>"));
   assert.match(staged, /function pnoV18BagSummary/);
@@ -192,4 +192,35 @@ test("V18 LINE copy button uses loaded data only and formats readable LINE text"
   assert.match(lineCopy, /pnoV18State\.rows/);
   assert.match(lineCopy, /pnoV18State\.bagRows/);
   assert.match(lineCopy, /pnoV18WriteClipboard/);
+});
+
+
+test("V18 client filters and bag summary are local-only and copy respects filters", () => {
+  assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
+  assert.match(staged, /id="pno-v18-filterbar"/);
+  assert.match(staged, /id="pno-v18-bag-summary"/);
+  assert.match(staged, /function pnoV18FilteredParcelEntries/);
+  assert.match(staged, /function pnoV18FilteredBagGroups/);
+  assert.match(staged, /function pnoV18RenderBagSummary/);
+  assert.match(staged, /สถานะถุง/);
+  assert.match(staged, /HUB ถัดไป/);
+  assert.match(staged, /สาขาถัดไป/);
+  assert.match(staged, /จำนวนถุงแบ็กกิ้ง/);
+  assert.match(staged, /จำนวนชิ้นในถุง/);
+  assert.match(staged, /กรองเฉพาะข้อมูล/);
+  assert.match(staged, /pnoV18FilteredParcelEntries\(\)/);
+  assert.match(staged, /pnoV18FilteredBagGroups\(\)/);
+  const filterCode = staged.slice(staged.indexOf("function pnoV18FilteredParcelEntries"), staged.indexOf("function pnoV18RenderRows"));
+  assert.doesNotMatch(filterCode, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
+  const copyCode = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18Export"));
+  assert.doesNotMatch(copyCode, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
+});
+
+test("V18 LINE copy caps detail length and reports remaining rows", () => {
+  assert.match(staged, /function pnoV18AppendLineLimited/);
+  assert.match(staged, /const limit = 30/);
+  assert.match(staged, /ยังมีอีก/);
+  assert.match(staged, /สรุป: /);
+  assert.match(staged, /ฟิลเตอร์: /);
+  assert.match(staged, /พบ .*รายการในหน้านี้/);
 });

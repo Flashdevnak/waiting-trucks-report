@@ -43,7 +43,7 @@ test("V29 staged frontend makes PNO cards audit-clickable without background pol
   assert.match(front, /LIVE_EVIDENCE_FRONTEND_V29/);
   assert.match(front, /data-pno-detail-card/);
   assert.match(front, /pno-detail-cta|ดูรายละเอียดพัสดุ/);
-  assert.match(front, /content:\\"ดูรายละเอียดพัสดุ\\"/);
+  assert.match(front, /content:"ดูรายละเอียดพัสดุ"/);
   assert.match(front, /pnoV29OpenDetail/);
   assert.match(front, /openPendingParcels\(row, target\.type, 1\)/);
   assert.match(front, /document\.addEventListener\("click", pnoV29OpenDetail, true\)/);

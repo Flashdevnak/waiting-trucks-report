@@ -91,7 +91,7 @@ test("scheduleKitArrivalAt is supplementary and Origin is never admitted by TBR"
   assert.doesNotMatch(arrivalBlock, /scheduleKitArrivalAt/);
 });
 
-test("Drop follows waiting to unloading and stays active after unload completion", () => {
+test("Drop follows waiting to unloading and stays active after Route unload completion", () => {
   const { queueInfo, routeState } = runtime();
   const waiting = queueInfo(base, now);
   assert.equal(waiting.active, true);
@@ -108,21 +108,38 @@ test("Drop follows waiting to unloading and stays active after unload completion
   assert.equal(started.started, true);
   assert.equal(routeState(startedRow, now).key, "unloading");
 
-  for (const completedRow of [
-    { ...startedRow, unloadingState: 2 },
-    {
-      ...startedRow,
-      scheduleUnloadingCompletedAt: "2026-09-13T06:40:00.000Z",
-    },
-  ]) {
-    const completed = queueInfo(completedRow, now);
-    assert.equal(completed.active, true);
-    assert.equal(completed.done, false);
-    assert.equal(completed.unloadFinished, true);
-    assert.equal(completed.awaitingRelease, true);
-    assert.equal(completed.released, false);
-    assert.equal(routeState(completedRow, now).key, "unloading");
-  }
+  const routeCompletedRow = { ...startedRow, unloadingState: 2 };
+  const completed = queueInfo(routeCompletedRow, now);
+  assert.equal(completed.active, true);
+  assert.equal(completed.done, false);
+  assert.equal(completed.unloadFinished, true);
+  assert.equal(completed.awaitingRelease, true);
+  assert.equal(completed.released, false);
+  assert.equal(routeState(routeCompletedRow, now).key, "unloading");
+
+  const scheduleOnlyRow = {
+    ...startedRow,
+    scheduleUnloadingCompletedAt: "2026-09-13T06:40:00.000Z",
+  };
+  const scheduleOnly = queueInfo(scheduleOnlyRow, now);
+  assert.equal(scheduleOnly.active, true);
+  assert.equal(scheduleOnly.done, false);
+  assert.equal(scheduleOnly.unloadFinished, false);
+  assert.equal(scheduleOnly.awaitingRelease, false);
+  assert.equal(routeState(scheduleOnlyRow, now).key, "unloading");
+});
+
+test("Schedule E alone never completes Destination queue lifecycle", () => {
+  const { queueInfo } = runtime();
+  const row = {
+    ...base,
+    attendanceType: "ปลายทาง",
+    scheduleUnloadingCompletedAt: "2026-09-13T06:40:00.000Z",
+  };
+  const queue = queueInfo(row, now);
+  assert.equal(queue.active, true);
+  assert.equal(queue.done, false);
+  assert.equal(queue.unloadFinished, false);
 });
 
 test("only real Route departure releases Drop into the Drop card state", () => {
@@ -163,5 +180,6 @@ test("Drop release display is one two-column box and keeps planned versus actual
 
 test("lifecycle/source helpers add no DB, HTTP, or upstream path", () => {
   const { helperSource } = runtime();
+  assert.match(helperSource, /MS_QUEUE_LIFECYCLE_SINGLE_TRUTH_V1/);
   assert.doesNotMatch(helperSource, /env\.DB|\.prepare\(|fetch\s*\(|apiGet\(|apiPost\(/);
 });

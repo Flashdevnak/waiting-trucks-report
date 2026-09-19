@@ -50,6 +50,7 @@ test("summary uses existing row counts without extra summary request", () => {
 });
 
 test("approved UI adds no background timer, SQL persistence, or realtime poll", () => {
+  console.log("DIAG_BROWSER_PNO_PAGE_BEGIN\\n" + staged.slice(staged.indexOf("async function browserPnoPage"), staged.indexOf("function clearPnoBrowserCacheForHub")) + "\\nDIAG_BROWSER_PNO_PAGE_END");
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
   assert.doesNotMatch(patchSource, /\b(?:INSERT|UPDATE|DELETE|CREATE\s+TABLE)\b/i);
   const fetchSection = staged.slice(staged.indexOf("async function pnoV18Fetch"), staged.indexOf("function pnoV18ActionClass"));

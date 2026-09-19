@@ -79,7 +79,7 @@ export function patchPnoSourceContractWorkerV23(source) {
 
 export function patchPnoSourceContractFrontendV23(source) {
   let output = String(source || "");
-  if (output.includes(FRONTEND_MARKER)) return output;
+  if (output.includes(FRONTEND_MARKER) || output.includes("PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V24")) return output;
   if (!output.includes("PNO_INBOUND_SCOPE_AND_EAGER_TRUTH_V22"))
     throw new Error(FRONTEND_MARKER + ": V22 prerequisite missing");
 

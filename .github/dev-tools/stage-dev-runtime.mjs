@@ -13,6 +13,7 @@ import {
 } from "./patch-ms-realtime-recovery.mjs";
 import { patchDevSummaryFilter } from "./patch-ms-summary-filter.mjs";
 import { patchDevDurableCoordinator } from "./patch-ms-durable-coordinator.mjs";
+// MS_COORDINATOR_GENERATION_RESET_V2_GATE: stale in-memory coordinator instances must not survive runtime hotfix.
 import { patchMsSelfHealingSupervisor } from "./patch-ms-self-healing-supervisor.mjs";
 import { patchDevConnectorAdoption } from "./patch-ms-connector-adoption.mjs";
 import { patchDevMultiClientWorker } from "./patch-ms-multiclient-dedupe.mjs";

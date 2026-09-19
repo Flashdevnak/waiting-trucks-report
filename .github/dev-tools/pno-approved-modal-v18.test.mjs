@@ -131,7 +131,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-operational-truth-v21/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-inbound-scope-eager-truth-v22/);
 });
 
 
@@ -347,5 +347,34 @@ test("V21 operational truth stays quota-safe and uses the existing shared PNO pa
   assert.match(section, /queueMicrotask\(pnoOperationalObserveCards\)/);
   assert.match(section, /await browserPnoPage\(row, type, page, false\)/);
   assert.match(section, /PNO_OPERATIONAL_TRUTH_CACHE_MS = 60 \* 1000/);
+  assert.doesNotMatch(section, /setInterval\s*\(|setTimeout\s*\(|apiPost\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i);
+});
+
+
+test("V22 inbound PNO is destination/drop only and origin is suppressed", () => {
+  assert.match(staged, /PNO_INBOUND_SCOPE_AND_EAGER_TRUTH_V22/);
+  assert.match(staged, /function pnoOperationalInboundEligible\(row\)/);
+  assert.match(staged, /isDestination\(row\) \|\| isDrop\(row\)/);
+  const badge = staged.slice(staged.indexOf("function expectedParcelsBadge"), staged.indexOf("function findPnoRowById"));
+  assert.match(badge, /if \(!pnoOperationalInboundEligible\(row\)\) return ""/);
+  const queue = staged.slice(staged.indexOf("function pnoOperationalQueueResolve"), staged.indexOf("function pnoOperationalObserveCards"));
+  assert.match(queue, /!row\?\.id \|\| !pnoOperationalInboundEligible\(row\)/);
+  assert.doesNotMatch(staged.slice(staged.indexOf("PNO_INBOUND_SCOPE_AND_EAGER_TRUTH_V22")), /AYU1TS8R72|NE1_HUB/);
+});
+
+test("V22 explicit modal open resolves corrected truth before rendering any tab", () => {
+  const opener = staged.slice(staged.indexOf("openPendingParcels = async function pnoV18OpenPendingParcels"), staged.indexOf('document.addEventListener("DOMContentLoaded", pnoV18EnsureUi)'));
+  assert.match(opener, /!pnoOperationalInboundEligible\(args\.row\)/);
+  const resolveAt = opener.indexOf("await pnoOperationalResolve(args.row)");
+  const summaryAt = opener.indexOf("pnoV18RenderSummary()");
+  const modalAt = opener.indexOf('showModal()');
+  const loadAt = opener.indexOf("await pnoV18Load(args.type, args.page)");
+  assert.ok(resolveAt >= 0 && resolveAt < summaryAt && summaryAt < modalAt && modalAt < loadAt);
+});
+
+test("V22 operational resolver refuses origin without new timers or DB work", () => {
+  const resolver = staged.slice(staged.indexOf("async function pnoOperationalResolve"), staged.indexOf("function pnoOperationalPaginate"));
+  assert.match(resolver, /!pnoOperationalInboundEligible\(row\)/);
+  const section = staged.slice(staged.indexOf("PNO_INBOUND_SCOPE_AND_EAGER_TRUTH_V22"));
   assert.doesNotMatch(section, /setInterval\s*\(|setTimeout\s*\(|apiPost\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i);
 });

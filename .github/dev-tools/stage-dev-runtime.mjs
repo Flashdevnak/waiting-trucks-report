@@ -53,6 +53,7 @@ import { patchPnoApprovedModalV18 } from "./patch-pno-approved-modal-v18.mjs";
 import { patchPnoGlobalFilterV19 } from "./patch-pno-global-filter-v19.mjs";
 import { patchPnoNoEntryBagActionV20 } from "./patch-pno-noentry-bag-action-v20.mjs";
 import { patchPnoOperationalReceiptTruthV21 } from "./patch-pno-operational-receipt-truth-v21.mjs";
+import { patchPnoInboundScopeAndEagerTruthV22 } from "./patch-pno-inbound-scope-eager-truth-v22.mjs";
 import {
   patchMsDailyHistoryFrontend,
   patchMsDailyHistoryWorker,
@@ -401,6 +402,7 @@ export function stageFrontend(source) {
   output = patchPnoGlobalFilterV19(output);
   output = patchPnoNoEntryBagActionV20(output);
   output = patchPnoOperationalReceiptTruthV21(output);
+  output = patchPnoInboundScopeAndEagerTruthV22(output);
   return output;
 }
 

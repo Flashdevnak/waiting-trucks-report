@@ -189,6 +189,42 @@ function assertMenu(label,result,width,height,mobile,isSystem){
   }
 }
 
+async function probePnoModal(cdp,sessionId,width,label){
+  const expression = '(async()=>{'+
+    'if(typeof openPendingParcels!==\'function\') return {ok:false,reason:\'openPendingParcels missing\'};'+
+    'const originalBrowserPnoPage=browserPnoPage;'+
+    'try{'+
+      'const row={id:\'pno-smoke-row\',proofId:\'SMOKE-BC-001\',routeName:\'SMOKE ROUTE\',pnoState:\'OK\',pnoEnabled:true,pnoSourceDay:\'2026-09-19\',pnoLineId:\'LINE-SMOKE\',pnoVanLineId:\'\',pnoStoreId:\'STORE-A\',pnoNextStoreId:\'STORE-B\',expectedParcels:3,enteredParcels:2,pendingParcels:1};'+
+      'const parcels=[{pno:\'PNO-SMOKE-001\',status:\'เข้าคลังแล้ว\',lastAction:\'Backing\',lastActionAt:\'2026-09-19 08:01:00\',targetHub:\'NAK\',targetBranch:\'A\',backingNo:\'BAG-SMOKE-01\'},{pno:\'PNO-SMOKE-002\',status:\'เข้าคลังแล้ว\',lastAction:\'Backing\',lastActionAt:\'2026-09-19 08:02:00\',targetHub:\'NAK\',targetBranch:\'A\',backingNo:\'BAG-SMOKE-01\'},{pno:\'PNO-SMOKE-003\',status:\'คงเหลือ\',lastAction:\'-\',lastActionAt:\'-\',targetHub:\'NAK\',targetBranch:\'B\',backingNo:\'\'}];'+
+      'browserPnoPage=async (_row,type,page)=>({proofId:row.proofId,routeName:row.routeName,total:3,page,parcels:type===\'no_entry\'?[parcels[2]]:type===\'already\'?parcels.slice(0,2):parcels});'+
+      'state.currentRows=[row];'+
+      'await openPendingParcels(row,\'total\',1);await new Promise(r=>setTimeout(r,30));'+
+      'const style=(sel)=>{const node=document.querySelector(sel);if(!node)return null;const s=getComputedStyle(node),r=node.getBoundingClientRect();return{display:s.display,backgroundColor:s.backgroundColor,color:s.color,borderColor:s.borderColor,width:r.width,right:r.right,x:r.x,scrollWidth:node.scrollWidth,clientWidth:node.clientWidth}};'+
+      'const head=style(\'.pno-v18-head\'),tableHead=style(\'.pno-v18-table th\'),desktop=style(\'.pno-v18-desktop\'),mobile=style(\'.pno-v18-mobile\');'+
+      'document.querySelector(\'[data-pno-v18-type="bag"]\')?.click();await new Promise(r=>setTimeout(r,30));'+
+      'const bagTabStyle=style(\'[data-pno-v18-type="bag"].is-active\'),bagCard=style(\'.pno-v18-bag-card\'),backingBadge=style(\'.pno-v18-badge.is-backing\');'+
+      'const dialog=document.querySelector(\'#pending-parcels-dialog\'),dr=dialog?.getBoundingClientRect();'+
+      'return {ok:true,marker:document.querySelector(\'#pno-approved-modal-v18-style\')?.textContent?.includes(\'PNO_V18_MOBILE_CACHE_UI_V2\')||false,head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
+    '}finally{browserPnoPage=originalBrowserPnoPage;document.querySelector(\'#pending-parcels-dialog\')?.close();}'+
+  '})()';
+  const result=await evaluate(cdp,sessionId,expression);
+  assert.equal(result?.ok,true,`${label}: PNO probe failed ${JSON.stringify(result)}`);
+  assert.equal(result.marker,true,`${label}: live PNO V18 mobile/cache marker missing`);
+  assert.equal(result.head?.backgroundColor,'rgb(255, 212, 0)',`${label}: PNO head is not Flash gold ${JSON.stringify(result.head)}`);
+  assert.equal(result.tableHead?.backgroundColor,'rgb(21, 21, 21)',`${label}: desktop PNO table header is not black`);
+  assert.equal(result.tableHead?.color,'rgb(255, 255, 255)',`${label}: desktop PNO table header text is not white`);
+  assert.equal(result.bagTabStyle?.backgroundColor,'rgb(123, 140, 255)',`${label}: Backing tab is not Option E`);
+  assert.equal(result.bagTabStyle?.color,'rgb(255, 255, 255)',`${label}: Backing tab text is not white`);
+  assert.equal(result.backingBadge?.backgroundColor,'rgb(123, 140, 255)',`${label}: Backing badge is not Option E`);
+  if(width<=720){
+    assert.equal(result.desktop?.display,'none',`${label}: desktop table still visible on mobile`);
+    assert.notEqual(result.mobile?.display,'none',`${label}: mobile cards are hidden on mobile`);
+    assert.ok(result.bagCard&&result.bagCard.width<=width,`${label}: Backing card overflows mobile viewport`);
+    assert.ok(result.dialog&&result.dialog.right<=width+1&&result.dialog.x>=-1,`${label}: PNO dialog overflows mobile viewport ${JSON.stringify(result.dialog)}`);
+  }else assert.notEqual(result.desktop?.display,'none',`${label}: desktop table hidden on desktop`);
+  console.log(`PNO_VISUAL_${label.toUpperCase().replace(/[^A-Z0-9]+/g,'_')}=PASS`);
+}
+
 async function main(){
   await waitForLiveRelease();
   const {child,profile,version}=await launch();
@@ -211,6 +247,7 @@ async function main(){
         await waitReady(cdp,sessionId,page);
         const base=await evaluate(cdp,sessionId,BASE_PROBE);
         const label=`${view}/${page}`;
+        if(page==='ms.html'&&(view==='mobile360'||view==='desktop1366')) await probePnoModal(cdp,sessionId,width,label);
         if(base.overflowers?.length) console.log(`OVERFLOW_DIAG_${view.toUpperCase()}_${page.replace('.html','').toUpperCase()}=${JSON.stringify(base.overflowers)}`);
         assertBase(label,base,width,mobile);
         const system=await evaluate(cdp,sessionId,menuProbe(0));
@@ -233,6 +270,7 @@ async function main(){
       .map(e=>e.params?.request?.method)
       .filter(method=>method&&!['GET','HEAD','OPTIONS'].includes(method));
     assert.deepEqual(mutationMethods,[],'mobile shell smoke emitted an HTTP mutation method');
+    console.log('PNO_VISUAL_LIVE_SMOKE=PASS');
     console.log('MOBILE_SHELL_ALL_PAGES=PASS');
     console.log('MOBILE_SHELL_ADMIN_ENTRY_DOM=PASS');
     console.log('MOBILE_SHELL_MENU_CONTRAST=PASS');

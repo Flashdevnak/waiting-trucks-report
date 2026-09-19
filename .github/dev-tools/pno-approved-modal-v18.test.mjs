@@ -131,7 +131,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-source-contract-intersection-v23/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-ownhub-single-truth-v24/);
 });
 
 
@@ -380,33 +380,75 @@ test("V22 operational resolver refuses origin without new timers or DB work", ()
 });
 
 
-test("V23 pending membership intersects total metadata before correction", () => {
-  assert.match(staged, /PNO_PENDING_TOTAL_INTERSECTION_V23/);
-  assert.match(staged, /function pnoOperationalNeedsTotalMetadata\(item, row\)/);
-  assert.match(staged, /async function pnoOperationalEnrichPendingFromTotal\(row, noEntryRows\)/);
-  assert.match(staged, /const unresolved = new Set/);
-  assert.match(staged, /unique\.filter\(\(item\) => pnoOperationalNeedsTotalMetadata\(item, row\)\)/);
-  assert.match(staged, /await browserPnoPage\(row, "total", page, false\)/);
-  assert.match(staged, /if \(!pno \|\| !unresolved\.has\(pno\)\) continue/);
-  assert.match(staged, /byPno\.set\(pno, \{ \.\.\.pendingItem, \.\.\.totalItem, category: "no_entry" \}\)/);
-  assert.match(staged, /while \(unresolved\.size && page <= pages\)/);
+test("V24 final staged runtime has one correction authority and no V23 overlap", () => {
+  assert.match(staged, /PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V24/);
+  assert.doesNotMatch(staged, /PNO_PENDING_TOTAL_INTERSECTION_V23/);
+  assert.doesNotMatch(staged, /function pnoOperationalNeedsTotalMetadata/);
+  assert.doesNotMatch(staged, /function pnoOperationalEnrichPendingFromTotal/);
+  assert.equal((staged.match(/async function pnoOperationalResolve\(row\)/g) || []).length, 1);
+  assert.equal((staged.match(/function pnoOperationalBuildTruth\(row, totalRows, alreadyRows\)/g) || []).length, 1);
+});
+
+test("V24 correction uses MS total universe minus MS already baseline only", () => {
+  const build = staged.slice(staged.indexOf("function pnoOperationalBuildTruth"), staged.indexOf("async function pnoOperationalLoadAllRaw"));
+  assert.match(build, /const totalMap = pnoOperationalUniqueMap\(totalRows\)/);
+  assert.match(build, /const alreadyMap = pnoOperationalUniqueMap\(alreadyRows\)/);
+  assert.match(build, /if \(alreadyMap\.has\(pno\)\) continue/);
+  assert.match(build, /if \(pnoOperationalCandidate\(item\)\) candidates\.push\(item\)/);
+  assert.match(build, /correctedEntered = enteredRows\.length/);
+  assert.match(build, /correctedPending = remainingRows\.length/);
+  assert.match(build, /correctedEntered \+ correctedPending !== raw\.expected/);
+  assert.doesNotMatch(build, /no_entry|EnrichPending|unresolved/);
+});
+
+test("V24 own-HUB isolation uses the currently selected HUB and exact canonical equality", () => {
+  const section = staged.slice(staged.indexOf("function pnoOperationalCanonicalHub"), staged.indexOf("function pnoOperationalRawSummary"));
+  assert.match(section, /function pnoOperationalCurrentHub\(\)/);
+  assert.match(section, /pnoOperationalCanonicalHub\(state\.branch\)/);
+  assert.match(section, /pnoOperationalCanonicalHub\(targetHub\) === current/);
+  assert.match(section, /String\(item\?\.backingNo \|\| ""\)\.trim\(\)/);
+  assert.match(section, /String\(item\?\.lastAction \|\| ""\)\.trim\(\) === "สแกนเข้าคลัง"/);
+  assert.doesNotMatch(section, /row\?\.hub\)\s*\|\||AYU1TS8R72|KKC1TSBP54|02 NE1_HUB|["']NE1["']/);
+});
+
+test("V24 verifies detail counts before correction and fails safe to raw MS counts", () => {
+  const build = staged.slice(staged.indexOf("function pnoOperationalBuildTruth"), staged.indexOf("async function pnoOperationalLoadAllRaw"));
+  assert.match(build, /totalMap\.size !== raw\.expected/);
+  assert.match(build, /alreadyMap\.size !== raw\.entered/);
+  assert.match(build, /ALREADY_NOT_SUBSET_OF_TOTAL/);
+  assert.match(build, /CORRECTED_DETAIL_COUNT_MISMATCH/);
+});
+
+test("V24 resolver loads total first and loads already only when an own-HUB exception exists", () => {
   const resolver = staged.slice(staged.indexOf("async function pnoOperationalResolve"), staged.indexOf("function pnoOperationalPaginate"));
-  assert.match(resolver, /const loaded = await pnoOperationalLoadAllRaw\(row, "no_entry"\)/);
-  assert.match(resolver, /const enriched = await pnoOperationalEnrichPendingFromTotal\(row, loaded\.rows\)/);
-  assert.match(resolver, /pnoOperationalBuildTruth\(row, enriched\.rows\)/);
+  assert.match(resolver, /await pnoOperationalLoadAllRaw\(row, "total"\)/);
+  assert.match(resolver, /ownHubCandidatesExist/);
+  assert.match(resolver, /if \(!ownHubCandidatesExist\)/);
+  assert.match(resolver, /await pnoOperationalLoadAllRaw\(row, "already"\)/);
+  assert.match(resolver, /pnoOperationalBuildTruth\(row, total\.rows, already\.rows\)/);
+  assert.doesNotMatch(resolver, /pnoOperationalLoadAllRaw\(row, "no_entry"\)/);
 });
 
-test("V23 total fallback is conditional, shared-cache based, and stops when pending metadata is complete", () => {
-  const section = staged.slice(staged.indexOf("function pnoOperationalNeedsTotalMetadata"), staged.indexOf("async function pnoOperationalResolve"));
-  assert.match(section, /if \(!unresolved\.size\)/);
-  assert.match(section, /usedTotalFallback: false/);
-  assert.match(section, /browserPnoPage\(row, "total", page, false\)/);
-  assert.match(section, /unresolved\.delete\(pno\)/);
-  assert.match(section, /while \(unresolved\.size && page <= pages\)/);
-  assert.doesNotMatch(section, /apiGet\s*\(|apiPost\s*\(|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i);
+test("V24 corrected already and remaining modal pages share the same verified truth", () => {
+  const virtual = staged.slice(staged.indexOf("async function pnoOperationalVirtualPage"), staged.indexOf("function pnoOperationalRefreshCard"));
+  assert.match(virtual, /!truth\?\.verified \|\| truth\.correction <= 0/);
+  assert.match(virtual, /type === "no_entry"/);
+  assert.match(virtual, /truth\.remainingRows \|\| \[\]/);
+  assert.match(virtual, /type === "already"/);
+  assert.match(virtual, /truth\.enteredRows \|\| \[\]/);
 });
 
-test("V23 does not hardcode the example truck or HUB", () => {
-  const section = staged.slice(staged.indexOf("PNO_PENDING_TOTAL_INTERSECTION_V23"));
-  assert.doesNotMatch(section, /AYU1TS8R72|KKC1TSBP54|02 NE1_HUB|["']NE1["']/);
+test("V24 remains destination/drop only and quota-safe", () => {
+  const section = staged.slice(staged.indexOf("PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V24"), staged.indexOf("function expectedParcelsBadge"));
+  assert.match(section, /function pnoOperationalInboundEligible/);
+  assert.match(section, /isDestination\(row\) \|\| isDrop\(row\)/);
+  assert.match(section, /PNO_OPERATIONAL_TRUTH_CACHE_MS = 60 \* 1000/);
+  assert.match(section, /IntersectionObserver/);
+  assert.match(section, /browserPnoPage\(row, type, page, false\)/);
+  assert.doesNotMatch(section, /setInterval\s*\(|setTimeout\s*\(|apiPost\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i);
+});
+
+test("V24 does not hardcode any example truck or HUB", () => {
+  const section = staged.slice(staged.indexOf("PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V24"));
+  assert.doesNotMatch(section, /AYU1TS8R72|KKC1TSBP54|02 NE1_HUB|20 NE6_HUB|["']NE1["']|["']NE6["']/);
 });

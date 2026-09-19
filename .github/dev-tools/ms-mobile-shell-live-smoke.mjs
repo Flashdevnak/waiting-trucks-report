@@ -213,17 +213,16 @@ async function probePnoModal(cdp,sessionId,width,label){
   assert.equal(result.styleElement,true,`${label}: live PNO style element missing`);
   assert.equal(result.runtimeV2,true,`${label}: live PNO V18 mobile/cache runtime missing`);
   assert.equal(result.head?.backgroundColor,'rgb(255, 212, 0)',`${label}: PNO head is not Flash gold ${JSON.stringify(result.head)}`);
-  assert.equal(result.tableHead?.backgroundColor,'rgb(21, 21, 21)',`${label}: desktop PNO table header is not black`);
-  assert.equal(result.tableHead?.color,'rgb(255, 255, 255)',`${label}: desktop PNO table header text is not white`);
+  assert.equal(result.tableHead?.backgroundColor,'rgb(255, 212, 0)',`${label}: PNO table header is not Flash gold`);
+  assert.equal(result.tableHead?.color,'rgb(21, 21, 21)',`${label}: PNO table header text is not black`);
   assert.equal(result.bagTabStyle?.backgroundColor,'rgb(123, 140, 255)',`${label}: Backing tab is not Option E`);
   assert.equal(result.bagTabStyle?.color,'rgb(255, 255, 255)',`${label}: Backing tab text is not white`);
   assert.equal(result.backingBadge?.backgroundColor,'rgb(123, 140, 255)',`${label}: Backing badge is not Option E`);
-  if(width>720) assert.deepEqual(result.parcelTableHeaders?.slice(0,7),['#','PNO','เลขถุงแบ็กกิ้ง','สถานะ','ล่าสุด','ปลายทาง','เวลา'],`${label}: desktop table does not match approved test-v2 columns`);
+  if(width>720) assert.deepEqual(result.parcelTableHeaders?.slice(0,6),['#','PNO','สถานะ','ล่าสุด','ปลายทาง','เวลา'],`${label}: desktop table does not match classic columns`);
   if(width<=720){
     assert.equal(result.desktop?.display,'none',`${label}: desktop table still visible on mobile`);
     assert.notEqual(result.mobile?.display,'none',`${label}: mobile cards are hidden on mobile`);
     assert.ok(result.bagCard&&result.bagCard.width<=width,`${label}: Backing card overflows mobile viewport`);
-    assert.ok(result.parcelMobileBagBox&&result.parcelMobileBagBox.display!=='none',`${label}: mobile parcel card is missing Backing field`);
     assert.ok(result.dialog&&result.dialog.right<=width+1&&result.dialog.x>=-1,`${label}: PNO dialog overflows mobile viewport ${JSON.stringify(result.dialog)}`);
   }else assert.notEqual(result.desktop?.display,'none',`${label}: desktop table hidden on desktop`);
   console.log(`PNO_VISUAL_${label.toUpperCase().replace(/[^A-Z0-9]+/g,'_')}=PASS`);

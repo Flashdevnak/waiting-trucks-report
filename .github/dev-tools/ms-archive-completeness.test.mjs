@@ -61,7 +61,7 @@ test("daily UI no longer offers lifetime accumulated export", () => {
   assert.match(html, /วันนี้ หรือช่วงวันที่ที่กดค้นหา/);
   assert.match(html, /Export ช่วงวันที่/);
   assert.doesNotMatch(html, />\s*Export ทั้งหมด\s*</);
-  assert.match(html, /ms\.js\?v=20260919-pno-ownhub-bag-evidence-v25/);
+  assert.match(html, /ms\.js\?v=20260919-ops-truth-v26/);
   assert.match(frontend, /MS_LOWER_DAILY_MIDNIGHT_DATE8_V1/);
   assert.doesNotMatch(frontend, /MS_LOWER_OPERATING_DAY_0700_V2/);
 });

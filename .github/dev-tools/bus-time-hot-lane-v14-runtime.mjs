@@ -53,14 +53,14 @@ export function extractBusTbrAtV28(field, msDateFn) {
     const raw = String(entry?.value ?? "").trim();
     if (!raw || raw === "-") continue;
     const candidates = [];
-    const directDate = /^\\d{4}-\\d{1,2}-\\d{1,2}(?:[ T]\\d{1,2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,3})?)?(?:Z|[+-]\\d{2}:?\\d{2})?)?$/.test(raw);
-    if (directDate || /^\\d{10}(?:\\d{3})?$/.test(raw)) candidates.push(raw);
-    const labelled = raw.match(/^\\s*TBR\\s*[:：=\\-]?\\s*(.+)$/i);
+    const directDate = /^\d{4}-\d{1,2}-\d{1,2}(?:[ T]\d{1,2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(raw);
+    if (directDate || /^\d{10}(?:\d{3})?$/.test(raw)) candidates.push(raw);
+    const labelled = raw.match(/^\s*TBR\s*[:：=\-]?\s*(.+)$/i);
     if (labelled?.[1]) candidates.push(labelled[1].trim());
     for (const candidate of candidates) {
       let value = candidate;
-      if (/^\\d{10}$/.test(value)) value = new Date(Number(value) * 1000).toISOString();
-      else if (/^\\d{13}$/.test(value)) value = new Date(Number(value)).toISOString();
+      if (/^\d{10}$/.test(value)) value = new Date(Number(value) * 1000).toISOString();
+      else if (/^\d{13}$/.test(value)) value = new Date(Number(value)).toISOString();
       const iso = msDateFn(value);
       if (iso && Number.isFinite(Date.parse(String(iso)))) parsed.push(String(iso));
     }

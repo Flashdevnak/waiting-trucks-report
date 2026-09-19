@@ -32,6 +32,9 @@ const {
   parseBusRetryAfter,
   legacyBusCallsPerMinute,
   BUS_TIME_MAX_CALLS_PER_CYCLE,
+  BUS_TIME_HAR_SEED_MAX_AGE_MS,
+  BUS_TIME_HOT_REUSE_MS,
+  BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS,
 } = await import(`${pathToFileURL(runtimePath).href}?v=${Date.now()}`);
 
 function stageBusReader() {
@@ -253,6 +256,55 @@ test("legacy amplification is 30/90/300/600 calls per minute for 50/250/1000/200
     [50, 250, 1000, 2000].map((rows) => legacyBusCallsPerMinute(rows, 2, 4000)),
     [30, 90, 300, 600],
   );
+});
+
+test("successful HAR seed paints KIT/TBR immediately with zero upstream call, then returns to the existing 12s cadence", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
+  });
+  const seededAt = new Date(h.stats().clock).toISOString();
+  h.lane.resetCredentials("NE1", {
+    auth: "auth",
+    lang: "th",
+    fbid: "fbid",
+    time: "time",
+    _from: "fbi",
+    seededAt,
+    seedItems: [item("P1")],
+  });
+  const routes = [{
+    proofId: "P1",
+    attendanceType: "ปลายทาง",
+    unloadingState: 0,
+    estimatedArrivalAt: "2026-09-13T01:00:00Z",
+  }];
+
+  const first = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 0, "fresh successful HAR must not trigger an immediate duplicate provider request");
+  assert.equal(first.get("P:P1|A:ปลายทาง")?.scheduleTbrArrivalAt, "2026-09-13T00:02:00.000Z");
+
+  h.advance(BUS_TIME_HOT_REUSE_MS);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1, "after the normal healthy 12s reuse window the shared source may refresh once");
+});
+
+test("HAR seed is bounded and provider-limit backoff remains much longer than healthy 12s cadence", () => {
+  assert.equal(BUS_TIME_HAR_SEED_MAX_AGE_MS, 15 * 60 * 1000);
+  assert.equal(BUS_TIME_HOT_REUSE_MS, 12_000);
+  assert.equal(BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS, 5 * 60 * 1000);
+  assert.ok(BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS > BUS_TIME_HOT_REUSE_MS);
+});
+
+test("canonical BusTime HAR save no longer re-hits provider just to validate the uploaded successful response", () => {
+  const canonical = fs.readFileSync(canonicalWorker, "utf8");
+  const start = canonical.indexOf("async function saveMsBusConnection(body, actor, env) {");
+  const end = canonical.indexOf("\n\n// HBI_PHOTO_ON_DEMAND_V1", start);
+  assert.ok(start >= 0 && end > start);
+  const save = canonical.slice(start, end);
+  assert.match(save, /BUS_TIME_HAR_SEED_TRUTH_V26/);
+  assert.match(save, /sanitizeBusSeedItems\(body\.seedItems\)/);
+  assert.match(save, /upstreamValidationCalls:\s*0/);
+  assert.doesNotMatch(save, /readBusPage\(/);
 });
 
 test("idle/origin/completed-only Route state makes zero BusTime upstream calls", async () => {

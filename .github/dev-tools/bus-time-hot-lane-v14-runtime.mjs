@@ -181,18 +181,28 @@ export function createBusTimeHotLane(deps) {
 
   function activeRows(routeRows) {
     return (Array.isArray(routeRows) ? routeRows : []).filter((row) => {
-      if (!normalizeProofId(row?.proofId) || Number(row?.unloadingState) === 2)
-        return false;
+      if (!normalizeProofId(row?.proofId)) return false;
       const attendance = String(normalizeAttendance(row?.attendanceType) || "")
         .trim()
         .toLowerCase();
-      return (
+      const destination =
         attendance === "ปลายทาง" ||
+        attendance === "destination";
+      const drop =
         attendance === "จุดดรอป" ||
-        attendance === "destination" ||
         attendance === "drop" ||
-        attendance === "drop point"
-      );
+        attendance === "drop point";
+      if (!destination && !drop) return false;
+      // BUS_TIME_DROP_AWAIT_RELEASE_TBR_V1:
+      // Route unloadingState=2 completes unloading, but a Drop remains lifecycle-active
+      // until Route supplies actualDepartureAt. Keep only that state-2 subcase in the
+      // existing shared ~12s BusTime lane; released Drops and completed destinations
+      // stay excluded so this does not create completed-row polling.
+      if (Number(row?.unloadingState) === 2) {
+        const released = Boolean(String(row?.actualDepartureAt || "").trim());
+        if (!drop || released) return false;
+      }
+      return true;
     });
   }
 

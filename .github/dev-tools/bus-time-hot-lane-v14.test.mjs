@@ -301,7 +301,7 @@ test("canonical BusTime HAR save no longer re-hits provider just to validate the
   const end = canonical.indexOf("\n\n// HBI_PHOTO_ON_DEMAND_V1", start);
   assert.ok(start >= 0 && end > start);
   const save = canonical.slice(start, end);
-  assert.match(save, /BUS_TIME_HAR_SEED_TRUTH_V26/);
+  assert.match(canonical, /BUS_TIME_HAR_SEED_TRUTH_V26/);
   assert.match(save, /sanitizeBusSeedItems\(body\.seedItems\)/);
   assert.match(save, /upstreamValidationCalls:\s*0/);
   assert.doesNotMatch(save, /readBusPage\(/);

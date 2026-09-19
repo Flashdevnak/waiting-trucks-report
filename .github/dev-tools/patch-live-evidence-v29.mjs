@@ -219,10 +219,30 @@ async function readMsCompletedToday(env, actor, hub) {
 }
 
 `;
+  // V29_SYNC_CLAIM_BOUNDARY_FIX: multi-client dedupe stages its shared
+  // sync-claim helpers between readMsCompletedToday() and markConnectionSuccess().
+  // Replace only readMsCompletedToday() so V29 can never delete those helpers.
+  const completedReadStart = output.indexOf(
+    "async function readMsCompletedToday(env, actor, hub) {",
+  );
+  const syncClaimHelpersStart = output.indexOf(
+    "const MS_SYNC_CLAIM_LEASE_MS = 15000;",
+    completedReadStart,
+  );
+  const markConnectionStart = output.indexOf(
+    "async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {",
+    completedReadStart,
+  );
+  const completedReadEndNeedle =
+    syncClaimHelpersStart >= 0 &&
+    (markConnectionStart < 0 || syncClaimHelpersStart < markConnectionStart)
+      ? "const MS_SYNC_CLAIM_LEASE_MS = 15000;"
+      : "async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {";
+
   output = replaceBetween(
     output,
     "async function readMsCompletedToday(env, actor, hub) {",
-    "async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {",
+    completedReadEndNeedle,
     completedReadReplacement,
     "completed historical TBR recovery",
   );

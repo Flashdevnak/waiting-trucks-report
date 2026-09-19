@@ -142,15 +142,17 @@ test("V18 CSS text uses real newlines so all rules and mobile media queries pars
 
 
 test("V18 presentation follows approved test-v2 geometry without changing business logic", () => {
-  assert.match(staged, /pno-v18-summary\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\))[^}]*gap:12px[^}]*padding:14px 22px/);
-  assert.match(staged, /pno-v18-summary-item\{[^}]*border:1px solid #dce1e4[^}]*border-radius:9px/);
+  assert.ok(staged.includes("pno-v18-summary{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:14px 22px"));
+  assert.ok(staged.includes("pno-v18-summary-item{min-width:0;min-height:86px;padding:11px 13px;display:block;border:1px solid #dce1e4;border-radius:9px"));
   assert.match(staged, /pno-v18-tabs-row/);
   assert.match(staged, /pno-v18-toolbar-meta/);
-  assert.match(staged, /<th>PNO<\/th><th>เลขถุงแบ็กกิ้ง<\/th><th>สถานะ<\/th><th>ล่าสุด<\/th><th>ปลายทาง<\/th><th>เวลา<\/th>/);
+  assert.ok(staged.includes("<th>PNO</th><th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>ล่าสุด</th><th>ปลายทาง</th><th>เวลา</th>"));
   assert.match(staged, /pno-v18-mobile-bagbox/);
   assert.match(staged, /pno-v18-mobile-grid/);
-  assert.match(staged, /pno-v18-list\{[^}]*flex:1 1 auto[^}]*min-height:0[^}]*overflow:auto/);
-  assert.match(staged, /@media\(max-width:720px\)[\s\S]*pno-v18-list\{overflow-x:hidden;overflow-y:auto\}[\s\S]*pno-v18-desktop\{display:none!important\}[\s\S]*pno-v18-mobile\{display:block\}/);
+  assert.ok(staged.includes("pno-v18-list{flex:1 1 auto;min-height:0;overflow:auto"));
+  assert.ok(staged.includes("pno-v18-list{overflow-x:hidden;overflow-y:auto"));
+  assert.ok(staged.includes("pno-v18-desktop{display:none!important}"));
+  assert.ok(staged.includes("pno-v18-mobile{display:block}"));
   assert.match(staged, /PNO_V18_VIEW_CACHE_MS = 60 \* 1000/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
 });

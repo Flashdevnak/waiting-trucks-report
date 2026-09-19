@@ -202,9 +202,9 @@ async function probePnoModal(cdp,sessionId,width,label){
       'const style=(sel)=>{const node=document.querySelector(sel);if(!node)return null;const s=getComputedStyle(node),r=node.getBoundingClientRect();return{display:s.display,backgroundColor:s.backgroundColor,color:s.color,borderColor:s.borderColor,width:r.width,right:r.right,x:r.x,scrollWidth:node.scrollWidth,clientWidth:node.clientWidth}};'+
       'const head=style(\'.pno-v18-head\'),tableHead=style(\'.pno-v18-table th\'),desktop=style(\'.pno-v18-desktop\'),mobile=style(\'.pno-v18-mobile\'),parcelTableHeaders=[...document.querySelectorAll(\'.pno-v18-desktop .pno-v18-table thead th\')].map(x=>x.textContent.trim()),parcelMobileBagBox=style(\'.pno-v18-mobile-bagbox\');'+
       'document.querySelector(\'[data-pno-v18-type="bag"]\')?.click();await new Promise(r=>setTimeout(r,30));'+
-      'const bagTabStyle=style(\'[data-pno-v18-type="bag"].is-active\'),bagCard=style(\'.pno-v18-bag-card\'),backingBadge=style(\'.pno-v18-badge.is-backing\');'+
+      'const bagTabStyle=style(\'[data-pno-v18-type="bag"].is-active\'),bagCard=style(\'.pno-v18-bag-card\'),backingBadge=style(\'.pno-v18-badge.is-backing\'),bagTableHeaders=[...document.querySelectorAll(\'.pno-v18-desktop .pno-v18-table thead th\')].map(x=>x.textContent.trim());'+
       'const dialog=document.querySelector(\'#pending-parcels-dialog\'),dr=dialog?.getBoundingClientRect();'+
-      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,parcelMobileBagBox,parcelTableHeaders,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
+      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,parcelMobileBagBox,parcelTableHeaders,bagTableHeaders,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
     '}finally{browserPnoPage=originalBrowserPnoPage;document.querySelector(\'#pending-parcels-dialog\')?.close();}'+
   '})()';
   const result=await evaluate(cdp,sessionId,expression);
@@ -218,7 +218,7 @@ async function probePnoModal(cdp,sessionId,width,label){
   assert.equal(result.bagTabStyle?.backgroundColor,'rgb(241, 242, 243)',`${label}: Backing tab is not neutral active style`);
   assert.equal(result.bagTabStyle?.color,'rgb(32, 33, 36)',`${label}: Backing tab text is not neutral dark`);
   assert.equal(result.backingBadge?.color,'rgb(37, 37, 37)',`${label}: Backing label is not neutral dark`);
-  if(width>720) assert.deepEqual(result.parcelTableHeaders?.slice(0,6),['#','PNO','สถานะ','ล่าสุด','ปลายทาง','เวลา'],`${label}: desktop table does not match classic columns`);
+  if(width>720) { assert.deepEqual(result.parcelTableHeaders?.slice(0,7),['#','PNO','สถานะ','ล่าสุด','HUB ปลายทาง','สาขาปลายทาง','เวลา'],`${label}: desktop parcel table columns are wrong`); assert.deepEqual(result.bagTableHeaders?.slice(0,7),['#','เลขถุงแบ็กกิ้ง','สถานะ','จำนวนพัสดุ','HUB ถัดไป','สาขาถัดไป',''],`${label}: desktop bag table columns are wrong`); }
   if(width<=720){
     assert.equal(result.desktop?.display,'none',`${label}: desktop table still visible on mobile`);
     assert.notEqual(result.mobile?.display,'none',`${label}: mobile cards are hidden on mobile`);

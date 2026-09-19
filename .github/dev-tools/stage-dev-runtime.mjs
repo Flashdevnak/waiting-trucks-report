@@ -54,6 +54,7 @@ import { patchPnoGlobalFilterV19 } from "./patch-pno-global-filter-v19.mjs";
 import { patchPnoNoEntryBagActionV20 } from "./patch-pno-noentry-bag-action-v20.mjs";
 import { patchPnoOperationalReceiptTruthV21 } from "./patch-pno-operational-receipt-truth-v21.mjs";
 import { patchPnoInboundScopeAndEagerTruthV22 } from "./patch-pno-inbound-scope-eager-truth-v22.mjs";
+import { patchPnoSourceContractFrontendV23, patchPnoSourceContractWorkerV23 } from "./patch-pno-source-contract-v23.mjs";
 import {
   patchMsDailyHistoryFrontend,
   patchMsDailyHistoryWorker,
@@ -403,6 +404,7 @@ export function stageFrontend(source) {
   output = patchPnoNoEntryBagActionV20(output);
   output = patchPnoOperationalReceiptTruthV21(output);
   output = patchPnoInboundScopeAndEagerTruthV22(output);
+  output = patchPnoSourceContractFrontendV23(output);
   return output;
 }
 
@@ -437,6 +439,7 @@ export function stageWorker(source) {
   output = patchDevRootEntryWorker(output);
   output = patchPnoRound2Worker(output);
   output = patchPnoDetailTruthWorker(output);
+  output = patchPnoSourceContractWorkerV23(output);
   return output;
 }
 

@@ -31,14 +31,14 @@
 
 - Recovery slice 1: make `queueInfo` use Route-owned completion truth, matching the existing operational-stage predicate. Schedule E no longer completes Destination or moves Drop to awaiting-release by itself.
 - Recovery slice 2: run the staged Drop/KIT/TBR queue-lifecycle regression as part of the standard `npm run check`, not only inside the deploy workflow.
+- Recovery slice 3: bound daily-history snapshots, cancellations, and completion verification to the selected range cutoff so future snapshots cannot rewrite an earlier report.
 
 ## Next safe slices
 
 1. Expand the executable lifecycle contract to cover exact 12-hour expiry, summary/list parity, and Supervisor parity against the final staged runtime.
-2. Replace latest-ever historical reads with an explicitly versioned point-in-time contract without increasing upstream calls or healthy-state writes.
-3. Persist sufficient audit provenance for future transient TBR and PNO evidence; do not rewrite old history.
-4. Consolidate verified staged rules into canonical source in bounded commits while keeping staged output byte-behavior stable.
-5. Verify locally, deploy DEV only, then collect live traces before continuing.
+2. Persist sufficient audit provenance for future transient TBR and PNO evidence; do not rewrite old history.
+3. Consolidate verified staged rules into canonical source in bounded commits while keeping staged output byte-behavior stable.
+4. Verify locally, deploy DEV only, then collect live traces before continuing.
 
 ## Resume procedure
 

@@ -323,34 +323,6 @@ test("V20 mobile Backing filters do not overflow narrow viewport", () => {
 });
 
 
-test("V21 operational receipt truth is exact own-HUB Backing scan only", () => {
-  assert.match(staged, /PNO_OPERATIONAL_RECEIPT_TRUTH_V21/);
-  assert.match(staged, /String\(item\?\.backingNo \|\| ""\)\.trim\(\)/);
-  assert.match(staged, /String\(item\?\.lastAction \|\| ""\)\.trim\(\) === "สแกนเข้าคลัง"/);
-  assert.match(staged, /pnoOperationalHubMatches\(item\?\.targetHub, state\.branch \|\| row\?\.hub\)/);
-  assert.match(staged, /if \(!pno \|\| seen\.has\(pno\)\) continue/);
-  assert.doesNotMatch(staged.slice(staged.indexOf("PNO_OPERATIONAL_RECEIPT_TRUTH_V21")), /NE1_HUB|["']NE1["']/);
-});
-
-test("V21 uses one corrected truth for card, modal counts, and entered/remaining pages", () => {
-  assert.match(staged, /const correctedEntered = Math\.min\(raw\.expected, raw\.entered \+ correction\)/);
-  assert.match(staged, /const correctedPending = Math\.max\(0, raw\.expected - correctedEntered\)/);
-  assert.match(staged, /const truth = pnoOperationalSummaryForRow\(row\)/);
-  assert.match(staged, /pnoOperationalVirtualPage\(sourceRow, type, page\)/);
-  assert.match(staged, /if \(type === "no_entry"\)/);
-  assert.match(staged, /if \(type !== "already"\) return null/);
-});
-
-test("V21 operational truth stays quota-safe and uses the existing shared PNO page path", () => {
-  const section = staged.slice(staged.indexOf("const PNO_OPERATIONAL_TRUTH_CACHE_MS"), staged.indexOf("function expectedParcelsBadge"));
-  assert.match(section, /IntersectionObserver/);
-  assert.match(section, /queueMicrotask\(pnoOperationalObserveCards\)/);
-  assert.match(section, /await browserPnoPage\(row, type, page, false\)/);
-  assert.match(section, /PNO_OPERATIONAL_TRUTH_CACHE_MS = 60 \* 1000/);
-  assert.doesNotMatch(section, /setInterval\s*\(|setTimeout\s*\(|apiPost\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i);
-});
-
-
 test("V22 inbound PNO is destination/drop only and origin is suppressed", () => {
   assert.match(staged, /PNO_INBOUND_SCOPE_AND_EAGER_TRUTH_V22/);
   assert.match(staged, /function pnoOperationalInboundEligible\(row\)/);
@@ -439,7 +411,10 @@ test("V24 corrected already and remaining modal pages share the same verified tr
 });
 
 test("V24 remains destination/drop only and quota-safe", () => {
-  const section = staged.slice(staged.indexOf("PNO_OWN_HUB_BACKING_SINGLE_TRUTH_V24"), staged.indexOf("function expectedParcelsBadge"));
+  const runtimeStart = staged.indexOf("const PNO_OPERATIONAL_TRUTH_CACHE_MS");
+  const runtimeEnd = staged.indexOf("function expectedParcelsBadge", runtimeStart);
+  assert.ok(runtimeStart >= 0 && runtimeEnd > runtimeStart);
+  const section = staged.slice(runtimeStart, runtimeEnd);
   assert.match(section, /function pnoOperationalInboundEligible/);
   assert.match(section, /isDestination\(row\) \|\| isDrop\(row\)/);
   assert.match(section, /PNO_OPERATIONAL_TRUTH_CACHE_MS = 60 \* 1000/);

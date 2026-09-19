@@ -6,6 +6,7 @@ import { patchPnoApprovedModalV18, pnoV18ResolveOpenArgs } from "./patch-pno-app
 
 const root = new URL("../../", import.meta.url);
 const canonical = await readFile(new URL("ms.js", root), "utf8");
+const msHtml = await readFile(new URL("ms.html", root), "utf8");
 const staged = stageFrontend(canonical);
 const patchSource = await readFile(new URL("./patch-pno-approved-modal-v18.mjs", import.meta.url), "utf8");
 
@@ -118,4 +119,9 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
   assert.match(staged, /pnoV18CacheSet\(pnoV18BagCache, bagKey, \{ rows: all, total \}, 24\)/);
   assert.match(staged, /row\?\.expectedParcels[\s\S]*row\?\.enteredParcels[\s\S]*row\?\.pendingParcels/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
+});
+
+
+test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-v18-mobile-cache-v2/);
 });

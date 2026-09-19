@@ -316,11 +316,49 @@ test("idle/origin/completed-only Route state makes zero BusTime upstream calls",
   h.advance(60_000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [
     { proofId: "P-ORG", attendanceType: "ต้นทาง", unloadingState: 0 },
-    { proofId: "P-DONE", attendanceType: "จุดดรอป", unloadingState: 2 },
+    { proofId: "P-DONE", attendanceType: "จุดดรอป", unloadingState: 2, actualDepartureAt: "2026-09-13T02:00:00.000Z" },
   ]);
   assert.equal(h.calls.length, 0);
   assert.equal(h.stats().credentialReads, 0);
   assert.equal(h.lane.diagnostics("NE1").busActiveRows, 0);
+});
+
+test("Drop state=2 without actualDepartureAt remains active for TBR preservation while released Drop stays excluded", async () => {
+  const h = harness({
+    fetchHandler: async () => response({ total: 0, items: [] }),
+  });
+  const awaitingRelease = [{
+    proofId: "P-DROP-AWAIT",
+    attendanceType: "จุดดรอป",
+    unloadingState: 2,
+    actualDepartureAt: "",
+  }];
+
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, awaitingRelease);
+  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
+  assert.equal(h.calls.length, 1, "unreleased Drop uses the existing shared BusTime lane");
+
+  h.advance(4000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, awaitingRelease);
+  assert.equal(h.calls.length, 1, "4-second UI/Route refresh must not add BusTime calls");
+
+  h.advance(8000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, awaitingRelease);
+  assert.equal(h.calls.length, 2, "unreleased Drop keeps the existing ~12-second TBR cadence");
+
+  const released = [{
+    proofId: "P-DROP-RELEASED",
+    attendanceType: "จุดดรอป",
+    unloadingState: 2,
+    actualDepartureAt: "2026-09-13T02:00:00.000Z",
+  }];
+  const h2 = harness({
+    fetchHandler: async () => response({ total: 0, items: [] }),
+  });
+  await h2.lane.readBusTimeData(h2.env, "NE1", undefined, released);
+  assert.equal(h2.lane.diagnostics("NE1").busActiveRows, 0);
+  assert.equal(h2.calls.length, 0, "released Drop must not create completed-row BusTime polling");
+  assert.equal(h2.stats().credentialReads, 0);
 });
 
 test("active BusTime keeps KIT/TBR at ~12s while Route/UI can continue their ~4s cycle", async () => {
@@ -435,7 +473,7 @@ test("origin routes never enter BusTime active scope or force yesterday hot read
   const routes = [
     { proofId: "P-ORG", attendanceType: "ต้นทาง", unloadingState: 0, estimatedArrivalAt: "2026-09-12T14:00:00.000Z" },
     { proofId: "P-DST", attendanceType: "ปลายทาง", unloadingState: 0, estimatedArrivalAt: "2026-09-13T01:00:00.000Z" },
-    { proofId: "P-DROP-DONE", attendanceType: "จุดดรอป", unloadingState: 2, estimatedArrivalAt: "2026-09-12T15:00:00.000Z" },
+    { proofId: "P-DROP-DONE", attendanceType: "จุดดรอป", unloadingState: 2, actualDepartureAt: "2026-09-12T16:00:00.000Z", estimatedArrivalAt: "2026-09-12T15:00:00.000Z" },
   ];
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
   assert.deepEqual(h.calls.map((call) => call.day), ["2026-09-13"]);

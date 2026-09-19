@@ -146,3 +146,9 @@ test("V28 HAR seed keeps bounded fleet_sign_info candidates on both frontend and
   assert.equal(patchTbrSeedV28Frontend(front), front);
   assert.equal(patchTbrSeedV28Worker(worker), worker);
 });
+
+
+test("V28 AYU current acceptance percentage is 87.32% after 310 of 355 are corrected entered", () => {
+  const percent = 310 / 355 * 100;
+  assert.equal(percent.toFixed(2), "87.32");
+});

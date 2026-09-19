@@ -32,14 +32,28 @@ const stage = await readFile(
 const worker = patchDevDurableCoordinator(workerSource);
 const connectionFrontend = patchMsConnectionErrorKvFrontend(msFrontendSource);
 
-test("DEV routes cross-isolate refresh through one Durable Object per HUB", () => {
+test("DEV routes cross-isolate refresh through one fresh Durable Object generation per HUB", () => {
   assert.match(worker, /export class MsRefreshCoordinator/);
-  assert.match(worker, /MS_REFRESH_COORDINATOR\.idFromName\(branch\)/);
+  assert.match(worker, /const MS_COORDINATOR_GENERATION = "runtime-v2"/);
+  assert.match(worker, /function msCoordinatorIdentity\(branch\)/);
+  assert.equal((worker.match(/MS_REFRESH_COORDINATOR\.idFromName\(msCoordinatorIdentity\(branch\)\)/g) || []).length, 3);
+  assert.doesNotMatch(worker, /MS_REFRESH_COORDINATOR\.idFromName\(branch\)/);
   assert.match(worker, /MS_REFRESH_COORDINATOR\.get\(id\)/);
   assert.match(worker, /stub\.fetch\(new Request\(url\)\)/);
   assert.match(worker, /if \(this\.active\)/);
   assert.match(worker, /if \(!force && this\.lastResult\) return this\.lastResult/);
   assert.match(worker, /runMsRefresh\(this\.env, branch\)/);
+});
+
+
+test("coordinator generation reset keeps DO state memory-only and adds no source cadence", () => {
+  assert.doesNotMatch(worker, /ctx\.storage|this\.ctx\.storage|storage\./);
+  assert.match(worker, /MS_CRON_ACTIVE_SKIP_MS = 45 \* 1000/);
+  assert.match(workerSource, /const MS_SYNC_TTL = 3000/);
+  const patchStart = worker.indexOf("const MS_COORDINATOR_GENERATION");
+  const patchEnd = worker.indexOf("async function runMsRefresh", patchStart);
+  const block = worker.slice(patchStart, patchEnd);
+  assert.doesNotMatch(block, /setInterval\s*\(|setTimeout\s*\(|INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM/i);
 });
 
 test("DEV coordinator preserves 4-second frontend cadence without D1 lease writes", () => {
@@ -143,7 +157,7 @@ test("Origin LH Manifest V1 is staged into existing shared coordinator and APIs"
     'this.originManifest = new OriginManifestCoordinator(ctx, env)',
     'url.pathname.startsWith("/origin-manifest/")',
   ]) assert.ok(worker.includes(marker), `staged worker missing ${marker}`);
-  assert.match(worker, /MS_REFRESH_COORDINATOR\.idFromName\(branch\)/);
+  assert.match(worker, /MS_REFRESH_COORDINATOR\.idFromName\(msCoordinatorIdentity\(branch\)\)/);
   assert.doesNotMatch(worker, /originManifestHbiCredentials/);
   assert.doesNotMatch(worker, /d1_databases|origin_manifest_cache|manifest_history/i);
 });

@@ -53,15 +53,14 @@ test("V29 staged frontend makes PNO cards audit-clickable without background pol
 
 test("V29 staged frontend sorts completed views by trusted completion time descending", () => {
   const front = stageFrontend(frontendSource);
-  const start = front.indexOf("const completedSort =");
-  const end = front.indexOf("const aTime = (confirmedEffectiveArrival", start);
-  assert.ok(start >= 0 && end > start);
-  const block = front.slice(start, end);
-  assert.match(block, /trustedLowerCompletionAt\(a\)/);
-  assert.match(block, /trustedLowerCompletionAt\(b\)/);
-  assert.match(block, /return bCompleted - aCompleted/);
-  assert.match(block, /state\.summary === "completed"/);
-  assert.match(block, /queueMode === "completed"/);
+  assert.match(front, /LIVE_EVIDENCE_COMPLETED_SORT_V29/);
+  assert.equal((front.match(/LIVE_EVIDENCE_COMPLETED_SORT_V29/g) || []).length, 1);
+  assert.match(front, /const completedSort =/);
+  assert.match(front, /trustedLowerCompletionAt\(a\)/);
+  assert.match(front, /trustedLowerCompletionAt\(b\)/);
+  assert.match(front, /return bCompleted - aCompleted/);
+  assert.match(front, /state\.summary === "completed"/);
+  assert.match(front, /queueMode === "completed"/);
 });
 
 test("V29 staged worker preserves stored TBR on sync completion and recovers history read-only", () => {

@@ -65,14 +65,15 @@ test("PNO detail no longer performs a summary rescan before loading the requeste
 });
 
 
-test("PNO detail preserves can_report without adding requests", () => {
-  assert.match(stagedWorker, /PNO_DETAIL_TYPE_TRUTH_V1/);
-  assert.match(stagedWorker, /pnoCanReport: Number\(row\?\.can_report\) \|\| 0/);
-  assert.match(stagedWorker, /canReport: locator\.canReport/);
+test("V23 preserves the real FBI response-level can_report boolean contract", () => {
+  assert.match(stagedWorker, /PNO_FBI_SOURCE_CONTRACT_V23/);
+  assert.match(stagedWorker, /const pnoCanReport = Number\(json\.data\?\.can_report\) === 1/);
+  assert.match(stagedWorker, /__pnoCanReport: pnoCanReport/);
+  assert.match(stagedWorker, /pnoCanReport: row\?\.__pnoCanReport === true \|\| Number\(row\?\.can_report\) === 1/);
+  assert.match(stagedWorker, /canReport: locator\.canReport === true \? "true" : "false"/);
   assert.match(stagedWorker, /canReport: url\.searchParams\.get\("canReport"\)/);
-  assert.match(stagedWorker, /canReport: String\(locator\.canReport \?\? 0\)/);
-  assert.match(stagedFront, /PNO_DETAIL_TYPE_TRUTH_FRONTEND_V1/);
-  assert.match(stagedFront, /canReport: row\.pnoCanReport \?\? 0/);
+  assert.match(stagedFront, /canReport: row\.pnoCanReport === true/);
+  assert.match(stagedFront, /row\?\.pnoCanReport === true \? "1" : "0"/);
   const detail = between(stagedWorker, "async function readPendingParcelPage", "// BUS_TIME_RATE_LIMIT_V11");
   assert.equal((detail.match(/await fetch\(/g) || []).length, 1);
   assert.doesNotMatch(detail, /SELECT|INSERT|UPDATE|DELETE|setInterval|setTimeout/i);

@@ -123,5 +123,19 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-v18-mobile-cache-v2/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-v18-css-rootfix-v3/);
+});
+
+
+test("V18 CSS text uses real newlines so all rules and mobile media queries parse", () => {
+  const start = staged.indexOf("style.textContent = [");
+  const end = staged.indexOf("document.head.append(style);", start);
+  assert.ok(start >= 0 && end > start, "V18 style expression missing");
+  const section = staged.slice(start, end);
+  const match = section.match(/style\.textContent = (\[[\s\S]*?\]\.join\([^;]+\))/);
+  assert.ok(match, "V18 style expression not extractable");
+  const cssText = new Function("return " + match[1])();
+  assert.match(cssText, /\n\.ms-page \.pno-v18-head\{/);
+  assert.match(cssText, /\n@media\(max-width:720px\)\{/);
+  assert.doesNotMatch(cssText, /\\\\n\.ms-page/);
 });

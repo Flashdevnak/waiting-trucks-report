@@ -50,7 +50,7 @@ test("summary uses existing row counts without extra summary request", () => {
 });
 
 test("approved UI adds no background timer, SQL persistence, or realtime poll", () => {
-  { const s = staged.indexOf("browserPnoPage"); console.log("DIAG_BROWSER_PNO_PAGE_BEGIN\\n" + staged.slice(Math.max(0, s - 1800), s + 4200) + "\\nDIAG_BROWSER_PNO_PAGE_END"); }
+
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
   assert.doesNotMatch(patchSource, /\b(?:INSERT|UPDATE|DELETE|CREATE\s+TABLE)\b/i);
   const fetchSection = staged.slice(staged.indexOf("async function pnoV18Fetch"), staged.indexOf("function pnoV18ActionClass"));
@@ -130,7 +130,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-bag-only-latest-noentry-v1/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-noentry-global-filter-v1/);
 });
 
 
@@ -263,4 +263,25 @@ test("V18 Backing table derives Latest from the newest loaded parcel action", ()
   assert.match(staged, /esc\(summary\.latest\)/);
   assert.match(staged, /colspan="8"/);
   assert.match(staged, /PNO_V18_BAG_ONLY_LATEST_NOENTRY_V1/);
+});
+
+
+test("V19 global parcel filters fetch all pages only after a filter change", () => {
+  assert.match(staged, /PNO_GLOBAL_FILTER_V19/);
+  assert.match(staged, /async function pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(staged, /for \(let page = 1; page <= pages; page \+= 1\)/);
+  assert.match(staged, /await pnoV18Fetch\(pnoV18State\.type, page\)/);
+  assert.match(staged, /select\.onchange = async \(\) =>/);
+  assert.match(staged, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(staged, /function pnoV18VisibleParcelEntries\(\)/);
+  assert.match(staged, /entries\.slice\(start, start \+ 200\)/);
+  assert.match(staged, /ผลกรอง หน้า/);
+  const ensure = staged.slice(staged.indexOf("async function pnoV18EnsureParcelFilterRows"), staged.indexOf("function pnoV18Navigate"));
+  assert.doesNotMatch(ensure, /setInterval|setTimeout|apiPost|Turso|SQL/i);
+});
+
+test("V19 filter keeps normal tab open lazy until user selects a filter", () => {
+  const load = staged.slice(staged.indexOf("async function pnoV18Load(type, page)"), staged.indexOf("function pnoV18BagGroups"));
+  assert.match(load, /const result = await pnoV18Fetch\(type, pnoV18State\.page\)/);
+  assert.doesNotMatch(load, /pnoV18EnsureParcelFilterRows/);
 });

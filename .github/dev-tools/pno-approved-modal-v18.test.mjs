@@ -91,3 +91,31 @@ test("V18 summary remains bound to clicked/live row counts", () => {
   assert.match(summary, /row\?\.enteredParcels/);
   assert.match(summary, /row\?\.pendingParcels/);
 });
+
+
+test("V18 visible palette applies gold black theme and Backing option E to actual controls", () => {
+  assert.match(staged, /pno-v18-head\{[^}]*background:#FFD400/);
+  assert.match(staged, /pno-v18-table th\{[^}]*background:#151515[^}]*border-bottom:3px solid #FFD400[^}]*color:#fff/);
+  assert.match(staged, /button\[data-pno-v18-type="bag"\][^}]*#5F70DB[^}]*#4C5CC4/);
+  assert.match(staged, /button\[data-pno-v18-type="bag"\]\.is-active\{[^}]*background:#7B8CFF[^}]*color:#fff/);
+  assert.match(staged, /pno-v18-bag-card\{border-left-color:#7B8CFF/);
+});
+
+test("V18 mobile uses vertical cards and hides wide desktop tables", () => {
+  assert.match(staged, /PNO_V18_MOBILE_CACHE_UI_V2/);
+  assert.match(staged, /pno-v18-mobile-card pno-v18-parcel-card/);
+  assert.match(staged, /pno-v18-mobile-card pno-v18-bag-card/);
+  assert.match(staged, /@media\(max-width:720px\)[\s\S]*pno-v18-desktop\{display:none!important\}[\s\S]*pno-v18-mobile\{display:grid\}/);
+  assert.match(staged, /pno-v18-tabs\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+});
+
+test("V18 parcel and Backing views reuse click-only 60s cache without background work", () => {
+  assert.match(staged, /PNO_V18_VIEW_CACHE_MS = 60 \* 1000/);
+  assert.match(staged, /const pnoV18ViewCache = new Map\(\)/);
+  assert.match(staged, /const pnoV18BagCache = new Map\(\)/);
+  assert.match(staged, /pnoV18PageCacheKey\(sourceRow, type, pnoV18State\.page\)/);
+  assert.match(staged, /pnoV18CacheGet\(pnoV18BagCache, bagKey\)/);
+  assert.match(staged, /pnoV18CacheSet\(pnoV18BagCache, bagKey, \{ rows: all, total \}, 24\)/);
+  assert.match(staged, /row\?\.expectedParcels[\s\S]*row\?\.enteredParcels[\s\S]*row\?\.pendingParcels/);
+  assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
+});

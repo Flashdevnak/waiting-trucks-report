@@ -96,8 +96,8 @@ test("V18 summary remains bound to clicked/live row counts", () => {
 test("V18 visible palette applies gold black theme and Backing option E to actual controls", () => {
   assert.match(staged, /pno-v18-head\{[^}]*background:#FFD400/);
   assert.match(staged, /pno-v18-table th\{[^}]*background:#151515[^}]*border-bottom:3px solid #FFD400[^}]*color:#fff/);
-  assert.match(staged, /button\[data-pno-v18-type="bag"\][^}]*#5F70DB[^}]*#4C5CC4/);
-  assert.match(staged, /button\[data-pno-v18-type="bag"\]\.is-active\{[^}]*background:#7B8CFF[^}]*color:#fff/);
+  assert.match(staged, /button\[data-pno-v18-type=\\?"bag\\?"\][^}]*#5F70DB[^}]*#4C5CC4/);
+  assert.match(staged, /button\[data-pno-v18-type=\\?"bag\\?"\]\.is-active\{[^}]*background:#7B8CFF[^}]*color:#fff/);
   assert.match(staged, /pno-v18-bag-card\{border-left-color:#7B8CFF/);
 });
 

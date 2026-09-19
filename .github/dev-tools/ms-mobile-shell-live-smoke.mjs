@@ -192,7 +192,7 @@ function assertMenu(label,result,width,height,mobile,isSystem){
 async function probePnoModal(cdp,sessionId,width,label){
   const expression = '(async()=>{'+
     'if(typeof openPendingParcels!==\'function\') return {ok:false,reason:\'openPendingParcels missing\'};'+
-    'const originalBrowserPnoPage=browserPnoPage;'+
+    'const originalBrowserPnoPage=browserPnoPage,originalBranch=state.branch;state.branch=\'NE1\';'+
     'try{'+
       'const row={id:\'pno-smoke-row\',proofId:\'SMOKE-BC-001\',routeName:\'SMOKE ROUTE\',pnoState:\'OK\',pnoEnabled:true,pnoSourceDay:\'2026-09-19\',pnoLineId:\'LINE-SMOKE\',pnoVanLineId:\'\',pnoStoreId:\'STORE-A\',pnoNextStoreId:\'STORE-B\',expectedParcels:60,enteredParcels:60,pendingParcels:0};'+
       'const parcels=Array.from({length:60},(_,i)=>({pno:\'PNO-SMOKE-\'+String(i+1).padStart(3,\'0\'),status:\'เข้าคลังแล้ว\',lastAction:\'สแกนเข้าคลัง\',lastActionAt:\'2026-09-19 08:\'+String(i%60).padStart(2,\'0\')+\':00\',targetHub:\'NAK\',targetBranch:\'A\',backingNo:\'BAG-SMOKE-01\'}));'+
@@ -204,8 +204,9 @@ async function probePnoModal(cdp,sessionId,width,label){
       'document.querySelector(\'[data-pno-v18-type="bag"]\')?.click();await new Promise(r=>setTimeout(r,30));'+
       'const bagTabStyle=style(\'[data-pno-v18-type="bag"].is-active\'),bagCard=style(\'.pno-v18-bag-card\'),backingBadge=style(\'.pno-v18-badge.is-backing\'),bagTableHeaders=[...document.querySelectorAll(\'.pno-v18-desktop .pno-v18-table thead th\')].map(x=>x.textContent.trim()),bagFilterCount=document.querySelectorAll(\'#pno-v18-filterbar select\').length,bagFilterLabels=[...document.querySelectorAll(\'#pno-v18-filterbar .pno-v18-filter-field span\')].map(x=>x.textContent.trim()),bagSummaryText=document.querySelector(\'#pno-v18-bag-summary\')?.textContent||\'\';document.querySelector(\'[data-pno-v18-bag]\')?.click();await new Promise(r=>setTimeout(r,30));'+
       'let lineCopyText=\'\';const originalWriteClipboard=pnoV18WriteClipboard;pnoV18WriteClipboard=async text=>{lineCopyText=text;return true};await pnoV18CopyLine();pnoV18WriteClipboard=originalWriteClipboard;const dialog=document.querySelector(\'#pending-parcels-dialog\'),dr=dialog?.getBoundingClientRect();if(dialog)dialog.scrollTop=160;await new Promise(r=>setTimeout(r,20));const scrollInfo=dialog?{scrollTop:dialog.scrollTop,scrollHeight:dialog.scrollHeight,clientHeight:dialog.clientHeight}:null;'+
-      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,parcelMobileBagBox,parcelTableHeaders,bagTableHeaders,lineCopyButton,lineCopyText,clientFilterBar,parcelFilterCount,bagFilterCount,bagFilterLabels,bagSummaryText,scrollInfo,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
-    '}finally{browserPnoPage=originalBrowserPnoPage;document.querySelector(\'#pending-parcels-dialog\')?.close();}'+
+      'const truthRow={id:\'truth-row\',hub:\'NE1\',proofId:\'TRUTH-BC\',pnoState:\'OK\',pnoEnabled:true,pnoSourceDay:\'2026-09-19\',expectedParcels:355,enteredParcels:239,pendingParcels:116};const truthCandidates=Array.from({length:113},(_,i)=>({pno:\'TRUTH-BAG-\'+i,backingNo:\'BAG-\'+Math.floor(i/40),lastAction:\'สแกนเข้าคลัง\',targetHub:\'02 NE1_HUB-นครราชสีมา\'}));const truthLinked=Array.from({length:3},(_,i)=>({pno:\'TRUTH-LINK-\'+i,backingNo:\'\',lastAction:\'รถที่เชื่อมโยงกับพัสดุถึงคลังแล้ว\',targetHub:i===2?\'20 NE6_HUB-บุรีรัมย์\':\'02 NE1_HUB-นครราชสีมา\'}));const truth=pnoOperationalBuildTruth(truthRow,[...truthCandidates,...truthLinked]),truthProbe={entered:truth.entered,pending:truth.pending,correction:truth.correction,percent:Number(truth.percent.toFixed(2)),remaining:truth.remainingRows?.length||0,remainingActions:[...new Set((truth.remainingRows||[]).map(x=>x.lastAction))],rawLinked:pnoV18ParcelAction(truthLinked[0])};'+
+      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,parcelMobileBagBox,parcelTableHeaders,bagTableHeaders,lineCopyButton,lineCopyText,clientFilterBar,parcelFilterCount,bagFilterCount,bagFilterLabels,bagSummaryText,truthProbe,scrollInfo,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
+    '}finally{browserPnoPage=originalBrowserPnoPage;state.branch=originalBranch;document.querySelector(\'#pending-parcels-dialog\')?.close();}'+
   '})()';
   const result=await evaluate(cdp,sessionId,expression);
   console.log(`PNO_VISUAL_RESULT_${label.toUpperCase().replace(/[^A-Z0-9]+/g,'_')}=${JSON.stringify(result)}`);
@@ -224,6 +225,13 @@ async function probePnoModal(cdp,sessionId,width,label){
   assert.equal(result.bagFilterCount,4,`${label}: bag filters should be status + latest action + hub + branch`);
   assert.ok(result.bagFilterLabels?.includes('การดำเนินการล่าสุด'),`${label}: Backing latest-action filter missing`);
   assert.ok((result.clientFilterBar?.scrollWidth||0) <= (result.clientFilterBar?.clientWidth||0) + 1,`${label}: filter bar overflows viewport`);
+  assert.deepEqual(result.truthProbe?.entered,352,`${label}: operational entered should be 352/355`);
+  assert.deepEqual(result.truthProbe?.pending,3,`${label}: operational pending should be 3/355`);
+  assert.deepEqual(result.truthProbe?.correction,113,`${label}: operational correction should be 113 own-HUB Backing scans`);
+  assert.deepEqual(result.truthProbe?.percent,99.15,`${label}: operational percent should be 99.15`);
+  assert.deepEqual(result.truthProbe?.remaining,3,`${label}: only three real remaining rows should stay`);
+  assert.deepEqual(result.truthProbe?.remainingActions,['รถที่เชื่อมโยงกับพัสดุถึงคลังแล้ว'],`${label}: remaining rows lost real MS status`);
+  assert.equal(result.truthProbe?.rawLinked,'รถที่เชื่อมโยงกับพัสดุถึงคลังแล้ว',`${label}: MS lastAction was renamed`);
   assert.match(result.bagSummaryText||'',/จำนวนถุงแบ็กกิ้ง/,`${label}: bag count summary missing`);
   assert.match(result.bagSummaryText||'',/จำนวนชิ้นในถุง/,`${label}: bag piece summary missing`);
   assert.match(result.lineCopyText||'',/📦 รายการพัสดุเข้าคลัง/,`${label}: LINE copy header missing`);

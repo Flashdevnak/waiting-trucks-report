@@ -104,7 +104,7 @@ function pnoV29EnsureAuditStyle() {
     ".ms-page [data-pno-detail-card]{cursor:pointer}" +
     ".ms-page [data-pno-detail-card]:hover{border-color:#b7a02d}" +
     ".ms-page [data-pno-detail-card]:focus-visible{outline:2px solid #b48f00;outline-offset:2px}" +
-    ".ms-page [data-pno-detail-card]::after{content:\"ดูรายละเอียดพัสดุ\";display:flex;align-items:center;justify-content:center;margin-top:8px;padding:7px 10px;border:1px solid #d8c458;border-radius:8px;background:#fff7c7;color:#1f1f1f;font-weight:700;font-size:12px;line-height:1.2}";
+    ".ms-page [data-pno-detail-card]::after{content:\\\"ดูรายละเอียดพัสดุ\\\";display:flex;align-items:center;justify-content:center;margin-top:8px;padding:7px 10px;border:1px solid #d8c458;border-radius:8px;background:#fff7c7;color:#1f1f1f;font-weight:700;font-size:12px;line-height:1.2}";
   document.head.append(style);
 }
 

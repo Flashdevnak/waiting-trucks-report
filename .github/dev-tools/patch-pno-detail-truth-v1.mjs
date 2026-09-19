@@ -100,10 +100,9 @@ const PNO_VIEW_FIELDS = [
 
   output = replaceUnique(
     output,
-    `          count: url.searchParams.get("count"),
+    `          type: url.searchParams.get("type"), page: url.searchParams.get("page"), count: url.searchParams.get("count"),
           lineId: url.searchParams.get("lineId"),`,
-    `          count: url.searchParams.get("count"),
-          canReport: url.searchParams.get("canReport"),
+    `          type: url.searchParams.get("type"), page: url.searchParams.get("page"), count: url.searchParams.get("count"), canReport: url.searchParams.get("canReport"),
           lineId: url.searchParams.get("lineId"),`,
     "Durable Object route canReport",
   );

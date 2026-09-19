@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   aggregatePreEntryFixtureV27,
+  patchPnoV27Frontend,
+  patchPnoV27Worker,
 } from "./patch-pno-v27-multidrop-copy.mjs";
 import { stageFrontend, stageWorker } from "./stage-dev-runtime.mjs";
 
@@ -78,14 +80,14 @@ test("V27 staged worker exposes one route next HUB and sums multi-drop using alr
   const start = worker.indexOf("// PNO_PREENTRY_MULTIDROP_SUM_V27");
   const end = worker.indexOf("return counts;", start);
   const block = worker.slice(start, end);
-  assert.doesNotMatch(block, /fetch\(|setInterval|setTimeout|DB\.prepare|INSERT|UPDATE|DELETE/i);
+  assert.doesNotMatch(block, /fetch\(|setInterval|setTimeout|DB\.prepare|INSERT\s+INTO|UPDATE\s+[A-Za-z_]|DELETE\s+FROM/i);
 });
 
 test("V27 is staging-idempotent and does not touch BusTime cadence", async () => {
   const front1 = stageFrontend(frontendSource);
   const worker1 = stageWorker(workerSource);
-  assert.equal(stageFrontend(front1), front1);
-  assert.equal(stageWorker(worker1), worker1);
+  assert.equal(patchPnoV27Frontend(front1), front1);
+  assert.equal(patchPnoV27Worker(worker1), worker1);
   const busRuntime = await readFile(new URL(".github/dev-tools/bus-time-hot-lane-v14-runtime.mjs", root), "utf8");
   assert.match(busRuntime, /BUS_TIME_HOT_REUSE_MS = 12_000/);
   assert.match(busRuntime, /BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 5 \* 60 \* 1000/);

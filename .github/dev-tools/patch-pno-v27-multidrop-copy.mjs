@@ -374,7 +374,14 @@ export function patchPnoV27Worker(source) {
     }
     return counts;`;
 
-  output = replaceUnique(output, oldCounts, newCounts, "multi-drop PreEntry aggregate");
+  const preEntryStart = output.indexOf("async function readPreEntryCounts(");
+  const countsStart = output.indexOf("    const counts = new Map();", preEntryStart);
+  const countsEndMarker = "    return counts;";
+  const countsEnd = output.indexOf(countsEndMarker, countsStart);
+  if (preEntryStart < 0 || countsStart < 0 || countsEnd <= countsStart)
+    throw new Error(`${WORKER_MARKER}: multi-drop PreEntry bounded block missing`);
+  output = output.slice(0, countsStart) + newCounts +
+    output.slice(countsEnd + countsEndMarker.length);
 
   return output;
 }

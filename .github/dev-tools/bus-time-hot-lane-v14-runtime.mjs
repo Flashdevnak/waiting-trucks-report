@@ -62,7 +62,15 @@ export function extractBusTbrAtV28(field, msDateFn) {
       if (/^\d{10}$/.test(value)) value = new Date(Number(value) * 1000).toISOString();
       else if (/^\d{13}$/.test(value)) value = new Date(Number(value)).toISOString();
       const iso = msDateFn(value);
-      if (iso && Number.isFinite(Date.parse(String(iso)))) parsed.push(String(iso));
+      if (!iso) continue;
+      const text = String(iso).trim();
+      const localWallClock = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(text);
+      const normalized = localWallClock
+        ? new Date(text.replace(" ", "T") + "+07:00").toISOString()
+        : Number.isFinite(Date.parse(text))
+          ? new Date(text).toISOString()
+          : "";
+      if (normalized) parsed.push(normalized);
     }
   }
   if (!parsed.length) return "";

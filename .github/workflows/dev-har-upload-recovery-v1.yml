@@ -11,6 +11,9 @@ on:
       - '.github/dev-tools/bus-time-hot-lane-v14-runtime.mjs'
       - '.github/dev-tools/bus-time-hot-lane-v14.test.mjs'
       - '.github/dev-tools/patch-bus-time-hot-lane-v14.mjs'
+      - '.github/dev-tools/stage-dev-runtime.mjs'
+      - '.github/dev-tools/patch-pno-v27-multidrop-copy.mjs'
+      - '.github/dev-tools/pno-v27-multidrop-copy.test.mjs'
       - 'ms.js'
       - 'worker/src/**'
   workflow_dispatch:
@@ -36,6 +39,8 @@ jobs:
         run: npm run check
       - name: HAR recovery focused gate
         run: node --test ../.github/dev-tools/ms-har-upload-recovery-v1.test.mjs
+      - name: PNO V27 multidrop and copy truth gate
+        run: node --test ../.github/dev-tools/pno-v27-multidrop-copy.test.mjs
       - name: Test-only safety assertion
         working-directory: .
         run: |

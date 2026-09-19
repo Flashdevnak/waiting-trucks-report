@@ -89,6 +89,7 @@ jobs:
           node --test ../.github/dev-tools/pno-ultra-low-quota-stage.test.mjs
           node --test ../.github/dev-tools/pno-round2-backing.test.mjs
           node --test ../.github/dev-tools/pno-approved-modal-v18.test.mjs
+          node --test ../.github/dev-tools/pno-v27-multidrop-copy.test.mjs
       - name: Verify LH Manifest session replay and compact HAR actions
         run: node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs --self-test
 

@@ -55,6 +55,7 @@ import { patchPnoNoEntryBagActionV20 } from "./patch-pno-noentry-bag-action-v20.
 import { patchPnoOperationalReceiptTruthV21 } from "./patch-pno-operational-receipt-truth-v21.mjs";
 import { patchPnoInboundScopeAndEagerTruthV22 } from "./patch-pno-inbound-scope-eager-truth-v22.mjs";
 import { patchPnoSourceContractFrontendV23, patchPnoSourceContractWorkerV23 } from "./patch-pno-source-contract-v23.mjs";
+import { patchPnoOwnHubSingleTruthV24 } from "./patch-pno-ownhub-single-truth-v24.mjs";
 import {
   patchMsDailyHistoryFrontend,
   patchMsDailyHistoryWorker,
@@ -405,6 +406,7 @@ export function stageFrontend(source) {
   output = patchPnoOperationalReceiptTruthV21(output);
   output = patchPnoInboundScopeAndEagerTruthV22(output);
   output = patchPnoSourceContractFrontendV23(output);
+  output = patchPnoOwnHubSingleTruthV24(output);
   return output;
 }
 

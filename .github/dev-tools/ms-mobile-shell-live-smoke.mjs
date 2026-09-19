@@ -212,7 +212,7 @@ async function probePnoModal(cdp,sessionId,width,label){
   assert.equal(result?.ok,true,`${label}: PNO probe failed ${JSON.stringify(result)}`);
   assert.equal(result.styleElement,true,`${label}: live PNO style element missing`);
   assert.equal(result.runtimeV2,true,`${label}: live PNO V18 mobile/cache runtime missing`);
-  assert.equal(result.head?.backgroundColor,'rgb(255, 212, 0)',`${label}: PNO head is not Flash gold ${JSON.stringify(result.head)}`);
+  assert.equal(result.head?.backgroundColor,'rgb(255, 255, 255)',`${label}: PNO head is not neutral white ${JSON.stringify(result.head)}`);
   assert.equal(result.tableHead?.backgroundColor,'rgb(36, 36, 36)',`${label}: PNO table header is not black`);
   assert.equal(result.tableHead?.color,'rgb(255, 255, 255)',`${label}: PNO table header text is not white`);
   assert.equal(result.bagTabStyle?.backgroundColor,'rgb(241, 242, 243)',`${label}: Backing tab is not neutral active style`);

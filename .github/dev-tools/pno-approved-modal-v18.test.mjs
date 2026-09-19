@@ -123,7 +123,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-v18-css-rootfix-v3/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-test-v2-presentation-v4/);
 });
 
 
@@ -138,4 +138,19 @@ test("V18 CSS text uses real newlines so all rules and mobile media queries pars
   assert.match(cssText, /\n\.ms-page \.pno-v18-head\{/);
   assert.match(cssText, /\n@media\(max-width:720px\)\{/);
   assert.doesNotMatch(cssText, /\\\\n\.ms-page/);
+});
+
+
+test("V18 presentation follows approved test-v2 geometry without changing business logic", () => {
+  assert.match(staged, /pno-v18-summary\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\))[^}]*gap:12px[^}]*padding:14px 22px/);
+  assert.match(staged, /pno-v18-summary-item\{[^}]*border:1px solid #dce1e4[^}]*border-radius:9px/);
+  assert.match(staged, /pno-v18-tabs-row/);
+  assert.match(staged, /pno-v18-toolbar-meta/);
+  assert.match(staged, /<th>PNO<\/th><th>เลขถุงแบ็กกิ้ง<\/th><th>สถานะ<\/th><th>ล่าสุด<\/th><th>ปลายทาง<\/th><th>เวลา<\/th>/);
+  assert.match(staged, /pno-v18-mobile-bagbox/);
+  assert.match(staged, /pno-v18-mobile-grid/);
+  assert.match(staged, /pno-v18-list\{[^}]*flex:1 1 auto[^}]*min-height:0[^}]*overflow:auto/);
+  assert.match(staged, /@media\(max-width:720px\)[\s\S]*pno-v18-list\{overflow-x:hidden;overflow-y:auto\}[\s\S]*pno-v18-desktop\{display:none!important\}[\s\S]*pno-v18-mobile\{display:block\}/);
+  assert.match(staged, /PNO_V18_VIEW_CACHE_MS = 60 \* 1000/);
+  assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
 });

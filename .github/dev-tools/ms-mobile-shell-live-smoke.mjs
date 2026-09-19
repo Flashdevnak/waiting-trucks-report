@@ -203,8 +203,8 @@ async function probePnoModal(cdp,sessionId,width,label){
       'const head=style(\'.pno-v18-head\'),tableHead=style(\'.pno-v18-table th\'),desktop=style(\'.pno-v18-desktop\'),mobile=style(\'.pno-v18-mobile\');'+
       'document.querySelector(\'[data-pno-v18-type="bag"]\')?.click();await new Promise(r=>setTimeout(r,30));'+
       'const bagTabStyle=style(\'[data-pno-v18-type="bag"].is-active\'),bagCard=style(\'.pno-v18-bag-card\'),backingBadge=style(\'.pno-v18-badge.is-backing\');'+
-      'const dialog=document.querySelector(\'#pending-parcels-dialog\'),dr=dialog?.getBoundingClientRect();'+
-      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
+      'const tableHeaders=[...document.querySelectorAll(\'.pno-v18-desktop .pno-v18-table thead th\')].map(x=>x.textContent.trim());const mobileBagBox=style(\'.pno-v18-mobile-bagbox\');const dialog=document.querySelector(\'#pending-parcels-dialog\'),dr=dialog?.getBoundingClientRect();'+
+      'return {ok:true,styleElement:Boolean(document.querySelector(\'#pno-approved-modal-v18-style\')),runtimeV2:(typeof pnoV18ViewCache!==\'undefined\'&&typeof pnoV18LoadBags===\'function\'),head,tableHead,desktop,mobile,bagTabStyle,bagCard,backingBadge,mobileBagBox,tableHeaders,dialog:dr?{width:dr.width,right:dr.right,x:dr.x,scrollWidth:dialog.scrollWidth,clientWidth:dialog.clientWidth}:null,viewport:innerWidth};'+
     '}finally{browserPnoPage=originalBrowserPnoPage;document.querySelector(\'#pending-parcels-dialog\')?.close();}'+
   '})()';
   const result=await evaluate(cdp,sessionId,expression);
@@ -218,10 +218,12 @@ async function probePnoModal(cdp,sessionId,width,label){
   assert.equal(result.bagTabStyle?.backgroundColor,'rgb(123, 140, 255)',`${label}: Backing tab is not Option E`);
   assert.equal(result.bagTabStyle?.color,'rgb(255, 255, 255)',`${label}: Backing tab text is not white`);
   assert.equal(result.backingBadge?.backgroundColor,'rgb(123, 140, 255)',`${label}: Backing badge is not Option E`);
+  if(width>720) assert.deepEqual(result.tableHeaders?.slice(0,7),['#','PNO','เลขถุงแบ็กกิ้ง','สถานะ','ล่าสุด','ปลายทาง','เวลา'],`${label}: desktop table does not match approved test-v2 columns`);
   if(width<=720){
     assert.equal(result.desktop?.display,'none',`${label}: desktop table still visible on mobile`);
     assert.notEqual(result.mobile?.display,'none',`${label}: mobile cards are hidden on mobile`);
     assert.ok(result.bagCard&&result.bagCard.width<=width,`${label}: Backing card overflows mobile viewport`);
+    assert.ok(result.mobileBagBox&&result.mobileBagBox.display!=='none',`${label}: mobile parcel card is missing Backing field`);
     assert.ok(result.dialog&&result.dialog.right<=width+1&&result.dialog.x>=-1,`${label}: PNO dialog overflows mobile viewport ${JSON.stringify(result.dialog)}`);
   }else assert.notEqual(result.desktop?.display,'none',`${label}: desktop table hidden on desktop`);
   console.log(`PNO_VISUAL_${label.toUpperCase().replace(/[^A-Z0-9]+/g,'_')}=PASS`);

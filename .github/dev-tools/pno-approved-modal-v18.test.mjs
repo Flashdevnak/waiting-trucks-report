@@ -130,7 +130,7 @@ test("V18 parcel and Backing views reuse click-only 60s cache without background
 
 
 test("V18 release cache-bust forces desktop and mobile browsers to fetch the new staged ms.js", () => {
-  assert.match(msHtml, /ms\.js\?v=20260919-pno-noentry-bag-action-v20/);
+  assert.match(msHtml, /ms\.js\?v=20260919-pno-noentry-bag-action-v20b/);
 });
 
 
@@ -317,4 +317,9 @@ test("V20 copy LINE and export use derived no-entry action", () => {
   assert.match(line, /pnoV18ParcelAction\(row\)/);
   const exp = staged.slice(staged.indexOf("async function pnoV18Export()"), staged.indexOf("openPendingParcels = async function"));
   assert.match(exp, /"การดำเนินการล่าสุด": pnoV18ParcelAction\(row\)/);
+});
+
+
+test("V20 mobile Backing filters do not overflow narrow viewport", () => {
+  assert.match(staged, /pno-v18-filter-field select\{width:100%;min-width:0\}/);
 });

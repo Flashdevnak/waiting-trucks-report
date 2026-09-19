@@ -8,6 +8,9 @@ export const BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_MAX_CALLS_PER_CYCLE = 3;
 export const BUS_TIME_CACHE_RETENTION_MS = 36 * 60 * 60 * 1000;
 export const BUS_TIME_CREDENTIAL_CACHE_MS = 10 * 60 * 1000;
+// BUS_TIME_HAR_SEED_TRUTH_V26: a successful uploaded HAR may seed the shared
+// cache briefly, but it is never treated as a permanent substitute for live BusTime.
+export const BUS_TIME_HAR_SEED_MAX_AGE_MS = 15 * 60 * 1000;
 // BUS_TIME_PROVIDER_COOLDOWN_V15: provider-limit recovery must not re-hit the source every few seconds.
 // Preserve the ~12s KIT/TBR lane when healthy, but back off optional BusTime for 5m -> 60m on provider limits.
 export const BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
@@ -341,6 +344,7 @@ export function createBusTimeHotLane(deps) {
       await loadRateLimitLease(env, hub, state);
     state.credentials = JSON.parse(await decryptMs(row.credentials_cipher, env));
     state.credentialsUntil = at + BUS_TIME_CREDENTIAL_CACHE_MS;
+    seedHarItems(state, hub, state.credentials);
     return state.credentials;
   }
 
@@ -390,6 +394,22 @@ export function createBusTimeHotLane(deps) {
       });
       state.seen.set(key, at);
     }
+  }
+
+  function seedHarItems(state, hub, credentialsValue) {
+    const seededAt = Date.parse(String(credentialsValue?.seededAt || ""));
+    const age = Number.isFinite(seededAt) ? Math.max(0, now() - seededAt) : Number.POSITIVE_INFINITY;
+    const items = Array.isArray(credentialsValue?.seedItems) ? credentialsValue.seedItems : [];
+    if (!items.length || age > BUS_TIME_HAR_SEED_MAX_AGE_MS) return 0;
+    state.cycleSchedule = new Map();
+    const before = state.cache.size;
+    mergeItems(state, items, hub);
+    const added = Math.max(0, state.cache.size - before);
+    // Fresh upload should paint its confirmed HAR data immediately and wait one
+    // normal healthy 12-second cycle before touching the provider again.
+    if (age <= BUS_TIME_HOT_REUSE_MS) state.lastHotAt = now();
+    if (added || items.length) state.busLastSuccessAt = new Date(seededAt).toISOString();
+    return added;
   }
 
   function prune(state, rows) {
@@ -768,6 +788,7 @@ export function createBusTimeHotLane(deps) {
     state.cooldownCode = "";
     state.rateLimitStrikes = 0;
     state.busLastError = "";
+    if (value) seedHarItems(state, hub, value);
   }
 
   return {

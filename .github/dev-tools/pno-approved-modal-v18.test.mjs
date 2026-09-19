@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { stageFrontend } from "./stage-dev-runtime.mjs";
-import { patchPnoApprovedModalV18 } from "./patch-pno-approved-modal-v18.mjs";
+import { patchPnoApprovedModalV18, pnoV18ResolveOpenArgs } from "./patch-pno-approved-modal-v18.mjs";
 
 const root = new URL("../../", import.meta.url);
 const canonical = await readFile(new URL("ms.js", root), "utf8");
@@ -51,6 +51,43 @@ test("summary uses existing row counts without extra summary request", () => {
 test("approved UI adds no background timer, SQL persistence, or realtime poll", () => {
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
   assert.doesNotMatch(patchSource, /\b(?:INSERT|UPDATE|DELETE|CREATE\s+TABLE)\b/i);
-  assert.match(staged, /PNO_V18_BROWSER_CACHE_MS = 60 \* 1000/);
+  const fetchSection = staged.slice(staged.indexOf("async function pnoV18Fetch"), staged.indexOf("function pnoV18ActionClass"));
+  assert.match(fetchSection, /browserPnoPage\(sourceRow, type, page, force\)/);
+  assert.doesNotMatch(fetchSection, /apiGet\("pendingParcels"/);
   assert.equal(patchPnoApprovedModalV18(staged), staged);
+});
+
+
+test("V18 preserves the staged row-object PNO opener contract", () => {
+  const row = {
+    id: "route-1", proofId: "BC-TEST-001", routeName: "TEST ROUTE",
+    pnoState: "OK", pnoEnabled: true, pnoSourceDay: "2026-09-19",
+    pnoLineId: "LINE-1", pnoVanLineId: "", pnoStoreId: "STORE-1", pnoNextStoreId: "STORE-2",
+    expectedParcels: 120, enteredParcels: 90, pendingParcels: 30,
+  };
+  const args = pnoV18ResolveOpenArgs(row, "already", 3, { force: true });
+  assert.equal(args.row, row);
+  assert.equal(args.proofId, "BC-TEST-001");
+  assert.equal(args.day, "2026-09-19");
+  assert.equal(args.type, "already");
+  assert.equal(args.page, 3);
+  assert.equal(args.force, true);
+  assert.notEqual(args.proofId, "[object Object]");
+
+  const opener = staged.slice(staged.indexOf("openPendingParcels = async function pnoV18OpenPendingParcels"), staged.indexOf('document.addEventListener("DOMContentLoaded", pnoV18EnsureUi)'));
+  assert.match(opener, /pnoV18ResolveOpenArgs\(row, type, page, \{ force \}\)/);
+  assert.match(opener, /pnoV18State\.sourceRow = args\.row/);
+  assert.match(opener, /pnoV18State\.proofId = args\.proofId/);
+  assert.match(opener, /pnoV18State\.day = args\.day/);
+  assert.match(opener, /await pnoV18Load\("total", 1\)/);
+  assert.doesNotMatch(opener, /String\(row\s*\|\|/);
+});
+
+test("V18 summary remains bound to clicked/live row counts", () => {
+  const source = staged.slice(staged.indexOf("function pnoV18SourceRow"), staged.indexOf("function pnoV18EnsureUi"));
+  assert.match(source, /pnoV18State\.sourceRow/);
+  const summary = staged.slice(staged.indexOf("function pnoV18RenderSummary"), staged.indexOf("function pnoV18SetActive"));
+  assert.match(summary, /row\?\.expectedParcels/);
+  assert.match(summary, /row\?\.enteredParcels/);
+  assert.match(summary, /row\?\.pendingParcels/);
 });

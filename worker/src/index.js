@@ -1,4 +1,9 @@
 import { canonicalMsSource, planMsChanges } from "./sync-policy.js";
+import {
+  MS_CANONICAL_BUSINESS_DAY_SQL,
+  canonicalMsBusinessDay,
+  canonicalMsSourceFreshness,
+} from "./ms-operational-truth-v1.js";
 
 const SESSION_MS = 180 * 86400000;
 const MS_SYNC_TTL = 3000;
@@ -949,15 +954,23 @@ async function adminOverview(env) {
     `).all(),
     users(env),
   ]);
-  const source = (name, configured, updatedAt, updatedBy, lastSuccessAt, lastError, extra = {}) => ({
-    source: name,
-    configured: Boolean(configured),
-    updatedAt: updatedAt || "",
-    updatedBy: updatedBy || "",
-    lastSuccessAt: lastSuccessAt || "",
-    lastError: lastError || "",
-    ...extra,
-  });
+  const source = (name, configured, updatedAt, updatedBy, lastSuccessAt, lastError, extra = {}) => {
+    const value = {
+      source: name,
+      configured: Boolean(configured),
+      updatedAt: updatedAt || "",
+      updatedBy: updatedBy || "",
+      lastSuccessAt: lastSuccessAt || "",
+      lastError: lastError || "",
+      ...extra,
+    };
+    const truth = canonicalMsSourceFreshness({
+      ...value,
+      errorCode: lastError || "",
+      mode: extra.mode || "REFRESH",
+    });
+    return { ...value, ...truth, mode: extra.mode || truth.mode };
+  };
   const hubs = (hubResult.results || [])
     .filter((row) => Boolean(canonicalHubCode(row?.hub)))
     .map((row) => {
@@ -969,6 +982,7 @@ async function adminOverview(env) {
       preEntry: source("preEntry", row.pre_updated_at, row.pre_updated_at, row.pre_updated_by, row.pre_last_success_at, row.pre_last_error),
       busTime: source("busTime", row.bus_updated_at, row.bus_updated_at, row.bus_updated_by, row.bus_last_success_at, row.bus_last_error),
       hbiPhotos: source("hbiPhotos", row.hbi_updated_at, row.hbi_updated_at, row.hbi_updated_by, "", "", {
+        mode: "CLICK_ONLY",
         sessionState: hbiRuntime?.state || "unknown",
         lastCheckedAt: hbiRuntime?.checkedAt || "",
         lastErrorCode: hbiRuntime?.errorCode || "",
@@ -2422,10 +2436,22 @@ async function msConnectionStatus(env, actor, hub) {
     env.DB.prepare("SELECT updated_at,updated_by,last_success_at,last_error FROM ms_bus_connections WHERE hub=?").bind(hub).first(),
     hbiConnectionStatus(env, hub),
   ]);
-  const source = (row) => row
-    ? { configured: true, ...output(row) }
-    : { configured: false, updatedAt: "", updatedBy: "", lastSuccessAt: "", lastError: "" };
-  const hbiSource = hbiPhotos ? { configured: true, ...output(hbiPhotos), lastSuccessAt: "", lastError: "" } : { configured: false, updatedAt: "", updatedBy: "", lastSuccessAt: "", lastError: "" };
+  const source = (row, mode = "REFRESH") => {
+    const value = row
+      ? { configured: true, ...output(row), mode }
+      : { configured: false, updatedAt: "", updatedBy: "", lastSuccessAt: "", lastError: "", mode };
+    return {
+      ...value,
+      ...canonicalMsSourceFreshness({
+        ...value,
+        errorCode: value.lastError,
+      }),
+      mode,
+    };
+  };
+  const hbiSource = hbiPhotos
+    ? source({ ...hbiPhotos, last_success_at: "", last_error: "" }, "CLICK_ONLY")
+    : source(null, "CLICK_ONLY");
   return { hub, routes: source(routes), preEntry: source(preEntry), busTime: source(busTime), hbiPhotos: hbiSource };
 }
 async function knownMsBranches(env) {
@@ -2490,26 +2516,14 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
         WHERE r.hub=? AND h.hub=? AND json_valid(h.payload_json)=1
       ), daily AS (
         SELECT route_id,payload_json,snapshot_at,synced_by,event_type,
-          CASE
-            WHEN COALESCE(json_extract(payload_json,'$.attendanceType'),'') LIKE '%ต้นทาง%' THEN
-              date(datetime(COALESCE(
-                NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),''),
-                NULLIF(json_extract(payload_json,'$.actualDepartureAt'),''),
-                NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),'')
-              ), '+7 hours'))
-            ELSE
-              date(datetime(COALESCE(
-                NULLIF(json_extract(payload_json,'$.estimatedArrivalAt'),''),
-                NULLIF(json_extract(payload_json,'$.actualArrivalAt'),''),
-                NULLIF(json_extract(payload_json,'$.estimatedDepartureAt'),'')
-              ), '+7 hours'))
-          END AS business_day
+          ${MS_CANONICAL_BUSINESS_DAY_SQL} AS business_day
         FROM latest
       )
       SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day
       FROM daily
       WHERE business_day>=? AND business_day<=?
-      ORDER BY business_day DESC,snapshot_at DESC`,
+      ORDER BY business_day DESC,snapshot_at DESC,route_id DESC
+      LIMIT 5000`,
     )
       .bind(historyCutoff, hub, hub, start, end)
       .all(),
@@ -2531,7 +2545,10 @@ async function msDailyArchive(env, actor, hub, startValue, endValue) {
       row.id = row.id || item.route_id;
       row.hub = row.hub || hub;
       row.archivedAt = item.snapshot_at;
-      row.businessDay = item.business_day;
+      const businessTruth = canonicalMsBusinessDay(row);
+      row.businessDay = businessTruth.businessDay;
+      row.businessDayAuthority = businessTruth.authority;
+      row.businessDayValueTimestamp = businessTruth.valueTimestamp;
       const cancelled = cancellations.get(item.route_id);
       if (cancelled) {
         row.queueCancelledAt = cancelled.cancelled_at;

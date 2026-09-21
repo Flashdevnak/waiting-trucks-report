@@ -28,6 +28,16 @@ const wrapOriginManifestAssets = (env) => env;`,
     `const canonicalMsSource = (value) => JSON.stringify(value);
 const planMsChanges = () => ({ changedIds: [], removedIds: [] });
 const resolveCompletionTruth = () => null;`,
+  )
+  .replace(
+    `import {
+  MS_CANONICAL_BUSINESS_DAY_SQL,
+  canonicalMsBusinessDay,
+  canonicalMsSourceFreshness,
+} from "./ms-operational-truth-v1.js";`,
+    `const MS_CANONICAL_BUSINESS_DAY_SQL = "NULL";
+const canonicalMsBusinessDay = () => ({ businessDay: "", authority: "UNKNOWN", valueTimestamp: "" });
+const canonicalMsSourceFreshness = () => ({ freshness: "UNKNOWN", mode: "REFRESH", lastAttemptAt: "", lastSuccessAt: "", lastMeaningfulObservationAt: "", lastErrorAt: "", sourceValueTimestamp: "", dataObservedAt: "", acceptedDataAt: "" });`,
   );
 assert.doesNotMatch(runnable, /^import\s/m);
 const runtime = await import(`data:text/javascript;base64,${Buffer.from(runnable).toString("base64")}#snapshot`);

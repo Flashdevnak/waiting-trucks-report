@@ -1191,11 +1191,31 @@ function bangkokDateValue(value) {
   }).format(date);
 }
 
+// MS_REC04_BUSINESS_DAY_TRUTH_V1: estimates and Schedule KIT are presentation
+// metadata only. Destination/Drop use earliest observed KIT/TBR (KIT wins a
+// tie); Origin uses Route actual departure.
+function rowBusinessDayTruth(row) {
+  if (isOrigin(row)) {
+    const actualDeparture = parseDate(row?.actualDepartureAt);
+    return {
+      businessDay: bangkokDateValue(actualDeparture),
+      authority: actualDeparture ? "ROUTE_ACTUAL_DEPARTURE" : "UNKNOWN",
+    };
+  }
+  if (!isDestination(row) && !isDrop(row))
+    return { businessDay: "", authority: "UNKNOWN" };
+  const kit = parseDate(row?.actualArrivalAt);
+  const tbr = parseDate(row?.scheduleTbrArrivalAt);
+  if (!kit && !tbr) return { businessDay: "", authority: "UNKNOWN" };
+  const useKit = Boolean(kit) && (!tbr || kit.getTime() <= tbr.getTime());
+  return {
+    businessDay: bangkokDateValue(useKit ? kit : tbr),
+    authority: useKit ? "KIT" : "TBR",
+  };
+}
+
 function rowBusinessDay(row) {
-  const value = isOrigin(row)
-    ? row.estimatedDepartureAt || row.actualDepartureAt || row.estimatedArrivalAt
-    : row.estimatedArrivalAt || row.actualArrivalAt || row.estimatedDepartureAt;
-  return bangkokDateValue(value);
+  return rowBusinessDayTruth(row).businessDay;
 }
 
 function metricSourceRows() {

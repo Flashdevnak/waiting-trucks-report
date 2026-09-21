@@ -85,12 +85,16 @@ export function patchMsFirstSourceQueueFrontend(source) {
     "drop operation recognizes TBR-first queue admission",
   );
 
-  output = replaceUnique(
-    output,
-    `    : row.estimatedArrivalAt || row.actualArrivalAt || row.estimatedDepartureAt;`,
-    `    : row.estimatedArrivalAt || row.actualArrivalAt || row.scheduleTbrArrivalAt || row.estimatedDepartureAt;`,
-    "TBR-only rows retain their Bangkok business day",
-  );
+  if (!output.includes("MS_REC04_BUSINESS_DAY_TRUTH_V1")) {
+    output = replaceUnique(
+      output,
+      `    : row.estimatedArrivalAt || row.actualArrivalAt || row.estimatedDepartureAt;`,
+      `    : row.estimatedArrivalAt || row.actualArrivalAt || row.scheduleTbrArrivalAt || row.estimatedDepartureAt;`,
+      "TBR-only rows retain their Bangkok business day",
+    );
+  } else if (!output.includes("scheduleTbrArrivalAt")) {
+    throw new Error("MS first-source queue patch failed: REC-04 business-day TBR authority missing");
+  }
 
   output = replaceUnique(
     output,

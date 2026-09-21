@@ -15,7 +15,7 @@ function statement(sql, calls, results) {
           return null;
         },
         async all() {
-          if (sql.includes("FROM ms_route_latest"))
+          if (sql.includes("FROM ms_route_registry"))
             return { results: results.history || [] };
           if (sql.includes("FROM ms_route_cancellations"))
             return { results: results.cancellations || [] };
@@ -65,7 +65,11 @@ test("pointer query is generic for any HUB and preserves archived payload", asyn
   const { env, calls } = envWith({
     history: [{
       route_id: "R-1",
-      payload_json: JSON.stringify({ routeName: "Route A" }),
+      payload_json: JSON.stringify({
+        routeName: "Route A",
+        attendanceType: "ปลายทาง",
+        actualArrivalAt: "2026-09-16T01:00:00.000Z",
+      }),
       snapshot_at: "2026-09-16T01:00:00.000Z",
       synced_by: "MS_AUTO",
       event_type: "UPDATED",
@@ -73,15 +77,21 @@ test("pointer query is generic for any HUB and preserves archived payload", asyn
     }],
     cancellations: [{ route_id: "R-1", cancelled_at: "2026-09-16T02:00:00.000Z", cancelled_by: "OPS", reason: "x" }],
   });
-  const data = await queryMsDailyArchivePointer(env, "EA2", "2026-09-16", "2026-09-16");
+  const asOf = "2026-09-16T16:59:59.999Z";
+  const data = await queryMsDailyArchivePointer(env, "EA2", "2026-09-16", "2026-09-16", asOf);
   assert.equal(data.branch, "EA2");
   assert.equal(data.total, 1);
   assert.equal(data.rows[0].id, "R-1");
   assert.equal(data.rows[0].businessDay, "2026-09-16");
+  assert.equal(data.rows[0].businessDayAuthority, "KIT");
   assert.equal(data.rows[0].queueCancelledBy, "OPS");
-  const historyCall = calls.find((call) => call.sql.includes("FROM ms_route_latest"));
-  assert.deepEqual(historyCall.args, ["EA2", "2026-09-16", "2026-09-16"]);
-  assert.match(historyCall.sql, /idx_ms_route_latest_hub_day/);
+  assert.equal(data.historyMode, "POINT_IN_TIME");
+  assert.equal(data.asOf, asOf);
+  const historyCall = calls.find((call) => call.sql.includes("FROM ms_route_registry"));
+  assert.deepEqual(historyCall.args, [asOf, "EA2", "EA2", "2026-09-16", "2026-09-16"]);
+  assert.match(historyCall.sql, /idx_ms_route_history_hub_route_snapshot/);
+  assert.match(historyCall.sql, /h2\.snapshot_at<=\?/);
+  assert.doesNotMatch(historyCall.sql, /estimatedArrivalAt|estimatedDepartureAt|scheduleKitArrivalAt/);
 });
 
 test("handler delegates authorization to core and supports non-NE1 HUB", async () => {
@@ -114,7 +124,7 @@ test("handler delegates to legacy core only before pointer ready", async () => {
   const request = new Request("https://dev.example/api?action=msDailyArchive&branch=NE1&start=2026-09-16&end=2026-09-16&token=t");
   const response = await maybeHandleMsDailyArchivePointer(request, env, {}, auth.worker);
   assert.equal(response, null);
-  assert.equal(calls.filter((call) => call.sql.includes("FROM ms_route_latest p")).length, 0);
+  assert.equal(calls.filter((call) => call.sql.includes("FROM ms_route_registry r")).length, 0);
 });
 
 test("handler rejects more than seven calendar days before history query", async () => {
@@ -125,5 +135,5 @@ test("handler rejects more than seven calendar days before history query", async
   assert.equal(response.status, 400);
   const body = await response.json();
   assert.equal(body.code, "DATE_RANGE_TOO_LARGE");
-  assert.equal(calls.filter((call) => call.sql.includes("FROM ms_route_latest p")).length, 0);
+  assert.equal(calls.filter((call) => call.sql.includes("FROM ms_route_registry r")).length, 0);
 });

@@ -28,6 +28,32 @@ export const BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
 export const BUS_TIME_RATE_LIMIT_MAX_COOLDOWN_MS = 60 * 60 * 1000;
 export const BUS_TIME_SESSION_COOLDOWN_MS = 60 * 60 * 1000;
 
+// The pointer's legacy business_day column was estimate-derived. REC-04 keeps
+// the indexed per-HUB latest pointer but derives the authoritative day from the
+// accepted snapshot: actual departure for Origin, earliest KIT/TBR otherwise.
+const BUS_TIME_P3_BUSINESS_DAY_SQL = `CASE
+  WHEN COALESCE(json_extract(h.payload_json,'$.attendanceType'),'') LIKE '%ต้นทาง%' THEN
+    date(datetime(NULLIF(json_extract(h.payload_json,'$.actualDepartureAt'),'')), '+7 hours')
+  WHEN COALESCE(json_extract(h.payload_json,'$.attendanceType'),'') LIKE '%ปลายทาง%'
+    OR COALESCE(json_extract(h.payload_json,'$.attendanceType'),'') LIKE '%จุดดรอป%' THEN
+    date(datetime(CASE
+      WHEN datetime(NULLIF(json_extract(h.payload_json,'$.actualArrivalAt'),'')) IS NOT NULL
+       AND datetime(NULLIF(json_extract(h.payload_json,'$.scheduleTbrArrivalAt'),'')) IS NOT NULL
+        THEN CASE
+          WHEN julianday(json_extract(h.payload_json,'$.actualArrivalAt'))
+            <= julianday(json_extract(h.payload_json,'$.scheduleTbrArrivalAt'))
+            THEN json_extract(h.payload_json,'$.actualArrivalAt')
+          ELSE json_extract(h.payload_json,'$.scheduleTbrArrivalAt')
+        END
+      WHEN datetime(NULLIF(json_extract(h.payload_json,'$.actualArrivalAt'),'')) IS NOT NULL
+        THEN json_extract(h.payload_json,'$.actualArrivalAt')
+      WHEN datetime(NULLIF(json_extract(h.payload_json,'$.scheduleTbrArrivalAt'),'')) IS NOT NULL
+        THEN json_extract(h.payload_json,'$.scheduleTbrArrivalAt')
+      ELSE NULL
+    END), '+7 hours')
+  ELSE NULL
+END`;
+
 export const MS_FIELD_EVIDENCE = Object.freeze({
   OBSERVED: "OBSERVED",
   MISSING_UNCONFIRMED: "MISSING_UNCONFIRMED",
@@ -63,6 +89,9 @@ export function createMsFieldEvidence({
   observedAt = "",
   fetchedAt = "",
   acceptedAt = "",
+  dataObservedAt = "",
+  sourceValueTimestamp = "",
+  acceptedDataAt = "",
   sourceCode = "",
   boundary = "CURRENT_SHARED_CYCLE",
   enrichmentOrigin = "",
@@ -74,10 +103,13 @@ export function createMsFieldEvidence({
     field: String(field || ""),
     state: evidenceState,
     source: String(source || ""),
-    valueTimestamp: validIso(valueTimestamp),
-    observedAt: validIso(observedAt),
+    valueTimestamp: validIso(valueTimestamp || sourceValueTimestamp),
+    sourceValueTimestamp: validIso(sourceValueTimestamp || valueTimestamp),
+    observedAt: validIso(observedAt || dataObservedAt),
+    dataObservedAt: validIso(dataObservedAt || observedAt),
     fetchedAt: validIso(fetchedAt || observedAt),
-    acceptedAt: validIso(acceptedAt),
+    acceptedAt: validIso(acceptedAt || acceptedDataAt),
+    acceptedDataAt: validIso(acceptedDataAt || acceptedAt),
     sourceCode: String(sourceCode || ""),
     boundary: String(boundary || "CURRENT_SHARED_CYCLE"),
     enrichmentOrigin: String(enrichmentOrigin || ""),
@@ -435,6 +467,9 @@ export function createBusTimeHotLane(deps) {
         busCacheMisses: 0,
         busRateLimitCount: 0,
         busLastSuccessAt: "",
+        busLastAttemptAt: "",
+        busLastMeaningfulObservationAt: "",
+        busLastErrorAt: "",
         busLastError: "",
         busActiveRows: 0,
         busP1Rows: 0,
@@ -465,6 +500,7 @@ export function createBusTimeHotLane(deps) {
 
   function recordCall(state, kind) {
     const at = now();
+    state.busLastAttemptAt = new Date(at).toISOString();
     state.callTimes.push(at);
     state.callTimes = state.callTimes.filter((value) => at - value < 60_000);
     if (kind === "hot") state.busHotCalls += 1;
@@ -800,15 +836,19 @@ export function createBusTimeHotLane(deps) {
       throw error;
     }
     const result = await env.DB.prepare(
-      `SELECT l.rowid AS latest_rowid,l.route_id,l.business_day,h.payload_json
-         FROM ms_route_latest l INDEXED BY idx_ms_route_latest_hub_day
-         JOIN ms_route_history h ON h.rowid=l.history_rowid AND h.hub=l.hub
-        WHERE l.hub=?
-          AND l.business_day>=? AND l.business_day<=?
-          AND (?='' OR l.business_day<? OR (l.business_day=? AND l.rowid<?))
-          AND json_valid(h.payload_json)=1
-        ORDER BY l.business_day DESC,l.rowid DESC
-        LIMIT ?`,
+      `WITH canonical AS (
+        SELECT l.rowid AS latest_rowid,l.route_id,h.payload_json,
+          ${BUS_TIME_P3_BUSINESS_DAY_SQL} AS business_day
+        FROM ms_route_latest l INDEXED BY idx_ms_route_latest_hub_day
+        JOIN ms_route_history h ON h.rowid=l.history_rowid AND h.hub=l.hub
+        WHERE l.hub=? AND json_valid(h.payload_json)=1
+      )
+      SELECT latest_rowid,route_id,business_day,payload_json
+      FROM canonical
+      WHERE business_day>=? AND business_day<=?
+        AND (?='' OR business_day<? OR (business_day=? AND latest_rowid<?))
+      ORDER BY business_day DESC,latest_rowid DESC
+      LIMIT ?`,
     ).bind(
       hub,
       checkpoint.startDay,
@@ -913,7 +953,7 @@ export function createBusTimeHotLane(deps) {
       const cycleStart = start || cycle.start || "";
       const cycleEnd = end || cycle.end || "";
       state.cycleSchedule.set(key, { start: cycleStart, end: cycleEnd, ambiguous });
-      state.cache.set(key, {
+      const next = {
         ...current,
         proofId: String(proofId || "").slice(0, 100),
         routeName: String(nestedValue(item.line_info, 0) || current.routeName || "").slice(0, 300),
@@ -934,7 +974,19 @@ export function createBusTimeHotLane(deps) {
           ? ""
           : cycleEnd || current.scheduleUnloadingCompletedAt || "",
         scheduleCompletionAmbiguous: ambiguous,
-      });
+      };
+      const meaningfulKeys = [
+        "scheduleKitArrivalAt",
+        "scheduleTbrArrivalAt",
+        "arrivedParcels",
+        "arrivedBags",
+        "scheduleUnloadingStartedAt",
+        "scheduleUnloadingCompletedAt",
+        "scheduleCompletionAmbiguous",
+      ];
+      if (meaningfulKeys.some((field) => String(current[field] ?? "") !== String(next[field] ?? "")))
+        state.busLastMeaningfulObservationAt = new Date(at).toISOString();
+      state.cache.set(key, next);
       state.seen.set(key, at);
     }
   }
@@ -1062,12 +1114,14 @@ export function createBusTimeHotLane(deps) {
     state.cooldownCode = "BUS_TIME_RATE_LIMIT";
     state.busRateLimitCount += 1;
     state.busLastError = "BUS_TIME_RATE_LIMIT";
+    state.busLastErrorAt = isoNow();
   }
 
   function applySessionExpiry(state) {
     state.cooldownUntil = now() + BUS_TIME_SESSION_COOLDOWN_MS;
     state.cooldownCode = "BUS_TIME_SESSION_EXPIRED";
     state.busLastError = "BUS_TIME_SESSION_EXPIRED";
+    state.busLastErrorAt = isoNow();
   }
 
   async function persistSuccess(env, hub, state) {
@@ -1494,6 +1548,7 @@ export function createBusTimeHotLane(deps) {
       const credential = await credentials(env, key, state);
       if (!credential) {
         state.busLastError = "BUS_TIME_NOT_CONFIGURED";
+        state.busLastErrorAt = isoNow();
         applyEvidence(state, plan.selected, {
           sourceUnavailable: true,
           sourceCode: "BUS_TIME_NOT_CONFIGURED",
@@ -1527,6 +1582,7 @@ export function createBusTimeHotLane(deps) {
 
       const failCycle = async (error, event, affected) => {
         state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
+        state.busLastErrorAt = isoNow();
         if (error?.code === "BUS_TIME_RATE_LIMIT") {
           applyRateLimit(state, error);
           await persistRateLimitLease(env, key, state);
@@ -1709,6 +1765,9 @@ export function createBusTimeHotLane(deps) {
         busCooldownCode: "",
         busNeedsLogin: false,
         busLastSuccessAt: "",
+        busLastAttemptAt: "",
+        busLastMeaningfulObservationAt: "",
+        busLastErrorAt: "",
         busLastError: "",
         busActiveRows: 0,
         busP1Rows: 0,
@@ -1756,6 +1815,9 @@ export function createBusTimeHotLane(deps) {
       busCooldownCode: cooldownActive ? state.cooldownCode : "",
       busNeedsLogin: cooldownActive && state.cooldownCode === "BUS_TIME_SESSION_EXPIRED",
       busLastSuccessAt: state.busLastSuccessAt,
+      busLastAttemptAt: state.busLastAttemptAt,
+      busLastMeaningfulObservationAt: state.busLastMeaningfulObservationAt,
+      busLastErrorAt: state.busLastErrorAt,
       busLastError: state.busLastError,
       busActiveRows: state.busActiveRows,
       busP1Rows: state.busP1Rows,

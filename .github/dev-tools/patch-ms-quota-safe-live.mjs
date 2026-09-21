@@ -98,8 +98,8 @@ export function patchMsQuotaSafeLiveWorker(source) {
 
   output = replaceUnique(
     output,
-    `      row.archivedAt = item.snapshot_at;\n      row.businessDay = item.business_day;`,
-    `      row.archivedAt = item.snapshot_at;\n      row.businessDay = item.business_day;\n      row.completionObservedLive =\n        Boolean(row.unloadingCompletedAt) &&\n        verifiedCompletionRoutes.has(String(row.id || ""));\n      if (row.unloadingCompletedAt && !row.completionObservedLive)\n        row.unloadingCompletedAt = "";`,
+    `      row.archivedAt = item.snapshot_at;\n      const businessTruth = canonicalMsBusinessDay(row);\n      row.businessDay = businessTruth.businessDay;\n      row.businessDayAuthority = businessTruth.authority;\n      row.businessDayValueTimestamp = businessTruth.valueTimestamp;`,
+    `      row.archivedAt = item.snapshot_at;\n      const businessTruth = canonicalMsBusinessDay(row);\n      row.businessDay = businessTruth.businessDay;\n      row.businessDayAuthority = businessTruth.authority;\n      row.businessDayValueTimestamp = businessTruth.valueTimestamp;\n      row.completionObservedLive =\n        Boolean(row.unloadingCompletedAt) &&\n        verifiedCompletionRoutes.has(String(row.id || ""));\n      if (row.unloadingCompletedAt && !row.completionObservedLive)\n        row.unloadingCompletedAt = "";`,
     "daily history never exports fabricated completion timestamp",
   );
 

@@ -46,11 +46,12 @@ test("drop unloading time freezes and uses the existing vehicle standard", () =>
 test("lower completion follows Bangkok current-day route truth regardless of completion timestamp provenance", () => {
   const now = new Date("2026-09-01T18:00:00.000Z");
   for (const attendanceType of ["ปลายทาง", "จุดดรอป"])
-    assert.equal(ui.isCompletedToday({ attendanceType, unloadingState: 2, estimatedArrivalAt: "2026-09-01T17:30:00.000Z" }, now), true);
-  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, estimatedArrivalAt: "2026-09-01T16:59:00.000Z" }, now), false);
-  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, estimatedArrivalAt: "2026-09-01T17:30:00.000Z", completionObservedLive: false }, now), true);
-  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 1, estimatedArrivalAt: "2026-09-01T17:30:00.000Z" }, now), false);
-  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, estimatedArrivalAt: "2026-09-01T17:30:00.000Z", queueCancelledAt: "2026-09-01T17:45:00.000Z" }, now), false);
+    assert.equal(ui.isCompletedToday({ attendanceType, unloadingState: 2, actualArrivalAt: "2026-09-01T17:30:00.000Z" }, now), true);
+  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, actualArrivalAt: "2026-09-01T16:59:00.000Z" }, now), false);
+  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, actualArrivalAt: "2026-09-01T17:30:00.000Z", completionObservedLive: false }, now), true);
+  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 1, actualArrivalAt: "2026-09-01T17:30:00.000Z" }, now), false);
+  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, actualArrivalAt: "2026-09-01T17:30:00.000Z", queueCancelledAt: "2026-09-01T17:45:00.000Z" }, now), false);
+  assert.equal(ui.isCompletedToday({ attendanceType: "ปลายทาง", unloadingState: 2, estimatedArrivalAt: "2026-09-01T17:30:00.000Z" }, now), false);
 });
 
 test("departure countdown covers pending, overdue, early, late, and on-time", () => {

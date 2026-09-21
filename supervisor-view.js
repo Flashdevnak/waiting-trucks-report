@@ -4,7 +4,7 @@
 // Pure view derivation only: no transport, timers, storage, database, or repair.
 const STATES = new Set([
   "HEALTHY", "WARNING", "CRITICAL", "STALE", "PARTIAL", "AUTH_REQUIRED",
-  "ERROR", "BLOCKED", "UNKNOWN", "RECOVERED",
+  "SOURCE_UNAVAILABLE", "ERROR", "BLOCKED", "UNKNOWN", "RECOVERED",
 ]);
 export const SOURCE_STALE_AFTER_MS = 20 * 60 * 1000;
 
@@ -62,8 +62,15 @@ function hasSourceEvidence(source) {
 }
 
 function sourceFreshness(source, nowMs) {
-  if (String(source?.mode || "").toUpperCase() === "CLICK_ONLY")
-    return validTime(source?.lastSuccessAt) == null ? "UNKNOWN" : "ON_DEMAND";
+  const mode = String(source?.mode || "").toUpperCase();
+  if (mode === "CLICK_ONLY" || mode === "ON_DEMAND") return "ON_DEMAND";
+  const code = String(source?.errorCode || source?.lastError || "").toUpperCase();
+  if (
+    source?.sourceUnavailable === true ||
+    safeState(source?.state) === "SOURCE_UNAVAILABLE" ||
+    safeState(source?.state) === "AUTH_REQUIRED" ||
+    /(?:401|403|AUTH_REQUIRED|SESSION_EXPIRED|INVALID_SESSION|CREDENTIAL_ERROR|NEEDS_LOGIN)/.test(code)
+  ) return "SOURCE_UNAVAILABLE";
   const at = validTime(source?.lastSuccessAt);
   if (at == null || !Number.isFinite(nowMs)) return "UNKNOWN";
   return Math.max(0, nowMs - at) > SOURCE_STALE_AFTER_MS ? "STALE" : "FRESH";
@@ -77,18 +84,34 @@ export function deriveSourceView(source, nowMs = Date.now(), fallbackState = "UN
   const lastUsedAt = validTime(raw?.lastUsedAt) == null ? null : raw.lastUsedAt;
   const retryAt = validTime(raw?.retryAt) == null ? null : raw.retryAt;
   const freshness = sourceFreshness(raw, nowMs);
-  const state = freshness === "STALE" && ["HEALTHY", "RECOVERED"].includes(baseState) ? "STALE" : baseState;
+  const authUnavailable = /(?:401|403|AUTH_REQUIRED|SESSION_EXPIRED|INVALID_SESSION|CREDENTIAL_ERROR|NEEDS_LOGIN)/
+    .test(String(raw?.errorCode || raw?.lastError || "").toUpperCase());
+  const state = freshness === "SOURCE_UNAVAILABLE"
+    ? authUnavailable || baseState === "AUTH_REQUIRED" ? "AUTH_REQUIRED" : "SOURCE_UNAVAILABLE"
+    : freshness === "STALE" && ["HEALTHY", "RECOVERED"].includes(baseState)
+      ? "STALE"
+      : baseState;
   return {
     state,
     configured,
     lastSuccessAt,
+    lastAttemptAt: validTime(raw?.lastAttemptAt) == null ? null : raw.lastAttemptAt,
+    lastMeaningfulObservationAt: validTime(raw?.lastMeaningfulObservationAt) == null ? null : raw.lastMeaningfulObservationAt,
+    lastErrorAt: validTime(raw?.lastErrorAt) == null ? null : raw.lastErrorAt,
+    dataObservedAt: validTime(raw?.dataObservedAt) == null ? null : raw.dataObservedAt,
+    sourceValueTimestamp: validTime(raw?.sourceValueTimestamp) == null ? null : raw.sourceValueTimestamp,
+    acceptedDataAt: validTime(raw?.acceptedDataAt) == null ? null : raw.acceptedDataAt,
     lastUsedAt,
     successAge: ageView(lastSuccessAt, nowMs),
     freshness,
     errorCode: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.errorCode || "")) ? String(raw.errorCode) : null,
     recovery: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.recovery || "")) ? String(raw.recovery) : "UNKNOWN",
     retryAt,
-    mode: String(raw?.mode || "").toUpperCase() === "CLICK_ONLY" ? "CLICK_ONLY" : "REFRESH",
+    mode: String(raw?.mode || "").toUpperCase() === "CLICK_ONLY"
+      ? "CLICK_ONLY"
+      : String(raw?.mode || "").toUpperCase() === "ON_DEMAND"
+        ? "ON_DEMAND"
+        : "REFRESH",
     observed: raw?.observed === true,
   };
 }

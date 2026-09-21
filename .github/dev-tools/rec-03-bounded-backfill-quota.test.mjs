@@ -328,7 +328,10 @@ test("REC-03 P3 query is indexed, HUB/date/range/record bounded, and one cycle u
   assert.ok(query);
   assert.match(query.sql, /INDEXED BY idx_ms_route_latest_hub_day/);
   assert.match(query.sql, /l\.hub=\?/);
-  assert.match(query.sql, /l\.business_day>=\? AND l\.business_day<=\?/);
+  assert.match(query.sql, /business_day>=\? AND business_day<=\?/);
+  assert.match(query.sql, /actualArrivalAt/);
+  assert.match(query.sql, /scheduleTbrArrivalAt/);
+  assert.doesNotMatch(query.sql, /l\.business_day>=\?/);
   assert.match(query.sql, /LIMIT \?/);
   assert.equal(query.args[0], "NE1");
   assert.equal(query.args.at(-1), BUS_TIME_P3_MAX_ROWS_PER_CYCLE);

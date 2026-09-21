@@ -41,6 +41,14 @@ function runnableWorker() {
     .replace(
       'import { canonicalMsSource, planMsChanges, resolveCompletionTruth } from "./sync-policy.js";',
       `const canonicalMsSource = (value) => JSON.stringify(value);\nconst planMsChanges = () => ({ changedIds: [], removedIds: [] });\nconst resolveCompletionTruth = () => null;`,
+    )
+    .replace(
+      `import {
+  MS_CANONICAL_BUSINESS_DAY_SQL,
+  canonicalMsBusinessDay,
+  canonicalMsSourceFreshness,
+} from "./ms-operational-truth-v1.js";`,
+      `const MS_CANONICAL_BUSINESS_DAY_SQL = "NULL";\nconst canonicalMsBusinessDay = () => ({ businessDay: "", authority: "UNKNOWN", valueTimestamp: "" });\nconst canonicalMsSourceFreshness = () => ({ freshness: "UNKNOWN", mode: "REFRESH", lastAttemptAt: "", lastSuccessAt: "", lastMeaningfulObservationAt: "", lastErrorAt: "", sourceValueTimestamp: "", dataObservedAt: "", acceptedDataAt: "" });`,
     );
 }
 

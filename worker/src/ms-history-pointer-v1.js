@@ -3,6 +3,11 @@
 // Authorization is delegated to the existing core Worker. The pointer query
 // never calls upstream MS and never writes history.
 
+import {
+  MS_CANONICAL_BUSINESS_DAY_SQL,
+  canonicalMsBusinessDay,
+} from "./ms-operational-truth-v1.js";
+
 const MAX_RANGE_MS = 6 * 86400000;
 
 function json(payload, status = 200) {
@@ -25,6 +30,11 @@ function thaiDateStart(value) {
   return Date.parse(`${value}T00:00:00+07:00`);
 }
 
+function thaiDateEnd(value) {
+  const start = thaiDateStart(value);
+  return Number.isFinite(start) ? start + 86400000 - 1 : NaN;
+}
+
 function canonicalHub(value) {
   return String(value || "").trim().toUpperCase().slice(0, 80);
 }
@@ -45,21 +55,44 @@ async function authorize(request, env, ctx, coreWorker, hub) {
   return coreWorker.fetch(authRequest, env, ctx);
 }
 
-export async function queryMsDailyArchivePointer(env, hub, start, end) {
+export async function queryMsDailyArchivePointer(env, hub, start, end, asOf) {
+  const historyCutoff = new Date(
+    Number.isFinite(Date.parse(String(asOf || "")))
+      ? Date.parse(String(asOf))
+      : thaiDateEnd(end),
+  ).toISOString();
   const [historyResult, cancellationResult] = await Promise.all([
     env.DB.prepare(
-      `SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type,p.business_day
-       FROM ms_route_latest p INDEXED BY idx_ms_route_latest_hub_day
-       JOIN ms_route_history h ON h.rowid=p.history_rowid
-       WHERE p.hub=? AND p.business_day>=? AND p.business_day<=?
-       ORDER BY p.business_day DESC,h.snapshot_at DESC`,
+      `WITH latest AS (
+        SELECT h.route_id,h.payload_json,h.snapshot_at,h.synced_by,h.event_type
+        FROM ms_route_registry r
+        JOIN ms_route_history h
+          ON h.rowid = (
+            SELECT h2.rowid
+            FROM ms_route_history h2 INDEXED BY idx_ms_route_history_hub_route_snapshot
+            WHERE h2.hub=r.hub AND h2.route_id=r.route_id
+              AND h2.snapshot_at<=?
+            ORDER BY h2.snapshot_at DESC,h2.rowid DESC
+            LIMIT 1
+          )
+        WHERE r.hub=? AND h.hub=? AND json_valid(h.payload_json)=1
+      ), daily AS (
+        SELECT route_id,payload_json,snapshot_at,synced_by,event_type,
+          ${MS_CANONICAL_BUSINESS_DAY_SQL} AS business_day
+        FROM latest
+      )
+      SELECT route_id,payload_json,snapshot_at,synced_by,event_type,business_day
+      FROM daily
+      WHERE business_day>=? AND business_day<=?
+      ORDER BY business_day DESC,snapshot_at DESC,route_id DESC
+      LIMIT 5000`,
     )
-      .bind(hub, start, end)
+      .bind(historyCutoff, hub, hub, start, end)
       .all(),
     env.DB.prepare(
-      "SELECT route_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1",
+      "SELECT route_id,cancelled_at,cancelled_by,reason FROM ms_route_cancellations WHERE hub=? AND active=1 AND cancelled_at<=?",
     )
-      .bind(hub)
+      .bind(hub, historyCutoff)
       .all(),
   ]);
 
@@ -74,7 +107,10 @@ export async function queryMsDailyArchivePointer(env, hub, start, end) {
       row.id = row.id || item.route_id;
       row.hub = row.hub || hub;
       row.archivedAt = item.snapshot_at;
-      row.businessDay = item.business_day;
+      const businessTruth = canonicalMsBusinessDay(row);
+      row.businessDay = businessTruth.businessDay;
+      row.businessDayAuthority = businessTruth.authority;
+      row.businessDayValueTimestamp = businessTruth.valueTimestamp;
       const cancelled = cancellations.get(item.route_id);
       if (cancelled) {
         row.queueCancelledAt = cancelled.cancelled_at;
@@ -93,6 +129,8 @@ export async function queryMsDailyArchivePointer(env, hub, start, end) {
     start,
     end,
     source: "TURSO_DAILY_HISTORY",
+    historyMode: "POINT_IN_TIME",
+    asOf: historyCutoff,
     upstreamMsCalls: 0,
     historyWrites: 0,
   };
@@ -121,6 +159,10 @@ export async function maybeHandleMsDailyArchivePointer(request, env, ctx, coreWo
       "เลือกค้นหาข้อมูลย้อนหลังได้ครั้งละไม่เกิน 7 วัน",
       "DATE_RANGE_TOO_LARGE",
     );
+  const requestedAsOf = String(url.searchParams.get("asOf") || "");
+  if (requestedAsOf && !Number.isFinite(Date.parse(requestedAsOf)))
+    return error("ขอบเขตเวลาประวัติไม่ถูกต้อง", "INVALID_HISTORY_AS_OF");
+  const historyCutoff = requestedAsOf || new Date(thaiDateEnd(end)).toISOString();
 
   let meta;
   try {
@@ -141,7 +183,13 @@ export async function maybeHandleMsDailyArchivePointer(request, env, ctx, coreWo
   if (Number(meta?.ready) !== 1) return null;
 
   try {
-    const data = await queryMsDailyArchivePointer(env, hub, start, end);
+    const data = await queryMsDailyArchivePointer(
+      env,
+      hub,
+      start,
+      end,
+      historyCutoff,
+    );
     return json({ ok: true, data });
   } catch (cause) {
     console.error(

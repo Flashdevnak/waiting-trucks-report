@@ -259,7 +259,7 @@ test("legacy amplification is 30/90/300/600 calls per minute for 50/250/1000/200
   );
 });
 
-test("successful HAR seed paints KIT/TBR immediately with zero upstream call, then returns to the existing 12s cadence", async () => {
+test("successful HAR seed paints KIT/TBR immediately and missing-only work does not refetch it", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -286,7 +286,7 @@ test("successful HAR seed paints KIT/TBR immediately with zero upstream call, th
 
   h.advance(BUS_TIME_HOT_REUSE_MS);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 1, "after the normal healthy 12s reuse window the shared source may refresh once");
+  assert.equal(h.calls.length, 0, "an observed TBR must not create another provider request");
 });
 
 test("HAR seed is bounded and provider-limit backoff remains much longer than healthy 12s cadence", () => {
@@ -308,7 +308,7 @@ test("canonical BusTime HAR save no longer re-hits provider just to validate the
   assert.doesNotMatch(save, /readBusPage\(/);
 });
 
-test("idle/origin/completed-only Route state makes zero BusTime upstream calls", async () => {
+test("idle/origin stays zero-call while completed unresolved truth gets one bounded P2 call", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -316,11 +316,16 @@ test("idle/origin/completed-only Route state makes zero BusTime upstream calls",
   h.advance(60_000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [
     { proofId: "P-ORG", attendanceType: "ต้นทาง", unloadingState: 0 },
-    { proofId: "P-DONE", attendanceType: "จุดดรอป", unloadingState: 2, actualDepartureAt: "2026-09-13T02:00:00.000Z" },
   ]);
   assert.equal(h.calls.length, 0);
   assert.equal(h.stats().credentialReads, 0);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [
+    { proofId: "P-DONE", attendanceType: "จุดดรอป", unloadingState: 2, actualDepartureAt: "2026-09-13T02:00:00.000Z" },
+  ]);
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0].fleetStatus, "");
   assert.equal(h.lane.diagnostics("NE1").busActiveRows, 0);
+  assert.equal(h.lane.diagnostics("NE1").busP2Rows, 1);
 });
 
 test("Drop state=2 without actualDepartureAt remains active for TBR preservation while released Drop stays excluded", async () => {
@@ -357,11 +362,12 @@ test("Drop state=2 without actualDepartureAt remains active for TBR preservation
   });
   await h2.lane.readBusTimeData(h2.env, "NE1", undefined, released);
   assert.equal(h2.lane.diagnostics("NE1").busActiveRows, 0);
-  assert.equal(h2.calls.length, 0, "released Drop must not create completed-row BusTime polling");
-  assert.equal(h2.stats().credentialReads, 0);
+  assert.equal(h2.calls.length, 1, "released unresolved Drop gets one bounded P2 enrichment page");
+  assert.equal(h2.calls[0].fleetStatus, "");
+  assert.equal(h2.stats().credentialReads, 1);
 });
 
-test("active BusTime keeps KIT/TBR at ~12s while Route/UI can continue their ~4s cycle", async () => {
+test("active missing TBR uses the shared lane and stops once TBR is observed", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -373,7 +379,7 @@ test("active BusTime keeps KIT/TBR at ~12s while Route/UI can continue their ~4s
   assert.equal(h.calls.length, 1, "4-second Route/UI refresh must reuse KIT/TBR cache");
   h.advance(8000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.equal(h.calls.length, 2, "KIT/TBR page 1 refreshes at ~12 seconds");
+  assert.equal(h.calls.length, 1, "observed TBR is not refetched at 12 seconds");
   assert.equal(h.calls.every((call) => call.page === 1), true);
   assert.equal(h.calls.every((call) => call.fleetStatus === "1"), true);
   assert.equal(h.stats().credentialReads, 1, "credentials stay shared/cached");
@@ -466,7 +472,7 @@ test("two HUBs keep isolated active-demand state and each gets only its own shar
   assert.equal(h.lane.diagnostics("EA2").busHotCalls, 1);
 });
 
-test("origin routes never enter BusTime active scope or force yesterday hot reads", async () => {
+test("origin routes never enter enrichment while P1/P2 share bounded current-day work", async () => {
   const h = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P-DST")] }),
   });
@@ -476,7 +482,8 @@ test("origin routes never enter BusTime active scope or force yesterday hot read
     { proofId: "P-DROP-DONE", attendanceType: "จุดดรอป", unloadingState: 2, actualDepartureAt: "2026-09-12T16:00:00.000Z", estimatedArrivalAt: "2026-09-12T15:00:00.000Z" },
   ];
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.deepEqual(h.calls.map((call) => call.day), ["2026-09-13"]);
+  assert.deepEqual(h.calls.map((call) => call.day), ["2026-09-13", "2026-09-13"]);
+  assert.deepEqual(h.calls.map((call) => call.fleetStatus), ["1", ""]);
   assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
 });
 
@@ -500,7 +507,7 @@ test("persistent deep misses stay 12s while newly active proof gets immediate ba
   assert.equal(h.calls.length, callsAfterNewActive + 2);
 });
 
-test("cross-midnight active route adds yesterday page 1; completed-only routes make zero BusTime calls", async () => {
+test("cross-midnight P1 adds yesterday while completed unresolved truth advances through P2", async () => {
   const h1 = harness({
     fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
   });
@@ -518,8 +525,9 @@ test("cross-midnight active route adds yesterday page 1; completed-only routes m
   });
   const completedYesterday = [{ ...activeYesterday[0], unloadingState: 2 }];
   await h2.lane.readBusTimeData(h2.env, "NE1", undefined, completedYesterday);
-  assert.deepEqual(h2.calls, []);
-  assert.equal(h2.stats().credentialReads, 0);
+  assert.equal(h2.calls.length, 1);
+  assert.equal(h2.calls[0].fleetStatus, "");
+  assert.equal(h2.stats().credentialReads, 1);
 });
 
 test("429 is BUS_TIME_RATE_LIMIT, honors Retry-After, preserves accepted cache and does not retry during cooldown", async () => {

@@ -6,6 +6,8 @@ export const BUS_TIME_ACTIVE_FLEET_STATUS = "1";
 export const BUS_TIME_BACKGROUND_INTERVAL_MS = 12_000;
 export const BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_MAX_CALLS_PER_CYCLE = 3;
+export const BUS_TIME_P2_MAX_ROWS_PER_CYCLE = 25;
+export const BUS_TIME_P2_MAX_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_CACHE_RETENTION_MS = 36 * 60 * 60 * 1000;
 export const BUS_TIME_CREDENTIAL_CACHE_MS = 10 * 60 * 1000;
 // BUS_TIME_HAR_SEED_TRUTH_V26: a successful uploaded HAR may seed the shared
@@ -16,6 +18,179 @@ export const BUS_TIME_HAR_SEED_MAX_AGE_MS = 15 * 60 * 1000;
 export const BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
 export const BUS_TIME_RATE_LIMIT_MAX_COOLDOWN_MS = 60 * 60 * 1000;
 export const BUS_TIME_SESSION_COOLDOWN_MS = 60 * 60 * 1000;
+
+export const MS_FIELD_EVIDENCE = Object.freeze({
+  OBSERVED: "OBSERVED",
+  MISSING_UNCONFIRMED: "MISSING_UNCONFIRMED",
+  UNKNOWN: "UNKNOWN",
+  SOURCE_UNAVAILABLE: "SOURCE_UNAVAILABLE",
+  NOT_APPLICABLE: "NOT_APPLICABLE",
+});
+export const MS_DATA_COMPLETENESS = Object.freeze({
+  COMPLETE: "DATA_COMPLETE",
+  INCOMPLETE: "DATA_INCOMPLETE",
+  UNKNOWN: "DATA_UNKNOWN",
+  SOURCE_UNAVAILABLE: "SOURCE_UNAVAILABLE",
+});
+export const MS_ENRICHMENT_PENDING = "ENRICHMENT_PENDING";
+
+function validIso(value) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : "";
+}
+
+function inboundAttendance(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (text === "ปลายทาง" || text === "destination") return "DESTINATION";
+  if (text === "จุดดรอป" || text === "drop" || text === "drop point") return "DROP";
+  return "OTHER";
+}
+
+export function createMsFieldEvidence({
+  field,
+  state,
+  source = "BUS_TIME",
+  valueTimestamp = "",
+  observedAt = "",
+  acceptedAt = "",
+  sourceCode = "",
+  boundary = "CURRENT_SHARED_CYCLE",
+} = {}) {
+  const allowed = new Set(Object.values(MS_FIELD_EVIDENCE));
+  const evidenceState = allowed.has(state) ? state : MS_FIELD_EVIDENCE.UNKNOWN;
+  return {
+    field: String(field || ""),
+    state: evidenceState,
+    source: String(source || ""),
+    valueTimestamp: validIso(valueTimestamp),
+    observedAt: validIso(observedAt),
+    acceptedAt: validIso(acceptedAt),
+    sourceCode: String(sourceCode || ""),
+    boundary: String(boundary || "CURRENT_SHARED_CYCLE"),
+  };
+}
+
+export function deriveMsDataCompleteness(requiredEvidence = []) {
+  const states = (Array.isArray(requiredEvidence) ? requiredEvidence : [])
+    .map((item) => String(item?.state || item || ""))
+    .filter((state) => state && state !== MS_FIELD_EVIDENCE.NOT_APPLICABLE);
+  if (!states.length) return MS_DATA_COMPLETENESS.COMPLETE;
+  if (states.includes(MS_FIELD_EVIDENCE.SOURCE_UNAVAILABLE))
+    return MS_DATA_COMPLETENESS.SOURCE_UNAVAILABLE;
+  if (states.includes(MS_FIELD_EVIDENCE.UNKNOWN))
+    return MS_DATA_COMPLETENESS.UNKNOWN;
+  if (states.includes(MS_FIELD_EVIDENCE.MISSING_UNCONFIRMED))
+    return MS_DATA_COMPLETENESS.INCOMPLETE;
+  return states.every((state) => state === MS_FIELD_EVIDENCE.OBSERVED)
+    ? MS_DATA_COMPLETENESS.COMPLETE
+    : MS_DATA_COMPLETENESS.UNKNOWN;
+}
+
+export function msLifecycleClass(row, nowMs = Date.now()) {
+  const attendance = inboundAttendance(row?.attendanceType);
+  if (attendance === "OTHER") return "NOT_APPLICABLE";
+  const released = attendance === "DROP" && Boolean(validIso(row?.actualDepartureAt));
+  const completed = attendance === "DESTINATION" && Number(row?.unloadingState) === 2;
+  if (released) return "RELEASED";
+  if (completed) return "COMPLETED";
+  const arrivalValues = [row?.actualArrivalAt, row?.scheduleTbrArrivalAt]
+    .map(validIso)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  const provenStart = validIso(
+    row?.scheduleUnloadingStartedAt ||
+      row?.unloadingStartedAt ||
+      row?.unloadingStartedObservedAt,
+  );
+  const anchor = arrivalValues[0] || provenStart;
+  if (anchor && Number(nowMs) - Date.parse(anchor) >= 12 * 60 * 60 * 1000)
+    return "EXPIRED";
+  return "ACTIVE";
+}
+
+export function deriveMsTbrProjection(row, {
+  sourceEvaluated = false,
+  sourceUnavailable = false,
+  sourceCode = "",
+  observedAt = "",
+  acceptedAt = "",
+  nowMs = Date.now(),
+} = {}) {
+  const attendance = inboundAttendance(row?.attendanceType);
+  let state;
+  if (attendance === "OTHER") state = MS_FIELD_EVIDENCE.NOT_APPLICABLE;
+  else if (validIso(row?.scheduleTbrArrivalAt)) state = MS_FIELD_EVIDENCE.OBSERVED;
+  else if (sourceUnavailable) state = MS_FIELD_EVIDENCE.SOURCE_UNAVAILABLE;
+  else if (sourceEvaluated) state = MS_FIELD_EVIDENCE.MISSING_UNCONFIRMED;
+  else state = MS_FIELD_EVIDENCE.UNKNOWN;
+  const evidence = createMsFieldEvidence({
+    field: "scheduleTbrArrivalAt",
+    state,
+    source: "BUS_TIME",
+    valueTimestamp: row?.scheduleTbrArrivalAt,
+    observedAt,
+    acceptedAt,
+    sourceCode,
+  });
+  const dataCompleteness = deriveMsDataCompleteness([evidence]);
+  const lifecycle = msLifecycleClass(row, nowMs);
+  const pending =
+    attendance !== "OTHER" && dataCompleteness !== MS_DATA_COMPLETENESS.COMPLETE;
+  return {
+    fieldEvidence: { scheduleTbrArrivalAt: evidence },
+    dataCompleteness,
+    enrichmentState: pending ? MS_ENRICHMENT_PENDING : "",
+    enrichmentPriority: pending
+      ? lifecycle === "ACTIVE" ? "P1" : "P2"
+      : "",
+    lifecycle,
+  };
+}
+
+export function planMsTbrEnrichment(rows, {
+  nowMs = Date.now(),
+  cache = new Map(),
+  limit = 100,
+  p2Limit = BUS_TIME_P2_MAX_ROWS_PER_CYCLE,
+  p2Offset = 0,
+} = {}) {
+  const unique = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const attendance = inboundAttendance(row?.attendanceType);
+    const proofId = String(row?.proofId || "").trim().toUpperCase();
+    if (attendance === "OTHER" || !proofId) continue;
+    const attendanceValue = attendance === "DESTINATION" ? "ปลายทาง" : "จุดดรอป";
+    const key = `P:${proofId}|A:${attendanceValue}`;
+    const cached = cache instanceof Map ? cache.get(key) : null;
+    const tbr = validIso(row?.scheduleTbrArrivalAt || cached?.scheduleTbrArrivalAt);
+    if (tbr || unique.has(key)) continue;
+    const normalized = { ...row, attendanceType: attendanceValue };
+    unique.set(key, {
+      key,
+      row: normalized,
+      priority: msLifecycleClass(normalized, nowMs) === "ACTIVE" ? "P1" : "P2",
+    });
+  }
+  const p1 = [...unique.values()].filter((item) => item.priority === "P1");
+  const allP2 = [...unique.values()].filter((item) => item.priority === "P2");
+  const boundedLimit = Math.max(1, Number(limit) || 100);
+  const boundedP2 = Math.min(
+    allP2.length,
+    Math.max(0, Math.min(Number(p2Limit) || 0, boundedLimit)),
+  );
+  const start = allP2.length ? Math.max(0, Number(p2Offset) || 0) % allP2.length : 0;
+  const p2 = [];
+  for (let index = 0; index < boundedP2; index += 1)
+    p2.push(allP2[(start + index) % allP2.length]);
+  const p1Limit = Math.max(0, boundedLimit - p2.length);
+  return {
+    p1: p1.slice(0, p1Limit),
+    p2,
+    selected: [...p1.slice(0, p1Limit), ...p2],
+    nextP2Offset: allP2.length ? (start + p2.length) % allP2.length : 0,
+    unresolved: unique.size,
+  };
+}
 
 export function parseBusRetryAfter(value, nowMs = Date.now()) {
   const raw = String(value || "").trim();
@@ -139,12 +314,16 @@ export function createBusTimeHotLane(deps) {
         seen: new Map(),
         pageCounts: new Map(),
         pageCursor: new Map(),
+        p2PageCounts: new Map(),
+        p2PageCursor: new Map(),
+        p2Offset: 0,
         cycleSchedule: new Map(),
         credentials: null,
         credentialsUntil: 0,
         seeded: false,
         lastHotAt: 0,
         lastBackgroundAt: 0,
+        lastP2At: 0,
         lastHeartbeatAt: 0,
         lastErrorWriteAt: 0,
         lastPersistedError: "",
@@ -161,6 +340,9 @@ export function createBusTimeHotLane(deps) {
         busLastSuccessAt: "",
         busLastError: "",
         busActiveRows: 0,
+        busP1Rows: 0,
+        busP2Rows: 0,
+        busP2Calls: 0,
         previousActiveKeys: new Set(),
         acceptedRouteHints: [],
         rateLeaseLoaded: false,
@@ -257,6 +439,11 @@ export function createBusTimeHotLane(deps) {
       scheduleUnloadingStartedAt: String(row?.scheduleUnloadingStartedAt || ""),
       scheduleUnloadingCompletedAt: String(row?.scheduleUnloadingCompletedAt || ""),
       scheduleCompletionAmbiguous: Boolean(row?.scheduleCompletionAmbiguous),
+      fieldEvidence: row?.fieldEvidence || null,
+      dataCompleteness: String(row?.dataCompleteness || ""),
+      enrichmentState: String(row?.enrichmentState || ""),
+      enrichmentPriority: String(row?.enrichmentPriority || ""),
+      lifecycle: String(row?.lifecycle || ""),
     };
     const hasData =
       value.scheduleKitArrivalAt ||
@@ -416,6 +603,7 @@ export function createBusTimeHotLane(deps) {
       const cycleEnd = end || cycle.end || "";
       state.cycleSchedule.set(key, { start: cycleStart, end: cycleEnd, ambiguous });
       state.cache.set(key, {
+        ...current,
         proofId: String(proofId || "").slice(0, 100),
         routeName: String(nestedValue(item.line_info, 0) || current.routeName || "").slice(0, 300),
         scheduleKitArrivalAt: earliestDate(current.scheduleKitArrivalAt, kit),
@@ -467,6 +655,37 @@ export function createBusTimeHotLane(deps) {
     }
   }
 
+  function applyEvidence(state, items, context = {}) {
+    const acceptedAt =
+      context.acceptedAt ||
+      (context.sourceEvaluated || context.sourceUnavailable ? isoNow() : "");
+    for (const planned of Array.isArray(items) ? items : []) {
+      const row = planned?.row || planned;
+      const key = planned?.key || cacheKey(row);
+      if (!key) continue;
+      const current = state.cache.get(key) || {};
+      const merged = {
+        ...row,
+        ...current,
+        proofId: String(current.proofId || row?.proofId || "").slice(0, 100),
+        scheduleTbrArrivalAt: String(
+          current.scheduleTbrArrivalAt || row?.scheduleTbrArrivalAt || "",
+        ),
+      };
+      const projection = deriveMsTbrProjection(merged, {
+        sourceEvaluated: Boolean(context.sourceEvaluated),
+        sourceUnavailable: Boolean(context.sourceUnavailable),
+        sourceCode: context.sourceCode || "",
+        observedAt: context.observedAt || state.busLastSuccessAt || "",
+        acceptedAt,
+        nowMs: now(),
+      });
+      state.cache.set(key, { ...current, ...projection, proofId: merged.proofId,
+        scheduleTbrArrivalAt: merged.scheduleTbrArrivalAt });
+      state.seen.set(key, now());
+    }
+  }
+
   function result(state, stale = false, sourceCode = "") {
     state.cache.sourceStale = Boolean(stale);
     state.cache.sourceCode = sourceCode || "";
@@ -495,6 +714,16 @@ export function createBusTimeHotLane(deps) {
       return { day, page };
     }
     return null;
+  }
+
+  function nextP2Page(state, days) {
+    const day = [...new Set(days)].find(Boolean);
+    if (!day) return null;
+    const pages = Math.min(20, Math.max(1, Number(state.p2PageCounts.get(day) || 1)));
+    let page = Math.max(1, Number(state.p2PageCursor.get(day) || 1));
+    if (page > pages) page = 1;
+    state.p2PageCursor.set(day, page >= pages ? 1 : page + 1);
+    return { day, page };
   }
 
   function rateCooldown(strikes) {
@@ -560,13 +789,13 @@ export function createBusTimeHotLane(deps) {
     );
   }
 
-  async function readPage(credential, page, day) {
+  async function readPage(credential, page, day, { fleetStatus = BUS_TIME_ACTIVE_FLEET_STATUS } = {}) {
     const url = new URL("https://fbi-common.flashexpress.com/api/fleet_time/getList");
     for (const key of ["auth", "lang", "fbid", "time", "_from"])
       if (credential?.[key]) url.searchParams.set(key, credential[key]);
     const filters = {
       startDate: day, endDate: day, lineMode: "", lineArea: "", lineType: "",
-      proofId: "", fleetStatus: BUS_TIME_ACTIVE_FLEET_STATUS, transportModeCategory: "",
+      proofId: "", fleetStatus, transportModeCategory: "",
       transportDetailCategory: "", driverType: "", attendanceType: "",
       attendanceStatus: "", storeId: "", originId: "", targetId: "",
       plateNum: "", belongCcd: "", lineSort: "", lineName: "",
@@ -607,8 +836,6 @@ export function createBusTimeHotLane(deps) {
     const key = String(hub || "").trim().toUpperCase();
     const state = stateFor(key);
     const routeHintsProvided = Array.isArray(routeRows) && routeRows.length > 0;
-    let routes = activeRows(routeRows);
-    state.busActiveRows = routes.length;
     state.busPagesLastCycle = 0;
 
     if (active.has(key)) {
@@ -618,40 +845,61 @@ export function createBusTimeHotLane(deps) {
 
     const task = (async () => {
       const acceptedRows = await seedAccepted(env, key, state);
-      if (!routeHintsProvided && routes.length === 0 && acceptedRows.length > 0)
-        routes = activeRows(acceptedRows);
-      state.busActiveRows = routes.length;
-      prune(state, routes);
+      const candidates = routeHintsProvided
+        ? routeRows
+        : acceptedRows;
+      const plan = planMsTbrEnrichment(candidates, {
+        nowMs: now(),
+        cache: state.cache,
+        limit: 100,
+        p2Limit: BUS_TIME_P2_MAX_ROWS_PER_CYCLE,
+        p2Offset: state.p2Offset,
+      });
+      state.p2Offset = plan.nextP2Offset;
+      const p1Rows = plan.p1.map((item) => item.row);
+      const p2Rows = plan.p2.map((item) => item.row);
+      state.busActiveRows = p1Rows.length;
+      state.busP1Rows = p1Rows.length;
+      state.busP2Rows = p2Rows.length;
+      prune(state, candidates);
       state.cycleSchedule = new Map();
+      applyEvidence(state, candidates);
 
-      const activeKeys = new Set(routes.map(cacheKey).filter(Boolean));
+      const activeKeys = new Set(plan.p1.map((item) => item.key));
       const newlyActive = [...activeKeys].some(
         (activeKey) => !state.previousActiveKeys.has(activeKey),
       );
       let missingKeys = [...activeKeys].filter(
-        (activeKey) => !state.cache.has(activeKey),
+        (activeKey) => !validIso(state.cache.get(activeKey)?.scheduleTbrArrivalAt),
       );
       state.previousActiveKeys = activeKeys;
 
-      if (routes.length === 0) {
+      if (!plan.selected.length) {
         state.busCacheHits += 1;
         return result(state);
       }
 
       const at = now();
       if (state.cooldownUntil > at) {
+        applyEvidence(state, plan.selected, {
+          sourceUnavailable: true,
+          sourceCode: state.cooldownCode || "BUS_TIME_RATE_LIMIT",
+        });
         state.busCacheHits += 1;
         return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
       }
 
       const hotDue =
-        !state.lastHotAt ||
-        at - state.lastHotAt >= BUS_TIME_HOT_REUSE_MS;
+        p1Rows.length > 0 &&
+        (!state.lastHotAt || at - state.lastHotAt >= BUS_TIME_HOT_REUSE_MS);
       const backgroundDueBefore =
         missingKeys.length > 0 &&
         (newlyActive || at - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS);
+      const p2Due =
+        p2Rows.length > 0 &&
+        (!state.lastP2At || at - state.lastP2At >= BUS_TIME_BACKGROUND_INTERVAL_MS);
 
-      if (!hotDue && !backgroundDueBefore) {
+      if (!hotDue && !backgroundDueBefore && !p2Due) {
         if (missingKeys.length > 0) state.busCacheMisses += missingKeys.length;
         else state.busCacheHits += 1;
         return result(state);
@@ -660,13 +908,19 @@ export function createBusTimeHotLane(deps) {
       const credential = await credentials(env, key, state);
       if (!credential) {
         state.busLastError = "BUS_TIME_NOT_CONFIGURED";
+        applyEvidence(state, plan.selected, {
+          sourceUnavailable: true,
+          sourceCode: "BUS_TIME_NOT_CONFIGURED",
+        });
         return result(state, state.cache.size > 0, "BUS_TIME_NOT_CONFIGURED");
       }
 
-      // A fresh isolate learns a persisted provider cooldown while loading the
-      // already-required credentials row. Re-check before any upstream fetch.
       const afterCredentialAt = now();
       if (state.cooldownUntil > afterCredentialAt) {
+        applyEvidence(state, plan.selected, {
+          sourceUnavailable: true,
+          sourceCode: state.cooldownCode || "BUS_TIME_RATE_LIMIT",
+        });
         state.busCacheHits += 1;
         return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
       }
@@ -674,13 +928,34 @@ export function createBusTimeHotLane(deps) {
         state.cooldownCode === "BUS_TIME_RATE_LIMIT" &&
         state.cooldownUntil > 0 &&
         state.cooldownUntil <= afterCredentialAt;
-
-      const days = hotDays(wantedDays, routes);
+      const p1Days = hotDays(wantedDays, p1Rows);
+      const p2Days = hotDays(wantedDays, p2Rows);
       let cycleCalls = 0;
       let sourceSucceeded = false;
+      let p1Succeeded = false;
+      let p2Succeeded = false;
+
+      const failCycle = async (error, event, affected) => {
+        state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
+        if (error?.code === "BUS_TIME_RATE_LIMIT") {
+          applyRateLimit(state, error);
+          await persistRateLimitLease(env, key, state);
+        } else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
+        await persistError(env, key, state, error);
+        applyEvidence(state, affected, {
+          sourceUnavailable: true,
+          sourceCode: error?.code || "BUS_TIME_SOURCE_ERROR",
+        });
+        logger.warn?.(JSON.stringify({
+          event,
+          hub: key,
+          code: error?.code || "BUS_TIME_SOURCE_ERROR",
+          message: error?.message || String(error),
+        }));
+      };
 
       if (hotDue) {
-        for (const day of days) {
+        for (const day of p1Days) {
           if (cycleCalls >= BUS_TIME_MAX_CALLS_PER_CYCLE) break;
           try {
             recordCall(state, "hot");
@@ -692,19 +967,9 @@ export function createBusTimeHotLane(deps) {
             );
             mergeItems(state, first.items, key);
             sourceSucceeded = true;
+            p1Succeeded = true;
           } catch (error) {
-            state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
-            if (error?.code === "BUS_TIME_RATE_LIMIT") {
-              applyRateLimit(state, error);
-              await persistRateLimitLease(env, key, state);
-            } else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
-            await persistError(env, key, state, error);
-            logger.warn?.(JSON.stringify({
-              event: "bus_time_hot_lane_error",
-              hub: key,
-              code: error?.code || "BUS_TIME_SOURCE_ERROR",
-              message: error?.message || String(error),
-            }));
+            await failCycle(error, "bus_time_hot_lane_error", plan.p1);
             return result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR");
           }
         }
@@ -712,7 +977,7 @@ export function createBusTimeHotLane(deps) {
       }
 
       missingKeys = [...activeKeys].filter(
-        (activeKey) => !state.cache.has(activeKey),
+        (activeKey) => !validIso(state.cache.get(activeKey)?.scheduleTbrArrivalAt),
       );
       const missing = missingKeys.length;
       if (missing > 0) state.busCacheMisses += missing;
@@ -725,12 +990,14 @@ export function createBusTimeHotLane(deps) {
       let backgroundCalls = 0;
       if (
         backgroundDue &&
-        cycleCalls < BUS_TIME_MAX_CALLS_PER_CYCLE &&
+        cycleCalls <
+          BUS_TIME_MAX_CALLS_PER_CYCLE -
+            (p2Due ? BUS_TIME_P2_MAX_CALLS_PER_CYCLE : 0) &&
         backgroundCalls < BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE
       ) {
         const background = nextBackground(
           state,
-          [...days, ...(Array.isArray(wantedDays) ? wantedDays : liveSourceDays())],
+          [...p1Days, ...(Array.isArray(wantedDays) ? wantedDays : liveSourceDays())],
         );
         if (background) {
           try {
@@ -741,26 +1008,54 @@ export function createBusTimeHotLane(deps) {
             mergeItems(state, page.items, key);
             state.lastBackgroundAt = now();
             sourceSucceeded = true;
+            p1Succeeded = true;
           } catch (error) {
-            state.busLastError = error?.code || "BUS_TIME_SOURCE_ERROR";
-            if (error?.code === "BUS_TIME_RATE_LIMIT") {
-              applyRateLimit(state, error);
-              await persistRateLimitLease(env, key, state);
-            } else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
-            await persistError(env, key, state, error);
-            logger.warn?.(JSON.stringify({
-              event: "bus_time_background_error",
-              hub: key,
-              code: error?.code || "BUS_TIME_SOURCE_ERROR",
-              message: error?.message || String(error),
-            }));
+            await failCycle(error, "bus_time_background_error", plan.p1);
             return result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR");
           }
         }
       }
 
+      if (
+        p2Due &&
+        !recoveringFromRateLimit &&
+        cycleCalls < BUS_TIME_MAX_CALLS_PER_CYCLE
+      ) {
+        const p2Page = nextP2Page(
+          state,
+          [...p2Days, ...(Array.isArray(wantedDays) ? wantedDays : liveSourceDays())],
+        );
+        if (p2Page) {
+          try {
+            recordCall(state, "background");
+            state.busP2Calls += 1;
+            cycleCalls += 1;
+            const page = await readPage(credential, p2Page.page, p2Page.day, {
+              fleetStatus: "",
+            });
+            state.p2PageCounts.set(
+              p2Page.day,
+              Math.min(20, Math.max(1, Math.ceil((page.total || page.items.length) / 100))),
+            );
+            mergeItems(state, page.items, key);
+            state.lastP2At = now();
+            sourceSucceeded = true;
+            p2Succeeded = true;
+          } catch (error) {
+            await failCycle(error, "bus_time_p2_enrichment_error", plan.p2);
+            return result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR");
+          }
+        }
+      }
+
+      const observedAt = sourceSucceeded ? isoNow() : "";
+      if (p1Succeeded)
+        applyEvidence(state, plan.p1, { sourceEvaluated: true, observedAt });
+      if (p2Succeeded)
+        applyEvidence(state, plan.p2, { sourceEvaluated: true, observedAt });
+
       if (sourceSucceeded) {
-        state.busLastSuccessAt = isoNow();
+        state.busLastSuccessAt = observedAt;
         state.busLastError = "";
         const persisted = await persistSuccess(env, key, state);
         if (persisted) await clearRateLimitLease(env, key, state);
@@ -794,6 +1089,9 @@ export function createBusTimeHotLane(deps) {
         busLastSuccessAt: "",
         busLastError: "",
         busActiveRows: 0,
+        busP1Rows: 0,
+        busP2Rows: 0,
+        busP2Calls: 0,
         busTotalKnownRows: 0,
         maxCallsPerCycle: BUS_TIME_MAX_CALLS_PER_CYCLE,
         backgroundIntervalMs: BUS_TIME_BACKGROUND_INTERVAL_MS,
@@ -818,6 +1116,9 @@ export function createBusTimeHotLane(deps) {
       busLastSuccessAt: state.busLastSuccessAt,
       busLastError: state.busLastError,
       busActiveRows: state.busActiveRows,
+      busP1Rows: state.busP1Rows,
+      busP2Rows: state.busP2Rows,
+      busP2Calls: state.busP2Calls,
       busTotalKnownRows: state.cache.size,
       maxCallsPerCycle: BUS_TIME_MAX_CALLS_PER_CYCLE,
       backgroundIntervalMs: BUS_TIME_BACKGROUND_INTERVAL_MS,

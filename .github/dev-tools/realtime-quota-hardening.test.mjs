@@ -45,7 +45,8 @@ test("BusTime session expiry preserves accepted cache, stops retry churn, and fr
     proofId: "EA2-P1",
     attendanceType: "ปลายทาง",
     routeName: "ACCEPTED",
-    scheduleTbrArrivalAt: "2026-09-14T02:00:00Z",
+    scheduleKitArrivalAt: "2026-09-14T01:55:00Z",
+    scheduleTbrArrivalAt: "",
   }];
   const env = {
     DB: {

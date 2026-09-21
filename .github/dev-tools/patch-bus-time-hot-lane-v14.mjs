@@ -13,6 +13,7 @@ const MARKER = "BUS_TIME_HOT_LANE_V14";
 const PARALLEL_MARKER = "MS_FIRST_SOURCE_PARALLEL_V2";
 const SOURCE_CADENCE_MARKER = "MS_ROUTE_SHARED_SOURCE_CADENCE_V1";
 const ACTIVE_JOIN_MARKER = "MS_ROUTE_ACTIVE_REFRESH_JOIN_V1";
+const COMPLETENESS_MARKER = "MS_COMPLETENESS_ENRICHMENT_V1";
 
 function replaceUnique(input, from, to, label) {
   const first = input.indexOf(from);
@@ -267,6 +268,40 @@ const statusReplacement =
   "  return { hub, routes: source(routes), preEntry: source(preEntry), busTime: source(busTime), busDiagnostics: busTimeDiagnostics(hub), hbiPhotos: hbiSource };";
 source = replaceUnique(source, statusAnchor, statusReplacement, "msConnectionStatus");
 
+if (!source.includes(COMPLETENESS_MARKER)) {
+  const enrichmentAnchor = `    mapped.scheduleUnloadingCompletedAt = bus.scheduleUnloadingCompletedAt || "";`;
+  const enrichmentReplacement = `    mapped.scheduleUnloadingCompletedAt = bus.scheduleUnloadingCompletedAt || "";
+    // ${COMPLETENESS_MARKER}: the shared BusTime lane owns canonical TBR
+    // evidence/completeness. Lifecycle remains independently Route-owned.
+    mapped.fieldEvidence = bus.fieldEvidence || {};
+    mapped.dataCompleteness = bus.dataCompleteness || "DATA_UNKNOWN";
+    mapped.enrichmentState = bus.enrichmentState || "";
+    mapped.enrichmentPriority = bus.enrichmentPriority || "";
+    mapped.completenessLifecycle = bus.lifecycle || "";`;
+  source = replaceUnique(
+    source,
+    enrichmentAnchor,
+    enrichmentReplacement,
+    "canonical completeness projection",
+  );
+
+  const tbrOnlyAnchor = `      queueAdmissionSource: "TBR",
+      syncedAt: tbrAt,`;
+  const tbrOnlyReplacement = `      queueAdmissionSource: "TBR",
+      fieldEvidence: item?.fieldEvidence || {},
+      dataCompleteness: item?.dataCompleteness || "DATA_COMPLETE",
+      enrichmentState: item?.enrichmentState || "",
+      enrichmentPriority: item?.enrichmentPriority || "",
+      completenessLifecycle: item?.lifecycle || "ACTIVE",
+      syncedAt: tbrAt,`;
+  source = replaceUnique(
+    source,
+    tbrOnlyAnchor,
+    tbrOnlyReplacement,
+    "TBR-first completeness projection",
+  );
+}
+
 const connectorActionAnchor =
   '  if (action === "connectorSync") return ok(await connectorSync(body, env));';
 const connectorActionReplacement = `${connectorActionAnchor}
@@ -330,6 +365,8 @@ if (liveBusCalls !== 1)
   throw new Error(`${MARKER}: expected exactly one executable shared BusTime call; got ${liveBusCalls}`);
 if (!source.includes("busDiagnostics: busTimeDiagnostics(hub)"))
   throw new Error(`${MARKER}: diagnostics exposure missing`);
+if (!source.includes(COMPLETENESS_MARKER))
+  throw new Error(`${MARKER}: completeness projection missing`);
 if (!source.includes('action === "connectorBusDiagnostics"'))
   throw new Error(`${MARKER}: connector diagnostics action missing`);
 if (!source.includes("tursoWrites: 0") || !source.includes("routeUpstreamCalls: 0") || !source.includes("preEntryUpstreamCalls: 0"))
@@ -344,6 +381,7 @@ console.log(`${MARKER}=PASS`);
 console.log(`${PARALLEL_MARKER}=PASS`);
 console.log(`${SOURCE_CADENCE_MARKER}=PASS`);
 console.log(`${ACTIVE_JOIN_MARKER}=PASS`);
+console.log(`${COMPLETENESS_MARKER}=PASS`);
 console.log("FIRST_SOURCE_ROUTE_LATENCY_GATE=0");
 console.log("FIRST_SOURCE_BUS_READS_PER_REFRESH=1");
 console.log("MS_VISIBLE_REALTIME_MS=4000");

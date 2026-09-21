@@ -14,6 +14,7 @@ const PARALLEL_MARKER = "MS_FIRST_SOURCE_PARALLEL_V2";
 const SOURCE_CADENCE_MARKER = "MS_ROUTE_SHARED_SOURCE_CADENCE_V1";
 const ACTIVE_JOIN_MARKER = "MS_ROUTE_ACTIVE_REFRESH_JOIN_V1";
 const COMPLETENESS_MARKER = "MS_COMPLETENESS_ENRICHMENT_V1";
+const P3_MARKER = "MS_BOUNDED_P3_BACKFILL_V1";
 
 function replaceUnique(input, from, to, label) {
   const first = input.indexOf(from);
@@ -101,6 +102,7 @@ if (legacyStart < 0 || busEnd <= legacyStart)
   throw new Error(`${MARKER}: staged legacy BusTime guard not found`);
 
 const adapter = `// ${MARKER}: DEV-only ~12-second KIT/TBR lane + shared incremental cache.
+// ${P3_MARKER}: P3 uses only bounded leftover capacity in the canonical shared lane.
 // Keep PREENTRY_RATE_GUARD_V12 independent; this task does not change PreEntry.
 const OPTIONAL_RATE_LIMIT_BASE_COOLDOWN_MS = 5 * 60 * 1000;
 const OPTIONAL_RATE_LIMIT_MAX_COOLDOWN_MS = 60 * 60 * 1000;
@@ -126,6 +128,7 @@ const busTimeHotLane = createBusTimeHotLane({
   classifyFailure: classifyBusTimeFailure,
   connectionHeartbeatMs: CONNECTION_HEARTBEAT_MS,
   fetchFn: fetchWithTimeout,
+  p3Enabled: true,
 });
 // BUS_TIME_LIVE_ACCEPTANCE_V1: connector-authenticated probe lane for DEV acceptance only.
 // It executes the same hot-lane algorithm but intentionally suppresses status writes,
@@ -146,6 +149,7 @@ const busTimeProbeLane = createBusTimeHotLane({
   classifyFailure: classifyBusTimeFailure,
   connectionHeartbeatMs: CONNECTION_HEARTBEAT_MS,
   fetchFn: fetchWithTimeout,
+  p3Enabled: false,
 });
 // ${PARALLEL_MARKER}: last successful Route rows are hints only. They let the
 // existing BusTime reader start at the same time as the current Route request,
@@ -367,6 +371,8 @@ if (!source.includes("busDiagnostics: busTimeDiagnostics(hub)"))
   throw new Error(`${MARKER}: diagnostics exposure missing`);
 if (!source.includes(COMPLETENESS_MARKER))
   throw new Error(`${MARKER}: completeness projection missing`);
+if (!source.includes(P3_MARKER) || !source.includes("p3Enabled: true") || !source.includes("p3Enabled: false"))
+  throw new Error(`${MARKER}: bounded P3/probe-isolation contract missing`);
 if (!source.includes('action === "connectorBusDiagnostics"'))
   throw new Error(`${MARKER}: connector diagnostics action missing`);
 if (!source.includes("tursoWrites: 0") || !source.includes("routeUpstreamCalls: 0") || !source.includes("preEntryUpstreamCalls: 0"))
@@ -382,6 +388,7 @@ console.log(`${PARALLEL_MARKER}=PASS`);
 console.log(`${SOURCE_CADENCE_MARKER}=PASS`);
 console.log(`${ACTIVE_JOIN_MARKER}=PASS`);
 console.log(`${COMPLETENESS_MARKER}=PASS`);
+console.log(`${P3_MARKER}=PASS`);
 console.log("FIRST_SOURCE_ROUTE_LATENCY_GATE=0");
 console.log("FIRST_SOURCE_BUS_READS_PER_REFRESH=1");
 console.log("MS_VISIBLE_REALTIME_MS=4000");
@@ -390,6 +397,8 @@ console.log("BUS_TIME_HOT_DETECTION_MS=12000");
 console.log("BUS_TIME_BACKGROUND_INTERVAL_MS=12000");
 console.log("BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE=1");
 console.log("BUS_TIME_MAX_CALLS_PER_CYCLE=3");
+console.log("BUS_TIME_P3_MAX_CALLS_PER_CYCLE=1");
+console.log("BUS_TIME_P3_MAX_ROWS_PER_CYCLE=25");
 console.log("BUS_TIME_TELEMETRY_DB_WRITES=0");
 console.log("BUS_TIME_LIVE_ACCEPTANCE_ROUTE_CALLS=0");
 console.log("BUS_TIME_LIVE_ACCEPTANCE_PREENTRY_CALLS=0");

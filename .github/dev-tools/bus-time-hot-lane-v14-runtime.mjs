@@ -1,4 +1,5 @@
 export const BUS_TIME_HOT_LANE_MARKER = "BUS_TIME_HOT_LANE_V14";
+export const MS_P3_BACKFILL_MARKER = "MS_BOUNDED_P3_BACKFILL_V1";
 // BUS_TIME_CADENCE_RESTORE_V20: keep KIT/TBR on its original ~12s source cadence; Route/UI realtime remains independent at ~4s.
 export const BUS_TIME_HOT_REUSE_MS = 12_000;
 // BUS_TIME_ACTIVE_FILTER_V18: verified MS filterCriteria says fleetStatus=1 means unfinished.
@@ -8,6 +9,14 @@ export const BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_MAX_CALLS_PER_CYCLE = 3;
 export const BUS_TIME_P2_MAX_ROWS_PER_CYCLE = 25;
 export const BUS_TIME_P2_MAX_CALLS_PER_CYCLE = 1;
+export const BUS_TIME_P3_MAX_ROWS_PER_CYCLE = 25;
+export const BUS_TIME_P3_MAX_CALLS_PER_CYCLE = 1;
+export const BUS_TIME_P3_RANGE_DAYS = 7;
+export const BUS_TIME_P3_END_OFFSET_DAYS = -2;
+export const BUS_TIME_P3_CLAIM_LEASE_MS = 30 * 1000;
+export const BUS_TIME_P3_PROGRESS_COOLDOWN_MS = BUS_TIME_BACKGROUND_INTERVAL_MS;
+export const BUS_TIME_P3_NO_MATCH_COOLDOWN_MS = 5 * 60 * 1000;
+export const BUS_TIME_P3_TRANSIENT_COOLDOWN_MS = 60 * 1000;
 export const BUS_TIME_CACHE_RETENTION_MS = 36 * 60 * 60 * 1000;
 export const BUS_TIME_CREDENTIAL_CACHE_MS = 10 * 60 * 1000;
 // BUS_TIME_HAR_SEED_TRUTH_V26: a successful uploaded HAR may seed the shared
@@ -52,9 +61,12 @@ export function createMsFieldEvidence({
   source = "BUS_TIME",
   valueTimestamp = "",
   observedAt = "",
+  fetchedAt = "",
   acceptedAt = "",
   sourceCode = "",
   boundary = "CURRENT_SHARED_CYCLE",
+  enrichmentOrigin = "",
+  backfill = false,
 } = {}) {
   const allowed = new Set(Object.values(MS_FIELD_EVIDENCE));
   const evidenceState = allowed.has(state) ? state : MS_FIELD_EVIDENCE.UNKNOWN;
@@ -64,9 +76,12 @@ export function createMsFieldEvidence({
     source: String(source || ""),
     valueTimestamp: validIso(valueTimestamp),
     observedAt: validIso(observedAt),
+    fetchedAt: validIso(fetchedAt || observedAt),
     acceptedAt: validIso(acceptedAt),
     sourceCode: String(sourceCode || ""),
     boundary: String(boundary || "CURRENT_SHARED_CYCLE"),
+    enrichmentOrigin: String(enrichmentOrigin || ""),
+    backfill: Boolean(backfill),
   };
 }
 
@@ -113,8 +128,13 @@ export function deriveMsTbrProjection(row, {
   sourceUnavailable = false,
   sourceCode = "",
   observedAt = "",
+  fetchedAt = "",
   acceptedAt = "",
   nowMs = Date.now(),
+  boundary = "CURRENT_SHARED_CYCLE",
+  enrichmentOrigin = "",
+  backfill = false,
+  priority = "",
 } = {}) {
   const attendance = inboundAttendance(row?.attendanceType);
   let state;
@@ -129,8 +149,12 @@ export function deriveMsTbrProjection(row, {
     source: "BUS_TIME",
     valueTimestamp: row?.scheduleTbrArrivalAt,
     observedAt,
+    fetchedAt,
     acceptedAt,
     sourceCode,
+    boundary,
+    enrichmentOrigin,
+    backfill,
   });
   const dataCompleteness = deriveMsDataCompleteness([evidence]);
   const lifecycle = msLifecycleClass(row, nowMs);
@@ -141,7 +165,7 @@ export function deriveMsTbrProjection(row, {
     dataCompleteness,
     enrichmentState: pending ? MS_ENRICHMENT_PENDING : "",
     enrichmentPriority: pending
-      ? lifecycle === "ACTIVE" ? "P1" : "P2"
+      ? priority || (lifecycle === "ACTIVE" ? "P1" : "P2")
       : "",
     lifecycle,
   };
@@ -189,6 +213,76 @@ export function planMsTbrEnrichment(rows, {
     selected: [...p1.slice(0, p1Limit), ...p2],
     nextP2Offset: allP2.length ? (start + p2.length) % allP2.length : 0,
     unresolved: unique.size,
+    p1Unresolved: p1.length,
+    p2Unresolved: allP2.length,
+  };
+}
+
+export function planMsP3Backfill(rows, {
+  hub = "",
+  cache = new Map(),
+  excludedKeys = new Set(),
+  limit = BUS_TIME_P3_MAX_ROWS_PER_CYCLE,
+} = {}) {
+  const wantedHub = String(hub || "").trim().toUpperCase();
+  const boundedLimit = Math.max(
+    0,
+    Math.min(BUS_TIME_P3_MAX_ROWS_PER_CYCLE, Number(limit) || 0),
+  );
+  const scanned = [];
+  const selected = [];
+  const unique = new Set();
+  let selectedDay = "";
+  for (const entry of Array.isArray(rows) ? rows.slice(0, boundedLimit) : []) {
+    const row = entry?.row || entry;
+    const rowHub = String(entry?.hub || row?.hub || wantedHub).trim().toUpperCase();
+    const businessDay = String(entry?.businessDay || row?.businessDay || "").slice(0, 10);
+    const routeId = String(entry?.routeId || row?.id || "");
+    const cursorRowid = Math.max(0, Number(entry?.cursorRowid) || 0);
+    scanned.push({ row, routeId, businessDay, hub: rowHub, cursorRowid });
+    if (rowHub !== wantedHub) continue;
+    const attendance = inboundAttendance(row?.attendanceType);
+    const proofId = String(row?.proofId || "").trim().toUpperCase();
+    if (attendance === "OTHER" || !proofId) continue;
+    const attendanceValue = attendance === "DESTINATION" ? "ปลายทาง" : "จุดดรอป";
+    const key = `P:${proofId}|A:${attendanceValue}`;
+    const evidence = row?.fieldEvidence?.scheduleTbrArrivalAt;
+    if (
+      validIso(row?.scheduleTbrArrivalAt) ||
+      String(row?.dataCompleteness || "") === MS_DATA_COMPLETENESS.COMPLETE ||
+      String(evidence?.state || "") === MS_FIELD_EVIDENCE.OBSERVED ||
+      String(evidence?.state || "") === MS_FIELD_EVIDENCE.NOT_APPLICABLE ||
+      excludedKeys.has(key) ||
+      unique.has(key)
+    ) continue;
+    if (selectedDay && businessDay !== selectedDay) continue;
+    selectedDay ||= businessDay;
+    unique.add(key);
+    selected.push({
+      key,
+      row: { ...row, attendanceType: attendanceValue },
+      routeId,
+      businessDay,
+      cursorRowid,
+      priority: "P3",
+    });
+  }
+  const selectedDayScanned = selectedDay
+    ? scanned.filter((item) => item.businessDay === selectedDay)
+    : scanned;
+  const batchEnd = selectedDayScanned.at(-1) || scanned.at(-1) || null;
+  return {
+    selected,
+    pending: selected.length,
+    scanned: scanned.length,
+    selectedDay,
+    batchEnd: batchEnd
+      ? {
+          businessDay: batchEnd.businessDay,
+          cursorRowid: batchEnd.cursorRowid,
+          routeId: batchEnd.routeId,
+        }
+      : null,
   };
 }
 
@@ -280,6 +374,7 @@ export function createBusTimeHotLane(deps) {
     now = () => Date.now(),
     random = () => Math.random(),
     logger = console,
+    p3Enabled = false,
   } = deps || {};
 
   for (const [name, value] of Object.entries({
@@ -317,6 +412,8 @@ export function createBusTimeHotLane(deps) {
         p2PageCounts: new Map(),
         p2PageCursor: new Map(),
         p2Offset: 0,
+        p3Loaded: false,
+        p3Checkpoint: null,
         cycleSchedule: new Map(),
         credentials: null,
         credentialsUntil: 0,
@@ -341,8 +438,22 @@ export function createBusTimeHotLane(deps) {
         busLastError: "",
         busActiveRows: 0,
         busP1Rows: 0,
+        busP1Unresolved: 0,
+        busP1Calls: 0,
         busP2Rows: 0,
+        busP2Unresolved: 0,
         busP2Calls: 0,
+        busP3Pending: null,
+        busP3Rows: 0,
+        busP3Calls: 0,
+        busP3Accepted: 0,
+        busP3Deferred: false,
+        busP3DeferredReason: "",
+        busP3CooldownUntil: "",
+        busP3CooldownCode: "",
+        busSharedCalls: 0,
+        busDeduplicatedReaders: 0,
+        busBudgetExhausted: false,
         previousActiveKeys: new Set(),
         acceptedRouteHints: [],
         rateLeaseLoaded: false,
@@ -358,6 +469,7 @@ export function createBusTimeHotLane(deps) {
     state.callTimes = state.callTimes.filter((value) => at - value < 60_000);
     if (kind === "hot") state.busHotCalls += 1;
     else state.busBackgroundCalls += 1;
+    state.busSharedCalls += 1;
     state.busPagesLastCycle += 1;
   }
 
@@ -553,6 +665,205 @@ export function createBusTimeHotLane(deps) {
     return result !== null;
   }
 
+  const P3_CHECKPOINT_SOURCE = "BUS_TIME_P3_CHECKPOINT_V1";
+  const p3ClaimHub = (hub) => `__BUS_P3__:${String(hub || "").trim().toUpperCase()}`;
+
+  function p3Range() {
+    return {
+      startDay: String(thaiDayOffset(-(BUS_TIME_P3_RANGE_DAYS + 1)) || "").slice(0, 10),
+      endDay: String(thaiDayOffset(BUS_TIME_P3_END_OFFSET_DAYS) || "").slice(0, 10),
+    };
+  }
+
+  function defaultP3Checkpoint(hub) {
+    const range = p3Range();
+    return {
+      version: 1,
+      source: P3_CHECKPOINT_SOURCE,
+      hub: String(hub || "").trim().toUpperCase(),
+      ...range,
+      cursorDay: "",
+      cursorRowid: 0,
+      cursorRouteId: "",
+      providerDay: "",
+      providerPage: 1,
+      providerPages: 1,
+      attempted: 0,
+      accepted: 0,
+      pending: null,
+      exhausted: false,
+      nextEligibleAt: "",
+      cooldownCode: "",
+    };
+  }
+
+  function normalizeP3Checkpoint(value, hub) {
+    const fallback = defaultP3Checkpoint(hub);
+    let parsed = value;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+    }
+    if (
+      !parsed ||
+      parsed.source !== P3_CHECKPOINT_SOURCE ||
+      String(parsed.hub || "").toUpperCase() !== fallback.hub ||
+      parsed.startDay !== fallback.startDay ||
+      parsed.endDay !== fallback.endDay
+    ) return fallback;
+    return {
+      ...fallback,
+      cursorDay: String(parsed.cursorDay || "").slice(0, 10),
+      cursorRowid: Math.max(0, Number(parsed.cursorRowid) || 0),
+      cursorRouteId: String(parsed.cursorRouteId || "").slice(0, 200),
+      providerDay: String(parsed.providerDay || "").slice(0, 10),
+      providerPage: Math.max(1, Math.min(20, Number(parsed.providerPage) || 1)),
+      providerPages: Math.max(1, Math.min(20, Number(parsed.providerPages) || 1)),
+      attempted: Math.max(0, Number(parsed.attempted) || 0),
+      accepted: Math.max(0, Number(parsed.accepted) || 0),
+      pending: Number.isInteger(parsed.pending) && parsed.pending >= 0
+        ? parsed.pending
+        : null,
+      exhausted: Boolean(parsed.exhausted),
+      nextEligibleAt: validIso(parsed.nextEligibleAt),
+      cooldownCode: String(parsed.cooldownCode || ""),
+    };
+  }
+
+  async function loadP3Checkpoint(env, hub, state) {
+    if (!p3Enabled) return defaultP3Checkpoint(hub);
+    const cachedUntil = Date.parse(String(state.p3Checkpoint?.nextEligibleAt || ""));
+    if (state.p3Checkpoint && Number.isFinite(cachedUntil) && cachedUntil > now())
+      return state.p3Checkpoint;
+    try {
+      const row = await env.DB.prepare(
+        "SELECT source_hash,claim_token,state,lease_until FROM ms_sync_claims WHERE hub=? LIMIT 1",
+      ).bind(p3ClaimHub(hub)).first();
+      state.p3Checkpoint = normalizeP3Checkpoint(row?.source_hash, hub);
+    } catch (error) {
+      state.p3Checkpoint ||= defaultP3Checkpoint(hub);
+      logger.warn?.(JSON.stringify({
+        event: "bus_time_p3_checkpoint_read_error",
+        hub,
+        message: error?.message || String(error),
+      }));
+    }
+    return state.p3Checkpoint;
+  }
+
+  function p3Eligible(checkpoint) {
+    const next = Date.parse(String(checkpoint?.nextEligibleAt || ""));
+    return !Number.isFinite(next) || next <= now();
+  }
+
+  async function acquireP3Claim(env, hub, checkpoint) {
+    const claimedAt = isoNow();
+    const leaseUntil = new Date(now() + BUS_TIME_P3_CLAIM_LEASE_MS).toISOString();
+    const unique = globalThis.crypto?.randomUUID?.()
+      || `${now()}:${Math.floor(random() * 1_000_000_000)}`;
+    const token = `P3:${hub}:${unique}`;
+    const sourceHash = JSON.stringify(checkpoint);
+    const result = await env.DB.prepare(
+      "INSERT INTO ms_sync_claims(hub,source_hash,claim_token,state,lease_until,claimed_at,finished_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(hub) DO UPDATE SET source_hash=excluded.source_hash,claim_token=excluded.claim_token,state=excluded.state,lease_until=excluded.lease_until,claimed_at=excluded.claimed_at,finished_at=excluded.finished_at WHERE (ms_sync_claims.state<>'ACTIVE' AND ms_sync_claims.lease_until<=?) OR (ms_sync_claims.state='ACTIVE' AND ms_sync_claims.lease_until<?)",
+    ).bind(
+      p3ClaimHub(hub), sourceHash, token, "ACTIVE", leaseUntil, claimedAt, "",
+      claimedAt, claimedAt,
+    ).run();
+    return { acquired: Number(result?.meta?.changes || 0) > 0, token };
+  }
+
+  async function finishP3Claim(env, hub, claim, checkpoint) {
+    if (!claim?.token) return false;
+    const finishedAt = isoNow();
+    const result = await safeStatusWrite(
+      env.DB.prepare(
+        "UPDATE ms_sync_claims SET source_hash=?,state='DONE',lease_until=?,finished_at=? WHERE hub=? AND claim_token=?",
+      ).bind(
+        JSON.stringify(checkpoint),
+        checkpoint.nextEligibleAt || finishedAt,
+        finishedAt,
+        p3ClaimHub(hub),
+        claim.token,
+      ).run(),
+      "ms_bus_p3_checkpoint_write_error",
+      hub,
+    );
+    return result !== null;
+  }
+
+  async function readP3Candidates(env, hub, checkpoint) {
+    const meta = await env.DB.prepare(
+      "SELECT ready FROM ms_route_latest_meta WHERE id=1 LIMIT 1",
+    ).first();
+    if (Number(meta?.ready) !== 1) {
+      const error = new Error("MS historical latest pointer is not ready");
+      error.code = "P3_POINTER_NOT_READY";
+      throw error;
+    }
+    const result = await env.DB.prepare(
+      `SELECT l.rowid AS latest_rowid,l.route_id,l.business_day,h.payload_json
+         FROM ms_route_latest l INDEXED BY idx_ms_route_latest_hub_day
+         JOIN ms_route_history h ON h.rowid=l.history_rowid AND h.hub=l.hub
+        WHERE l.hub=?
+          AND l.business_day>=? AND l.business_day<=?
+          AND (?='' OR l.business_day<? OR (l.business_day=? AND l.rowid<?))
+          AND json_valid(h.payload_json)=1
+        ORDER BY l.business_day DESC,l.rowid DESC
+        LIMIT ?`,
+    ).bind(
+      hub,
+      checkpoint.startDay,
+      checkpoint.endDay,
+      checkpoint.cursorDay,
+      checkpoint.cursorDay,
+      checkpoint.cursorDay,
+      checkpoint.cursorRowid,
+      BUS_TIME_P3_MAX_ROWS_PER_CYCLE,
+    ).all();
+    return (result?.results || []).map((entry) => {
+      let row = null;
+      try { row = JSON.parse(entry.payload_json || "{}"); } catch {}
+      return {
+        row,
+        hub,
+        cursorRowid: Math.max(0, Number(entry.latest_rowid) || 0),
+        routeId: String(entry.route_id || row?.id || ""),
+        businessDay: String(entry.business_day || "").slice(0, 10),
+      };
+    }).filter((entry) => entry.row && entry.routeId && entry.businessDay);
+  }
+
+  async function persistP3Evidence(env, hub, accepted, acceptedAt) {
+    const statements = [];
+    let index = 0;
+    for (const planned of accepted) {
+      const cached = planned?.cached || {};
+      const routeId = String(planned?.routeId || planned?.row?.id || "");
+      const tbr = validIso(cached.scheduleTbrArrivalAt);
+      if (!routeId || !tbr) continue;
+      const snapshot = {
+        ...planned.row,
+        scheduleTbrArrivalAt: tbr,
+        fieldEvidence: cached.fieldEvidence || {},
+        dataCompleteness: cached.dataCompleteness || MS_DATA_COMPLETENESS.COMPLETE,
+        enrichmentState: cached.enrichmentState || "",
+        enrichmentPriority: cached.enrichmentPriority || "",
+        enrichmentOrigin: "P3",
+        backfilledAt: acceptedAt,
+      };
+      const historyId = `P3:${hub}:${routeId}:${acceptedAt}:${index++}`;
+      statements.push(
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO ms_route_history(history_id,route_id,hub,event_type,snapshot_at,payload_json,synced_by) SELECT ?,?,?,'P3_ENRICHED',?,?, 'MS_P3_BACKFILL' FROM ms_routes WHERE id=? AND hub=? AND COALESCE(schedule_tbr_arrival_at,'')=''",
+        ).bind(historyId, routeId, hub, acceptedAt, JSON.stringify(snapshot), routeId, hub),
+        env.DB.prepare(
+          "UPDATE ms_routes SET schedule_tbr_arrival_at=?,synced_at=?,synced_by='MS_P3_BACKFILL' WHERE id=? AND hub=? AND COALESCE(schedule_tbr_arrival_at,'')=''",
+        ).bind(tbr, acceptedAt, routeId, hub),
+      );
+    }
+    if (statements.length) await env.DB.batch(statements);
+    return statements.length / 2;
+  }
+
   async function credentials(env, hub, state) {
     const at = now();
     if (state.credentialsUntil > at) return state.credentials;
@@ -677,8 +988,13 @@ export function createBusTimeHotLane(deps) {
         sourceUnavailable: Boolean(context.sourceUnavailable),
         sourceCode: context.sourceCode || "",
         observedAt: context.observedAt || state.busLastSuccessAt || "",
+        fetchedAt: context.fetchedAt || context.observedAt || state.busLastSuccessAt || "",
         acceptedAt,
         nowMs: now(),
+        boundary: context.boundary || "CURRENT_SHARED_CYCLE",
+        enrichmentOrigin: context.enrichmentOrigin || "",
+        backfill: Boolean(context.backfill),
+        priority: context.priority || "",
       });
       state.cache.set(key, { ...current, ...projection, proofId: merged.proofId,
         scheduleTbrArrivalAt: merged.scheduleTbrArrivalAt });
@@ -832,14 +1148,280 @@ export function createBusTimeHotLane(deps) {
     };
   }
 
+  async function runP3Cycle(
+    env,
+    hub,
+    state,
+    credential,
+    cycleCalls,
+    excludedKeys,
+  ) {
+    if (!p3Enabled || cycleCalls >= BUS_TIME_MAX_CALLS_PER_CYCLE)
+      return { cycleCalls, sourceSucceeded: false, accepted: 0, attempted: [] };
+    let checkpoint = await loadP3Checkpoint(env, hub, state);
+    state.busP3CooldownUntil = checkpoint.nextEligibleAt || "";
+    state.busP3CooldownCode = checkpoint.cooldownCode || "";
+    if (!p3Eligible(checkpoint)) {
+      state.busP3Deferred = true;
+      state.busP3DeferredReason = "COOLDOWN";
+      return { cycleCalls, sourceSucceeded: false, accepted: 0, attempted: [] };
+    }
+    if (checkpoint.exhausted) {
+      checkpoint = {
+        ...checkpoint,
+        cursorDay: "",
+        cursorRowid: 0,
+        cursorRouteId: "",
+        providerDay: "",
+        providerPage: 1,
+        providerPages: 1,
+        exhausted: false,
+      };
+    }
+
+    let claim;
+    try {
+      claim = await acquireP3Claim(env, hub, checkpoint);
+    } catch (error) {
+      state.busP3Deferred = true;
+      state.busP3DeferredReason = "CLAIM_ERROR";
+      state.busP3CooldownCode = "P3_TRANSIENT_FAILURE";
+      state.busP3CooldownUntil = new Date(
+        now() + BUS_TIME_P3_TRANSIENT_COOLDOWN_MS,
+      ).toISOString();
+      logger.warn?.(JSON.stringify({
+        event: "bus_time_p3_claim_error",
+        hub,
+        message: error?.message || String(error),
+      }));
+      return { cycleCalls, sourceSucceeded: false, accepted: 0, attempted: [] };
+    }
+    if (!claim.acquired) {
+      state.busP3Deferred = true;
+      state.busP3DeferredReason = "SHARED_FLIGHT";
+      return { cycleCalls, sourceSucceeded: false, accepted: 0, attempted: [] };
+    }
+
+    let rows;
+    try {
+      rows = await readP3Candidates(env, hub, checkpoint);
+    } catch (error) {
+      const next = {
+        ...checkpoint,
+        nextEligibleAt: new Date(now() + BUS_TIME_P3_TRANSIENT_COOLDOWN_MS).toISOString(),
+        cooldownCode: "P3_TRANSIENT_FAILURE",
+      };
+      state.p3Checkpoint = next;
+      state.busP3Deferred = true;
+      state.busP3DeferredReason = "QUERY_ERROR";
+      state.busP3CooldownUntil = next.nextEligibleAt;
+      state.busP3CooldownCode = next.cooldownCode;
+      await finishP3Claim(env, hub, claim, next);
+      logger.warn?.(JSON.stringify({
+        event: "bus_time_p3_query_error",
+        hub,
+        message: error?.message || String(error),
+      }));
+      return { cycleCalls, sourceSucceeded: false, accepted: 0, attempted: [] };
+    }
+
+    const plan = planMsP3Backfill(rows, {
+      hub,
+      cache: state.cache,
+      excludedKeys,
+      limit: BUS_TIME_P3_MAX_ROWS_PER_CYCLE,
+    });
+    state.busP3Pending = plan.pending;
+    state.busP3Rows = plan.selected.length;
+    if (!rows.length || !plan.selected.length) {
+      const next = {
+        ...checkpoint,
+        pending: plan.pending,
+        cursorDay: plan.batchEnd?.businessDay || checkpoint.cursorDay,
+        cursorRowid: plan.batchEnd?.cursorRowid || checkpoint.cursorRowid,
+        cursorRouteId: plan.batchEnd?.routeId || checkpoint.cursorRouteId,
+        providerDay: "",
+        providerPage: 1,
+        providerPages: 1,
+        exhausted: !rows.length,
+        nextEligibleAt: new Date(now() + BUS_TIME_P3_NO_MATCH_COOLDOWN_MS).toISOString(),
+        cooldownCode: "P3_NO_MATCH",
+      };
+      state.p3Checkpoint = next;
+      state.busP3CooldownUntil = next.nextEligibleAt;
+      state.busP3CooldownCode = next.cooldownCode;
+      await finishP3Claim(env, hub, claim, next);
+      return { cycleCalls, sourceSucceeded: false, accepted: 0, attempted: [] };
+    }
+
+    const providerDay = checkpoint.providerDay || plan.selectedDay;
+    const providerPage = checkpoint.providerDay === providerDay
+      ? checkpoint.providerPage
+      : 1;
+    const attempted = plan.selected.filter((item) => item.businessDay === providerDay);
+    try {
+      const acceptedAt = isoNow();
+      const cachedAttempted = attempted.filter((item) =>
+        validIso(state.cache.get(item.key)?.scheduleTbrArrivalAt));
+      let cachedPersisted = 0;
+      if (cachedAttempted.length) {
+        const fetchedAt = state.busLastSuccessAt || acceptedAt;
+        applyEvidence(state, cachedAttempted, {
+          sourceEvaluated: true,
+          observedAt: fetchedAt,
+          fetchedAt,
+          acceptedAt,
+          boundary: "P3_BACKFILL_ACCEPTED_AT",
+          enrichmentOrigin: "P3",
+          backfill: true,
+          priority: "P3",
+        });
+        cachedPersisted = await persistP3Evidence(
+          env,
+          hub,
+          cachedAttempted.map((item) => ({
+            ...item,
+            cached: state.cache.get(item.key) || {},
+          })),
+          acceptedAt,
+        );
+        state.busP3Accepted += cachedPersisted;
+      }
+      const providerAttempted = attempted.filter((item) =>
+        !validIso(state.cache.get(item.key)?.scheduleTbrArrivalAt));
+      if (!providerAttempted.length) {
+        const next = {
+          ...checkpoint,
+          pending: plan.pending,
+          cursorDay: plan.batchEnd?.businessDay || checkpoint.cursorDay,
+          cursorRowid: plan.batchEnd?.cursorRowid || checkpoint.cursorRowid,
+          cursorRouteId: plan.batchEnd?.routeId || checkpoint.cursorRouteId,
+          providerDay: "",
+          providerPage: 1,
+          providerPages: 1,
+          attempted: checkpoint.attempted + attempted.length,
+          accepted: checkpoint.accepted + cachedPersisted,
+          exhausted: false,
+          nextEligibleAt: new Date(
+            now() + BUS_TIME_P3_PROGRESS_COOLDOWN_MS,
+          ).toISOString(),
+          cooldownCode: "P3_PROGRESS",
+        };
+        state.p3Checkpoint = next;
+        state.busP3CooldownUntil = next.nextEligibleAt;
+        state.busP3CooldownCode = next.cooldownCode;
+        await finishP3Claim(env, hub, claim, next);
+        return {
+          cycleCalls,
+          sourceSucceeded: false,
+          accepted: cachedPersisted,
+          attempted,
+        };
+      }
+      recordCall(state, "background");
+      state.busP3Calls += 1;
+      cycleCalls += 1;
+      const page = await readPage(credential, providerPage, providerDay, {
+        fleetStatus: "",
+      });
+      mergeItems(state, page.items, hub);
+      const fetchedAt = isoNow();
+      applyEvidence(state, providerAttempted, {
+        sourceEvaluated: true,
+        observedAt: fetchedAt,
+        fetchedAt,
+        acceptedAt: fetchedAt,
+        boundary: "P3_BACKFILL_ACCEPTED_AT",
+        enrichmentOrigin: "P3",
+        backfill: true,
+        priority: "P3",
+      });
+      const accepted = providerAttempted
+        .map((item) => ({ ...item, cached: state.cache.get(item.key) || {} }))
+        .filter((item) => validIso(item.cached.scheduleTbrArrivalAt));
+      const providerPersisted = await persistP3Evidence(env, hub, accepted, fetchedAt);
+      const persisted = cachedPersisted + providerPersisted;
+      state.busP3Accepted += providerPersisted;
+      const providerPages = Math.min(
+        20,
+        Math.max(1, Math.ceil((page.total || page.items.length) / 100)),
+      );
+      const hasMorePages = providerPage < providerPages;
+      const cooldownMs = persisted > 0
+        ? BUS_TIME_P3_PROGRESS_COOLDOWN_MS
+        : BUS_TIME_P3_NO_MATCH_COOLDOWN_MS;
+      const next = {
+        ...checkpoint,
+        pending: plan.pending,
+        cursorDay: hasMorePages
+          ? checkpoint.cursorDay
+          : plan.batchEnd?.businessDay || checkpoint.cursorDay,
+        cursorRowid: hasMorePages
+          ? checkpoint.cursorRowid
+          : plan.batchEnd?.cursorRowid || checkpoint.cursorRowid,
+        cursorRouteId: hasMorePages
+          ? checkpoint.cursorRouteId
+          : plan.batchEnd?.routeId || checkpoint.cursorRouteId,
+        providerDay: hasMorePages ? providerDay : "",
+        providerPage: hasMorePages ? providerPage + 1 : 1,
+        providerPages,
+        attempted: checkpoint.attempted + attempted.length,
+        accepted: checkpoint.accepted + persisted,
+        exhausted: false,
+        nextEligibleAt: new Date(now() + cooldownMs).toISOString(),
+        cooldownCode: persisted > 0 ? "P3_PROGRESS" : "P3_NO_MATCH",
+      };
+      state.p3Checkpoint = next;
+      state.busP3CooldownUntil = next.nextEligibleAt;
+      state.busP3CooldownCode = next.cooldownCode;
+      await finishP3Claim(env, hub, claim, next);
+      return {
+        cycleCalls,
+        sourceSucceeded: true,
+        accepted: persisted,
+        attempted,
+      };
+    } catch (error) {
+      const isRateLimit = error?.code === "BUS_TIME_RATE_LIMIT";
+      const isUnavailable = error?.code === "BUS_TIME_SESSION_EXPIRED";
+      const cooldownMs = isRateLimit
+        ? Math.max(BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS, Number(error?.retryAfterMs) || 0)
+        : isUnavailable
+          ? BUS_TIME_SESSION_COOLDOWN_MS
+          : BUS_TIME_P3_TRANSIENT_COOLDOWN_MS;
+      const next = {
+        ...checkpoint,
+        nextEligibleAt: new Date(now() + cooldownMs).toISOString(),
+        cooldownCode: isRateLimit
+          ? "P3_RATE_LIMIT"
+          : isUnavailable
+            ? "P3_SOURCE_UNAVAILABLE"
+            : "P3_TRANSIENT_FAILURE",
+      };
+      state.p3Checkpoint = next;
+      state.busP3CooldownUntil = next.nextEligibleAt;
+      state.busP3CooldownCode = next.cooldownCode;
+      await finishP3Claim(env, hub, claim, next);
+      error.p3Attempted = attempted;
+      error.p3CycleCalls = cycleCalls;
+      throw error;
+    }
+  }
+
   async function readBusTimeData(env, hub, wantedDays = liveSourceDays(), routeRows = []) {
     const key = String(hub || "").trim().toUpperCase();
     const state = stateFor(key);
     const routeHintsProvided = Array.isArray(routeRows) && routeRows.length > 0;
     state.busPagesLastCycle = 0;
+    state.busP3Pending = state.p3Checkpoint?.pending ?? null;
+    state.busP3Rows = 0;
+    state.busP3Deferred = false;
+    state.busP3DeferredReason = "";
+    state.busBudgetExhausted = false;
 
     if (active.has(key)) {
       state.busCacheHits += 1;
+      state.busDeduplicatedReaders += 1;
       return active.get(key);
     }
 
@@ -860,7 +1442,9 @@ export function createBusTimeHotLane(deps) {
       const p2Rows = plan.p2.map((item) => item.row);
       state.busActiveRows = p1Rows.length;
       state.busP1Rows = p1Rows.length;
+      state.busP1Unresolved = plan.p1Unresolved;
       state.busP2Rows = p2Rows.length;
+      state.busP2Unresolved = plan.p2Unresolved;
       prune(state, candidates);
       state.cycleSchedule = new Map();
       applyEvidence(state, candidates);
@@ -874,18 +1458,20 @@ export function createBusTimeHotLane(deps) {
       );
       state.previousActiveKeys = activeKeys;
 
-      if (!plan.selected.length) {
-        state.busCacheHits += 1;
-        return result(state);
-      }
-
       const at = now();
+      const p3Checkpoint = await loadP3Checkpoint(env, key, state);
+      state.busP3CooldownUntil = p3Checkpoint.nextEligibleAt || "";
+      state.busP3CooldownCode = p3Checkpoint.cooldownCode || "";
+      state.busP3Pending = p3Checkpoint.pending ?? null;
+      const p3Due = p3Enabled && p3Eligible(p3Checkpoint);
       if (state.cooldownUntil > at) {
         applyEvidence(state, plan.selected, {
           sourceUnavailable: true,
           sourceCode: state.cooldownCode || "BUS_TIME_RATE_LIMIT",
         });
         state.busCacheHits += 1;
+        state.busP3Deferred = p3Due;
+        state.busP3DeferredReason = p3Due ? "PROVIDER_COOLDOWN" : "";
         return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
       }
 
@@ -899,7 +1485,7 @@ export function createBusTimeHotLane(deps) {
         p2Rows.length > 0 &&
         (!state.lastP2At || at - state.lastP2At >= BUS_TIME_BACKGROUND_INTERVAL_MS);
 
-      if (!hotDue && !backgroundDueBefore && !p2Due) {
+      if (!hotDue && !backgroundDueBefore && !p2Due && !p3Due) {
         if (missingKeys.length > 0) state.busCacheMisses += missingKeys.length;
         else state.busCacheHits += 1;
         return result(state);
@@ -912,6 +1498,8 @@ export function createBusTimeHotLane(deps) {
           sourceUnavailable: true,
           sourceCode: "BUS_TIME_NOT_CONFIGURED",
         });
+        state.busP3Deferred = p3Due;
+        state.busP3DeferredReason = p3Due ? "SOURCE_UNAVAILABLE" : "";
         return result(state, state.cache.size > 0, "BUS_TIME_NOT_CONFIGURED");
       }
 
@@ -922,6 +1510,8 @@ export function createBusTimeHotLane(deps) {
           sourceCode: state.cooldownCode || "BUS_TIME_RATE_LIMIT",
         });
         state.busCacheHits += 1;
+        state.busP3Deferred = p3Due;
+        state.busP3DeferredReason = p3Due ? "PROVIDER_COOLDOWN" : "";
         return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
       }
       const recoveringFromRateLimit =
@@ -959,6 +1549,7 @@ export function createBusTimeHotLane(deps) {
           if (cycleCalls >= BUS_TIME_MAX_CALLS_PER_CYCLE) break;
           try {
             recordCall(state, "hot");
+            state.busP1Calls += 1;
             cycleCalls += 1;
             const first = await readPage(credential, 1, day);
             state.pageCounts.set(
@@ -1002,6 +1593,7 @@ export function createBusTimeHotLane(deps) {
         if (background) {
           try {
             recordCall(state, "background");
+            state.busP1Calls += 1;
             cycleCalls += 1;
             backgroundCalls += 1;
             const page = await readPage(credential, background.page, background.day);
@@ -1043,6 +1635,36 @@ export function createBusTimeHotLane(deps) {
             p2Succeeded = true;
           } catch (error) {
             await failCycle(error, "bus_time_p2_enrichment_error", plan.p2);
+            return result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR");
+          }
+        }
+      }
+
+      if (p3Due) {
+        if (cycleCalls >= BUS_TIME_MAX_CALLS_PER_CYCLE) {
+          state.busP3Deferred = true;
+          state.busP3DeferredReason = "BUDGET_EXHAUSTED";
+          state.busBudgetExhausted = true;
+        } else {
+          const excludedKeys = new Set(plan.selected.map((item) => item.key));
+          try {
+            const p3 = await runP3Cycle(
+              env,
+              key,
+              state,
+              credential,
+              cycleCalls,
+              excludedKeys,
+            );
+            cycleCalls = p3.cycleCalls;
+            if (p3.sourceSucceeded) sourceSucceeded = true;
+          } catch (error) {
+            cycleCalls = Math.max(cycleCalls, Number(error?.p3CycleCalls) || cycleCalls);
+            await failCycle(
+              error,
+              "bus_time_p3_enrichment_error",
+              error?.p3Attempted || [],
+            );
             return result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR");
           }
         }
@@ -1090,10 +1712,30 @@ export function createBusTimeHotLane(deps) {
         busLastError: "",
         busActiveRows: 0,
         busP1Rows: 0,
+        busP1Unresolved: 0,
+        busP1Calls: 0,
         busP2Rows: 0,
+        busP2Unresolved: 0,
         busP2Calls: 0,
+        busP3Pending: null,
+        busP3Rows: 0,
+        busP3Calls: 0,
+        busP3Accepted: 0,
+        busP3Checkpoint: null,
+        busP3CooldownUntil: "",
+        busP3CooldownCode: "",
+        busP3Deferred: false,
+        busP3DeferredReason: "",
+        busSharedCalls: 0,
+        busDeduplicatedReaders: 0,
+        busBudgetExhausted: false,
         busTotalKnownRows: 0,
         maxCallsPerCycle: BUS_TIME_MAX_CALLS_PER_CYCLE,
+        maxP2CallsPerCycle: BUS_TIME_P2_MAX_CALLS_PER_CYCLE,
+        maxP2RowsPerCycle: BUS_TIME_P2_MAX_ROWS_PER_CYCLE,
+        maxP3CallsPerCycle: BUS_TIME_P3_MAX_CALLS_PER_CYCLE,
+        maxP3RowsPerCycle: BUS_TIME_P3_MAX_ROWS_PER_CYCLE,
+        p3RangeDays: BUS_TIME_P3_RANGE_DAYS,
         backgroundIntervalMs: BUS_TIME_BACKGROUND_INTERVAL_MS,
       };
     }
@@ -1117,10 +1759,30 @@ export function createBusTimeHotLane(deps) {
       busLastError: state.busLastError,
       busActiveRows: state.busActiveRows,
       busP1Rows: state.busP1Rows,
+      busP1Unresolved: state.busP1Unresolved,
+      busP1Calls: state.busP1Calls,
       busP2Rows: state.busP2Rows,
+      busP2Unresolved: state.busP2Unresolved,
       busP2Calls: state.busP2Calls,
+      busP3Pending: state.busP3Pending,
+      busP3Rows: state.busP3Rows,
+      busP3Calls: state.busP3Calls,
+      busP3Accepted: state.busP3Accepted,
+      busP3Checkpoint: state.p3Checkpoint ? { ...state.p3Checkpoint } : null,
+      busP3CooldownUntil: state.busP3CooldownUntil,
+      busP3CooldownCode: state.busP3CooldownCode,
+      busP3Deferred: state.busP3Deferred,
+      busP3DeferredReason: state.busP3DeferredReason,
+      busSharedCalls: state.busSharedCalls,
+      busDeduplicatedReaders: state.busDeduplicatedReaders,
+      busBudgetExhausted: state.busBudgetExhausted,
       busTotalKnownRows: state.cache.size,
       maxCallsPerCycle: BUS_TIME_MAX_CALLS_PER_CYCLE,
+      maxP2CallsPerCycle: BUS_TIME_P2_MAX_CALLS_PER_CYCLE,
+      maxP2RowsPerCycle: BUS_TIME_P2_MAX_ROWS_PER_CYCLE,
+      maxP3CallsPerCycle: BUS_TIME_P3_MAX_CALLS_PER_CYCLE,
+      maxP3RowsPerCycle: BUS_TIME_P3_MAX_ROWS_PER_CYCLE,
+      p3RangeDays: BUS_TIME_P3_RANGE_DAYS,
       backgroundIntervalMs: BUS_TIME_BACKGROUND_INTERVAL_MS,
     };
   }

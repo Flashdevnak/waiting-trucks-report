@@ -66,6 +66,10 @@ import { patchDevLiveRouteRecoveryHotfix } from "./patch-dev-live-route-recovery
 import {
   patchDevAuxiliaryEvidenceFrontend,
 } from "./patch-dev-auxiliary-evidence-completeness.mjs";
+import {
+  patchPnoDetailAffordanceFrontendV30,
+  patchPnoDetailAffordanceWorkerV30,
+} from "./patch-pno-detail-affordance-recovery.mjs";
 // V29_SYNC_CLAIM_HOTFIX_GATE: shared sync-claim helpers must survive V29 staging.
 // V29_STAGE_CONTRACT_HOTFIX: retain prior completed-cache truth marker while staging V29.
 import {
@@ -427,6 +431,7 @@ export function stageFrontend(source) {
   output = patchTbrSeedV28Frontend(output);
   output = patchLiveEvidenceV29Frontend(output);
   output = patchDevAuxiliaryEvidenceFrontend(output);
+  output = patchPnoDetailAffordanceFrontendV30(output);
   return output;
 }
 
@@ -518,6 +523,12 @@ if (invokedPath) {
   execFileSync(process.execPath, [devAuxiliaryEvidencePatch, workerTarget], {
     stdio: "inherit",
   });
+  const auxiliaryWorker = await readFile(workerTarget, "utf8");
+  await writeFile(
+    workerTarget,
+    patchPnoDetailAffordanceWorkerV30(auxiliaryWorker),
+    "utf8",
+  );
   const busTimeHotLaneWorker = await readFile(workerTarget, "utf8");
   if (!busTimeHotLaneWorker.includes("BUS_TIME_HOT_LANE_V14"))
     throw new Error("DEV BusTime hot-lane marker missing after staging");

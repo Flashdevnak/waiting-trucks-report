@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import browserWorker from "../src/index.js";
+import {
+  projectTbrDiagnosticRollup,
+  updateTbrDiagnosticRollup,
+} from "../src/tbr-diagnostic-rollup.js";
 import {
   TBR_INTELLIGENCE_POLICY,
   readTbrIntelligenceReport,
@@ -13,179 +16,90 @@ import {
 } from "../src/tbr-intelligence.js";
 
 class KV {
-  constructor() { this.map = new Map(); this.puts = 0; this.gets = 0; }
-  async get(key) { this.gets += 1; return this.map.get(key) ?? null; }
-  async put(key, value) { this.puts += 1; this.map.set(key, value); }
-  async delete(key) { this.map.delete(key); }
+  constructor() { this.gets = 0; this.puts = 0; }
+  async get() { this.gets += 1; return null; }
+  async put() { this.puts += 1; }
 }
 
+const NOW = Date.parse("2026-09-21T12:00:00.000Z");
 const STATE = new KV();
 const env = { STATE };
-const base = Date.parse("2026-09-08T00:00:00+07:00");
 const shadow = {
   hub: "NE1",
+  startedAt: "2026-09-20T00:00:00.000Z",
+  updatedAt: "2026-09-21T11:59:00.000Z",
+  healthUpdatedAt: "2026-09-21T11:59:00.000Z",
   observerStatus: "LIVE",
   sourceAvailable: true,
   routeFallback: false,
   records: [
-    { id: "aaa", status: "confirmed", tbrAt: "2026-09-07T23:40:00+07:00", confirmedAt: "2026-09-07T23:48:00+07:00", routeActualArrivalAt: "2026-09-07T23:48:00+07:00", leadMinutes: 8 },
-    { id: "bbb", status: "confirmed", tbrAt: "2026-09-07T23:30:00+07:00", confirmedAt: "2026-09-07T23:45:00+07:00", routeActualArrivalAt: "2026-09-07T23:45:00+07:00", leadMinutes: 15 },
-    { id: "ccc", status: "expired", tbrAt: "2026-09-07T12:00:00+07:00", expiredAt: "2026-09-08T00:01:00+07:00", leadMinutes: null },
-    { id: "ddd", status: "pending", tbrAt: "2026-09-07T23:55:00+07:00", leadMinutes: null },
+    { id: "aaa", status: "confirmed", tbrAt: "2026-09-20T10:00:00.000Z", confirmedAt: "2026-09-20T10:08:00.000Z", routeActualArrivalAt: "2026-09-20T10:08:00.000Z", leadMinutes: 8 },
+    { id: "bbb", status: "confirmed", tbrAt: "2026-09-20T11:00:00.000Z", confirmedAt: "2026-09-20T11:15:00.000Z", routeActualArrivalAt: "2026-09-20T11:15:00.000Z", leadMinutes: 15 },
+    { id: "ccc", status: "expired", tbrAt: "2026-09-20T12:00:00.000Z", expiredAt: "2026-09-21T00:01:00.000Z", leadMinutes: null },
+    { id: "ddd", status: "pending", tbrAt: "2026-09-20T13:00:00.000Z", leadMinutes: null },
+    { id: "outside", status: "confirmed", tbrAt: "2026-09-07T10:00:00.000Z", confirmedAt: "2026-09-07T10:01:00.000Z", routeActualArrivalAt: "2026-09-07T10:01:00.000Z", leadMinutes: 1 },
   ],
 };
+shadow.diagnosticRollup = projectTbrDiagnosticRollup(updateTbrDiagnosticRollup(
+  null,
+  Object.fromEntries(shadow.records.map((record) => [record.id, record])),
+  { now: NOW, sourceAvailable: true, routeFallback: false },
+), NOW);
 
-assert.equal(TBR_INTELLIGENCE_POLICY.extraMsPolling, 0);
-assert.equal(TBR_INTELLIGENCE_POLICY.tursoWrites, 0);
-assert.equal(TBR_INTELLIGENCE_POLICY.queueAuthority, false);
-const stagedIndex = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-for (const marker of [
-  "TBR_INTELLIGENCE_V1",
-  "TBR_INTELLIGENCE_BOOTSTRAP_V2",
-  "ensureTbrIntelligenceReport",
-  'url.pathname === "/api/tbr-intelligence"',
-  'shouldAttemptTbrAutoRepair()',
-  'recordTbrRepairEvent(env, hub, "connector_bootstrap")',
-  'updateTbrIntelligence(env, hub, shadowReport',
-]) assert.ok(stagedIndex.includes(marker), `missing staged index marker ${marker}`);
-assert.ok(!stagedIndex.includes('TBR_QUEUE_AUTHORITY_ENABLED'), "TBR queue authority must remain disabled");
-const stagedModule = fs.readFileSync(new URL("../src/tbr-intelligence.js", import.meta.url), "utf8");
-for (const marker of [
-  "TBR_INTELLIGENCE_UX_V2",
-  "displayBangkok",
-  "กำลังเก็บข้อมูล",
-  "LIVE ตอนนี้",
-]) assert.ok(stagedModule.includes(marker), `missing Intelligence UX marker ${marker}`);
+for (const [key, expected] of Object.entries({
+  extraMsPolling: 0, tursoWrites: 0, otherPersistentWrites: 0,
+  queueAuthority: false, providerAuthority: false, freshnessAuthority: false,
+  completenessAuthority: false, lifecycleAuthority: false, historyAuthority: false,
+  businessDayAuthority: false, enrichmentScheduler: false, providerScheduler: false,
+})) assert.equal(TBR_INTELLIGENCE_POLICY[key], expected, key);
 
-assert.equal(shouldCheckpointTbrIntelligence(base), true);
-assert.equal(shouldCheckpointTbrIntelligence(base + 15 * 60000), false);
-assert.equal(shouldCheckpointTbrIntelligence(base + 30 * 60000), true);
-assert.equal(shouldAttemptTbrAutoRepair(base), true);
-assert.equal(shouldAttemptTbrAutoRepair(base + 60000), false);
-assert.equal(shouldAttemptTbrAutoRepair(base + 5 * 60000), true);
-assert.equal(shouldUpdateTbrIntelligence({}, base + 15 * 60000), false);
-assert.equal(shouldUpdateTbrIntelligence({ sourceChanged: true }, base + 15 * 60000), true);
+assert.equal(shouldCheckpointTbrIntelligence(NOW), false);
+assert.equal(shouldAttemptTbrAutoRepair(NOW), false);
+assert.equal(shouldUpdateTbrIntelligence({ sourceChanged: true }, NOW), false);
 
-await updateTbrIntelligence(env, "NE1", shadow, { sourceChanged: true }, { routeFallback: false }, { now: base });
-let report = await readTbrIntelligenceReport(env, "NE1", shadow, base);
-assert.equal(report.rolling14.candidates, 4);
+const before = structuredClone(shadow);
+const report = await updateTbrIntelligence(env, "NE1", shadow, {}, {}, { now: NOW });
+assert.deepEqual(shadow, before, "Intelligence cannot mutate canonical/shared input");
+assert.equal(report.rolling14.candidates, 4, "fixed now keeps only the production 14-day window");
 assert.equal(report.rolling14.confirmed, 2);
 assert.equal(report.rolling14.expired, 1);
 assert.equal(report.rolling14.resolved, 3);
 assert.equal(report.rolling14.confirmationRate, 66.7);
 assert.equal(report.rolling14.p50LeadMinutes, 8);
 assert.equal(report.rolling14.p90LeadMinutes, 15);
-assert.equal(report.queueAuthority, false);
-assert.equal(report.actualArrivalAuthority, "ROUTE");
-assert.equal(report.selfHealing.maxScheduledIntelligenceWritesPerDayPerHub, 48);
+assert.equal(report.coverage.coverageState, "INCOMPLETE");
+assert.equal(report.readiness.status, "SHADOW_COVERAGE_INCOMPLETE");
+assert.equal(report.readiness.advisoryAllowedNow, false);
+assert.equal(report.persistence, "NONE");
+assert.equal(report.providerUpstreamCalls, 0);
+assert.equal(report.routeUpstreamCalls, 0);
+assert.equal(report.preEntryUpstreamCalls, 0);
+assert.equal(report.otherPersistentWrites, 0);
+assert.equal(report.canonicalActualArrival, "ROUTE_READ_ONLY");
+assert.equal(STATE.gets, 0);
+assert.equal(STATE.puts, 0);
 
-await updateTbrIntelligence(env, "NE1", shadow, {}, {}, { now: base + 30 * 60000 });
-report = await readTbrIntelligenceReport(env, "NE1", shadow, base + 30 * 60000);
-assert.equal(report.rolling14.candidates, 4);
-assert.equal(report.rolling14.confirmed, 2);
-assert.equal(report.rolling14.expired, 1);
-assert.equal(report.rolling14.health.live, 30);
+for (let index = 0; index < 100; index += 1)
+  await readTbrIntelligenceReport(env, "NE1", shadow, NOW);
+assert.equal(STATE.gets, 0, "1/10/100 viewers cannot read Intelligence persistence");
+assert.equal(STATE.puts, 0, "1/10/100 viewers cannot write Intelligence persistence");
 
-const resolved = structuredClone(shadow);
-resolved.records[3] = {
-  ...resolved.records[3],
-  status: "confirmed",
-  confirmedAt: "2026-09-08T00:40:00+07:00",
-  routeActualArrivalAt: "2026-09-08T00:40:00+07:00",
-  leadMinutes: 45,
-};
-await updateTbrIntelligence(env, "NE1", resolved, {}, {}, { now: base + 45 * 60000 });
-report = await readTbrIntelligenceReport(env, "NE1", resolved, base + 45 * 60000);
-assert.equal(report.rolling14.candidates, 4);
-assert.equal(report.rolling14.confirmed, 3);
-assert.equal(report.rolling14.resolved, 4);
-assert.equal(report.rolling14.p95LeadMinutes, 45);
+const repair = await recordTbrRepairEvent(env, "NE1", "connector_reregister", NOW);
+assert.equal(repair.persisted, false);
+assert.equal(STATE.puts, 0);
 
-const degraded = { ...resolved, routeFallback: true, sourceAvailable: true, observerStatus: "LIVE" };
-await updateTbrIntelligence(env, "NE1", degraded, { routeFallbackChanged: true }, { routeFallback: true, routeSourceError: { code: "TBR_ROUTES_HTTP_503" } }, { now: base + 60 * 60000 });
-await updateTbrIntelligence(env, "NE1", resolved, { routeFallbackChanged: true }, {}, { now: base + 90 * 60000 });
-report = await readTbrIntelligenceReport(env, "NE1", resolved, base + 90 * 60000);
-assert.equal(report.rolling14.routeFallbackEvents, 1);
-assert.equal(report.rolling14.health.fallback, 30);
-assert.equal(report.readiness.queueAuthority, false);
-
-await recordTbrRepairEvent(env, "NE1", "connector_reregister", base + 91 * 60000);
-report = await readTbrIntelligenceReport(env, "NE1", resolved, base + 91 * 60000);
-assert.equal(report.selfHealing.repairEvents, 1);
-assert.equal(report.selfHealing.lastRepairAction, "connector_reregister");
-
-const html = await (await tbrIntelligencePage(resolved, report)).text();
-for (const marker of ["TBR Intelligence", "TBR Shadow Test", "Queue authority OFF", "Self-healing / Quota Guard"]) {
+const html = await (await tbrIntelligencePage(shadow, report)).text();
+for (const marker of ["TBR Intelligence", "Read-only Advisory", "Diagnostic / Quota Guard", "Intelligence persistent writes", "Persistence", "14-day coverage INCOMPLETE"]) {
   assert.ok(html.includes(marker), `missing page marker ${marker}`);
 }
-assert.ok(html.includes("07/09/2026 23:40:00"), "Bangkok display time missing");
-assert.ok(!html.includes("2026-09-07T23:40:00+07:00"), "raw ISO timestamp leaked into UI");
 
-const BOOTSTRAP_STATE = new KV();
-await BOOTSTRAP_STATE.put("shadow:tbr:v1:NE1", JSON.stringify({
-  version: 2,
-  hub: "NE1",
-  startedAt: "2026-09-07T16:00:00.000Z",
-  updatedAt: "2026-09-07T16:40:00.000Z",
-  healthUpdatedAt: "2026-09-07T16:40:00.000Z",
-  lastAttemptAt: "2026-09-07T16:40:00.000Z",
-  lastObservedAt: "2026-09-07T16:40:00.000Z",
-  sourceAvailable: true,
-  feedCount: 5,
-  rowCount: 5,
-  lastSkip: "",
-  shadowQuota: { mode: "SHADOW_READONLY_SPLIT_V2", tursoPointReadsPerCron: 4, tursoWritesPerCron: 0 },
-  routeFallback: false,
-  routeFallbackAt: "",
-  routeSourceError: null,
-  records: {
-    abc: {
-      status: "confirmed",
-      tbrAt: "2026-09-07T23:40:00+07:00",
-      kitAt: "",
-      firstSeenAt: "2026-09-07T23:40:10+07:00",
-      confirmedAt: "2026-09-07T23:48:10+07:00",
-      expiredAt: "",
-      routeActualArrivalAt: "2026-09-07T23:48:00+07:00",
-      routeSeen: true,
-      attendanceType: "ปลายทาง",
-      leadMinutes: 8,
-    },
-  },
-}));
-const bootstrapEnv = { STATE: BOOTSTRAP_STATE };
-const beforeBootstrapPuts = BOOTSTRAP_STATE.puts;
-const firstBootstrapResponse = await browserWorker.fetch(new Request("https://browser.test/api/tbr-intelligence?hub=NE1"), bootstrapEnv);
-const firstBootstrap = await firstBootstrapResponse.json();
-assert.equal(firstBootstrap.ok, true);
-assert.equal(firstBootstrap.rolling14.candidates, 1);
-assert.equal(firstBootstrap.rolling14.confirmed, 1);
-assert.equal(firstBootstrap.rolling14.resolved, 1);
-assert.equal(firstBootstrap.rolling14.confirmationRate, 100);
-assert.ok(firstBootstrap.createdAt, "bootstrap must persist createdAt");
-assert.equal(BOOTSTRAP_STATE.puts, beforeBootstrapPuts + 1, "first bootstrap must use exactly one Intelligence KV write");
-const afterBootstrapPuts = BOOTSTRAP_STATE.puts;
-const secondBootstrapResponse = await browserWorker.fetch(new Request("https://browser.test/api/tbr-intelligence?hub=NE1"), bootstrapEnv);
-const secondBootstrap = await secondBootstrapResponse.json();
-assert.equal(secondBootstrap.rolling14.candidates, 1);
-assert.equal(BOOTSTRAP_STATE.puts, afterBootstrapPuts, "repeat Intelligence reads must not write again");
+const source = fs.readFileSync(new URL("../src/tbr-intelligence.js", import.meta.url), "utf8");
+assert.doesNotMatch(source, /STATE\.put|env\.STATE\.put|storage\.put/);
+assert.match(source, /otherPersistentWrites: 0/);
+assert.match(source, /providerAuthority: false/);
 
-const bootstrapPage = await browserWorker.fetch(new Request("https://browser.test/shadow-tbr?hub=NE1"), bootstrapEnv);
-const bootstrapHtml = await bootstrapPage.text();
-assert.ok(bootstrapHtml.includes("ตัวอย่าง 14 วัน<b>1</b>"), "dashboard must show backfilled sample immediately");
-assert.ok(bootstrapHtml.includes("กำลังเก็บข้อมูล"), "readiness must use readable Thai label");
-assert.ok(bootstrapHtml.includes("LIVE ตอนนี้"), "first health checkpoint must show current live state instead of dash");
-
-assert.ok(STATE.puts <= 6, `unexpected test KV write count ${STATE.puts}`);
-console.log("TBR_INTELLIGENCE_V1=PASS");
-console.log("TBR_INTELLIGENCE_BOOTSTRAP_V2=PASS");
-console.log("TBR_INTELLIGENCE_BOOTSTRAP_WRITES=1");
-console.log("TBR_INTELLIGENCE_REPEAT_READ_WRITES=0");
-console.log("TBR_INTELLIGENCE_DEDUPE=PASS");
-console.log("TBR_INTELLIGENCE_HEALTH_ROLLUP=PASS");
-console.log("TBR_INTELLIGENCE_SELF_HEAL=PASS");
-console.log("TBR_INTELLIGENCE_UX_V2=PASS");
-console.log("TBR_INTELLIGENCE_PERIODIC_WRITES_MAX_PER_HUB_DAY=48");
-console.log("TBR_INTELLIGENCE_EXTRA_MS_POLLING=0");
-console.log("TBR_INTELLIGENCE_TURSO_WRITES=0");
-console.log("TBR_INTELLIGENCE_QUEUE_AUTHORITY=0");
+console.log("TBR_INTELLIGENCE_REC05_READ_ONLY=PASS");
+console.log("TBR_INTELLIGENCE_FIXED_NOW=2026-09-21T12:00:00.000Z");
+console.log("TBR_INTELLIGENCE_2026_09_07_OUTSIDE_WINDOW=PASS");
+console.log("TBR_INTELLIGENCE_VIEWERS_1_10_100_PROVIDER_CALLS=0");
+console.log("TBR_INTELLIGENCE_VIEWERS_1_10_100_PERSISTENT_WRITES=0");

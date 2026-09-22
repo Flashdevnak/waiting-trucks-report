@@ -4,22 +4,15 @@ import {
   readTbrShadowReport,
   tbrShadowPage,
 } from "./tbr-shadow.js";
-// TBR_INTELLIGENCE_V1: Browser-KV-only rolling intelligence; no extra MS polling and no Turso writes.
+// TBR_INTELLIGENCE_REC05_READ_ONLY: diagnostic projection from the existing
+// Shadow snapshot. Intelligence performs no persistence, polling, repair, or scheduling.
 import {
   readTbrIntelligenceReport,
-  recordTbrRepairEvent,
-  shouldAttemptTbrAutoRepair,
-  shouldUpdateTbrIntelligence,
   tbrIntelligencePage,
-  updateTbrIntelligence,
 } from "./tbr-intelligence.js";
 
-// TBR_INTELLIGENCE_BOOTSTRAP_V2: one KV write at most on a new Intelligence state. Existing Shadow records are
-// backfilled idempotently so the dashboard never shows zero samples while confirmed Shadow rows exist.
-async function ensureTbrIntelligenceReport(env, hub, shadow) {
-  const current = await readTbrIntelligenceReport(env, hub, shadow);
-  if (current?.createdAt) return current;
-  return updateTbrIntelligence(env, hub, shadow, { bootstrap: true }, {}, { now: Date.now() });
+async function ensureTbrIntelligenceReport(_env, hub, shadow, now = Date.now()) {
+  return readTbrIntelligenceReport(null, hub, shadow, now);
 }
 import {
   handleConnectionErrorRequest,
@@ -30,6 +23,12 @@ import {
 const MS_URL = "https://ms.flashexpress.com/#/sendoutlets/storeLineAttendance";
 const API_URL =
   "https://ms-api.flashexpress.com/gw/nws/staff/ms/store/line/task";
+
+// Operational connector recovery retains its existing five-minute cadence,
+// independently of TBR Intelligence.
+function shouldAttemptConnectorRepair(nowValue = Date.now()) {
+  return new Date(Number(nowValue)).getUTCMinutes() % 5 === 0;
+}
 const MAIN_API =
   "https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev/api";
 
@@ -482,12 +481,11 @@ async function syncConfiguredHubs(env) {
     hubs.map(async (hub) => {
       try {
         let connectorToken = await env.STATE.get(`connector:${hub}`);
-        if (!connectorToken && env.CONNECTOR_BOOTSTRAP_SECRET && shouldAttemptTbrAutoRepair()) {
+        if (!connectorToken && env.CONNECTOR_BOOTSTRAP_SECRET && shouldAttemptConnectorRepair()) {
           const candidate = randomConnectorToken();
           if (await registerConnectorForCutover(env, hub, candidate)) {
             connectorToken = candidate;
             await rememberConnector(env, hub, connectorToken);
-            await recordTbrRepairEvent(env, hub, "connector_bootstrap");
           }
         }
         if (!connectorToken) return;
@@ -498,10 +496,9 @@ async function syncConfiguredHubs(env) {
           response.status === 401 &&
           env.CONNECTOR_BOOTSTRAP_SECRET &&
           payload?.code === "INVALID_CONNECTOR" &&
-          shouldAttemptTbrAutoRepair()
+          shouldAttemptConnectorRepair()
         ) {
           if (await registerConnectorForCutover(env, hub, connectorToken)) {
-            await recordTbrRepairEvent(env, hub, "connector_reregister");
             response = await sendConnectorSync(env, hub, connectorToken);
             payload = await response.clone().json().catch(() => ({}));
           }
@@ -533,15 +530,6 @@ async function syncConfiguredHubs(env) {
                 message: payload?.message || `DEV Shadow ตอบกลับ HTTP ${response.status}`,
               });
             }
-            if (shouldUpdateTbrIntelligence(failedShadow)) {
-              const shadowReport = await readTbrShadowReport(env, hub);
-              await updateTbrIntelligence(env, hub, shadowReport, failedShadow, {}, {
-                sourceError: {
-                  code: String(payload?.code || `HTTP_${response.status}`),
-                  message: String(payload?.message || "source unavailable"),
-                },
-              });
-            }
           } catch (healthError) {
             console.error(JSON.stringify({ event: "tbr_shadow_failure_health_error", hub, message: healthError?.message || String(healthError) }));
           }
@@ -559,10 +547,6 @@ async function syncConfiguredHubs(env) {
               console.warn(JSON.stringify({ event: "tbr_route_snapshot_fallback", hub, cachedAt: payload?.data?.routeFallbackAt || "" }));
             } else if (observedShadow?.sourceChanged || observedShadow?.routeFallbackChanged) {
               await recordConnectionRecoveredKv(env, { hub });
-            }
-            if (shouldUpdateTbrIntelligence(observedShadow)) {
-              const shadowReport = await readTbrShadowReport(env, hub);
-              await updateTbrIntelligence(env, hub, shadowReport, observedShadow, payload?.data || {});
             }
           } catch (shadowError) {
             console.error(

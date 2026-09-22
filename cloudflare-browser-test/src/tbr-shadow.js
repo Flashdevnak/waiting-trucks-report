@@ -1,3 +1,8 @@
+import {
+  projectTbrDiagnosticRollup,
+  updateTbrDiagnosticRollup,
+} from "./tbr-diagnostic-rollup.js";
+
 // TBR_INBOUND_QUOTA_V1: only inbound destination/drop routes are observed.
 const SHADOW_VERSION = 2;
 const SHADOW_PENDING_MS = 12 * 60 * 60 * 1000;
@@ -151,7 +156,7 @@ function healthLabel(status) {
   return "ยังไม่เคยได้รับรอบ Cron";
 }
 
-export async function readTbrShadowReport(env, hubValue = "NE1") {
+export async function readTbrShadowReport(env, hubValue = "NE1", nowValue = Date.now()) {
   const hub = cleanHub(hubValue);
   const key = `shadow:tbr:v1:${hub}`;
   const raw = env?.STATE ? await env.STATE.get(key) : null;
@@ -199,6 +204,7 @@ export async function readTbrShadowReport(env, hubValue = "NE1") {
     routeSourceError: state.routeSourceError && typeof state.routeSourceError === "object" ? state.routeSourceError : null,
     startedAt: String(state.startedAt || ""),
     updatedAt: String(state.updatedAt || ""),
+    diagnosticRollup: projectTbrDiagnosticRollup(state.diagnosticRollup, Number(nowValue)),
     ...stats,
     records,
   };
@@ -284,6 +290,13 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
 
   if (!sourceAvailable) {
     if (healthChanged || heartbeatDue) {
+      state.diagnosticRollup = updateTbrDiagnosticRollup(state.diagnosticRollup, state.records, {
+        now,
+        previousSourceAvailable,
+        previousRouteFallback,
+        sourceAvailable,
+        routeFallback,
+      });
       await persistHealth(env, key, state, nowIso);
       console.log(JSON.stringify({
         event: "tbr_shadow_health",
@@ -406,6 +419,7 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
     }
   }
 
+  const pruneIds = [];
   for (const [id, record] of Object.entries(state.records)) {
     const tbrMs = validTime(record?.tbrAt);
     if (
@@ -419,12 +433,22 @@ export async function observeTbrShadow(env, hubValue, live, nowValue = Date.now(
     }
     const terminalAt = validTime(record?.confirmedAt || record?.expiredAt);
     if (terminalAt !== null && now - terminalAt > SHADOW_RETAIN_MS) {
-      delete state.records[id];
-      changed = true;
+      pruneIds.push(id);
     }
   }
 
-  if (changed || healthChanged || heartbeatDue) {
+  if (changed || pruneIds.length || healthChanged || heartbeatDue) {
+    // TBR_SHADOW_DIAGNOSTIC_ROLLUP_V1: aggregate before raw 3-day pruning, then
+    // piggyback the result on this already-required Shadow KV write.
+    state.diagnosticRollup = updateTbrDiagnosticRollup(state.diagnosticRollup, state.records, {
+      now,
+      previousSourceAvailable,
+      previousRouteFallback,
+      sourceAvailable,
+      routeFallback,
+    });
+    for (const id of pruneIds) delete state.records[id];
+    if (pruneIds.length) changed = true;
     await persistHealth(env, key, state, nowIso);
     const result = summary(state);
     console.log(JSON.stringify({

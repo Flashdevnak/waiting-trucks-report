@@ -2,16 +2,11 @@ import baseWorker from "./index.js";
 import { readTbrShadowReport } from "./tbr-shadow.js";
 import {
   readTbrIntelligenceReport,
-  shouldCheckpointTbrIntelligence,
   tbrIntelligencePage,
-  updateTbrIntelligence,
 } from "./tbr-intelligence.js";
 
 // TBR_INTELLIGENCE_STABLE_ENTRY_V3: this entrypoint is committed source, so Cloudflare Auto Build
 // and GitHub staged deploy always expose the same Intelligence routes. It never calls MS itself.
-const RECONCILE_MINUTES = 5;
-const RECENT_CHECKPOINT_MS = 10 * 60 * 1000;
-
 function cleanHub(value) {
   const hub = String(value || "NE1").trim().toUpperCase();
   return /^[A-Z0-9_-]{2,20}$/.test(hub) ? hub : "NE1";
@@ -30,13 +25,6 @@ function json(data, status = 200) {
 function validTime(value) {
   const ms = Date.parse(String(value || ""));
   return Number.isFinite(ms) ? ms : null;
-}
-
-function currentMode(shadow) {
-  if (shadow?.observerStatus === "STALE") return "stale";
-  if (shadow?.routeFallback) return "fallback";
-  if (shadow?.sourceAvailable === true) return "live";
-  return "waiting";
 }
 
 function displayBangkok(value) {
@@ -76,6 +64,8 @@ function improvePageHtml(htmlValue, shadow, intelligence, hubs = []) {
   for (const [from, to] of Object.entries({
     SHADOW_COLLECTING: "กำลังเก็บข้อมูล",
     SHADOW_LEARNING: "กำลังเรียนรู้",
+    SHADOW_COVERAGE_INCOMPLETE: "ข้อมูลสะสมยังไม่ครบ 14 วัน",
+    SHADOW_INTEGRITY_FAILURE: "ข้อมูลสะสมไม่สมบูรณ์",
     ADVISORY_READY: "พร้อมใช้ช่วยตัดสินใจ",
     PRODUCTION_CANDIDATE: "ผู้สมัคร Production",
   })) html = html.replaceAll(from, to);
@@ -112,24 +102,8 @@ function improvePageHtml(htmlValue, shadow, intelligence, hubs = []) {
   return html;
 }
 
-async function intelligenceForShadow(env, hub, shadow, now = Date.now()) {
-  let report = await readTbrIntelligenceReport(env, hub, shadow, now);
-  const records = Array.isArray(shadow?.records) ? shadow.records : [];
-  const confirmed = records.filter((item) => item?.status === "confirmed").length;
-  const missingBootstrap = !report?.createdAt;
-  const missingCandidates = records.length > 0 && Number(report?.rolling14?.candidates || 0) === 0;
-  const missingConfirmed = confirmed > 0 && Number(report?.rolling14?.confirmed || 0) === 0;
-  if (missingBootstrap || missingCandidates || missingConfirmed) {
-    report = await updateTbrIntelligence(
-      env,
-      hub,
-      shadow,
-      { bootstrap: true },
-      {},
-      { now },
-    );
-  }
-  return report;
+export async function intelligenceForShadow(env, hub, shadow, now = Date.now()) {
+  return readTbrIntelligenceReport(null, hub, shadow, now);
 }
 
 async function intelligencePage(env, hub) {
@@ -150,10 +124,6 @@ async function intelligencePage(env, hub) {
 async function intelligenceApi(env, hub) {
   const shadow = await readTbrShadowReport(env, hub);
   return json(await intelligenceForShadow(env, hub, shadow));
-}
-
-function shouldReconcile(now) {
-  return new Date(now).getUTCMinutes() % RECONCILE_MINUTES === 0;
 }
 
 // TBR_INTELLIGENCE_HUB_CATALOG_V4: same read-only Browser-KV HUB catalog as Error Intelligence.
@@ -195,53 +165,6 @@ async function configuredHubs(env, currentHub = "") {
   return hubs.sort((a, b) => a.localeCompare(b));
 }
 
-async function reconcileHub(env, hub, now) {
-  const shadow = await readTbrShadowReport(env, hub);
-  const key = `shadow:tbr:intel:v1:${cleanHub(hub)}`;
-  let prior = null;
-  try {
-    prior = JSON.parse((await env.STATE.get(key)) || "null");
-  } catch {}
-
-  const mode = currentMode(shadow);
-  const priorMode = String(prior?.healthMode || "unknown");
-  const lastCheckpoint = validTime(prior?.lastCheckpointAt);
-  const checkpointDue =
-    shouldCheckpointTbrIntelligence(now) &&
-    (lastCheckpoint === null || now - lastCheckpoint >= RECENT_CHECKPOINT_MS);
-  const healthChanged = priorMode !== mode;
-  const needsBootstrap = !prior?.createdAt;
-  if (!needsBootstrap && !healthChanged && !checkpointDue) return { changed: false };
-
-  const priorAvailable = priorMode === "live" || priorMode === "fallback";
-  const currentAvailable = shadow?.sourceAvailable === true;
-  const observed = {
-    sourceChanged: priorMode !== "unknown" && priorAvailable !== currentAvailable,
-    routeFallbackChanged:
-      priorMode !== "unknown" &&
-      (priorMode === "fallback") !== (mode === "fallback"),
-    bootstrap: needsBootstrap,
-  };
-  await updateTbrIntelligence(
-    env,
-    hub,
-    shadow,
-    observed,
-    {
-      routeFallback: Boolean(shadow?.routeFallback),
-      routeSourceError: shadow?.routeSourceError || null,
-    },
-    { now, sourceError: shadow?.routeSourceError || null },
-  );
-  return { changed: true, mode, checkpointDue, needsBootstrap };
-}
-
-async function reconcileConfiguredIntelligence(env, now = Date.now()) {
-  if (!shouldReconcile(now)) return;
-  const hubs = await configuredHubs(env);
-  await Promise.all(hubs.map((hub) => reconcileHub(env, hub, now)));
-}
-
 async function runScheduled(controller, env, outerCtx) {
   const pending = [];
   const captureCtx = {
@@ -256,7 +179,6 @@ async function runScheduled(controller, env, outerCtx) {
     await baseWorker.scheduled(controller, env, captureCtx);
   }
   if (pending.length) await Promise.allSettled(pending);
-  await reconcileConfiguredIntelligence(env);
 }
 
 export default {
@@ -278,9 +200,17 @@ export default {
 
 export const TBR_INTELLIGENCE_ENTRY_POLICY = Object.freeze({
   stableEntrypoint: true,
-  reconcileMinutes: RECONCILE_MINUTES,
+  reconcileMinutes: 0,
   extraMsPolling: 0,
   tursoWrites: 0,
+  otherPersistentWrites: 0,
   queueAuthority: false,
-  actualArrivalAuthority: "ROUTE",
+  providerAuthority: false,
+  freshnessAuthority: false,
+  completenessAuthority: false,
+  lifecycleAuthority: false,
+  historyAuthority: false,
+  businessDayAuthority: false,
+  enrichmentScheduler: false,
+  providerScheduler: false,
 });

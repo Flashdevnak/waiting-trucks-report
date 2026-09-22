@@ -6,6 +6,9 @@ const STATES = new Set([
   "HEALTHY", "WARNING", "CRITICAL", "STALE", "PARTIAL", "AUTH_REQUIRED",
   "SOURCE_UNAVAILABLE", "ERROR", "BLOCKED", "UNKNOWN", "RECOVERED",
 ]);
+const COMPLETENESS_STATES = new Set([
+  "DATA_COMPLETE", "DATA_INCOMPLETE", "DATA_UNKNOWN", "SOURCE_UNAVAILABLE",
+]);
 export const SOURCE_STALE_AFTER_MS = 20 * 60 * 1000;
 
 export function safeState(value) {
@@ -104,6 +107,8 @@ export function deriveSourceView(source, nowMs = Date.now(), fallbackState = "UN
     lastUsedAt,
     successAge: ageView(lastSuccessAt, nowMs),
     freshness,
+    reason: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.reason || "")) ? String(raw.reason) : null,
+    action: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.action || "")) ? String(raw.action) : null,
     errorCode: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.errorCode || "")) ? String(raw.errorCode) : null,
     recovery: /^[A-Z0-9_:-]{2,80}$/.test(String(raw?.recovery || "")) ? String(raw.recovery) : "UNKNOWN",
     retryAt,
@@ -113,6 +118,43 @@ export function deriveSourceView(source, nowMs = Date.now(), fallbackState = "UN
         ? "ON_DEMAND"
         : "REFRESH",
     observed: raw?.observed === true,
+  };
+}
+
+// SUPERVISOR_REC05_CANONICAL_PROJECTION_V1: lifecycle is deliberately absent
+// from this derivation. Supervisor projects canonical completeness and
+// enrichment priority; it never infers either from completion/release/expiry.
+export function deriveCompletenessView(canonical) {
+  const raw = canonical && typeof canonical === "object" ? canonical : null;
+  const count = (value) => safeCount(value);
+  const completeness = Object.fromEntries(
+    [...COMPLETENESS_STATES].map((state) => [state, count(raw?.completeness?.[state])]),
+  );
+  const priorities = Object.fromEntries(
+    ["P1", "P2", "P3"].map((priority) => [priority, count(raw?.priorities?.[priority])]),
+  );
+  const rowsObserved = count(raw?.rowsObserved);
+  const enrichmentPending = count(raw?.enrichmentPending);
+  const completeCounts = Object.values(completeness).every((value) => value !== null);
+  const priorityCounts = Object.values(priorities).every((value) => value !== null);
+  const consistent = rowsObserved !== null && completeCounts &&
+    Object.values(completeness).reduce((sum, value) => sum + value, 0) === rowsObserved;
+  const available = raw?.state === "AVAILABLE" &&
+    raw?.basis === "CANONICAL_ACCEPTED_ROWS" &&
+    raw?.authority === "PROJECTION_ONLY" && consistent &&
+    enrichmentPending !== null && priorityCounts;
+  return {
+    state: available ? "AVAILABLE" : "UNKNOWN",
+    basis: available ? "CANONICAL_ACCEPTED_ROWS" : "UNKNOWN",
+    authority: available ? "PROJECTION_ONLY" : "UNKNOWN",
+    observedAt: validTime(raw?.observedAt) == null ? null : raw.observedAt,
+    rowsObserved: available ? rowsObserved : null,
+    completeness: available ? completeness : Object.fromEntries([...COMPLETENESS_STATES].map((state) => [state, null])),
+    enrichment: {
+      state: available && enrichmentPending > 0 ? "ENRICHMENT_PENDING" : available ? "NONE" : "UNKNOWN",
+      pending: available ? enrichmentPending : null,
+      priorities: available ? priorities : { P1: null, P2: null, P3: null },
+    },
   };
 }
 
@@ -162,7 +204,7 @@ export function deriveLifecycleView(lifecycle, nowMs = Date.now()) {
 
 function sourceAggregateForHub(hub, nowMs = Date.now()) {
   const sources = hub?.sources || {};
-  const values = ["route", "preEntry", "busTime", "hbiPhotos"]
+  const values = ["route", "preEntry", "busTime", "hbiPhotos", "pno"]
     .map((key) => sources?.[key])
     .filter(hasSourceEvidence)
     .map((source) => deriveSourceView(source, nowMs))
@@ -261,8 +303,9 @@ export function deriveHubView(hub, nowMs = Date.now()) {
     preEntry: deriveSourceView(hub?.sources?.preEntry, nowMs),
     busTime: deriveSourceView(hub?.sources?.busTime, nowMs),
     hbiPhotos: deriveSourceView(hub?.sources?.hbiPhotos, nowMs),
+    pno: deriveSourceView(hub?.sources?.pno || { mode: "ON_DEMAND" }, nowMs),
   };
-  const connectorStates = [sources.route, sources.preEntry, sources.busTime, sources.hbiPhotos]
+  const connectorStates = [sources.route, sources.preEntry, sources.busTime, sources.hbiPhotos, sources.pno]
     .filter((source) => source.configured !== false)
     .filter((source) => source.mode !== "CLICK_ONLY" || source.state !== "UNKNOWN")
     .map((source) => source.state);
@@ -270,6 +313,7 @@ export function deriveHubView(hub, nowMs = Date.now()) {
   const sourceActionRequired = Object.values(sources).some((source) =>
     ["AUTH_REQUIRED", "ERROR", "CRITICAL", "BLOCKED"].includes(source.state));
   const queueLifecycle = deriveLifecycleView(hub?.lifecycle, nowMs);
+  const canonical = deriveCompletenessView(hub?.canonical);
   return {
     hub: code,
     overall,
@@ -277,6 +321,7 @@ export function deriveHubView(hub, nowMs = Date.now()) {
     preEntry: sources.preEntry.state,
     kitTbr: sources.busTime.state,
     hbi: sources.hbiPhotos.state,
+    pno: sources.pno.state,
     optionalSources: aggregateStates([sources.preEntry.state, sources.hbiPhotos.state]),
     connectorSession,
     sources,
@@ -285,6 +330,9 @@ export function deriveHubView(hub, nowMs = Date.now()) {
     accepted: { state: acceptedState, rows: acceptedState === "AVAILABLE" && Number.isInteger(hub?.accepted?.rows) ? hub.accepted.rows : null },
     queueHealth: queueLifecycle.state,
     queueLifecycle,
+    canonical,
+    completeness: canonical.completeness,
+    enrichment: canonical.enrichment,
     errorCode: /^[A-Z0-9_:-]{2,80}$/.test(String(hub?.errorCode || "")) ? String(hub.errorCode) : null,
     quota: "UNKNOWN",
     pendingAction: sourceActionRequired || ["ERROR", "CRITICAL", "BLOCKED", "AUTH_REQUIRED"].includes(overall) ? "REVIEW_REQUIRED" : "UNKNOWN",

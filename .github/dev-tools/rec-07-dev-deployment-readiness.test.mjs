@@ -16,8 +16,8 @@ const rec07Expected = Object.freeze({
 });
 const expected = Object.freeze({
   entrypointSha256: "3847b6a26565b3506376a8d1c0a519c7473e36686375b772668435b37136e2db",
-  stagedIndexSha256: "cda4113db3356f97dbc806fde93c44719f3b73a69b83eb96b2d3eaa2d350d15c",
-  runtimeTreeSha256: "cdd79e6eb3f6640274d29ab9df65b8375bd9a4b30d9b021f5605e831476f3c39",
+  stagedIndexSha256: "fa83d2e45ae39fc501020baec89d69a18261ed3ed6de56530d31ae273fd7864a",
+  runtimeTreeSha256: "723a592fc6ddc01969a93560373b3a35a3e62816445911ccabdf39e409cda060",
   runtimeFileCount: 23,
 });
 

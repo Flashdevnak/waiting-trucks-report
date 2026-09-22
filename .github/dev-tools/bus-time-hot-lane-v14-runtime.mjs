@@ -155,6 +155,56 @@ export function msLifecycleClass(row, nowMs = Date.now()) {
   return "ACTIVE";
 }
 
+export function msBusRequiredFields(row) {
+  const attendance = inboundAttendance(row?.attendanceType);
+  if (attendance === "OTHER") return [];
+  const state = Number(row?.unloadingState);
+  const released = attendance === "DROP" && Boolean(validIso(row?.actualDepartureAt));
+  const required = ["scheduleTbrArrivalAt"];
+  if (state === 1 || state === 2 || released)
+    required.push("scheduleUnloadingStartedAt");
+  if (state === 2 || released)
+    required.push("scheduleUnloadingCompletedAt");
+  return required;
+}
+
+export function isMsBusEvidenceComplete(row) {
+  const required = msBusRequiredFields(row);
+  return required.length === 0 || required.every((field) => Boolean(validIso(row?.[field])));
+}
+
+function msBusOccurrenceIdentity(row) {
+  const direct = String(row?.id || row?.routeId || "").trim();
+  if (direct) return direct;
+  const dayAnchor = [row?.actualArrivalAt, row?.scheduleTbrArrivalAt, row?.actualDepartureAt]
+    .map(validIso)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(a) - Date.parse(b))[0] || "";
+  return [
+    String(row?.routeName || "").trim().toUpperCase(),
+    dayAnchor ? dayAnchor.slice(0, 10) : String(row?.businessDay || "").slice(0, 10),
+  ].join("|");
+}
+
+function ambiguousMsBusKeys(rows) {
+  const identities = new Map();
+  for (const entry of Array.isArray(rows) ? rows : []) {
+    const row = entry?.row || entry;
+    const attendance = inboundAttendance(row?.attendanceType);
+    const proofId = String(row?.proofId || "").trim().toUpperCase();
+    if (attendance === "OTHER" || !proofId) continue;
+    const attendanceValue = attendance === "DESTINATION" ? "ปลายทาง" : "จุดดรอป";
+    const key = `P:${proofId}|A:${attendanceValue}`;
+    if (!identities.has(key)) identities.set(key, new Set());
+    identities.get(key).add(msBusOccurrenceIdentity(row));
+  }
+  return new Set(
+    [...identities.entries()]
+      .filter(([, values]) => values.size > 1)
+      .map(([key]) => key),
+  );
+}
+
 export function deriveMsTbrProjection(row, {
   sourceEvaluated = false,
   sourceUnavailable = false,
@@ -169,31 +219,42 @@ export function deriveMsTbrProjection(row, {
   priority = "",
 } = {}) {
   const attendance = inboundAttendance(row?.attendanceType);
-  let state;
-  if (attendance === "OTHER") state = MS_FIELD_EVIDENCE.NOT_APPLICABLE;
-  else if (validIso(row?.scheduleTbrArrivalAt)) state = MS_FIELD_EVIDENCE.OBSERVED;
-  else if (sourceUnavailable) state = MS_FIELD_EVIDENCE.SOURCE_UNAVAILABLE;
-  else if (sourceEvaluated) state = MS_FIELD_EVIDENCE.MISSING_UNCONFIRMED;
-  else state = MS_FIELD_EVIDENCE.UNKNOWN;
-  const evidence = createMsFieldEvidence({
-    field: "scheduleTbrArrivalAt",
-    state,
-    source: "BUS_TIME",
-    valueTimestamp: row?.scheduleTbrArrivalAt,
-    observedAt,
-    fetchedAt,
-    acceptedAt,
-    sourceCode,
-    boundary,
-    enrichmentOrigin,
-    backfill,
-  });
-  const dataCompleteness = deriveMsDataCompleteness([evidence]);
+  const required = new Set(msBusRequiredFields(row));
+  const fieldEvidence = {};
+  for (const field of [
+    "scheduleTbrArrivalAt",
+    "scheduleUnloadingStartedAt",
+    "scheduleUnloadingCompletedAt",
+  ]) {
+    let state;
+    if (attendance === "OTHER" || !required.has(field))
+      state = MS_FIELD_EVIDENCE.NOT_APPLICABLE;
+    else if (validIso(row?.[field])) state = MS_FIELD_EVIDENCE.OBSERVED;
+    else if (sourceUnavailable) state = MS_FIELD_EVIDENCE.SOURCE_UNAVAILABLE;
+    else if (sourceEvaluated) state = MS_FIELD_EVIDENCE.MISSING_UNCONFIRMED;
+    else state = MS_FIELD_EVIDENCE.UNKNOWN;
+    fieldEvidence[field] = createMsFieldEvidence({
+      field,
+      state,
+      source: "BUS_TIME",
+      valueTimestamp: row?.[field],
+      observedAt,
+      fetchedAt,
+      acceptedAt,
+      sourceCode,
+      boundary,
+      enrichmentOrigin,
+      backfill,
+    });
+  }
+  const dataCompleteness = deriveMsDataCompleteness(
+    [...required].map((field) => fieldEvidence[field]),
+  );
   const lifecycle = msLifecycleClass(row, nowMs);
   const pending =
     attendance !== "OTHER" && dataCompleteness !== MS_DATA_COMPLETENESS.COMPLETE;
   return {
-    fieldEvidence: { scheduleTbrArrivalAt: evidence },
+    fieldEvidence,
     dataCompleteness,
     enrichmentState: pending ? MS_ENRICHMENT_PENDING : "",
     enrichmentPriority: pending
@@ -210,6 +271,7 @@ export function planMsTbrEnrichment(rows, {
   p2Limit = BUS_TIME_P2_MAX_ROWS_PER_CYCLE,
   p2Offset = 0,
 } = {}) {
+  const ambiguousKeys = ambiguousMsBusKeys(rows);
   const unique = new Map();
   for (const row of Array.isArray(rows) ? rows : []) {
     const attendance = inboundAttendance(row?.attendanceType);
@@ -217,10 +279,10 @@ export function planMsTbrEnrichment(rows, {
     if (attendance === "OTHER" || !proofId) continue;
     const attendanceValue = attendance === "DESTINATION" ? "ปลายทาง" : "จุดดรอป";
     const key = `P:${proofId}|A:${attendanceValue}`;
+    if (ambiguousKeys.has(key)) continue;
     const cached = cache instanceof Map ? cache.get(key) : null;
-    const tbr = validIso(row?.scheduleTbrArrivalAt || cached?.scheduleTbrArrivalAt);
-    if (tbr || unique.has(key)) continue;
-    const normalized = { ...row, attendanceType: attendanceValue };
+    const normalized = { ...row, ...cached, attendanceType: attendanceValue };
+    if (isMsBusEvidenceComplete(normalized) || unique.has(key)) continue;
     unique.set(key, {
       key,
       row: normalized,
@@ -247,6 +309,7 @@ export function planMsTbrEnrichment(rows, {
     unresolved: unique.size,
     p1Unresolved: p1.length,
     p2Unresolved: allP2.length,
+    ambiguousKeys,
   };
 }
 
@@ -256,6 +319,7 @@ export function planMsP3Backfill(rows, {
   excludedKeys = new Set(),
   limit = BUS_TIME_P3_MAX_ROWS_PER_CYCLE,
 } = {}) {
+  const ambiguousKeys = ambiguousMsBusKeys(rows);
   const wantedHub = String(hub || "").trim().toUpperCase();
   const boundedLimit = Math.max(
     0,
@@ -278,6 +342,7 @@ export function planMsP3Backfill(rows, {
     if (attendance === "OTHER" || !proofId) continue;
     const attendanceValue = attendance === "DESTINATION" ? "ปลายทาง" : "จุดดรอป";
     const key = `P:${proofId}|A:${attendanceValue}`;
+    if (ambiguousKeys.has(key)) continue;
     const evidence = row?.fieldEvidence?.scheduleTbrArrivalAt;
     if (
       validIso(row?.scheduleTbrArrivalAt) ||
@@ -315,6 +380,7 @@ export function planMsP3Backfill(rows, {
           routeId: batchEnd.routeId,
         }
       : null,
+    ambiguousKeys,
   };
 }
 
@@ -490,6 +556,7 @@ export function createBusTimeHotLane(deps) {
         busDeduplicatedReaders: 0,
         busBudgetExhausted: false,
         previousActiveKeys: new Set(),
+        ambiguousKeys: new Set(),
         acceptedRouteHints: [],
         rateLeaseLoaded: false,
         rateLeasePresent: false,
@@ -942,21 +1009,29 @@ export function createBusTimeHotLane(deps) {
       if (!attendance) continue;
       const key = `P:${proofKey}|A:${attendance}`;
       const current = state.cache.get(key) || {};
-      const cycle = state.cycleSchedule.get(key) || { start: "", end: "", ambiguous: false };
+      const cycle = state.cycleSchedule.get(key) || { start: "", end: "", routeName: "", ambiguous: false };
+      const routeName = String(nestedValue(item.line_info, 0) || "").slice(0, 300);
       const kit = msDate(nestedValue(item.kit_arrive_time, 0));
       const tbr = extractBusTbrAtV28(item.fleet_sign_info, msDate);
       const start = parseUnloadingStart(item.fleet_unloading_time);
       const end = parseUnloadingEnd(item.fleet_unloading_time);
       const conflictStart = Boolean(cycle.start) && Boolean(start) && cycle.start !== start;
       const conflictEnd = Boolean(cycle.end) && Boolean(end) && cycle.end !== end;
-      const ambiguous = Boolean(cycle.ambiguous) || conflictStart || conflictEnd;
+      const conflictRoute = Boolean(cycle.routeName) && Boolean(routeName) && cycle.routeName !== routeName;
+      const ambiguous = Boolean(cycle.ambiguous) || conflictStart || conflictEnd || conflictRoute;
+      if (ambiguous) state.ambiguousKeys.add(key);
       const cycleStart = start || cycle.start || "";
       const cycleEnd = end || cycle.end || "";
-      state.cycleSchedule.set(key, { start: cycleStart, end: cycleEnd, ambiguous });
+      state.cycleSchedule.set(key, {
+        start: cycleStart,
+        end: cycleEnd,
+        routeName: routeName || cycle.routeName || "",
+        ambiguous,
+      });
       const next = {
         ...current,
         proofId: String(proofId || "").slice(0, 100),
-        routeName: String(nestedValue(item.line_info, 0) || current.routeName || "").slice(0, 300),
+        routeName: routeName || current.routeName || "",
         scheduleKitArrivalAt: earliestDate(current.scheduleKitArrivalAt, kit),
         scheduleTbrArrivalAt: earliestDate(current.scheduleTbrArrivalAt, tbr),
         arrivedParcels: Math.max(
@@ -1049,7 +1124,13 @@ export function createBusTimeHotLane(deps) {
         priority: context.priority || "",
       });
       state.cache.set(key, { ...current, ...projection, proofId: merged.proofId,
-        scheduleTbrArrivalAt: merged.scheduleTbrArrivalAt });
+        scheduleTbrArrivalAt: merged.scheduleTbrArrivalAt,
+        scheduleUnloadingStartedAt: String(
+          current.scheduleUnloadingStartedAt || row?.scheduleUnloadingStartedAt || "",
+        ),
+        scheduleUnloadingCompletedAt: String(
+          current.scheduleUnloadingCompletedAt || row?.scheduleUnloadingCompletedAt || "",
+        ) });
       state.seen.set(key, now());
     }
   }
@@ -1060,6 +1141,7 @@ export function createBusTimeHotLane(deps) {
     state.cache.retryAt = state.cooldownUntil > now()
       ? new Date(state.cooldownUntil).toISOString()
       : "";
+    state.cache.ambiguousKeys = new Set(state.ambiguousKeys);
     return state.cache;
   }
 
@@ -1491,6 +1573,7 @@ export function createBusTimeHotLane(deps) {
         p2Limit: BUS_TIME_P2_MAX_ROWS_PER_CYCLE,
         p2Offset: state.p2Offset,
       });
+      state.ambiguousKeys = new Set(plan.ambiguousKeys);
       state.p2Offset = plan.nextP2Offset;
       const p1Rows = plan.p1.map((item) => item.row);
       const p2Rows = plan.p2.map((item) => item.row);
@@ -1507,8 +1590,12 @@ export function createBusTimeHotLane(deps) {
       const newlyActive = [...activeKeys].some(
         (activeKey) => !state.previousActiveKeys.has(activeKey),
       );
-      let missingKeys = [...activeKeys].filter(
-        (activeKey) => !validIso(state.cache.get(activeKey)?.scheduleTbrArrivalAt),
+      const activeByKey = new Map(plan.p1.map((item) => [item.key, item.row]));
+      let missingKeys = [...activeKeys].filter((activeKey) =>
+        !isMsBusEvidenceComplete({
+          ...(activeByKey.get(activeKey) || {}),
+          ...(state.cache.get(activeKey) || {}),
+        }),
       );
       state.previousActiveKeys = activeKeys;
 
@@ -1623,8 +1710,11 @@ export function createBusTimeHotLane(deps) {
         state.lastHotAt = now();
       }
 
-      missingKeys = [...activeKeys].filter(
-        (activeKey) => !validIso(state.cache.get(activeKey)?.scheduleTbrArrivalAt),
+      missingKeys = [...activeKeys].filter((activeKey) =>
+        !isMsBusEvidenceComplete({
+          ...(activeByKey.get(activeKey) || {}),
+          ...(state.cache.get(activeKey) || {}),
+        }),
       );
       const missing = missingKeys.length;
       if (missing > 0) state.busCacheMisses += missing;

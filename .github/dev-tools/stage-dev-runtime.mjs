@@ -63,6 +63,9 @@ import { patchMsHistoryPointInTimeWorker } from "./patch-ms-history-point-in-tim
 import { patchMsRec04HistoryFreshness } from "./patch-ms-rec04-history-freshness.mjs";
 import { patchSupervisorRec05Projection } from "./patch-supervisor-rec05-projection.mjs";
 import { patchDevLiveRouteRecoveryHotfix } from "./patch-dev-live-route-recovery-hotfix.mjs";
+import {
+  patchDevAuxiliaryEvidenceFrontend,
+} from "./patch-dev-auxiliary-evidence-completeness.mjs";
 // V29_SYNC_CLAIM_HOTFIX_GATE: shared sync-claim helpers must survive V29 staging.
 // V29_STAGE_CONTRACT_HOTFIX: retain prior completed-cache truth marker while staging V29.
 import {
@@ -85,6 +88,9 @@ const devTbrSplitV2Patch = fileURLToPath(
 // BUS_TIME_HOT_LANE_V14_STAGE: normal DEV staging always applies the BusTime hot lane.
 const devBusTimeHotLaneV14Patch = fileURLToPath(
   new URL("./patch-bus-time-hot-lane-v14.mjs", import.meta.url),
+);
+const devAuxiliaryEvidencePatch = fileURLToPath(
+  new URL("./patch-dev-auxiliary-evidence-completeness.mjs", import.meta.url),
 );
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -420,6 +426,7 @@ export function stageFrontend(source) {
   output = patchPnoV28PendingIntersection(output);
   output = patchTbrSeedV28Frontend(output);
   output = patchLiveEvidenceV29Frontend(output);
+  output = patchDevAuxiliaryEvidenceFrontend(output);
   return output;
 }
 
@@ -508,11 +515,16 @@ if (invokedPath) {
   execFileSync(process.execPath, [devBusTimeHotLaneV14Patch, workerTarget], {
     stdio: "inherit",
   });
+  execFileSync(process.execPath, [devAuxiliaryEvidencePatch, workerTarget], {
+    stdio: "inherit",
+  });
   const busTimeHotLaneWorker = await readFile(workerTarget, "utf8");
   if (!busTimeHotLaneWorker.includes("BUS_TIME_HOT_LANE_V14"))
     throw new Error("DEV BusTime hot-lane marker missing after staging");
   if (busTimeHotLaneWorker.includes("BUS_TIME_SOURCE_TTL_MS = 60 * 1000"))
     throw new Error("DEV BusTime reverted to fake 60-second source TTL");
+  if (!busTimeHotLaneWorker.includes("DEV_AUXILIARY_EVIDENCE_COMPLETENESS_V1"))
+    throw new Error("DEV auxiliary-evidence completeness marker missing after staging");
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");

@@ -62,6 +62,7 @@ import { patchLiveEvidenceV29Frontend, patchLiveEvidenceV29Worker } from "./patc
 import { patchMsHistoryPointInTimeWorker } from "./patch-ms-history-point-in-time-v1.mjs";
 import { patchMsRec04HistoryFreshness } from "./patch-ms-rec04-history-freshness.mjs";
 import { patchSupervisorRec05Projection } from "./patch-supervisor-rec05-projection.mjs";
+import { patchDevLiveRouteRecoveryHotfix } from "./patch-dev-live-route-recovery-hotfix.mjs";
 // V29_SYNC_CLAIM_HOTFIX_GATE: shared sync-claim helpers must survive V29 staging.
 // V29_STAGE_CONTRACT_HOTFIX: retain prior completed-cache truth marker while staging V29.
 import {
@@ -460,6 +461,7 @@ export function stageWorker(source) {
   output = patchMsHistoryPointInTimeWorker(output);
   output = patchMsRec04HistoryFreshness(output);
   output = patchSupervisorRec05Projection(output);
+  output = patchDevLiveRouteRecoveryHotfix(output);
   return output;
 }
 

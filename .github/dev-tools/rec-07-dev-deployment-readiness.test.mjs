@@ -8,10 +8,16 @@ import { fileURLToPath } from "node:url";
 import { buildExactDevRuntime } from "./build-exact-dev-runtime.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
-const expected = Object.freeze({
+const rec07Expected = Object.freeze({
   entrypointSha256: "3847b6a26565b3506376a8d1c0a519c7473e36686375b772668435b37136e2db",
   stagedIndexSha256: "fff97c3138c27b56ca8884238e69d6ee75e925e9ff655aa863806055b966b764",
   runtimeTreeSha256: "4ba09bfaeed2e9e79ce2e4c132e76e1b0e165a919d308c0ac233dc811b34545f",
+  runtimeFileCount: 23,
+});
+const expected = Object.freeze({
+  entrypointSha256: "3847b6a26565b3506376a8d1c0a519c7473e36686375b772668435b37136e2db",
+  stagedIndexSha256: "cda4113db3356f97dbc806fde93c44719f3b73a69b83eb96b2d3eaa2d350d15c",
+  runtimeTreeSha256: "cdd79e6eb3f6640274d29ab9df65b8375bd9a4b30d9b021f5605e831476f3c39",
   runtimeFileCount: 23,
 });
 
@@ -27,7 +33,7 @@ test("REC-07 locks the exact local DEV deployment handoff", async (context) => {
   ]);
   const config = JSON.parse(configSource);
 
-  await context.test("authoritative builder reproduces the REC-06 artifact", async () => {
+  await context.test("authoritative builder reproduces the post-REC-08 hotfix artifact", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "rec-07-builder-"));
     const isolatedRepo = resolve(temporaryRoot, "repo");
     try {
@@ -87,9 +93,9 @@ test("REC-07 locks the exact local DEV deployment handoff", async (context) => {
       "waiting-trucks-report-api-dev",
       "worker/wrangler.dev.jsonc",
       "worker/.dev-runtime/src/turso-index.js",
-      expected.entrypointSha256,
-      expected.stagedIndexSha256,
-      expected.runtimeTreeSha256,
+      rec07Expected.entrypointSha256,
+      rec07Expected.stagedIndexSha256,
+      rec07Expected.runtimeTreeSha256,
       "Runtime file count | `23`",
       "D1 bindings | `0`",
       "Deployment: NOT PERFORMED",

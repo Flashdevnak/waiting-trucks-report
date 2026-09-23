@@ -71,6 +71,10 @@ import {
   patchPnoDetailAffordanceFrontendV30,
   patchPnoDetailAffordanceWorkerV30,
 } from "./patch-pno-detail-affordance-recovery.mjs";
+import {
+  patchPnoInboundScanEvidenceFrontend,
+  patchPnoInboundScanEvidenceWorker,
+} from "./patch-pno-inbound-scan-evidence.mjs";
 // V29_SYNC_CLAIM_HOTFIX_GATE: shared sync-claim helpers must survive V29 staging.
 // V29_STAGE_CONTRACT_HOTFIX: retain prior completed-cache truth marker while staging V29.
 import {
@@ -176,6 +180,12 @@ export function patchDevUiShellSource(source, currentPage) {
     /href=(['"])style\.css(?:\?[^'\"]*)?\1/,
     `href="${DEV_STYLE_HREF}"`,
   );
+  if (currentPage === "ms.html") {
+    // The DEV modal script changed; ensure browsers acquire this version when
+    // an owner later deploys the explicitly approved DEV runtime.
+    output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
+      'src="ms.js?v=20260924-pno-inbound-evidence-v1"');
+  }
   if (currentPage === "proof.html") {
     output = output.replace(
       /<title>จัดการเส้นทางเดินรถ MS<\/title>/,
@@ -433,6 +443,7 @@ export function stageFrontend(source) {
   output = patchLiveEvidenceV29Frontend(output);
   output = patchDevAuxiliaryEvidenceFrontend(output);
   output = patchPnoDetailAffordanceFrontendV30(output);
+  output = patchPnoInboundScanEvidenceFrontend(output);
   return output;
 }
 
@@ -528,7 +539,7 @@ if (invokedPath) {
   const auxiliaryWorker = await readFile(workerTarget, "utf8");
   await writeFile(
     workerTarget,
-    patchPnoDetailAffordanceWorkerV30(auxiliaryWorker),
+    patchPnoInboundScanEvidenceWorker(patchPnoDetailAffordanceWorkerV30(auxiliaryWorker)),
     "utf8",
   );
   const busTimeHotLaneWorker = await readFile(workerTarget, "utf8");

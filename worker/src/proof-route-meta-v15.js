@@ -1,3 +1,4 @@
+import { proofMsBrowserHeaders } from './proof-control.js';
 const META_TTL_MS = 4 * 60 * 60_000;
 const META_SWEEP_MS = 60_000;
 const META_BATCH = 20;
@@ -182,19 +183,7 @@ async function decryptMs(value, env) {
   return new TextDecoder().decode(data);
 }
 
-function msHeaders(credentials) {
-  return {
-    Accept:'application/json, text/plain, */*',
-    'Accept-Language':'th',
-    'Cache-Control':'no-cache',
-    Origin:'https://ms.flashexpress.com',
-    Referer:'https://ms.flashexpress.com/',
-    'User-Agent':'Mozilla/5.0',
-    'X-DEVICE-ID':credentials.deviceId,
-    'X-FH-MS-EQUIPMENT-TYPE':'5',
-    'X-FLE-SESSION-ID':credentials.sessionId,
-  };
-}
+function msHeaders(credentials) { return proofMsBrowserHeaders(credentials); }
 
 async function ensureSchema(env) {
   if (schemaReady) return schemaReady;

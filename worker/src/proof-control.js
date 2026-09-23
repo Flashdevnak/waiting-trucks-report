@@ -351,17 +351,50 @@ async function readMsJson(response, code) {
 }
 
 function msHeaders(credentials) {
-  return {
-    Accept: 'application/json, text/plain, */*',
-    'Accept-Language': 'th',
-    'Cache-Control': 'no-cache',
+  return proofMsBrowserHeaders(credentials);
+}
+
+// Match Route's versioned MS device envelope and its browser-context allowlist.
+export function proofMsBrowserHeaders(credentials) {
+  const allowed = new Set(['user-agent', 'accept', 'accept-language', 'cache-control', 'pragma',
+    'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'cookie', 'x-fh-ms-equipment-type']);
+  function contextHeaders(value) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const result = {};
+    for (const [rawName, rawValue] of Object.entries(source)) {
+      const name = String(rawName || '').trim().toLowerCase();
+      if (!allowed.has(name)) continue;
+      const text = String(rawValue ?? '').trim().slice(0, name === 'cookie' ? 8000 : 1500);
+      if (text) result[name] = text;
+    }
+    return result;
+  }
+  let deviceId = String(credentials?.deviceId || '');
+  let context = contextHeaders(credentials?.browserContext);
+  if (!Object.keys(context).length && deviceId.trim().startsWith('{')) {
+    try {
+      const envelope = JSON.parse(deviceId);
+      if (envelope?.v === 2 && typeof envelope.deviceId === 'string' && envelope.deviceId) {
+        deviceId = envelope.deviceId;
+        context = contextHeaders(envelope.browserContext);
+      }
+    } catch { /* Legacy plaintext device ID. */ }
+  }
+  const headers = {
+    Accept: context.accept || 'application/json, text/plain, */*',
+    'Accept-Language': context['accept-language'] || 'th',
+    'Cache-Control': context['cache-control'] || 'no-cache',
     Origin: 'https://ms.flashexpress.com',
     Referer: 'https://ms.flashexpress.com/',
-    'User-Agent': 'Mozilla/5.0',
-    'X-DEVICE-ID': credentials.deviceId,
-    'X-FH-MS-EQUIPMENT-TYPE': '5',
+    'User-Agent': context['user-agent'] || 'Mozilla/5.0',
+    'X-DEVICE-ID': deviceId,
+    'X-FH-MS-EQUIPMENT-TYPE': context['x-fh-ms-equipment-type'] || '5',
     'X-FLE-SESSION-ID': credentials.sessionId,
   };
+  for (const name of ['pragma', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'cookie']) {
+    if (context[name]) headers[name] = context[name];
+  }
+  return headers;
 }
 
 async function msCredentials(env, hub) {

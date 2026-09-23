@@ -1,3 +1,4 @@
+import { proofMsBrowserHeaders } from './proof-control.js';
 export async function maybeHandleProofPlateSearchV5(request, env, ctx, baseWorker) {
   const url = new URL(request.url);
   if (url.pathname !== '/api/proof/plate-options') return null;
@@ -152,19 +153,7 @@ async function readMsJson(response, code) {
   return payload;
 }
 
-function msHeaders(c) {
-  return {
-    Accept: 'application/json, text/plain, */*',
-    'Accept-Language': 'th',
-    'Cache-Control': 'no-cache',
-    Origin: 'https://ms.flashexpress.com',
-    Referer: 'https://ms.flashexpress.com/',
-    'User-Agent': 'Mozilla/5.0',
-    'X-DEVICE-ID': c.deviceId,
-    'X-FH-MS-EQUIPMENT-TYPE': '5',
-    'X-FLE-SESSION-ID': c.sessionId,
-  };
-}
+function msHeaders(c) { return proofMsBrowserHeaders(c); }
 
 function cleanHub(v) { return text(v, 80).toUpperCase(); }
 function cleanDay(v) { const s = text(v, 20); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''; }

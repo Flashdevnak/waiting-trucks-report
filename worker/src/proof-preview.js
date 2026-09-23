@@ -1,3 +1,4 @@
+import { proofMsBrowserHeaders } from './proof-control.js';
 export async function maybeHandleProofPreview(request, env, ctx, baseWorker) {
   const url = new URL(request.url);
   if (url.pathname !== '/api/proof/print-preview') return null;
@@ -110,19 +111,7 @@ async function decryptMs(value, env) {
   return new TextDecoder().decode(data);
 }
 
-function msHeaders(credentials) {
-  return {
-    Accept: 'application/json, text/plain, */*',
-    'Accept-Language': 'th',
-    'Cache-Control': 'no-cache',
-    Origin: 'https://ms.flashexpress.com',
-    Referer: 'https://ms.flashexpress.com/',
-    'User-Agent': 'Mozilla/5.0',
-    'X-DEVICE-ID': credentials.deviceId,
-    'X-FH-MS-EQUIPMENT-TYPE': '5',
-    'X-FLE-SESSION-ID': credentials.sessionId,
-  };
-}
+function msHeaders(credentials) { return proofMsBrowserHeaders(credentials); }
 
 function cleanHub(value) { return text(value, 80).toUpperCase(); }
 function cleanDay(value) {

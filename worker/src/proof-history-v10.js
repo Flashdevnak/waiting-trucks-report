@@ -1,3 +1,4 @@
+import { proofMsBrowserHeaders } from './proof-control.js';
 export async function maybeHandleProofHistoryV10(request, env, ctx, baseWorker) {
   const url = new URL(request.url);
   if (!['/api/proof/history', '/api/proof/history-pdf'].includes(url.pathname)) return null;
@@ -77,7 +78,7 @@ async function authorize(token, branch, env, baseWorker) {
 }
 async function msCredentials(env, hub) { const row = await env.DB.prepare('SELECT session_cipher,device_cipher FROM ms_connections WHERE hub=?').bind(hub).first(); if (row) return { sessionId: await decryptMs(row.session_cipher, env), deviceId: await decryptMs(row.device_cipher, env) }; if (hub === cleanHub(env.MS_BRANCH || 'NE1') && env.MS_SESSION_ID && env.MS_DEVICE_ID) return { sessionId: env.MS_SESSION_ID, deviceId: env.MS_DEVICE_ID }; return null; }
 async function decryptMs(value, env) { const [iv, cipher] = String(value || '').split('.'); if (!iv || !cipher) fail('ข้อมูลเชื่อมต่อ MS เสียหาย', 'MS_CREDENTIAL_ERROR', 500); const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${env.AUTH_SECRET}|ms-credentials`)); const key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']); const data = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv) }, key, unb64(cipher)); return new TextDecoder().decode(data); }
-function msHeaders(c) { return { Accept: 'application/json, text/plain, */*', 'Accept-Language': 'th', 'Cache-Control': 'no-cache', Origin: 'https://ms.flashexpress.com', Referer: 'https://ms.flashexpress.com/', 'User-Agent': 'Mozilla/5.0', 'X-DEVICE-ID': c.deviceId, 'X-FH-MS-EQUIPMENT-TYPE': '5', 'X-FLE-SESSION-ID': c.sessionId }; }
+function msHeaders(c) { return proofMsBrowserHeaders(c); }
 function bangkokDayOffset(delta) { const d = new Date(Date.now() + delta * 86400000); return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); }
 function formatBangkok(value) { const ms = Date.parse(value || ''); if (!Number.isFinite(ms)) return ''; return new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(ms)); }
 function safeObject(value) { try { const v = JSON.parse(value || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } }

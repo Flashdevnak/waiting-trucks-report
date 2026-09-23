@@ -295,5 +295,5 @@ test("new tab follows Backing, shows only suspected/insufficient, and renders wi
   assert.match(stagedWorker, /json\.data\.DataList\.length <= PNO_PAGE_SIZE/);
   assert.match(stagedWorker, /json\.data\.DataList\.length <= Number\(json\.data\.Total\)/);
   const html = patchDevUiShellSource(readFileSync(new URL("../../ms.html", import.meta.url), "utf8"), "ms.html");
-  assert.match(html, /ms\.js\?v=20260924-pno-inbound-evidence-v1/);
+  assert.match(html, /ms\.js\?v=20260924-pno-pending-reconcile-v1/);
 });

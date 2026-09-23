@@ -163,6 +163,7 @@ test("one click begins exactly one open action and Enter/Space are supported", a
 
 test("one explicit load issues one bounded detail request", async () => {
   let requests = 0;
+  let projections = 0;
   const context = {
     pnoV18SourceRow: () => completedDestination(),
     pnoV18State: { proofId: "", day: "", force: false },
@@ -171,6 +172,7 @@ test("one explicit load issues one bounded detail request", async () => {
     pnoV18CacheSet: (_map, _key, result) => result,
     pnoV18ViewCache: new Map(),
     browserPnoPage: async (_row, type, page) => { requests += 1; return { type, page }; },
+    pnoPendingPropagatePositive: () => { projections += 1; },
   };
   vm.createContext(context);
   vm.runInContext(
@@ -180,6 +182,7 @@ test("one explicit load issues one bounded detail request", async () => {
   const result = await context.fetchOne("no_entry", 1);
   assert.deepEqual({ ...result }, { type: "no_entry", page: 1 });
   assert.equal(requests, 1);
+  assert.equal(projections, 1);
 });
 
 test("staged worker restores exact single-segment locator without coupling can_report", () => {

@@ -40,16 +40,16 @@ test("V27 multi-drop summary dedupes repeated source rows and sums unique segmen
   assert.equal(grouped.get("AYU1TS8R72")?.expectedParcels, 355, "duplicate pages must not double 355");
 });
 
-test("V27 staged frontend uses corrected V25 truth and copy removes status while bag copy includes latest", () => {
+test("V27 bag copy keeps latest action while parcel copy names current evidence state", () => {
   const front = stageFrontend(frontendSource);
   assert.match(front, /PNO_MODAL_COPY_MULTIDROP_TRUTH_V27/);
-  assert.match(front, /pnoOperationalSummaryForRow\(row\)/);
+  assert.match(front, /const truth = pnoOperationalRawSummary\(row\)/);
   assert.match(front, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "สาขาถัดไป"\]/);
-  assert.match(front, /\["#", "PNO", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"\]/);
+  assert.match(front, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"\]/);
   const copyStart = front.indexOf("async function pnoV18Copy()");
   const copyEnd = front.indexOf("function pnoV18LineCell", copyStart);
   const copy = front.slice(copyStart, copyEnd);
-  assert.doesNotMatch(copy, /"สถานะ"/);
+  assert.match(copy, /pnoV18ParcelStatus\(row\)/);
 });
 
 test("V27 Backing HUB uses route next_store_name and never emits หลาย HUB", () => {

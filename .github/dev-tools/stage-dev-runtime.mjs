@@ -184,7 +184,7 @@ export function patchDevUiShellSource(source, currentPage) {
     // The DEV modal script changed; ensure browsers acquire this version when
     // an owner later deploys the explicitly approved DEV runtime.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20260924-pno-inbound-evidence-v1"');
+      'src="ms.js?v=20260924-pno-pending-reconcile-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(

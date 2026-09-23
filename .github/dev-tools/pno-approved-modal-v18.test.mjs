@@ -88,11 +88,12 @@ test("V18 preserves the staged row-object PNO opener contract", () => {
   assert.doesNotMatch(opener, /String\(row\s*\|\|/);
 });
 
-test("V28 modal summary stays bound to clicked row through corrected pending-membership truth", () => {
+test("modal summary stays bound to clicked row and authoritative PreEntry counts", () => {
   const source = staged.slice(staged.indexOf("function pnoV18SourceRow"), staged.indexOf("function pnoV18EnsureUi"));
   assert.match(source, /pnoV18State\.sourceRow/);
   const summary = staged.slice(staged.indexOf("function pnoV18RenderSummary"), staged.indexOf("function pnoV18SetActive"));
-  assert.match(summary, /const truth = typeof pnoOperationalSummaryForRow === "function"/);
+  assert.match(summary, /const truth = pnoOperationalRawSummary\(row\)/);
+  assert.doesNotMatch(summary, /pnoOperationalSummaryForRow\(row\)/);
   assert.match(summary, /truth\?\.expected \?\? row\?\.expectedParcels/);
   assert.match(summary, /truth\?\.entered \?\? row\?\.enteredParcels/);
   assert.match(summary, /truth\?\.pending \?\? row\?\.pendingParcels/);
@@ -182,7 +183,8 @@ test("V27/V28 table UX keeps display detail while copy uses latest-only and one 
   assert.match(staged, /function pnoV18WriteClipboard/);
   assert.match(staged, /พร้อมวางใน Excel\/Sheets/);
   const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
-  assert.match(copy, /\["#", "PNO", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"\]/);
+  assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"\]/);
+  assert.match(copy, /pnoV18ParcelStatus\(row\)/);
   assert.match(copy, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "สาขาถัดไป"\]/);
   assert.doesNotMatch(copy, /"สถานะ"/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);

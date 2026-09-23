@@ -7,6 +7,12 @@ function replaceUnique(source, before, after, label) {
   return source.slice(0, start) + after + source.slice(start + before.length);
 }
 
+function replaceCount(source, before, after, expected, label) {
+  const actual = source.split(before).length - 1;
+  if (actual !== expected) throw new Error(`${MARKER}: ${label} expected ${expected} anchors, found ${actual}`);
+  return source.split(before).join(after);
+}
+
 export function patchPnoInboundScanEvidenceWorker(source) {
   let output = String(source || "");
   if (output.includes(MARKER)) return output;
@@ -78,6 +84,12 @@ const SESSION_MS = 180 * 86400000;`, "module import");
       type: locator.type,`,
     "cache projection segment identity");
   output = replaceUnique(output,
+    `      source: "FBI_DETAIL_DIRECT",
+      sourceCountMismatch,`,
+    `      source: "FBI_DETAIL_DIRECT",
+      sourceValid: detail?.sourceValid === true,
+      sourceCountMismatch,`, "expose detail validity without rewriting totals");
+  output = replaceUnique(output,
     `    total: Number(json.data?.Total) || 0,
     canReport: pnoCanReport,`,
     `    total: Number(json.data?.Total) || 0,
@@ -106,6 +118,69 @@ export function patchPnoInboundScanEvidenceFrontend(source) {
     `      if (type === "bag") void pnoV18LoadBags();
       else if (type === "scan_gap") void pnoInboundLoad(1);
       else void pnoV18Load(type, 1);`, "tab click");
+  // Include the exact segment in the browser cache beneath the modal cache.
+  output = replaceUnique(output,
+    `    String(type || ""),
+    row?.pnoCanReport === true ? "1" : "0",
+  ].join("|");`,
+    `    String(type || ""),
+    row?.pnoCanReport === true ? "1" : "0",
+    String(row?.pnoLineId || row?.pnoVanLineId || ""),
+    String(row?.pnoStoreId || ""),
+    String(row?.pnoNextStoreId || ""),
+  ].join("|");`, "browser page cache segment");
+  output = replaceUnique(output,
+    `  for (const pool of pools) {
+    const row = pool.find((item) =>
+      (sourceId && String(item?.id || "").trim() === sourceId) ||
+      String(item?.proofId || "").trim().toUpperCase() === proof
+    );
+    if (row) return row;
+  }
+  return pnoV18State.sourceRow || null;`,
+    `  if (!sourceId) return pnoV18State.sourceRow || null;
+  for (const pool of pools) {
+    const row = pool.find((item) => String(item?.id || "").trim() === sourceId);
+    if (!row) continue;
+    const prior = pnoV18State.sourceRow;
+    if (prior && ["pnoSourceDay", "pnoLineId", "pnoVanLineId", "pnoStoreId", "pnoNextStoreId"]
+      .some((field) => String(row?.[field] || "") !== String(prior?.[field] || ""))) return null;
+    return row;
+  }
+  return pnoV18State.sourceRow || null;`, "source row exact segment or fail closed");
+  output = replaceUnique(output,
+    `  const truth = pnoOperationalSummaryForRow(row);
+  const expected = truth.expected;`,
+    `  const truth = pnoOperationalRawSummary(row);
+  const expected = truth.expected;`, "PreEntry card authority");
+  output = replaceUnique(output,
+    `  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+// PNO_ROUND2_UI_V2`,
+    `  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : null;
+}
+
+// PNO_ROUND2_UI_V2`, "unknown PreEntry count remains unknown");
+  output = replaceUnique(output,
+    `function pnoV18Number(value) {
+  const number = Number(value);`,
+    `function pnoV18Number(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);`, "unknown modal count remains unknown");
+  output = replaceCount(output,
+    `  const truth = typeof pnoOperationalSummaryForRow === "function"
+    ? pnoOperationalSummaryForRow(row)
+    : null;`,
+    `  const truth = pnoOperationalRawSummary(row);`, 2, "PreEntry modal and LINE authority");
+  output = replaceUnique(output,
+    `    '<div id="pno-v18-filterbar" class="pno-v18-filterbar hidden"></div>' +`,
+    `    '<div id="pno-pending-reconciliation" class="hidden" role="status" style="padding:10px 16px;background:#fff7dd;border-bottom:1px solid #d9c870;font-size:12px;line-height:1.5"></div>' +
+    '<div id="pno-v18-filterbar" class="pno-v18-filterbar hidden"></div>' +`,
+    "page scoped note");
 
   const helpers = `// ${MARKER}: shows only persisted/current evidence already acquired by
 // an explicit shared route_followstart_list detail read. No curl_pno calls.
@@ -202,5 +277,135 @@ async function pnoInboundLoad(page) {
     `async function pnoV18LoadBags() {
   if (pnoV18State.busy) return;
   pnoInboundToggleActions(false);`, "bag tab actions");
+  const pendingHelpers = `// PNO_PENDING_OCCURRENCE_RECONCILIATION_V1: no_entry is a provider
+// accounting candidate set, not proof of the latest parcel scan state.
+function pnoPendingEvidenceLabel(row) {
+  const classification = row?.scanEvidence?.classification;
+  if (classification === "CONFIRMED_SCAN_IN") return "ยืนยันสแกนเข้าคลังแล้วในเที่ยวนี้";
+  if (classification === "SUSPECTED_SCAN_IN_GAP") return "สงสัยหลุดสแกนเข้า";
+  if (classification === "NOT_YET_SCAN_IN_STAGE") return "พบหลักฐานขั้นก่อนสแกนเข้า";
+  return "หลักฐานการสแกนเข้ายังไม่เพียงพอ";
+}
+
+function pnoPendingPageReconciliation(rows, providerTotal, sourceValid) {
+  const items = Array.isArray(rows) ? rows : [];
+  const total = Number(providerTotal);
+  const confirmed = items.filter((row) => row?.scanEvidence?.classification === "CONFIRMED_SCAN_IN").length;
+  return {
+    providerCandidates: sourceValid === true && Number.isSafeInteger(total) && total >= items.length ? total : null,
+    pageCandidates: items.length,
+    confirmedOnPage: confirmed,
+    unresolvedOnPage: items.length - confirmed,
+  };
+}
+
+function pnoPendingRenderNote() {
+  const node = el("pno-pending-reconciliation");
+  if (!node) return;
+  node.classList.toggle("hidden", pnoV18State.type !== "no_entry");
+  if (pnoV18State.type !== "no_entry") return;
+  const page = pnoPendingPageReconciliation(pnoV18State.rows, pnoV18State.total, pnoV18State.sourceValid);
+  const aggregate = pnoCountForType(pnoV18SourceRow(), "no_entry");
+  node.textContent = "ยอดคงเหลือ PreEntry " + (aggregate === null ? "ไม่ทราบ" : nf.format(aggregate)) +
+    " · รายการที่ผู้ให้บริการจัดใน no_entry " +
+    (page.providerCandidates === null ? "ไม่ทราบ" : nf.format(page.providerCandidates)) +
+    " · เฉพาะหน้าที่ " + nf.format(pnoV18State.page) + ": " +
+    nf.format(page.pageCandidates) + " รายการ, ยืนยันสแกนเข้าแล้ว " +
+    nf.format(page.confirmedOnPage) + ", ยังต้องตรวจสอบ " +
+    nf.format(page.unresolvedOnPage) +
+    " · ผลตรวจสอบหน้านี้ไม่ใช่ยอดคงเหลือใหม่";
+}
+
+// A positive accepted on another explicitly opened detail tab refreshes local
+// cached views of the same exact segment and arrival anchor.
+function pnoPendingPropagatePositive(sourceRow, result) {
+  const accepted = (result?.parcels || []).filter((row) =>
+    row?.scanEvidence?.classification === "CONFIRMED_SCAN_IN" && row?.pno && row?.arrivalAnchorAt);
+  if (!accepted.length) return;
+  const positive = new Map(accepted.map((row) =>
+    [JSON.stringify([row.pno, row.arrivalAnchorAt]), row.scanEvidence]));
+  const propagate = (value) => {
+    for (const row of value?.parcels || []) {
+      const match = positive.get(JSON.stringify([row.pno, row.arrivalAnchorAt]));
+      if (match) row.scanEvidence = match;
+    }
+  };
+  const modalPrefix = pnoV18LocatorKey(sourceRow) + "|";
+  for (const [key, entry] of pnoV18ViewCache)
+    if (key.startsWith(modalPrefix)) propagate(entry.value);
+  const browserKeys = new Set(["total", "already", "no_entry"]
+    .map((type) => pnoBrowserBaseKey(sourceRow, type)));
+  for (const entry of pnoBrowserCache.values())
+    if (browserKeys.has(entry.baseKey)) propagate(entry.value);
+}
+
+`;
+  output = replaceUnique(output, "function pnoV18ParcelStatus(item, type = pnoV18State.type) {",
+    pendingHelpers + "function pnoV18ParcelStatus(item, type = pnoV18State.type) {",
+    "pending evidence helpers");
+  output = replaceUnique(output,
+    `function pnoV18ParcelStatus(item, type = pnoV18State.type) {
+  return pnoV18TextValue(item?.status || pnoV18TypeLabel(type));`,
+    `function pnoV18ParcelStatus(item, type = pnoV18State.type) {
+  if (type === "no_entry") return pnoPendingEvidenceLabel(item);
+  return pnoV18TextValue(item?.status || pnoV18TypeLabel(type));`,
+    "confirmed candidate status");
+  output = replaceUnique(output,
+    `  const result = await browserPnoPage(sourceRow, type, page, force);
+  return pnoV18CacheSet(pnoV18ViewCache, cacheKey, result, 120);`,
+    `  const result = await browserPnoPage(sourceRow, type, page, force);
+  pnoPendingPropagatePositive(sourceRow, result);
+  return pnoV18CacheSet(pnoV18ViewCache, cacheKey, result, 120);`,
+    "sticky browser cache projection");
+  output = replaceUnique(output,
+    `  pnoV18State.rows = Array.isArray(result.parcels) ? result.parcels : [];
+  pnoV18State.total = Number(result.total || pnoV18State.rows.length) || 0;`,
+    `  pnoV18State.rows = Array.isArray(result.parcels) ? result.parcels : [];
+  pnoV18State.sourceValid = result.sourceValid === true;
+  pnoV18State.total = Number(result.total || pnoV18State.rows.length) || 0;`,
+    "detail source health");
+  output = replaceUnique(output,
+    `  pnoV18RenderSummary();
+  pnoV18RenderBagSummary([]);`,
+    `  pnoV18RenderSummary();
+  pnoPendingRenderNote();
+  pnoV18RenderBagSummary([]);`, "pending page note");
+  output = replaceUnique(output,
+    `  pnoV18State.type = "scan_gap";
+  pnoV18State.page =`,
+    `  pnoV18State.type = "scan_gap";
+  pnoPendingRenderNote();
+  pnoV18State.page =`, "audit note isolation");
+  output = replaceUnique(output,
+    `  pnoV18State.type = "bag";
+  pnoV18State.expandedBag =`,
+    `  pnoV18State.type = "bag";
+  pnoPendingRenderNote();
+  pnoV18State.expandedBag =`, "bag note isolation");
+  output = replaceUnique(output,
+    `    lines.push(["#", "PNO", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"].join("\\t"));`,
+    `    lines.push(["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา"].join("\\t"));`,
+    "copy evidence heading");
+  output = replaceUnique(output,
+    `        row.pno || "",
+        row.lastAction || "",`,
+    `        row.pno || "",
+        pnoV18ParcelStatus(row),
+        row.lastAction || "",`, "copy evidence status");
+  output = replaceUnique(output,
+    `    lines.push("หมวด: " + pnoV18TypeLabel(pnoV18State.type) + " | หน้า " + nf.format(pnoV18State.page));`,
+    `    lines.push("หมวด: " + pnoV18TypeLabel(pnoV18State.type) + " | หน้า " + nf.format(pnoV18State.page));
+    if (pnoV18State.type === "no_entry")
+      lines.push("รายการผู้ให้บริการประเภท no_entry; สถานะสแกนเข้าตรวจสอบตามเที่ยวนี้");`,
+    "LINE provider candidate scope");
+  output = replaceUnique(output,
+    `      ((pnoV18State.page - 1) * 200 + sourceIndex + 1) + ". " + pnoV18LineCell(row.pno) +
+      " | " + pnoV18LineCell(row.lastAction) +`,
+    `      ((pnoV18State.page - 1) * 200 + sourceIndex + 1) + ". " + pnoV18LineCell(row.pno) +
+      " | " + pnoV18LineCell(pnoV18ParcelStatus(row)) +
+      " | " + pnoV18LineCell(row.lastAction) +`, "LINE evidence status");
+  output = replaceUnique(output,
+    `    "สถานะ": row.status || pnoV18TypeLabel(type),`,
+    `    "สถานะ": pnoV18ParcelStatus(row, type),`, "export evidence status");
   return output;
 }

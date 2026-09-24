@@ -6,43 +6,6 @@ name: Deploy Worker DEV
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/deploy-worker-dev.yml
-      - .github/dev-tools/**
-      - cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs
-      - cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs
-      - waiting.html
-      - admin.html
-      - admin.js
-      - admin.css
-      - supervisor.html
-      - supervisor.js
-      - supervisor-context.js
-      - supervisor-i18n.js
-      - supervisor-modules.js
-      - supervisor-view.js
-      - supervisor.css
-      - ms-report.html
-      - ms-report.js
-      - ms.html
-      - ms.js
-      - proof.html
-      - proof.js
-      - 'proof-v2-*.js'
-      - style.css
-      - ms-v4.css
-      - sw.js
-      - favicon.svg
-      - worker/src/**
-      - worker/tests/**
-      - worker/scripts/**
-      - worker/package.json
-      - worker/package-lock.json
-      - worker/wrangler.dev.jsonc
-      - worker/migrations/**
 
 permissions:
   contents: read
@@ -54,12 +17,22 @@ jobs:
       run:
         working-directory: worker
     steps:
+      - name: Authorize DEV source ref
+        working-directory: .
+        run: |
+          if [[ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" || "${GITHUB_REF:-}" != "refs/heads/codex/dev-recovery-contract-v2" ]]; then
+            printf 'DEV deployment refused: unauthorized source ref %s\n' "${GITHUB_REF:-<empty>}" >&2
+            exit 1
+          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: worker/package-lock.json
+
+      - name: Verify DEV ref guard contract
+        run: node --test ../.github/dev-tools/dev-deploy-ref-guard.test.mjs
 
       - run: npm ci
       - run: npm run check
@@ -225,6 +198,7 @@ jobs:
           NODE
 
       - name: Deploy DEV Worker on Turso
+        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/dev-recovery-contract-v2' }}
         run: npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
 
       - name: Verify active Worker has zero D1 bindings

@@ -339,11 +339,22 @@ export function patchDevProofHarConnectionFrontend(source) {
   const resetInputs = '["ms-har-routes", "ms-har-preentry", "ms-har-bustime", "ms-har-hbi-photos"]';
   if (!output.includes(statusLoop) || !output.includes(statusItem) || !output.includes(resetInputs)) throw new Error("DEV Proof HAR frontend fifth-source anchors missing");
   output = output.replace(statusLoop, 'for (const key of ["routes", "preEntry", "busTime", "hbiPhotos", "proof"]) {');
-  output = output.replace(statusItem, 'const item = key === "proof" ? status.routes : status[key];');
+  output = output.replace(statusItem, `if (key === "proof") {
+        if (!node) continue;
+        const configured = status?.routes?.configured;
+        node.className = configured === false ? "source-missing" : "source-stale";
+        node.textContent = configured === true
+          ? "มี Session ที่บันทึกไว้ · ยังไม่ได้ตรวจ Proof Session"
+          : configured === false
+            ? "ยังไม่ได้ตั้งค่า Session สำหรับ Proof"
+            : "สถานะ Proof ยังไม่ยืนยัน";
+        continue;
+      }
+      ${statusItem}`);
   output = output.replace(resetInputs, '["ms-har-routes", "ms-har-preentry", "ms-har-bustime", "ms-har-hbi-photos", "ms-har-proof"]');
   const marker = `
 
-// DEV_PROOF_HAR_CONNECTION_FRONTEND_V9: Proof print HAR is parsed locally; only Session ID / Device ID are sent; Proof status mirrors shared MS Session.
+// DEV_PROOF_HAR_CONNECTION_FRONTEND_V9: Proof print HAR is parsed locally; only Session ID / Device ID are sent; the Proof row reports shared Session configuration without claiming Proof health.
 document.addEventListener("DOMContentLoaded", () => {
   const button = el("ms-har-proof-save");
   if (button) button.onclick = () => saveProofHarConnection(button);

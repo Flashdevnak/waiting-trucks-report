@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import {
   frontendHasIntegratedDevRuntime,
   patchDevUiShellSource,
@@ -302,8 +303,98 @@ test("DEV Proof connection exposes print HAR upload in the shared MS connection 
   assert.match(stagedFrontend, /header\("x-fle-session-id"\)/);
   assert.match(stagedFrontend, /header\("x-device-id"\)/);
   assert.match(stagedFrontend, /apiPost\("saveMsConnection", \{ hub, sessionId, deviceId \}\)/);
-  assert.match(stagedFrontend, /key === "proof" \? status\.routes : status\[key\]/);
+  assert.doesNotMatch(stagedFrontend, /key === "proof" \? status\.routes : status\[key\]/);
+  assert.match(stagedFrontend, /if \(key === "proof"\) \{/);
   assert.match(stagedFrontend, /"ms-har-bustime", "ms-har-hbi-photos", "ms-har-proof"/);
   assert.match(stagedFrontend, /pollMs:\s*4000/);
   assert.equal(stageFrontend(stagedFrontend), stagedFrontend);
+});
+
+test("DEV Proof status uses only shared Session presence and bypasses Route health", async () => {
+  const staged = stageFrontend(frontendSource);
+  const start = staged.indexOf("async function loadMsConnectionStatus() {");
+  const end = staged.indexOf("async function startQrConnection()", start);
+  assert.ok(start >= 0 && end > start);
+  const renderedFunction = staged.slice(start, end);
+  const proofStart = renderedFunction.indexOf('if (key === "proof") {');
+  const genericStart = renderedFunction.indexOf("const item = status[key];", proofStart);
+  assert.ok(proofStart >= 0 && genericStart > proofStart);
+  const proofBranch = renderedFunction.slice(proofStart, genericStart);
+  assert.match(proofBranch, /status\?\.routes\?\.configured/);
+  assert.match(proofBranch, /continue;/);
+  assert.doesNotMatch(proofBranch, /lastSuccessAt|updatedAt|lastError|isStale|source401|routeRepair|พร้อมใช้งาน|\bfetch\b|\bapiGet\b|\bDB\b|setInterval|setTimeout|WebSocket|EventSource/);
+
+  const originalFunction = frontendSource.slice(
+    frontendSource.indexOf("async function loadMsConnectionStatus() {"),
+    frontendSource.indexOf("async function startQrConnection()"),
+  );
+  assert.equal(
+    renderedFunction.slice(genericStart),
+    originalFunction.slice(originalFunction.indexOf("const item = status[key];")),
+    "the four existing source renderers and their 401 handling remain unchanged",
+  );
+
+  async function observe(routes, repair = {}) {
+    const nodes = new Map();
+    for (const key of ["routes", "preEntry", "busTime", "hbiPhotos", "proof"]) {
+      nodes.set(key, {
+        className: "",
+        textContent: "",
+        closest: () => ({ querySelector: () => null, classList: { remove() {} } }),
+      });
+    }
+    const calls = [];
+    const notices = [];
+    const status = {
+      routes,
+      preEntry: { configured: false },
+      busTime: { configured: false },
+      hbiPhotos: { configured: false },
+    };
+    const context = {
+      Date,
+      document: { querySelector: (selector) => nodes.get(selector.match(/data-source-status="([^"]+)"/)?.[1]) },
+      el: (id) => id === "ms-har-hub" ? { value: "HUB_A" } : null,
+      apiGet: async (action) => {
+        calls.push(action);
+        return action === "msConnectionStatus" ? status : { repair };
+      },
+      shortDateTime: () => "CHECKED_AT",
+      toast: (message) => notices.push(message),
+    };
+    const loadStatus = runInNewContext(`${renderedFunction}\nloadMsConnectionStatus`, context);
+    await loadStatus();
+    assert.deepEqual(calls, ["msConnectionStatus", "msRepairHealthDev"], "no additional provider/API read");
+    return { nodes, notices };
+  }
+
+  const now = new Date().toISOString();
+  const healthy = await observe({ configured: true, lastSuccessAt: now, updatedAt: now, lastError: "" });
+  assert.equal(healthy.nodes.get("proof").className, "source-stale");
+  assert.equal(healthy.nodes.get("proof").textContent, "มี Session ที่บันทึกไว้ · ยังไม่ได้ตรวจ Proof Session");
+  assert.equal(healthy.nodes.get("routes").className, "source-ok");
+
+  const routeError = await observe(
+    { configured: true, lastSuccessAt: now, lastError: "Route unavailable" },
+    { code: "MS_SESSION_HTTP_401" },
+  );
+  assert.equal(routeError.nodes.get("proof").className, "source-stale");
+  assert.equal(routeError.nodes.get("proof").textContent, healthy.nodes.get("proof").textContent);
+  assert.equal(routeError.nodes.get("routes").className, "source-error");
+  assert.ok(routeError.notices.some((notice) => notice.includes("สถานะเส้นทางเดินรถ")));
+  assert.ok(routeError.notices.every((notice) => !notice.includes("ปริ้นบาร์โค้ดรถ")));
+
+  const stale = await observe({ configured: true, lastSuccessAt: "2000-01-01T00:00:00.000Z", lastError: "" });
+  assert.equal(stale.nodes.get("routes").className, "source-stale");
+  assert.equal(stale.nodes.get("proof").textContent, healthy.nodes.get("proof").textContent);
+
+  const missing = await observe({ configured: false });
+  assert.equal(missing.nodes.get("proof").className, "source-missing");
+  assert.equal(missing.nodes.get("proof").textContent, "ยังไม่ได้ตั้งค่า Session สำหรับ Proof");
+
+  for (const routes of [null, {}, { configured: "true" }]) {
+    const unknown = await observe(routes);
+    assert.equal(unknown.nodes.get("proof").className, "source-stale");
+    assert.equal(unknown.nodes.get("proof").textContent, "สถานะ Proof ยังไม่ยืนยัน");
+  }
 });

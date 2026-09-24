@@ -7,10 +7,11 @@ on:
     paths:
       - cloudflare-browser-test/src/**
       - cloudflare-browser-test/scripts/**
+      - '!cloudflare-browser-test/scripts/*.test.mjs'
+      - '!cloudflare-browser-test/scripts/**/*.test.mjs'
       - cloudflare-browser-test/wrangler.jsonc
       - cloudflare-browser-test/package.json
       - cloudflare-browser-test/package-lock.json
-      - .github/workflows/deploy-browser-worker.yml
 
 permissions:
   contents: read
@@ -25,7 +26,24 @@ jobs:
       run:
         working-directory: cloudflare-browser-test
     steps:
+      - name: Authorize Browser Worker source ref
+        shell: bash
+        run: |
+          case "${GITHUB_EVENT_NAME:-}" in
+            push|workflow_dispatch) ;;
+            *)
+              echo '::error::Unauthorized Browser Worker deployment event' >&2
+              exit 1
+              ;;
+          esac
+          if [ "${GITHUB_REF:-}" != 'refs/heads/main' ]; then
+            printf '::error::Unauthorized Browser Worker source ref: %s\n' "${GITHUB_REF:-<empty>}" >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -40,6 +58,7 @@ jobs:
 
       - name: Validate Browser recovery, TBR and 503 contracts
         run: |
+          node --test scripts/browser-deploy-trigger-policy.test.mjs
           npm run check
           node --check src/index.js
           node --check src/tbr-shadow.js
@@ -116,6 +135,7 @@ jobs:
           NODE
 
       - name: Deploy Browser Worker
+        if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
         run: npx wrangler deploy --config wrangler.jsonc
 
       - name: Verify Browser runtime bindings and routes

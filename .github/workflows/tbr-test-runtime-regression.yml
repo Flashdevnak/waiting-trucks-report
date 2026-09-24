@@ -6,11 +6,13 @@ on:
       - main
     paths:
       - cloudflare-browser-test/**
+      - .github/workflows/deploy-browser-worker.yml
       - .github/dev-tools/stage-dev-runtime.mjs
       - .github/workflows/tbr-test-runtime-regression.yml
   pull_request:
     paths:
       - cloudflare-browser-test/**
+      - .github/workflows/deploy-browser-worker.yml
       - .github/dev-tools/stage-dev-runtime.mjs
       - .github/workflows/tbr-test-runtime-regression.yml
 
@@ -55,6 +57,12 @@ jobs:
           echo 'PERSISTED_TBR_SAME_CRON=PASS'
           echo 'PERSISTED_TBR_ROUTE_FALLBACK_V6=PASS'
           echo 'BROWSER_TEST_D1_BINDING=0'
+
+      - name: Validate Browser deploy policy and full package check
+        working-directory: cloudflare-browser-test
+        run: |
+          node --test scripts/browser-deploy-trigger-policy.test.mjs
+          npm run check
 
       - name: Regression test same-cron timestamp ordering
         run: |

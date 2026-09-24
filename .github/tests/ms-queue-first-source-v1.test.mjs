@@ -191,6 +191,56 @@ test("Route-first wins immediately and TBR does not duplicate the same proof+att
   assert.equal(rows[0].queueAdmissionSource, undefined);
 });
 
+test("same normalized proof Route Origin vetoes synthetic Destination and Drop without changing real Route rows", () => {
+  const { queueRows } = firstSourceRuntime();
+  for (const attendanceType of ["ปลายทาง", "จุดดรอป"]) {
+    const route = {
+      id: `route-origin-${attendanceType}`,
+      proofId: " conflict 001 ",
+      attendanceType: "ต้นทาง",
+      actualArrivalAt: "",
+      trackingStatus: "ROUTE_ORIGIN",
+    };
+    const rows = queueRows(
+      [route],
+      busMap([inboundBus({ proofId: "CONFLICT001", attendanceType })]),
+      "NE1",
+      NOW,
+    );
+    assert.equal(rows.length, 1, `no synthetic ${attendanceType} row`);
+    assert.deepEqual({ ...rows[0] }, route, `real Route Origin remains unchanged for ${attendanceType}`);
+    assert.equal(rows[0].syncedBy, undefined);
+    assert.equal(rows[0].queueAdmissionSource, undefined);
+    assert.deepEqual(route, {
+      id: `route-origin-${attendanceType}`,
+      proofId: " conflict 001 ",
+      attendanceType: "ต้นทาง",
+      actualArrivalAt: "",
+      trackingStatus: "ROUTE_ORIGIN",
+    }, "the input Route row is not mutated");
+  }
+});
+
+test("Route Origin veto is scoped to the same proof and preserves other Route attendance rows", () => {
+  const { queueRows } = firstSourceRuntime();
+  const origin = { id: "route-origin", proofId: "PROOF_ORIGIN", attendanceType: "ต้นทาง" };
+  const otherRoute = { id: "route-destination", proofId: "PROOF_ORIGIN", attendanceType: "ปลายทาง" };
+  const rows = queueRows(
+    [origin, otherRoute],
+    busMap([
+      inboundBus({ proofId: "PROOF_ORIGIN", attendanceType: "จุดดรอป" }),
+      inboundBus({ proofId: "PROOF_OTHER", attendanceType: "ปลายทาง" }),
+    ]),
+    "NE1",
+    NOW,
+  );
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.slice(0, 2).map((row) => ({ ...row })), [origin, otherRoute]);
+  assert.equal(rows[2].proofId, "PROOF_OTHER");
+  assert.equal(rows[2].attendanceType, "ปลายทาง");
+  assert.equal(rows[2].syncedBy, "TBR_FIRST_SOURCE");
+});
+
 test("TBR-first followed by Route merges to one real Route row on the next shared snapshot", () => {
   const { queueRows } = firstSourceRuntime();
   const bus = busMap([inboundBus()]);

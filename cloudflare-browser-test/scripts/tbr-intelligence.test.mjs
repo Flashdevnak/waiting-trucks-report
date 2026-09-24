@@ -155,26 +155,32 @@ await BOOTSTRAP_STATE.put("shadow:tbr:v1:NE1", JSON.stringify({
 }));
 const bootstrapEnv = { STATE: BOOTSTRAP_STATE };
 const beforeBootstrapPuts = BOOTSTRAP_STATE.puts;
-const firstBootstrapResponse = await browserWorker.fetch(new Request("https://browser.test/api/tbr-intelligence?hub=NE1"), bootstrapEnv);
-const firstBootstrap = await firstBootstrapResponse.json();
-assert.equal(firstBootstrap.ok, true);
-assert.equal(firstBootstrap.rolling14.candidates, 1);
-assert.equal(firstBootstrap.rolling14.confirmed, 1);
-assert.equal(firstBootstrap.rolling14.resolved, 1);
-assert.equal(firstBootstrap.rolling14.confirmationRate, 100);
-assert.ok(firstBootstrap.createdAt, "bootstrap must persist createdAt");
-assert.equal(BOOTSTRAP_STATE.puts, beforeBootstrapPuts + 1, "first bootstrap must use exactly one Intelligence KV write");
-const afterBootstrapPuts = BOOTSTRAP_STATE.puts;
-const secondBootstrapResponse = await browserWorker.fetch(new Request("https://browser.test/api/tbr-intelligence?hub=NE1"), bootstrapEnv);
-const secondBootstrap = await secondBootstrapResponse.json();
-assert.equal(secondBootstrap.rolling14.candidates, 1);
-assert.equal(BOOTSTRAP_STATE.puts, afterBootstrapPuts, "repeat Intelligence reads must not write again");
+const originalDateNow = Date.now;
+try {
+  Date.now = () => base;
+  const firstBootstrapResponse = await browserWorker.fetch(new Request("https://browser.test/api/tbr-intelligence?hub=NE1"), bootstrapEnv);
+  const firstBootstrap = await firstBootstrapResponse.json();
+  assert.equal(firstBootstrap.ok, true);
+  assert.equal(firstBootstrap.rolling14.candidates, 1);
+  assert.equal(firstBootstrap.rolling14.confirmed, 1);
+  assert.equal(firstBootstrap.rolling14.resolved, 1);
+  assert.equal(firstBootstrap.rolling14.confirmationRate, 100);
+  assert.ok(firstBootstrap.createdAt, "bootstrap must persist createdAt");
+  assert.equal(BOOTSTRAP_STATE.puts, beforeBootstrapPuts + 1, "first bootstrap must use exactly one Intelligence KV write");
+  const afterBootstrapPuts = BOOTSTRAP_STATE.puts;
+  const secondBootstrapResponse = await browserWorker.fetch(new Request("https://browser.test/api/tbr-intelligence?hub=NE1"), bootstrapEnv);
+  const secondBootstrap = await secondBootstrapResponse.json();
+  assert.equal(secondBootstrap.rolling14.candidates, 1);
+  assert.equal(BOOTSTRAP_STATE.puts, afterBootstrapPuts, "repeat Intelligence reads must not write again");
 
-const bootstrapPage = await browserWorker.fetch(new Request("https://browser.test/shadow-tbr?hub=NE1"), bootstrapEnv);
-const bootstrapHtml = await bootstrapPage.text();
-assert.ok(bootstrapHtml.includes("ตัวอย่าง 14 วัน<b>1</b>"), "dashboard must show backfilled sample immediately");
-assert.ok(bootstrapHtml.includes("กำลังเก็บข้อมูล"), "readiness must use readable Thai label");
-assert.ok(bootstrapHtml.includes("LIVE ตอนนี้"), "first health checkpoint must show current live state instead of dash");
+  const bootstrapPage = await browserWorker.fetch(new Request("https://browser.test/shadow-tbr?hub=NE1"), bootstrapEnv);
+  const bootstrapHtml = await bootstrapPage.text();
+  assert.ok(bootstrapHtml.includes("ตัวอย่าง 14 วัน<b>1</b>"), "dashboard must show backfilled sample immediately");
+  assert.ok(bootstrapHtml.includes("กำลังเก็บข้อมูล"), "readiness must use readable Thai label");
+  assert.ok(bootstrapHtml.includes("LIVE ตอนนี้"), "first health checkpoint must show current live state instead of dash");
+} finally {
+  Date.now = originalDateNow;
+}
 
 assert.ok(STATE.puts <= 6, `unexpected test KV write count ${STATE.puts}`);
 console.log("TBR_INTELLIGENCE_V1=PASS");

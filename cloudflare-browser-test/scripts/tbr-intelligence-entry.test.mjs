@@ -61,34 +61,41 @@ await STATE.put("shadow:tbr:v1:NE1", JSON.stringify({
 }));
 const env = { STATE };
 const before = STATE.puts;
-const firstResponse = await worker.fetch(new Request("https://test.invalid/api/tbr-intelligence?hub=NE1"), env);
-const first = await firstResponse.json();
-assert.equal(firstResponse.status, 200);
-assert.equal(first.rolling14.candidates, 1);
-assert.equal(first.rolling14.confirmed, 1);
-assert.equal(first.rolling14.resolved, 1);
-assert.equal(first.rolling14.confirmationRate, 100);
-assert.equal(first.queueAuthority, false);
-assert.equal(first.actualArrivalAuthority, "ROUTE");
-assert.equal(first.tursoReads, 0);
-assert.equal(first.tursoWrites, 0);
-assert.equal(STATE.puts, before + 1, "stable entrypoint bootstrap must write Intelligence once");
+const originalDateNow = Date.now;
+try {
+  // The fixture's TBR occurs at 02:05 Bangkok time on Sept 8.
+  Date.now = () => Date.parse("2026-09-08T03:00:00+07:00");
+  const firstResponse = await worker.fetch(new Request("https://test.invalid/api/tbr-intelligence?hub=NE1"), env);
+  const first = await firstResponse.json();
+  assert.equal(firstResponse.status, 200);
+  assert.equal(first.rolling14.candidates, 1);
+  assert.equal(first.rolling14.confirmed, 1);
+  assert.equal(first.rolling14.resolved, 1);
+  assert.equal(first.rolling14.confirmationRate, 100);
+  assert.equal(first.queueAuthority, false);
+  assert.equal(first.actualArrivalAuthority, "ROUTE");
+  assert.equal(first.tursoReads, 0);
+  assert.equal(first.tursoWrites, 0);
+  assert.equal(STATE.puts, before + 1, "stable entrypoint bootstrap must write Intelligence once");
 
-const afterBootstrap = STATE.puts;
-const secondResponse = await worker.fetch(new Request("https://test.invalid/api/tbr-intelligence?hub=NE1"), env);
-const second = await secondResponse.json();
-assert.equal(second.rolling14.candidates, 1);
-assert.equal(STATE.puts, afterBootstrap, "repeat stable entrypoint reads must not write");
+  const afterBootstrap = STATE.puts;
+  const secondResponse = await worker.fetch(new Request("https://test.invalid/api/tbr-intelligence?hub=NE1"), env);
+  const second = await secondResponse.json();
+  assert.equal(second.rolling14.candidates, 1);
+  assert.equal(STATE.puts, afterBootstrap, "repeat stable entrypoint reads must not write");
 
-const pageResponse = await worker.fetch(new Request("https://test.invalid/shadow-tbr?hub=NE1"), env);
-const html = await pageResponse.text();
-assert.equal(pageResponse.status, 200);
-assert.ok(html.includes("TBR Intelligence"));
-assert.ok(html.includes("กำลังเก็บข้อมูล"));
-assert.ok(!html.includes("SHADOW_COLLECTING</b>"));
-assert.ok(!html.includes("2026-09-07T19:05:58.000Z"));
-assert.ok(html.includes("08/09/2026 02:05:58"), "stable entrypoint must render Bangkok time");
-assert.ok(html.includes("ตัวอย่าง 14 วัน<b>1</b>"));
+  const pageResponse = await worker.fetch(new Request("https://test.invalid/shadow-tbr?hub=NE1"), env);
+  const html = await pageResponse.text();
+  assert.equal(pageResponse.status, 200);
+  assert.ok(html.includes("TBR Intelligence"));
+  assert.ok(html.includes("กำลังเก็บข้อมูล"));
+  assert.ok(!html.includes("SHADOW_COLLECTING</b>"));
+  assert.ok(!html.includes("2026-09-07T19:05:58.000Z"));
+  assert.ok(html.includes("08/09/2026 02:05:58"), "stable entrypoint must render Bangkok time");
+  assert.ok(html.includes("ตัวอย่าง 14 วัน<b>1</b>"));
+} finally {
+  Date.now = originalDateNow;
+}
 
 console.log("TBR_INTELLIGENCE_STABLE_ENTRY_V3=PASS");
 console.log("TBR_INTELLIGENCE_STABLE_BOOTSTRAP=PASS");

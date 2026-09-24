@@ -235,12 +235,15 @@ test("REC-06 builds the exact deterministic DEV runtime", async (context) => {
     assertByteMapsEqual(await regularFileMap(canonicalSource), canonicalBefore, "canonical source");
   });
 
-  await context.test("recovery-branch changes cannot trigger main-only workflows", async () => {
-    assert.match(workflow, /push:\s*\n\s*branches:\s*\n\s*- main/);
-    assert.doesNotMatch(workflow, /codex\/dev-recovery-contract-v2/);
+  await context.test("DEV deploy is manual and recovery-ref guarded", async () => {
+    assert.match(workflow, /^on:\s*\n\s{2}workflow_dispatch:\s*$/m);
+    assert.doesNotMatch(workflow, /^\s{2}push:/m);
+    assert.match(workflow, /- name: Authorize DEV source ref/);
+    assert.match(workflow, /github\.ref == 'refs\/heads\/codex\/dev-recovery-contract-v2'/);
     const workflowDir = resolve(repoRoot, ".github/workflows");
     for (const entry of await readdir(workflowDir)) {
       if (!entry.endsWith(".yml") && !entry.endsWith(".yaml")) continue;
+      if (entry === "deploy-worker-dev.yml") continue;
       const source = await readFile(resolve(workflowDir, entry), "utf8");
       assert.doesNotMatch(source, /codex\/dev-recovery-contract-v2/);
     }

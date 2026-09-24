@@ -76,11 +76,12 @@ test("REC-07 locks the exact local DEV deployment handoff", async (context) => {
     }]);
   });
 
-  await context.test("DEV deploy workflow is main-only and targets the exact artifact", () => {
+  await context.test("DEV deploy workflow is manual, recovery-ref guarded, and targets the exact artifact", () => {
     assert.match(workflow, /^name: Deploy Worker DEV$/m);
     assert.match(workflow, /^\s{2}workflow_dispatch:\s*$/m);
-    assert.match(workflow, /push:\s*\n\s*branches:\s*\n\s*- main/);
-    assert.doesNotMatch(workflow, /codex\/dev-recovery-contract-v2/);
+    assert.doesNotMatch(workflow, /^\s{2}push:/m);
+    assert.match(workflow, /- name: Authorize DEV source ref/);
+    assert.match(workflow, /github\.ref == 'refs\/heads\/codex\/dev-recovery-contract-v2'/);
     assert.match(workflow, /working-directory: worker/);
     assert.match(workflow, /wrangler deploy \.dev-runtime\/src\/turso-index\.js --config wrangler\.dev\.jsonc/);
   });

@@ -84,7 +84,7 @@ test("SUP-13 frontend contract adds no transport, timers, DB, repair, or AI work
 
 test("SUP-13 DEV deploy stages and syntax-checks the language asset", async () => {
   const workflow = await read(".github/workflows/deploy-worker-dev.yml");
-  assert.ok(workflow.includes("- supervisor-i18n.js"));
+  assert.match(workflow, /^\s*cp [^\n]*\.\.\/supervisor-i18n\.js[^\n]* \.dev-assets\/\s*$/m);
   assert.ok(workflow.includes("../supervisor-i18n.js"));
   assert.ok(workflow.includes("node --check .dev-assets/supervisor-i18n.js"));
 });

@@ -129,7 +129,7 @@ test("SUP-15 adds no new runtime transport, polling, repair, persistence, or AI 
 test("SUP-15 DEV deployment stages and syntax-checks the context asset", async () => {
   const workflow = await read(".github/workflows/deploy-worker-dev.yml");
   const pkg = await read("worker/package.json");
-  assert.ok(workflow.includes("- supervisor-context.js"));
+  assert.match(workflow, /^\s*cp [^\n]*\.\.\/supervisor-context\.js[^\n]* \.dev-assets\/\s*$/m);
   assert.ok(workflow.includes("../supervisor-context.js"));
   assert.ok(workflow.includes("node --check .dev-assets/supervisor-context.js"));
   assert.ok(pkg.includes("node --check ../supervisor-context.js"));

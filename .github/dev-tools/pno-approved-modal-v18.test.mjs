@@ -201,6 +201,7 @@ test("V27 LINE copy uses loaded filtered data, sorts HUB-status-bag, and shows e
   assert.match(staged, /คัดลอกสำหรับ LINE/);
   const lineCopy = staged.slice(staged.indexOf("async function pnoV18CopyLine"), staged.indexOf("async function pnoV18Export"));
   assert.doesNotMatch(lineCopy, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
+  assert.doesNotMatch(lineCopy, /await pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(lineCopy, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(lineCopy, /pnoV18FilteredBagGroups\(\)/);
   assert.match(lineCopy, /a\.summary\.hub\.localeCompare/);
@@ -212,19 +213,19 @@ test("V27 LINE copy uses loaded filtered data, sorts HUB-status-bag, and shows e
 });
 
 
-test("V19 client filters stay explicit-click and copy respects the visible filtered page", () => {
+test("V19 filter data is loaded on explicit selection and copy uses filtered rows", () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.match(staged, /id="pno-v18-filterbar"/);
   assert.match(staged, /id="pno-v18-bag-summary"/);
   assert.match(staged, /function pnoV18FilteredParcelEntries/);
   assert.match(staged, /function pnoV18FilteredBagGroups/);
   assert.match(staged, /function pnoV18RenderBagSummary/);
-  assert.match(staged, /สถานะถุง/);
+  assert.match(staged, /\["status", "สถานะ", statuses\]/);
   assert.match(staged, /HUB ถัดไป/);
   assert.match(staged, /สาขาปลายทาง/);
   assert.match(staged, /จำนวนถุงแบ็กกิ้ง/);
   assert.match(staged, /จำนวนชิ้นในถุง/);
-  assert.match(staged, /เลือกฟิลเตอร์เพื่อรวมข้อมูลทุกหน้าอัตโนมัติ/);
+  assert.match(staged, /select\.onchange = async \(\) =>/);
   assert.match(staged, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(staged, /pnoV18FilteredBagGroups\(\)/);
   const filterCode = staged.slice(staged.indexOf("function pnoV18FilteredParcelEntries"), staged.indexOf("function pnoV18RenderRows"));
@@ -239,7 +240,8 @@ test("V18 LINE copy caps detail length and reports remaining rows", () => {
   assert.match(staged, /ยังมีอีก/);
   assert.match(staged, /สรุป: /);
   assert.match(staged, /ฟิลเตอร์: /);
-  assert.match(staged, /พบ .*รายการในหน้านี้/);
+  assert.match(staged, /รายการในผลกรอง/);
+  assert.match(staged, /รายการในหน้านี้/);
 });
 
 
@@ -252,11 +254,14 @@ test("V18 bag summary cards stay compact with values anchored at the right edge"
   assert.doesNotMatch(staged, /pno-v18-bag-summary-card strong\{[^}]*translateX\(6px\)/);
 });
 
-test("V18 Export loads every parcel page only when Export is explicitly clicked", () => {
+test("V18 Export reuses explicit bounded page loading and the same filtered dataset as Copy", () => {
   assert.match(staged, /async function pnoV18Export\(\)/);
   assert.match(staged, /Math\.ceil\(total \/ 200\)/);
-  assert.match(staged, /await pnoV18Fetch\(type, page\)/);
+  assert.match(staged, /await pnoV18Fetch\(sourceType, page\)/);
   assert.match(staged, /all\.slice\(0, total\)/);
+  const exportCode = staged.slice(staged.indexOf("async function pnoV18Export"), staged.indexOf("openPendingParcels = async function"));
+  assert.match(exportCode, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(exportCode, /pnoV18FilteredParcelEntries\(pnoV18State\.filterRows\)/);
   assert.match(staged, /PNO_V18_CARD_RIGHT_EXPORT_ALL_V1/);
 });
 
@@ -279,11 +284,11 @@ test("V18 Backing table derives Latest from the newest loaded parcel action", ()
 });
 
 
-test("V19 global parcel filters fetch all pages only after a filter change", () => {
+test("global parcel filters reuse bounded page loading on explicit filter or Export actions", () => {
   assert.match(staged, /PNO_GLOBAL_FILTER_V19/);
   assert.match(staged, /async function pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(staged, /for \(let page = 1; page <= pages; page \+= 1\)/);
-  assert.match(staged, /await pnoV18Fetch\(pnoV18State\.type, page\)/);
+  assert.match(staged, /await pnoV18Fetch\(sourceType, page\)/);
   assert.match(staged, /select\.onchange = async \(\) =>/);
   assert.match(staged, /await pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(staged, /function pnoV18VisibleParcelEntries\(\)/);
@@ -293,10 +298,11 @@ test("V19 global parcel filters fetch all pages only after a filter change", () 
   assert.doesNotMatch(ensure, /setInterval|setTimeout|apiPost|Turso|SQL/i);
 });
 
-test("V19 filter keeps normal tab open lazy until user selects a filter", () => {
+test("V19 normal tab resets filters and never loads extra pages on a tab switch", () => {
   const load = staged.slice(staged.indexOf("async function pnoV18Load(type, page)"), staged.indexOf("function pnoV18BagGroups"));
   assert.match(load, /const result = await pnoV18Fetch\(type, pnoV18State\.page\)/);
-  assert.doesNotMatch(load, /pnoV18EnsureParcelFilterRows/);
+  assert.match(load, /pnoV18State\.filters\.branch = ""/);
+  assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(\)/);
 });
 
 
@@ -309,13 +315,13 @@ test("V21 keeps real MS lastAction words and removes V20 no-entry inference", ()
   assert.match(render, /pnoV18ActionClass\(action\)/);
 });
 
-test("V20 Backing adds latest-action filter and keeps it local-only", () => {
-  assert.match(staged, /bagAction: ""/);
-  assert.match(staged, /pno-v18-filter-bag-action/);
+test("Backing latest-action filter shares common state and remains a local grouped predicate", () => {
+  assert.match(staged, /branch: ""/);
+  assert.match(staged, /\["action", "การดำเนินการล่าสุด", actions\]/);
   assert.match(staged, /"การดำเนินการล่าสุด", actions/);
   assert.match(staged, /!action \|\| summary\.latest === action/);
-  assert.match(staged, /f\.bagStatus \|\| f\.bagAction \|\| f\.bagHub \|\| f\.bagBranch/);
-  assert.match(staged, /if \(f\.bagAction\) parts\.push\("ล่าสุด=" \+ f\.bagAction\)/);
+  assert.match(staged, /status \|\| action \|\| branch/);
+  assert.match(staged, /action && "ล่าสุด=" \+ action/);
   const bagFilter = staged.slice(staged.indexOf("function pnoV18FilteredBagGroups"), staged.indexOf("function pnoV18RenderBagSummary"));
   assert.doesNotMatch(bagFilter, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
 });

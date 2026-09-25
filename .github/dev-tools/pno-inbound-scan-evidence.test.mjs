@@ -272,7 +272,11 @@ test("new tab follows Backing, shows only suspected/insufficient, and renders wi
   const staged = stageFrontend(readFileSync(new URL("../../ms.js", import.meta.url), "utf8"));
   assert.match(staged, /data-pno-v18-type="bag">แบ็กกิ้ง<\/button>' \+\s*'<button type="button" data-pno-v18-type="scan_gap">หลุดสแกนเข้า/);
   assert.match(staged, /else if \(type === "scan_gap"\) void pnoInboundLoad\(1\)/);
-  assert.match(staged, /const result = await pnoV18Fetch\("total", pnoV18State.page\)/);
+  assert.match(staged, /const result = await pnoV18Fetch\("total", pnoV18State\.page\)/);
+  const load = staged.slice(staged.indexOf("async function pnoInboundLoad(page) {"), staged.indexOf("function pnoV18SetActive(type)"));
+  assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(load, /pnoV18RenderFilters\(\)/);
+  assert.doesNotMatch(load, /pnoInboundToggleActions\(true\)|pno-v18-filterbar"\)\.classList\.add\("hidden"\)/);
   const start = staged.indexOf("function pnoInboundRender(rows) {");
   const end = staged.indexOf("async function pnoInboundLoad(page) {", start);
   const renderSource = staged.slice(start, end);

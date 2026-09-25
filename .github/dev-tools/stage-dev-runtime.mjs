@@ -59,6 +59,7 @@ import { patchPnoSourceContractFrontendV23, patchPnoSourceContractWorkerV23 } fr
 import { patchPnoOwnHubSingleTruthV24 } from "./patch-pno-ownhub-single-truth-v24.mjs";
 import { patchPnoV27Frontend, patchPnoV27Worker, patchPnoV28PendingIntersection, patchTbrSeedV28Frontend, patchTbrSeedV28Worker } from "./patch-pno-v27-multidrop-copy.mjs";
 import { patchPnoNextBranchTruthWorker, patchPnoDestinationLabelsFrontend } from "./patch-pno-next-branch-truth.mjs";
+import { patchPnoCrossViewFilterParity } from "./patch-pno-cross-view-filter-parity.mjs";
 import { patchLiveEvidenceV29Frontend, patchLiveEvidenceV29Worker } from "./patch-live-evidence-v29.mjs";
 import { patchMsHistoryPointInTimeWorker } from "./patch-ms-history-point-in-time-v1.mjs";
 import { patchMsRec04HistoryFreshness } from "./patch-ms-rec04-history-freshness.mjs";
@@ -456,6 +457,7 @@ export function stageFrontend(source) {
   output = patchPnoDetailAffordanceFrontendV30(output);
   output = patchPnoInboundScanEvidenceFrontend(output);
   output = patchPnoDestinationLabelsFrontend(output);
+  output = patchPnoCrossViewFilterParity(output);
   return output;
 }
 

@@ -79,6 +79,18 @@ export function enrichMsRow(mapped, parcelCounts, busData) {
 
   output = replaceUnique(
     output,
+    `  const items = Array.isArray(json.data?.DataList) ? json.data.DataList : [];
+  for (const item of items)`,
+    `  // A missing list is an uninterpretable response, not a confirmed empty page.
+  if (!Array.isArray(json.data?.DataList))
+    fail("ข้อมูลพัสดุไม่มีรายการที่ตรวจสอบได้", "PREENTRY_SOURCE_ERROR", 502);
+  const items = json.data.DataList;
+  for (const item of items)`,
+    "PreEntry successful response shape",
+  );
+
+  output = replaceUnique(
+    output,
     `    const previousEnrichment =
       parcelCounts.sourceFailed || busData.sourceFailed
         ? await readMsLiveCache(env, branch)
@@ -89,6 +101,27 @@ export function enrichMsRow(mapped, parcelCounts, busData) {
         ? await readMsLiveCache(env, branch)
         : null;`,
     "partial evidence cache preservation gate",
+  );
+
+  output = replaceUnique(
+    output,
+    `    const previousById = new Map(
+      (previousEnrichment?.rows || []).map((row) => [row.id, row]),
+    );`,
+    `    // syncMs stores a hash of this natural occurrence, not the provider row id.
+    const enrichmentOccurrenceKey = (row) => {
+      const proofId = normalizeProofId(row?.proofId);
+      return proofId
+        ? [proofId, text(row?.attendanceType, 100),
+            date(row?.estimatedArrivalAt || row?.estimatedDepartureAt)].join("|")
+        : "";
+    };
+    const previousByOccurrence = new Map(
+      (previousEnrichment?.rows || [])
+        .map((row) => [enrichmentOccurrenceKey(row), row])
+        .filter(([key]) => key),
+    );`,
+    "accepted occurrence identity preservation",
   );
 
   output = replaceUnique(
@@ -105,7 +138,7 @@ export function enrichMsRow(mapped, parcelCounts, busData) {
         mapped.arrivedParcels = previous.arrivedParcels;
         mapped.arrivedBags = previous.arrivedBags;
       }`,
-    `      const previous = previousById.get(mapped.id);
+    `      const previous = previousByOccurrence.get(enrichmentOccurrenceKey(mapped));
       const proofId = normalizeProofId(mapped.proofId);
       const parcelPartial = parcelCounts.partialProofs instanceof Set &&
         parcelCounts.partialProofs.has(proofId);

@@ -112,16 +112,16 @@ for (const [type, status, expected] of [
   assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], expected);
 });
 
-test("latest action and delivery branch are independent predicates", () => {
+test("latest action and next-store name are independent predicates", () => {
   const h = harness(); h.state.filters.action = "ส่ง"; h.state.filters.branch = "BRANCH-B";
   assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], ["SYNTHETIC-C"]);
   assert.match(extract("pnoV18FilteredParcelEntries"), /item\?\.targetBranch/);
   assert.doesNotMatch(extract("pnoV18FilteredParcelEntries"), /targetHub|nextStoreName/);
   assert.match(readFileSync(new URL("./patch-pno-next-branch-truth.mjs", import.meta.url), "utf8"),
-    /targetBranch: cleanStoreName\(row\.ticket_delivery_store_name\)/);
+    /targetBranch: cleanStoreName\(row\.next_store_name\)/);
 });
 
-test("bag filters use grouped status, latest action and delivery branch", () => {
+test("bag filters use grouped status, latest action and next-store name", () => {
   const h = harness({ type: "bag" }); h.state.filters.action = "ส่ง";
   assert.deepEqual([...h.call("pnoV18FilteredBagGroups().map(([bag]) => bag)")], ["SYNTHETIC-BAG-A", "SYNTHETIC-BAG-B"]);
   h.state.filters.branch = "BRANCH-B";
@@ -134,9 +134,9 @@ for (const type of ["total", "already", "no_entry", "bag", "scan_gap"])
   test(`${type}: shared filter bar is visible with identical control categories`, () => {
     const h = harness({ type }); h.call("pnoV18RenderFilters()");
     const markup = h.nodes.get("pno-v18-filterbar").innerHTML;
-    for (const label of ["สถานะ", "การดำเนินการล่าสุด", "สาขาปลายทาง"])
+    for (const label of ["สถานะ", "การดำเนินการล่าสุด", "ชื่อสาขาต่อไป"])
       assert.ok(markup.includes(label), label);
-    assert.doesNotMatch(markup, /HUB ถัดไป|HUBปลายทาง/);
+    assert.doesNotMatch(markup, /HUB ถัดไป|HUBปลายทาง|สาขาปลายทาง/);
     assert.equal((markup.match(/data-pno-v18-filter=/g) || []).length, 3);
     assert.equal(h.observed.fetch.length, 0, "rendering controls never reads another page");
   });
@@ -224,6 +224,8 @@ test("bag copy and export contain the same filtered grouped rows", async () => {
   assert.equal(h.observed.downloads[0].values.length, 1);
   assert.equal(h.observed.downloads[0].values[0]["เลขถุงแบ็กกิ้ง"], "SYNTHETIC-BAG-B");
   assert.equal(h.observed.downloads[0].values[0]["จำนวนพัสดุ"], 1);
+  assert.equal(h.observed.downloads[0].values[0]["ชื่อสาขาต่อไป"], "BRANCH-B");
+  assert.match(h.observed.clip, /ชื่อสาขาต่อไป/);
   assert.equal(h.observed.fetch.length, 0);
 });
 
@@ -234,6 +236,8 @@ test("parcel copy and export use active full-dataset filter", async () => {
   assert.match(h.observed.clip, /SYNTHETIC-C/);
   assert.doesNotMatch(h.observed.clip, /SYNTHETIC-A/);
   assert.deepEqual(Array.from(h.observed.downloads[0].values, (v) => v.PNO), ["SYNTHETIC-C"]);
+  assert.equal(h.observed.downloads[0].values[0]["ชื่อสาขาต่อไป"], "BRANCH-B");
+  assert.match(h.observed.clip, /ชื่อสาขาต่อไป/);
 });
 
 test("scan-gap export contains only filtered evidence membership", async () => {
@@ -271,6 +275,7 @@ test("LINE copy reads filtered rows and grouped bag summary", async () => {
   await h.call("pnoV18CopyLine()");
   assert.match(h.observed.clip, /SYNTHETIC-BAG-B/);
   assert.doesNotMatch(h.observed.clip, /SYNTHETIC-BAG-A/);
+  assert.match(h.observed.clip, /BRANCH-B/);
 });
 
 test("ordinary tabs do not auto-load every page without an active filter", () => {
@@ -405,5 +410,5 @@ test("tab membership and scan-in persistence remain upstream-owned", () => {
   const patch = readFileSync(new URL("./patch-pno-cross-view-filter-parity.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(patch, /scanInObserved|arrivalAnchorAt|pnoSegmentCount|pnoDetailAvailable|observePnoSnapshot/);
   assert.match(extract("pnoV18FilteredParcelEntries"), /SUSPECTED_SCAN_IN_GAP.*INSUFFICIENT_HISTORY/);
-  assert.match(staged, /PNO_DELIVERY_BRANCH_PROVENANCE_V2/);
+  assert.match(staged, /PNO_NEXT_STORE_SEMANTICS_V3/);
 });

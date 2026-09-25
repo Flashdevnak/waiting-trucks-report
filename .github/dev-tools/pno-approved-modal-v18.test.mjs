@@ -166,8 +166,8 @@ test("V18 classic presentation uses neutral summary cards and centered grid tabl
 
 test("V27/V28 table UX keeps display detail while copy uses latest-only and one route HUB", () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
-  assert.ok(staged.includes("<th>จุดที่ระบุในข้อมูลพัสดุ</th><th>สาขาปลายทาง</th><th>เวลา</th>"));
-  assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>ล่าสุด</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>สาขาปลายทาง</th><th></th>"));
+  assert.ok(staged.includes("<th>จุดที่ระบุในข้อมูลพัสดุ</th><th>ชื่อสาขาต่อไป</th><th>เวลา</th>"));
+  assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>ล่าสุด</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>ชื่อสาขาต่อไป</th><th></th>"));
   assert.match(staged, /function pnoV18BagSummary/);
   assert.match(staged, /หลายสถานะ/);
   assert.match(staged, /หลายสาขา/);
@@ -183,9 +183,9 @@ test("V27/V28 table UX keeps display detail while copy uses latest-only and one 
   assert.match(staged, /function pnoV18WriteClipboard/);
   assert.match(staged, /พร้อมวางใน Excel\/Sheets/);
   const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
-  assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "จุดที่ระบุในข้อมูลพัสดุ", "สาขาปลายทาง", "เวลา"\]/);
+  assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "จุดที่ระบุในข้อมูลพัสดุ", "ชื่อสาขาต่อไป", "เวลา"\]/);
   assert.match(copy, /pnoV18ParcelStatus\(row\)/);
-  assert.match(copy, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "สาขาปลายทาง"\]/);
+  assert.match(copy, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
   assert.doesNotMatch(copy, /"สถานะ"/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
 });
@@ -222,7 +222,8 @@ test("V19 filter data is loaded on explicit selection and copy uses filtered row
   assert.match(staged, /function pnoV18RenderBagSummary/);
   assert.match(staged, /\["status", "สถานะ", statuses\]/);
   assert.match(staged, /HUB ถัดไป/);
-  assert.match(staged, /สาขาปลายทาง/);
+  assert.match(staged, /ชื่อสาขาต่อไป/);
+  assert.doesNotMatch(staged, /สาขาปลายทาง/);
   assert.match(staged, /จำนวนถุงแบ็กกิ้ง/);
   assert.match(staged, /จำนวนชิ้นในถุง/);
   assert.match(staged, /select\.onchange = async \(\) =>/);

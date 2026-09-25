@@ -118,7 +118,7 @@ function pnoV18HasActiveFilters() {
 function pnoV18FilterSummaryText() {
   const { status, action, branch } = pnoV18State.filters;
   return [status && "สถานะ=" + status, action && "ล่าสุด=" + action,
-    branch && "สาขา=" + branch].filter(Boolean).join(" · ");
+    branch && "ชื่อสาขาต่อไป=" + branch].filter(Boolean).join(" · ");
 }
 
 function pnoV18RenderCurrentFilteredView() {
@@ -169,7 +169,7 @@ function pnoV18RenderFilters() {
   const fields = [
     ["status", "สถานะ", statuses],
     ["action", "การดำเนินการล่าสุด", actions],
-    ["branch", "สาขาปลายทาง", branches],
+    ["branch", "ชื่อสาขาต่อไป", branches],
   ];
   bar.innerHTML = fields.map(([key, label, values]) =>
     '<label class="pno-v18-filter-field"><span>' + esc(label) + '</span><select id="pno-v18-filter-' + key +
@@ -246,7 +246,7 @@ async function pnoV18Export() {
       return { "ลำดับ": index + 1, "เลขถุงแบ็กกิ้ง": bag,
         "สถานะ": summary.status, "การดำเนินการล่าสุด": summary.latest,
         "จำนวนพัสดุ": items.length, "HUB ถัดไป": summary.hub,
-        "สาขาปลายทาง": summary.branch };
+        "ชื่อสาขาต่อไป": summary.branch };
     });
     sheet = "รายการถุงแบ็กกิ้ง";
   } else {
@@ -267,7 +267,7 @@ async function pnoV18Export() {
       "การดำเนินการล่าสุด": pnoV18ParcelAction(row),
       "เวลา": row.lastActionAt || "",
       "จุดที่ระบุในข้อมูลพัสดุ": row.targetHub || "",
-      "สาขาปลายทาง": row.targetBranch || "",
+      "ชื่อสาขาต่อไป": row.targetBranch || "",
     }));
     sheet = type === "scan_gap" ? "หลักฐานสแกนเข้า" : "รายการพัสดุ";
   }

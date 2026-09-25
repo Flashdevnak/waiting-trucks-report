@@ -149,6 +149,22 @@ export function enrichMsRow(mapped, parcelCounts, busData) {
           "pnoLineId", "pnoVanLineId", "pnoStoreId", "pnoNextStoreId",
           "pnoNextStoreName", "pnoCanReport",
         ]) mapped[field] = previous[field];
+        // Segment evidence belongs to the same accepted natural occurrence.
+        // A weak observation cannot prove a new segment count or availability.
+        mapped.pnoSegmentCount = Number.isSafeInteger(previous.pnoSegmentCount) &&
+          previous.pnoSegmentCount > 0 ? previous.pnoSegmentCount : undefined;
+        const acceptedCountsComplete = [
+          mapped.expectedParcels, mapped.enteredParcels, mapped.pendingParcels,
+        ].every((count) => Number.isFinite(count) && count >= 0) &&
+          mapped.expectedParcels === mapped.enteredParcels + mapped.pendingParcels;
+        const acceptedLocatorComplete = Boolean(
+          text(mapped.proofId, 100) && text(mapped.pnoSourceDay, 100) &&
+          (text(mapped.pnoLineId, 160) || text(mapped.pnoVanLineId, 160)) &&
+          text(mapped.pnoStoreId, 160) && text(mapped.pnoNextStoreId, 160)
+        );
+        mapped.pnoDetailAvailable = previous.pnoDetailAvailable === true &&
+          mapped.pnoSegmentCount === 1 && acceptedCountsComplete &&
+          acceptedLocatorComplete;
       }
       const busKey = \`P:\${proofId}|A:\${normalizeMsAttendance(mapped.attendanceType)}\`;
       const busAmbiguous = busData.ambiguousKeys instanceof Set &&

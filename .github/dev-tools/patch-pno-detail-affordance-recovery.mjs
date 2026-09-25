@@ -18,7 +18,9 @@ export function detailEligibilityFixtureV30(row) {
   const pending = Number(row?.pendingParcels);
   if (![expected, entered, pending].every(Number.isFinite) || expected < 0 || entered < 0 || pending < 0 || entered + pending !== expected)
     return { available: false, reason: "COUNT_MISMATCH" };
-  if (Number(row?.pnoSegmentCount) !== 1)
+  if (!Number.isSafeInteger(row?.pnoSegmentCount) || row.pnoSegmentCount < 1)
+    return { available: false, reason: "SEGMENT_UNKNOWN" };
+  if (row.pnoSegmentCount > 1)
     return { available: false, reason: "AMBIGUOUS_OCCURRENCE" };
   if (!String(row?.proofId || "").trim() || !String(row?.pnoSourceDay || "").trim() ||
       !String(row?.pnoLineId || row?.pnoVanLineId || "").trim() ||
@@ -115,7 +117,9 @@ function pnoReadOnlyDetailEligibility(row) {
   if (!pnoOperationalInboundEligible(row)) return { available: false, reason: "NOT_INBOUND" };
   const truth = pnoOperationalRawSummary(row);
   if (!truth.valid) return { available: false, reason: "COUNT_MISMATCH" };
-  if (Number(row?.pnoSegmentCount) !== 1) return { available: false, reason: "AMBIGUOUS_OCCURRENCE" };
+  if (!Number.isSafeInteger(row?.pnoSegmentCount) || row.pnoSegmentCount < 1)
+    return { available: false, reason: "SEGMENT_UNKNOWN" };
+  if (row.pnoSegmentCount > 1) return { available: false, reason: "AMBIGUOUS_OCCURRENCE" };
   if (!String(row?.proofId || "").trim() || !String(row?.pnoSourceDay || "").trim() ||
       !String(row?.pnoLineId || row?.pnoVanLineId || "").trim() ||
       !String(row?.pnoStoreId || "").trim() || !String(row?.pnoNextStoreId || "").trim())
@@ -128,7 +132,7 @@ function pnoReadOnlyDetailEligibility(row) {
 function pnoReadOnlyUnavailableMessage(detail) {
   if (detail.reason === "AMBIGUOUS_OCCURRENCE")
     return "หลายจุดส่ง จึงไม่เปิดรายละเอียดรวมเพื่อป้องกันการเลือกเที่ยวผิด";
-  if (detail.reason === "LOCATOR_INCOMPLETE" || detail.reason === "DETAIL_DISABLED")
+  if (detail.reason === "SEGMENT_UNKNOWN" || detail.reason === "LOCATOR_INCOMPLETE" || detail.reason === "DETAIL_DISABLED")
     return "รายละเอียดพัสดุยังไม่พร้อม: ข้อมูลอ้างอิงเที่ยวไม่ครบ";
   return "";
 }

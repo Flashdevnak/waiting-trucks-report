@@ -45,21 +45,20 @@ test("V27 bag copy keeps latest action while parcel copy names current evidence 
   assert.match(front, /PNO_MODAL_COPY_MULTIDROP_TRUTH_V27/);
   assert.match(front, /const truth = pnoOperationalRawSummary\(row\)/);
   assert.match(front, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
-  assert.match(front, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "จุดที่ระบุในข้อมูลพัสดุ", "ชื่อสาขาต่อไป", "เวลา"\]/);
+  assert.match(front, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "ฮับปลายทาง", "ชื่อสาขาต่อไป", "เวลา"\]/);
   const copyStart = front.indexOf("async function pnoV18Copy()");
   const copyEnd = front.indexOf("function pnoV18LineCell", copyStart);
   const copy = front.slice(copyStart, copyEnd);
   assert.match(copy, /pnoV18ParcelStatus\(row\)/);
 });
 
-test("V27 Backing HUB uses route next_store_name and never emits หลาย HUB", () => {
+test("Backing HUB aggregates parcel destination independently of route next_store_name", () => {
   const front = stageFrontend(frontendSource);
   const start = front.indexOf("function pnoV18BagSummary(items)");
   const end = front.indexOf("function pnoV18RenderBags", start);
   const block = front.slice(start, end);
-  assert.match(block, /sourceRow\?\.pnoNextStoreName/);
-  assert.doesNotMatch(block, /หลาย HUB/);
-  assert.doesNotMatch(block, /\(item\) => item\.targetHub/);
+  assert.match(block, /pnoV18BagValue\(items, \(item\) => item\.targetHub, "หลาย HUB"\)/);
+  assert.doesNotMatch(block, /pnoNextStoreName|nextStoreName|state\.branch/);
 });
 
 test("V27 LINE bag copy sorts HUB -> status -> bag and shows every bag without 30-row cap", () => {

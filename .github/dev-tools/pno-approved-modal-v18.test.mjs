@@ -166,14 +166,14 @@ test("V18 classic presentation uses neutral summary cards and centered grid tabl
 
 test("V27/V28 table UX keeps display detail while copy uses latest-only and one route HUB", () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
-  assert.ok(staged.includes("<th>จุดที่ระบุในข้อมูลพัสดุ</th><th>ชื่อสาขาต่อไป</th><th>เวลา</th>"));
+  assert.ok(staged.includes("<th>ฮับปลายทาง</th><th>ชื่อสาขาต่อไป</th><th>เวลา</th>"));
   assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>ล่าสุด</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>ชื่อสาขาต่อไป</th><th></th>"));
   assert.match(staged, /function pnoV18BagSummary/);
   assert.match(staged, /หลายสถานะ/);
   assert.match(staged, /หลายสาขา/);
   const bagSummary = staged.slice(staged.indexOf("function pnoV18BagSummary"), staged.indexOf("function pnoV18RenderBags"));
-  assert.match(bagSummary, /sourceRow\?\.pnoNextStoreName/);
-  assert.doesNotMatch(bagSummary, /หลาย HUB|\(item\) => item\.targetHub/);
+  assert.match(bagSummary, /pnoV18BagValue\(items, \(item\) => item\.targetHub, "หลาย HUB"\)/);
+  assert.doesNotMatch(bagSummary, /pnoNextStoreName|nextStoreName|state\.branch/);
   const bagRender = staged.slice(staged.indexOf("function pnoV18RenderBags"), staged.indexOf("async function pnoV18LoadBags"));
   assert.doesNotMatch(bagRender, />Backing</);
   assert.ok(staged.includes("pno-v18-table td{padding:11px 12px;border:1px solid #e3e6e8;background:#fff;color:#252525;text-align:center"));
@@ -183,7 +183,7 @@ test("V27/V28 table UX keeps display detail while copy uses latest-only and one 
   assert.match(staged, /function pnoV18WriteClipboard/);
   assert.match(staged, /พร้อมวางใน Excel\/Sheets/);
   const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
-  assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "จุดที่ระบุในข้อมูลพัสดุ", "ชื่อสาขาต่อไป", "เวลา"\]/);
+  assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "ฮับปลายทาง", "ชื่อสาขาต่อไป", "เวลา"\]/);
   assert.match(copy, /pnoV18ParcelStatus\(row\)/);
   assert.match(copy, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
   assert.doesNotMatch(copy, /"สถานะ"/);

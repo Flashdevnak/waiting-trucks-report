@@ -22,10 +22,8 @@ function bagFunctions() {
     return frontend.slice(start, end);
   });
   const context = {
-    pnoV18SourceRow: () => ({ pnoNextStoreName: "NEXT_STOP_A" }),
     pnoV18TextValue: (value) => String(value || "-").trim(),
     pnoV18BagLatest: () => "",
-    state: { branch: "CURRENT_HUB_A" },
   };
   vm.createContext(context);
   vm.runInContext(`${blocks.join("\n")};this.group = pnoV18BagGroups;this.summary = pnoV18BagSummary`, context);
@@ -48,26 +46,26 @@ test("different next stores remain distinct despite a shared delivery branch", (
   assert.notEqual(nextBranch(segmentA, cleanStoreName), nextBranch(segmentB, cleanStoreName));
 });
 
-test("bag summary uses corrected next-store values and keeps HUB next unchanged", () => {
+test("bag summary keeps next-store independent from authoritative parcel HUB", () => {
   const { group, summary } = bagFunctions();
   const rows = [
-    { backingNo: "BAG_A", targetBranch: nextBranch({ next_store_name: "NEXT_A", ticket_delivery_store_name: "DELIVERY_A" }, cleanStoreName) },
-    { backingNo: "BAG_A", targetBranch: nextBranch({ next_store_name: "NEXT_A", ticket_delivery_store_name: "DELIVERY_B" }, cleanStoreName) },
+    { backingNo: "BAG_A", targetHub: "HUB_A", targetBranch: nextBranch({ next_store_name: "NEXT_A", ticket_delivery_store_name: "DELIVERY_A" }, cleanStoreName) },
+    { backingNo: "BAG_A", targetHub: "HUB_A", targetBranch: nextBranch({ next_store_name: "NEXT_A", ticket_delivery_store_name: "DELIVERY_B" }, cleanStoreName) },
   ];
   const groups = group(rows);
   assert.equal(groups.length, 1);
   assert.equal(groups[0][0], "BAG_A");
   assert.equal(summary(groups[0][1]).branch, "NEXT_A");
-  assert.equal(summary(groups[0][1]).hub, "NEXT_STOP_A", "route-level next store is unchanged");
+  assert.equal(summary(groups[0][1]).hub, "HUB_A");
   assert.equal(summary([{ targetBranch: "NEXT_A" }, { targetBranch: "NEXT_B" }]).branch, "หลายสาขา");
   assert.equal(summary([{ targetBranch: "" }, { targetBranch: "" }]).branch, "-");
 });
 
-test("staged parcel and bag labels expose next-store semantics without asserting a final HUB", () => {
-  assert.doesNotMatch(frontend, /HUB ปลายทาง|สาขาถัดไป|สาขาปลายทาง/);
-  assert.match(frontend, /<th>จุดที่ระบุในข้อมูลพัสดุ<\/th><th>ชื่อสาขาต่อไป<\/th>/);
+test("staged parcel and bag labels keep next-store distinct from destination HUB", () => {
+  assert.doesNotMatch(frontend, /HUB ปลายทาง|สาขาถัดไป|สาขาปลายทาง|จุดที่ระบุในข้อมูลพัสดุ/);
+  assert.match(frontend, /<th>ฮับปลายทาง<\/th><th>ชื่อสาขาต่อไป<\/th>/);
   assert.match(frontend, /<th>HUB ถัดไป<\/th><th>ชื่อสาขาต่อไป<\/th>/);
-  assert.match(frontend, /"จุดที่ระบุในข้อมูลพัสดุ": row\.targetHub/);
+  assert.match(frontend, /"ฮับปลายทาง": row\.targetHub/);
   assert.match(frontend, /"ชื่อสาขาต่อไป": row\.targetBranch/);
   assert.match(frontend, /PNO_NEXT_STORE_SEMANTICS_V3/);
   assert.doesNotMatch(frontend, /HUBปลายทาง/);

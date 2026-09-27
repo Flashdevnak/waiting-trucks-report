@@ -390,7 +390,10 @@ test("new tab follows Backing, shows only suspected/insufficient, and renders wi
   assert.doesNotMatch(renderSource, /curl_pno|fetch\(|apiGet\(/);
   const list = { innerHTML: "" };
   const esc = (value) => String(value).replaceAll("<", "&lt;");
-  const render = new Function("el", "esc", `${renderSource}; return pnoInboundRender;`)(() => list, esc);
+  const render = new Function("el", "esc", "pnoExactHistoryNoticeHtml", "pnoV18SourceRow",
+    "pnoExactHistoryKey", "pnoExactHistoryActive", "pnoExactHistoryChecked",
+    "pnoExactHistoryLocatorReady", `${renderSource}; return pnoInboundRender;`)(
+    () => list, esc, () => "", () => ({}), () => "test", new Set(), new Set(), () => false);
   render([
     { pno: "SUSPECT", scanEvidence: { classification: PNO_SCAN_CLASSES.SUSPECTED, reason: "OBSERVED" } },
     { pno: "UNKNOWN", scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "LATE" } },

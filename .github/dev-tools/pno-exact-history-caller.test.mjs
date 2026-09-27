@@ -155,8 +155,8 @@ test("staged runtime has only a click-bound history action, no scan-gap history 
   const worker = readFileSync(new URL("../../worker/.dev-runtime/src/index.js", import.meta.url), "utf8");
   assert.match(front, /button\[data-pno-history\]/);
   assert.match(front, /data-pno-history="1"/);
-  assert.match(front, /apiGet\("pendingPnoHistory"/);
-  assert.equal((front.match(/apiGet\("pendingPnoHistory"/g) || []).length, 1);
+  assert.match(front, /apiGetOnce\("pendingPnoHistory"/);
+  assert.equal((front.match(/apiGetOnce\("pendingPnoHistory"/g) || []).length, 1);
   assert.match(worker, /if \(action === "pendingPnoHistory"\)/);
   assert.match(worker, /if \(!access\(hub, actor\)\) fail\("ไม่มีสิทธิ์ดูข้อมูล HUB นี้"/);
   assert.match(worker, /await ingestPnoExactHistory\(/);
@@ -165,6 +165,7 @@ test("staged runtime has only a click-bound history action, no scan-gap history 
   const load = front.slice(front.indexOf("async function pnoInboundLoad(page) {"),
     front.indexOf("function pnoV18SetActive(type)"));
   assert.doesNotMatch(load, /pendingPnoHistory|curl_pno/);
+  assert.doesNotMatch(load, /pnoExactHistoryNotice\s*=/);
   const render = front.slice(front.indexOf("function pnoInboundRender(rows) {"),
     front.indexOf("async function pnoInboundLoad(page) {"));
   assert.doesNotMatch(render, /apiGet\(|fetch\(/);
@@ -181,9 +182,9 @@ test("rendering one, ten or one hundred scan-gap rows performs no history reques
   let calls = 0;
   const render = new Function("el", "esc", "pnoExactHistoryNoticeHtml", "pnoV18SourceRow",
     "pnoExactHistoryKey", "pnoExactHistoryActive", "pnoExactHistoryChecked",
-    "pnoExactHistoryLocatorReady", "pnoExactHistoryCheck", `${renderer}; return pnoInboundRender;`)(
+    "pnoExactHistoryLocatorReady", "pnoExactHistoryMatches", "pnoExactHistoryCheck", `${renderer}; return pnoInboundRender;`)(
     () => list, (value) => String(value), () => "", () => ({}), () => "key",
-    new Set(), new Set(), () => true, () => { calls += 1; });
+    new Set(), new Set(), () => true, () => [{}], () => { calls += 1; });
   for (const n of [1, 10, 100]) {
     render(Array.from({ length: n }, (_, i) => ({ pno: `TEST_${i}`, arrivalAnchorAt: arrival,
       scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT } })));
@@ -229,7 +230,7 @@ test("one explicit UI check coalesces double click and refreshes the exact scan-
   let calls = 0;
   let finish;
   const pending = new Promise((resolve) => { finish = resolve; });
-  const scope = new Function("apiGet", "pnoV18State", "pnoV18SourceRow", "pnoReadOnlyDetailEligibility",
+  const scope = new Function("apiGetOnce", "pnoV18State", "pnoV18SourceRow", "pnoReadOnlyDetailEligibility",
     "state", "pnoV18LocatorKey", "pnoCountForType", "pnoPendingPropagatePositive", "pnoInboundRender", "esc",
     helpers + "return { check: pnoExactHistoryCheck, ready: pnoExactHistoryLocatorReady };")(
     async () => { calls += 1; return pending; }, state, () => source, () => ({ available: true }),
@@ -245,4 +246,150 @@ test("one explicit UI check coalesces double click and refreshes the exact scan-
   assert.equal(item.scanEvidence.classification, PNO_SCAN_CLASSES.CONFIRMED);
   await scope.check(raw.pno, arrival);
   assert.equal(calls, 1);
+});
+
+test("apiGetOnce preserves the DEV action contract with one fetch on every outcome", async () => {
+  const source = readFileSync(new URL("../../ms.js", import.meta.url), "utf8");
+  const once = source.slice(source.indexOf("async function apiGetOnce(action, params = {}) {"),
+    source.indexOf("function openMsConnection()"));
+  assert.match(once, /const response = await fetch\(url,/);
+  assert.doesNotMatch(once, /for\s*\(|while\s*\(|retry|attempt/i);
+  for (const scenario of ["success", "400", "409", "500", "timeout", "nonJSON", "network"]) {
+    let calls = 0;
+    let invalidations = 0;
+    let timerCleared = 0;
+    const get = new Function("CONFIG", "state", "fetch", "AbortController", "setTimeout",
+      "clearTimeout", "invalidateSession", once + "; return apiGetOnce;")(
+      { apiUrl: "https://example.invalid/api", requestTimeoutMs: 2000 },
+      { auth: { token: "TEST_TOKEN" } },
+      async (url, options) => {
+        calls += 1;
+        assert.equal(url.searchParams.get("action"), "pendingPnoHistory");
+        assert.equal(url.searchParams.get("token"), "TEST_TOKEN");
+        assert.equal(url.searchParams.get("proofId"), "PROOF_A");
+        assert.equal(options.cache, "no-store");
+        if (scenario === "timeout") {
+          assert.equal(options.signal.aborted, true);
+          throw Object.assign(new Error("aborted"), { name: "AbortError" });
+        }
+        if (scenario === "network") throw new TypeError("network offline");
+        const status = ["400", "409", "500"].includes(scenario) ? Number(scenario) : 200;
+        const payload = scenario === "nonJSON" ? "<html>bad gateway</html>" :
+          scenario === "success" ? JSON.stringify({ ok: true, data: { classification: "CONFIRMED_SCAN_IN" } }) :
+            JSON.stringify({ ok: false, code: scenario === "409" ? "INVALID_SESSION" : "ERROR",
+              message: "test failure" });
+        return { ok: status === 200, status, text: async () => payload };
+      },
+      AbortController,
+      (fn) => { if (scenario === "timeout") fn(); return 1; },
+      () => { timerCleared += 1; },
+      () => { invalidations += 1; });
+    if (scenario === "success") assert.equal((await get("pendingPnoHistory", { proofId: "PROOF_A" }))
+      .classification, "CONFIRMED_SCAN_IN");
+    else await assert.rejects(get("pendingPnoHistory", { proofId: "PROOF_A" }));
+    assert.equal(calls, 1, scenario);
+    assert.equal(timerCleared, 1, scenario);
+    assert.equal(invalidations, scenario === "409" ? 1 : 0, scenario);
+  }
+});
+
+function exactHistoryUiHarness(response) {
+  const front = stageFrontend(readFileSync(new URL("../../ms.js", import.meta.url), "utf8"));
+  const helpers = front.slice(front.indexOf("const pnoExactHistoryActive = new Set();"),
+    front.indexOf("function pnoInboundRender(rows) {"));
+  const renderer = front.slice(front.indexOf("function pnoInboundRender(rows) {"),
+    front.indexOf("async function pnoInboundLoad(page) {"));
+  const source = { proofId: "PROOF_A", pnoSourceDay: "2026-09-24", pnoLineId: "LINE_A",
+    pnoStoreId: "SOURCE", pnoNextStoreId: "CURRENT", pnoCanReport: false };
+  const item = { pno: raw.pno, arrivalAnchorAt: arrival,
+    scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT } };
+  const state = { sourceRow: source, type: "scan_gap", page: 1, rows: [item], busy: false,
+    filters: { status: "", action: "", branch: "" } };
+  const app = { branch: "NE1" };
+  const list = { innerHTML: "", contains: () => true, classList: { add() {}, remove() {} } };
+  const nodes = new Map([["pending-parcels-list", list]]);
+  const el = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { textContent: "", classList: { add() {}, remove() {} } });
+    return nodes.get(id);
+  };
+  let requests = 0;
+  const get = async () => { requests += 1; if (response instanceof Error) throw response; return response; };
+  const scope = new Function("apiGetOnce", "pnoV18State", "pnoV18SourceRow",
+    "pnoReadOnlyDetailEligibility", "state", "pnoV18LocatorKey", "pnoCountForType",
+    "pnoPendingPropagatePositive", "el", "esc", helpers + renderer +
+      "return { check: pnoExactHistoryCheck, render: pnoInboundRender, notice: pnoExactHistoryNoticeHtml };")(
+      get, state, () => state.sourceRow, () => ({ available: true }), app,
+      (row) => JSON.stringify([row?.proofId, row?.pnoSourceDay, row?.pnoLineId,
+        row?.pnoStoreId, row?.pnoNextStoreId]), () => 1, () => {},
+      el, (value) => String(value ?? ""));
+  const buttons = () => [...list.innerHTML.matchAll(/<button[^>]+data-pno-history="1"[^>]*>/g)]
+    .map(([tag]) => tag);
+  return { front, scope, source, item, state, app, list, el, buttons, requests: () => requests };
+}
+
+test("render eligibility and handler share the unique insufficient row guard", async () => {
+  const ui = exactHistoryUiHarness({ classification: PNO_SCAN_CLASSES.CONFIRMED });
+  ui.scope.render(ui.state.rows);
+  assert.equal(ui.buttons().length, 2);
+  assert.ok(ui.buttons().every((tag) => !tag.includes(" disabled")));
+  ui.state.rows.push({ ...ui.item, scanEvidence: { ...ui.item.scanEvidence } });
+  ui.scope.render(ui.state.rows);
+  assert.ok(ui.buttons().every((tag) => tag.includes(" disabled")));
+  await ui.scope.check(raw.pno, arrival);
+  assert.equal(ui.requests(), 0);
+  ui.state.rows.pop();
+  ui.item.scanEvidence = { classification: PNO_SCAN_CLASSES.CONFIRMED };
+  ui.scope.render(ui.state.rows);
+  assert.equal(ui.buttons().length, 0);
+  assert.equal(ui.requests(), 0);
+});
+
+test("settled notices survive same-occurrence reload and reopen but never cross occurrences", async () => {
+  for (const [response, expected] of [
+    [{ classification: PNO_SCAN_CLASSES.CONFIRMED, scanInAction: "ARRIVAL_WAREHOUSE_SCAN",
+      scanInSource: "EXPLICIT_WAYBILL_HISTORY", scanInEventAt: scan }, "ยืนยันสแกนเข้าคลังแล้ว"],
+    [{ classification: PNO_SCAN_CLASSES.INSUFFICIENT }, "ตรวจประวัติแล้ว แต่หลักฐาน"],
+    [new Error("test network error"), "ตรวจประวัติไม่สำเร็จ"],
+  ]) {
+    const ui = exactHistoryUiHarness(response);
+    await ui.scope.check(raw.pno, arrival);
+    assert.equal(ui.requests(), 1);
+    assert.match(ui.scope.notice(), new RegExp(expected));
+    ui.scope.render(ui.state.rows);
+    assert.match(ui.list.innerHTML, new RegExp(expected));
+    const loadStart = ui.front.indexOf("async function pnoInboundLoad(page) {");
+    const load = ui.front.slice(loadStart, ui.front.indexOf("\n}\n", loadStart) + 3);
+    assert.doesNotMatch(load, /pnoExactHistoryNotice\s*=/);
+    const reload = new Function("pnoV18State", "pnoPendingRenderNote", "pnoV18SetActive",
+      "pnoInboundToggleActions", "el", "pnoV18Fetch", "pnoV18RenderFilters",
+      "pnoV18RenderCurrentFilteredView", load + "; return pnoInboundLoad;")(
+      ui.state, () => {}, () => {}, () => {}, ui.el,
+      async () => ({ parcels: ui.state.rows, total: ui.state.rows.length }),
+      () => {}, () => ui.scope.render(ui.state.rows));
+    await reload(1);
+    assert.equal(ui.requests(), 1);
+    assert.match(ui.list.innerHTML, new RegExp(expected));
+    ui.scope.render(ui.state.rows); // same occurrence after modal close/reopen
+    assert.equal(ui.requests(), 1);
+    assert.match(ui.list.innerHTML, new RegExp(expected));
+    ui.state.sourceRow = { ...ui.source, proofId: "DIFFERENT_PROOF" };
+    ui.scope.render(ui.state.rows);
+    assert.doesNotMatch(ui.list.innerHTML, new RegExp(expected));
+  }
+});
+
+test("a result settling after navigation remains bound to the clicked occurrence", async () => {
+  let finish;
+  const pending = new Promise((resolve) => { finish = resolve; });
+  const ui = exactHistoryUiHarness(pending);
+  const check = ui.scope.check(raw.pno, arrival);
+  ui.app.branch = "OTHER_HUB";
+  ui.state.sourceRow = { ...ui.source, proofId: "OTHER_PROOF" };
+  finish({ classification: PNO_SCAN_CLASSES.INSUFFICIENT });
+  await check;
+  assert.equal(ui.requests(), 1);
+  assert.equal(ui.scope.notice(), "");
+  ui.app.branch = "NE1";
+  ui.state.sourceRow = ui.source;
+  assert.match(ui.scope.notice(), /ตรวจประวัติแล้ว แต่หลักฐาน/);
 });

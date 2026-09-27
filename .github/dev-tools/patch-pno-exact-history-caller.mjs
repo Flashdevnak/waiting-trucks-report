@@ -202,7 +202,8 @@ export function patchPnoExactHistoryFrontend(source) {
     const pending = pnoExactHistoryActive.has(key);
     const checked = pnoExactHistoryChecked.has(key);
     const ready = evidence.classification === "INSUFFICIENT_HISTORY" &&
-      pnoExactHistoryLocatorReady(sourceRow) && row.pno && row.arrivalAnchorAt;
+      pnoExactHistoryLocatorReady(sourceRow) && row.pno && row.arrivalAnchorAt &&
+      pnoExactHistoryMatches(row.pno, row.arrivalAnchorAt).length === 1;
     const historyButton = evidence.classification === "INSUFFICIENT_HISTORY"
       ? '<button type="button" class="btn btn-secondary" data-pno-history="1" data-pno="' +
         esc(row.pno) + '" data-anchor="' + esc(row.arrivalAnchorAt || "") + '"' +
@@ -231,10 +232,20 @@ export function patchPnoExactHistoryFrontend(source) {
   const helpers = `// ${MARKER}: the handler below is reachable only from a row button click.
 const pnoExactHistoryActive = new Set();
 const pnoExactHistoryChecked = new Set();
-let pnoExactHistoryNotice = "";
+let pnoExactHistoryNotice = null;
+function pnoExactHistoryOccurrenceKey(row) {
+  if (!row) return "";
+  return JSON.stringify([state.branch, row.proofId, row.pnoSourceDay,
+    row.pnoLineId || row.pnoVanLineId, row.pnoStoreId, row.pnoNextStoreId]);
+}
 function pnoExactHistoryNoticeHtml() {
-  return pnoExactHistoryNotice ? '<div role="status" class="pno-v18-note">' +
-    esc(pnoExactHistoryNotice) + '</div>' : '';
+  const key = pnoExactHistoryOccurrenceKey(pnoV18SourceRow());
+  return key && key === pnoExactHistoryNotice?.occurrenceKey
+    ? '<div role="status" class="pno-v18-note">' +
+      esc(pnoExactHistoryNotice.message) + '</div>' : '';
+}
+function pnoExactHistorySetNotice(occurrenceKey, message) {
+  pnoExactHistoryNotice = { occurrenceKey, message };
 }
 function pnoExactHistoryLocatorReady(row) {
   return Boolean(row && pnoReadOnlyDetailEligibility(row).available && state.branch &&
@@ -245,19 +256,23 @@ function pnoExactHistoryKey(sourceRow, pno, anchor) {
   return pnoV18LocatorKey(sourceRow) + "|" + String(pno || "").trim().toUpperCase() +
     "|" + String(anchor || "").trim();
 }
-async function pnoExactHistoryCheck(pno, anchor) {
-  const sourceRow = pnoV18SourceRow();
-  const key = pnoExactHistoryKey(sourceRow, pno, anchor);
-  const rows = (pnoV18State.rows || []).filter((row) => row.pno === pno &&
+function pnoExactHistoryMatches(pno, anchor) {
+  return (pnoV18State.rows || []).filter((row) => row.pno === pno &&
     row.arrivalAnchorAt === anchor &&
     row.scanEvidence?.classification === "INSUFFICIENT_HISTORY");
+}
+async function pnoExactHistoryCheck(pno, anchor) {
+  const sourceRow = pnoV18SourceRow();
+  const occurrenceKey = pnoExactHistoryOccurrenceKey(sourceRow);
+  const key = pnoExactHistoryKey(sourceRow, pno, anchor);
+  const rows = pnoExactHistoryMatches(pno, anchor);
   if (!pnoExactHistoryLocatorReady(sourceRow) || !pno || !anchor ||
       rows.length !== 1 || pnoExactHistoryActive.has(key) || pnoExactHistoryChecked.has(key)) return;
   pnoExactHistoryActive.add(key);
-  pnoExactHistoryNotice = "";
+  pnoExactHistoryNotice = null;
   pnoInboundRender(pnoV18State.rows);
   try {
-    const view = await apiGet("pendingPnoHistory", {
+    const view = await apiGetOnce("pendingPnoHistory", {
       branch: state.branch, proofId: sourceRow.proofId, day: sourceRow.pnoSourceDay,
       page: pnoV18State.page, count: pnoCountForType(sourceRow, "total"),
       canReport: sourceRow.pnoCanReport === true,
@@ -271,12 +286,12 @@ async function pnoExactHistoryCheck(pno, anchor) {
       pnoPendingPropagatePositive(sourceRow, { parcels: [{ ...rows[0], scanEvidence: view }] });
       if (pnoV18LocatorKey(pnoV18State.sourceRow) === pnoV18LocatorKey(sourceRow))
         rows[0].scanEvidence = view;
-      pnoExactHistoryNotice = "ยืนยันสแกนเข้าคลังแล้ว";
+      pnoExactHistorySetNotice(occurrenceKey, "ยืนยันสแกนเข้าคลังแล้ว");
     } else {
-      pnoExactHistoryNotice = "ตรวจประวัติแล้ว แต่หลักฐานที่มีไม่เพียงพอยืนยันสแกนเข้าในเที่ยวนี้";
+      pnoExactHistorySetNotice(occurrenceKey, "ตรวจประวัติแล้ว แต่หลักฐานที่มีไม่เพียงพอยืนยันสแกนเข้าในเที่ยวนี้");
     }
   } catch {
-    pnoExactHistoryNotice = "ตรวจประวัติไม่สำเร็จ กรุณาลองภายหลัง";
+    pnoExactHistorySetNotice(occurrenceKey, "ตรวจประวัติไม่สำเร็จ กรุณาลองภายหลัง");
   } finally {
     pnoExactHistoryActive.delete(key);
     if (pnoV18State.type === "scan_gap") pnoInboundRender(pnoV18State.rows);
@@ -285,11 +300,5 @@ async function pnoExactHistoryCheck(pno, anchor) {
 
 `;
   output = output.slice(0, start) + helpers + renderer + output.slice(end);
-  output = replaceUnique(output,
-    `async function pnoInboundLoad(page) {
-  if (pnoV18State.busy) return;`,
-    `async function pnoInboundLoad(page) {
-  if (pnoV18State.busy) return;
-  pnoExactHistoryNotice = "";`, "notice reset on tab load");
   return output;
 }

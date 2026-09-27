@@ -192,3 +192,50 @@ export async function observePnoEvidencePage(storage, locator, rawRows, observed
     return views;
   });
 }
+
+// Accept only a result from an explicit exact WaybillDetail read. This helper
+// performs no acquisition; the caller must pass the current detail row and the
+// already received history together. Persist only the matched positive fact.
+export async function ingestPnoExactHistory(storage, locator, row, response, observedAt) {
+  const unavailable = { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "HISTORY_OCCURRENCE_UNVERIFIED" };
+  const key = await pnoEvidenceKeys(locator, row);
+  const result = response?.data?.result ?? response?.result ?? response;
+  const events = result?.parcel_routes;
+  const snapshot = observePnoSnapshot(null, locator, row, observedAt);
+  if (!storage || !key?.occurrence || !snapshot.changed ||
+      String(result?.parcel_info?.pno || "").trim().toUpperCase() !== key.identity.pno ||
+      !Array.isArray(events) || events.length > 500 ||
+      !matchPnoHistoryArrival(locator, row, events)) return unavailable;
+
+  const targetStore = key.identity.targetStoreId;
+  const lastActionAt = pnoProviderTime(row?.LastActionTime);
+  const scanAt = events.map((event) => {
+    if (event?.route_action !== SCAN_IN ||
+        String(event?.store_id || "").trim() !== targetStore) return "";
+    const at = pnoProviderTime(event?.routed_at);
+    return at >= key.anchor && at <= lastActionAt ? at : "";
+  }).filter(Boolean).sort()[0];
+  if (!scanAt || Date.parse(observedAt) < Date.parse(scanAt.replace(" ", "T") + "+07:00"))
+    return unavailable;
+
+  return storage.transaction(async (txn) => {
+    const saved = await txn.get([key.occurrence]);
+    const previous = saved.get(key.occurrence) || null;
+    const outcome = observePnoSnapshot(previous, locator, row, observedAt);
+    if (outcome.view.reason === "OCCURRENCE_MISMATCH" ||
+        outcome.view.reason === "OCCURRENCE_OR_SOURCE_INVALID") return unavailable;
+    if (!outcome.record) return unavailable;
+    const before = JSON.stringify(previous);
+    const record = { ...outcome.record };
+    if (record.scanInObserved !== true) {
+      record.scanInObserved = true;
+      record.scanInAction = SCAN_IN;
+      record.scanInEventAt = scanAt;
+      record.scanInObservedAt = observedAt;
+      record.scanInSource = "EXPLICIT_WAYBILL_HISTORY";
+    }
+    if (before !== JSON.stringify(record))
+      await txn.put({ [key.occurrence]: record });
+    return projectPnoEvidence(record);
+  });
+}

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   PNO_SCAN_CLASSES, matchPnoHistoryArrival, observePnoSnapshot,
-  observePnoEvidencePage, pnoEvidenceKeys, projectPnoEvidence,
+  observePnoEvidencePage, ingestPnoExactHistory, pnoEvidenceKeys, projectPnoEvidence,
 } from "../../worker/src/pno-inbound-scan-evidence.js";
 import { stageFrontend, patchDevUiShellSource } from "./stage-dev-runtime.mjs";
 import { readSharedPnoPage } from "../../worker/.dev-runtime/src/index.js";
@@ -22,6 +22,14 @@ function row(action, time, extra = {}) {
   return { pno: "TEST_PNO_A", store_id: "STORE_CURRENT",
     real_arrive_time: arrival, LastAction: action, LastAction_name: "ตัวอย่าง",
     LastActionTime: time, pack_no: "TEST_BAG", ...extra };
+}
+function history(pno = "TEST_PNO_A", events = [
+  ["ARRIVAL_GOODS_VAN_CHECK_SCAN", arrival, "STORE_CURRENT"],
+  ["ARRIVAL_WAREHOUSE_SCAN", scan, "STORE_CURRENT"],
+  ["SHIPMENT_WAREHOUSE_SCAN", downstream, "STORE_CURRENT"],
+]) {
+  return { data: { result: { parcel_info: { pno }, parcel_routes: events.map(
+    ([route_action, routed_at, store_id]) => ({ route_action, routed_at, store_id })) } } };
 }
 
 class MemoryStorage {
@@ -54,6 +62,105 @@ test("paired detail and history require the exact vehicle arrival store and time
   ]) assert.equal(matchPnoHistoryArrival(locator, r, [event]), false);
   assert.equal(matchPnoHistoryArrival({ ...locator, nextStoreId: "OTHER" }, r,
     [{ route_action: "ARRIVAL_GOODS_VAN_CHECK_SCAN", store_id: "STORE_CURRENT", routed_at: arrival }]), false);
+});
+
+test("an explicitly supplied exact history confirms a late-start downstream row and survives reload", async () => {
+  const storage = new MemoryStorage();
+  const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
+  assert.equal((await observePnoEvidencePage(storage, locator, [current], departedAt))[0].reason,
+    "MONITORING_STARTED_AFTER_ARRIVAL");
+  const accepted = await ingestPnoExactHistory(storage, locator, current, history(),
+    "2026-09-23T20:19:00.000Z");
+  assert.equal(accepted.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  assert.equal(accepted.scanInEventAt, scan);
+  assert.equal(accepted.scanInObservedAt, "2026-09-23T20:19:00.000Z");
+  assert.equal(accepted.scanInSource, "EXPLICIT_WAYBILL_HISTORY");
+  const reloaded = new MemoryStorage();
+  reloaded.values = new Map([...storage.values].map(([key, value]) => [key, structuredClone(value)]));
+  assert.equal((await observePnoEvidencePage(reloaded, locator,
+    [row("SEAL", "2026-09-24 03:20:00")], "2026-09-23T20:21:00.000Z"))[0]
+    .classification, PNO_SCAN_CLASSES.CONFIRMED);
+  const key = await pnoEvidenceKeys(locator, current);
+  const stored = reloaded.values.get(key.occurrence);
+  assert.equal(stored.scanInEventAt, scan);
+  assert.equal(stored.scanInObservedAt, "2026-09-23T20:19:00.000Z");
+  assert.equal(stored.latestObservedAction, "SEAL");
+  assert.deepEqual(Object.keys(stored).filter((name) => /route|parcel_info|phone|staff/i.test(name)), []);
+});
+
+test("history ingestion requires the exact PNO, locator, target store and vehicle-arrival anchor", async () => {
+  const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
+  for (const [otherLocator, otherRow, supplied] of [
+    [locator, current, history("OTHER_PNO")],
+    [{ ...locator, nextStoreId: "OTHER_STORE" }, current, history()],
+    [locator, { ...current, real_arrive_time: "" }, history()],
+    [locator, { ...current, real_arrive_time: "2026-09-25 02:58:37" }, history()],
+    [locator, current, history("TEST_PNO_A", [
+      ["ARRIVAL_GOODS_VAN_CHECK_SCAN", arrival, "OTHER_STORE"],
+      ["ARRIVAL_WAREHOUSE_SCAN", scan, "STORE_CURRENT"]])],
+    [locator, current, history("TEST_PNO_A", [
+      ["ARRIVAL_GOODS_VAN_CHECK_SCAN", "2026-09-24 02:58:38", "STORE_CURRENT"],
+      ["ARRIVAL_WAREHOUSE_SCAN", scan, "STORE_CURRENT"]])],
+  ]) {
+    const storage = new MemoryStorage();
+    assert.equal((await ingestPnoExactHistory(storage, otherLocator, otherRow, supplied,
+      departedAt)).classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+    assert.equal(storage.writes, 0);
+  }
+});
+
+test("other-HUB, absent, vehicle-only, out-of-window or malformed scan history cannot confirm", async () => {
+  const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
+  for (const event of [
+    ["ARRIVAL_WAREHOUSE_SCAN", scan, "STORE_OLD"],
+    ["ARRIVAL_GOODS_VAN_CHECK_SCAN", scan, "STORE_CURRENT"],
+    ["ARRIVAL_WAREHOUSE_SCAN", "2026-09-24 02:57:00", "STORE_CURRENT"],
+    ["ARRIVAL_WAREHOUSE_SCAN", "2026-09-24 03:19:00", "STORE_CURRENT"],
+    ["ARRIVAL_WAREHOUSE_SCAN", "bad", "STORE_CURRENT"],
+  ]) {
+    const storage = new MemoryStorage();
+    const supplied = history("TEST_PNO_A", [
+      ["ARRIVAL_GOODS_VAN_CHECK_SCAN", arrival, "STORE_CURRENT"], event]);
+    assert.equal((await ingestPnoExactHistory(storage, locator, current, supplied,
+      departedAt)).classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+    assert.equal(storage.writes, 0);
+  }
+});
+
+test("history cannot cross occurrence, segment or HUB and does not add acquisition", async () => {
+  const storage = new MemoryStorage();
+  const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
+  await ingestPnoExactHistory(storage, locator, current, history(), departedAt);
+  for (const [otherLocator, otherRow] of [
+    [locator, row("SHIPMENT_WAREHOUSE_SCAN", "2026-09-25 03:17:54",
+      { real_arrive_time: "2026-09-25 02:58:37" })],
+    [{ ...locator, lineId: "OTHER_LINE" }, current],
+    [{ ...locator, hub: "OTHER_HUB" }, current],
+  ]) {
+    const view = await observePnoEvidencePage(storage, otherLocator, [otherRow], departedAt);
+    assert.notEqual(view[0].classification, PNO_SCAN_CLASSES.CONFIRMED);
+  }
+  const source = readFileSync(new URL("../../worker/src/pno-inbound-scan-evidence.js", import.meta.url), "utf8");
+  const ingest = source.slice(source.indexOf("export async function ingestPnoExactHistory"));
+  assert.doesNotMatch(ingest, /\bfetch\s*\(|curl_pno|setInterval|setTimeout|WebSocket|EventSource/);
+  assert.doesNotMatch(source, /CONFIRMED_MISSED_SCAN/);
+});
+
+test("malformed later history cannot erase a prior positive or reveal it before acquisition", async () => {
+  const storage = new MemoryStorage();
+  const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
+  const observedAt = "2026-09-23T20:19:00.000Z";
+  await ingestPnoExactHistory(storage, locator, current, history(), observedAt);
+  const key = await pnoEvidenceKeys(locator, current);
+  const original = structuredClone(storage.values.get(key.occurrence));
+  assert.notEqual(projectPnoEvidence(original, { asOf: "2026-09-23T20:18:59.000Z" })
+    .classification, PNO_SCAN_CLASSES.CONFIRMED);
+  const writes = storage.writes;
+  assert.equal((await ingestPnoExactHistory(storage, locator, current,
+    { data: { result: { parcel_info: { pno: "TEST_PNO_A" }, parcel_routes: null } } },
+    "2026-09-23T20:22:00.000Z")).classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+  assert.equal(storage.writes, writes);
+  assert.deepEqual(storage.values.get(key.occurrence), original);
 });
 
 test("vehicle arrival is not parcel scan-in, while the matched scan is positive", () => {

@@ -404,7 +404,7 @@ test("V25 own-HUB isolation uses the currently selected HUB and exact canonical 
   const section = staged.slice(staged.indexOf("function pnoOperationalCanonicalHub"), staged.indexOf("function pnoOperationalRawSummary"));
   assert.match(section, /function pnoOperationalCurrentHub\(\)/);
   assert.match(section, /pnoOperationalCanonicalHub\(state\.branch\)/);
-  assert.match(section, /pnoOperationalCanonicalHub\(targetHub\) === current/);
+  assert.match(section, /pnoOperationalCanonicalHub\(operationalMatchHub\) === current/);
   assert.match(section, /String\(item\?\.backingNo \|\| ""\)\.trim\(\)/);
   assert.doesNotMatch(section, /lastAction/);
   assert.doesNotMatch(section, /row\?\.hub\)\s*\|\||AYU1TS8R72|KKC1TSBP54|02 NE1_HUB|["']NE1["']/);
@@ -462,7 +462,7 @@ test("V25 own-HUB Backing remains receipt evidence after latest action changes",
   const section = staged.slice(staged.indexOf("function pnoOperationalCandidate"), staged.indexOf("function pnoOperationalRawSummary"));
   assert.match(section, /pnoOperationalNormalizePno\(item\?\.pno\)/);
   assert.match(section, /String\(item\?\.backingNo \|\| ""\)\.trim\(\)/);
-  assert.match(section, /pnoOperationalHubMatches\(item\?\.targetHub\)/);
+  assert.match(section, /pnoOperationalHubMatches\(item\?\.operationalMatchHub\)/);
   assert.doesNotMatch(section, /lastAction|สแกนเข้าคลัง|แบ็กกิ้ง|ปริ้นท์ใบลาเบล/);
 });
 

@@ -12,7 +12,8 @@ export function patchPnoDestinationHubWorker(source) {
   if (output.includes(MARKER)) return output;
   const staged = replaceUnique(output,
     "      targetHub: cleanStoreName(row.next_hub_name || row.target_hub_name || row.dst_hub_name || row.destination_hub_name || row.ticket_delivery_hub_name || row.end_hub_name || row.next_store_name || row.hub_name || row.targetHub),",
-    "      targetHub: cleanStoreName(row.dst_hub_name),",
+    `      targetHub: cleanStoreName(row.dst_hub_name),
+      operationalMatchHub: cleanStoreName(row.next_hub_name || row.target_hub_name || row.dst_hub_name || row.destination_hub_name || row.ticket_delivery_hub_name || row.end_hub_name || row.next_store_name || row.hub_name || row.targetHub),`,
     "PNO detail projection");
   return `${staged}\n// ${MARKER}: PNO detail destination from dst_hub_name only.\n`;
 }
@@ -47,5 +48,21 @@ export function patchPnoDestinationHubFrontend(source) {
   };
 }`,
     "bag destination HUB aggregation");
-  return `${output}\n// ${MARKER}: PNO parcel destination from dst_hub_name; bag HUB from parcel targetHub.\n`;
+  output = replaceUnique(output,
+    `function pnoOperationalHubMatches(targetHub) {
+  const current = pnoOperationalCurrentHub();
+  if (!current) return false;
+  return pnoOperationalCanonicalHub(targetHub) === current;
+}`,
+    `function pnoOperationalHubMatches(operationalMatchHub) {
+  const current = pnoOperationalCurrentHub();
+  if (!current) return false;
+  return pnoOperationalCanonicalHub(operationalMatchHub) === current;
+}`,
+    "operational match parameter");
+  output = replaceUnique(output,
+    "    pnoOperationalHubMatches(item?.targetHub)",
+    "    pnoOperationalHubMatches(item?.operationalMatchHub)",
+    "V25/V28 count candidate authority");
+  return `${output}\n// ${MARKER}: PNO destination display and legacy V25 count matching remain independent.\n`;
 }

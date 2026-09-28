@@ -739,6 +739,9 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
   const manifestCache = new Map();
   const lastAttemptAt = new Map();
   const lastWakeUpAt = new Map();
+  // After the first completeness wake-up, retry at 30, 60 and 120 seconds.
+  // Four wake-ups total per proof, then only the normal five-minute refresh.
+  const missingRetryDelays = [0, 30_000, 60_000, 120_000];
   let syncInFlight = null;
 
   function cacheKey(hub) { return 'ms_origin_manifest_v1_' + String(hub || '').toUpperCase(); }
@@ -748,21 +751,81 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
       const cached = JSON.parse(localStorage.getItem(cacheKey(hub)) || 'null');
       if (!cached || !Array.isArray(cached.rows)) return null;
       if (Date.now() - Number(cached.savedAt || 0) >= 5 * 60 * 1000) return null;
-      return cached;
+      return { ...cached, rows: freshAcceptedRows(cached) };
     } catch { return null; }
   }
 
-  function saveBrowserCache(hub, rows, refreshedAt, attemptedMissing = []) {
-    // A later base snapshot or temporarily sparse Manifest response must not
-    // erase a previously accepted positive metric for the same proof.
-    const previous = manifestCache.get(String(hub || '').toUpperCase()) || loadBrowserCache(hub);
-    const byProof = new Map((previous?.rows || []).map((row) => [normalizeManifestProof(row?.proofId), row]));
-    for (const row of rows) {
-      const key = normalizeManifestProof(row?.proofId);
-      if (key) byProof.set(key, { ...(byProof.get(key) || {}), ...row });
+  function freshAcceptedRows(cached) {
+    return (cached?.rows || []).filter((row) => {
+      const proof = normalizeManifestProof(row?.proofId);
+      const acceptedAt = Number(cached?.acceptedAtByProof?.[proof] || cached?.savedAt || 0);
+      return proof && hasManifestMetrics(row) && Date.now() - acceptedAt < 5 * 60 * 1000;
+    });
+  }
+
+  function hasManifestMetrics(row) {
+    return ['manifestShippedParcels', 'manifestWeightKg'].some((field) =>
+      row?.[field] !== null && row?.[field] !== undefined && row?.[field] !== '' &&
+      Number.isFinite(Number(row[field])));
+  }
+
+  function retryState(cached, activeProofs) {
+    const active = new Set(activeProofs);
+    const legacy = new Set((cached?.attemptedMissing || []).map(normalizeManifestProof));
+    const retries = Object.create(null);
+    for (const proof of active) {
+      const entry = cached?.missingRetries?.[proof];
+      if (entry && typeof entry === 'object') {
+        retries[proof] = {
+          attemptCount: Math.min(missingRetryDelays.length, Math.max(0, Number(entry.attemptCount) || 0)),
+          lastAttemptAt: Number(entry.lastAttemptAt) || 0,
+        };
+      } else if (legacy.has(proof)) {
+        // Old caches had a permanent attempted set. Make them retry-eligible
+        // without requiring the owner to clear localStorage.
+        retries[proof] = { attemptCount: 1, lastAttemptAt: Number(cached.savedAt) || 0 };
+      }
     }
-    const value = { rows: [...byProof.values()], refreshedAt: refreshedAt || '', savedAt: Date.now(), attemptedMissing };
-    manifestCache.set(String(hub || '').toUpperCase(), value);
+    return retries;
+  }
+
+  function saveBrowserCache(hub, rows, refreshedAt, retries, activeProofs, baselineAt) {
+    const key = String(hub || '').toUpperCase();
+    const now = Date.now();
+    const stored = loadBrowserCache(hub);
+    const memory = manifestCache.get(key);
+    const previous = stored || (memory && now - Number(memory.savedAt || 0) < 5 * 60 * 1000 ? memory : null);
+    const active = new Set(activeProofs);
+    const byProof = new Map();
+    const acceptedAtByProof = Object.create(null);
+    for (const row of previous?.rows || []) {
+      const proof = normalizeManifestProof(row?.proofId);
+      const acceptedAt = Number(previous?.acceptedAtByProof?.[proof] || previous?.savedAt || 0);
+      if (active.has(proof) && hasManifestMetrics(row) && now - acceptedAt < 5 * 60 * 1000) {
+        byProof.set(proof, row);
+        acceptedAtByProof[proof] = acceptedAt;
+      }
+    }
+    for (const row of rows) {
+      const proof = normalizeManifestProof(row?.proofId);
+      if (!active.has(proof) || !hasManifestMetrics(row)) continue;
+      const prior = byProof.get(proof);
+      const merged = { ...prior, ...row };
+      for (const field of ['manifestShippedParcels', 'manifestWeightKg']) {
+        if (prior && (row[field] === null || row[field] === undefined || row[field] === ''))
+          merged[field] = prior[field];
+      }
+      byProof.set(proof, merged);
+      acceptedAtByProof[proof] = now;
+    }
+    const missingRetries = Object.create(null);
+    for (const proof of active) if (!byProof.has(proof))
+      missingRetries[proof] = retries[proof] || { attemptCount: 0, lastAttemptAt: 0 };
+    const value = {
+      rows: [...byProof.values()], refreshedAt: refreshedAt || '', savedAt: now,
+      baselineAt, acceptedAtByProof, missingRetries,
+    };
+    manifestCache.set(key, value);
     try { localStorage.setItem(cacheKey(hub), JSON.stringify(value)); } catch {}
     return value;
   }
@@ -800,12 +863,17 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     const hub = String(state?.branch || '').toUpperCase();
     if (!hub || !Array.isArray(state?.currentRows)) return;
     let cached = manifestCache.get(hub);
+    if (cached && Date.now() - Number(cached.savedAt || 0) >= 5 * 60 * 1000) {
+      manifestCache.delete(hub);
+      cached = null;
+    }
     if (!cached) {
       cached = loadBrowserCache(hub);
       if (cached) manifestCache.set(hub, cached);
     }
-    if (!cached?.rows?.length) return;
-    const byProof = new Map(cached.rows.map((item) => [normalizeManifestProof(item?.proofId), item]));
+    const accepted = freshAcceptedRows(cached);
+    if (!accepted.length) return;
+    const byProof = new Map(accepted.map((item) => [normalizeManifestProof(item?.proofId), item]));
     const patch = (row) => {
       if (!isOrigin(row)) return row;
       const item = byProof.get(normalizeManifestProof(row?.proofId));
@@ -835,37 +903,47 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
 
     const browserCached = loadBrowserCache(hub);
     const activeProofs = activeOriginProofsLocal();
+    const now = Date.now();
+    const baselineAt = Number(browserCached?.baselineAt || browserCached?.savedAt || lastAttemptAt.get(hub) || 0);
+    const normalDue = !browserCached || now - baselineAt >= 5 * 60 * 1000;
     let completeness = false;
     if (!force && browserCached) {
       manifestCache.set(hub, browserCached);
       applyCachedManifest();
-      const present = new Set(browserCached.rows.map((row) => normalizeManifestProof(row?.proofId)));
-      const attempted = new Set(browserCached.attemptedMissing || []);
-      const newMissing = activeProofs.filter((proof) => !present.has(proof) && !attempted.has(proof));
-      if (!newMissing.length) return;
+      const present = new Set(browserCached.rows.filter(hasManifestMetrics).map((row) => normalizeManifestProof(row?.proofId)));
+      const retries = retryState(browserCached, activeProofs);
+      const eligible = activeProofs.filter((proof) => {
+        if (present.has(proof)) return false;
+        const retry = retries[proof] || { attemptCount: 0, lastAttemptAt: 0 };
+        return retry.attemptCount < missingRetryDelays.length &&
+          now - retry.lastAttemptAt >= missingRetryDelays[retry.attemptCount];
+      });
       const lastWake = Number(lastWakeUpAt.get(hub) || 0);
-      if (Date.now() - lastWake < 30 * 1000) return;
-      completeness = true;
-      lastWakeUpAt.set(hub, Date.now());
-      // Record the attempted set before I/O so a failed or stale source cannot
-      // turn the same missing proofs into a ten-second retry loop.
-      const marked = { ...browserCached, attemptedMissing: [...new Set([...attempted, ...newMissing])] };
-      manifestCache.set(hub, marked);
-      try { localStorage.setItem(cacheKey(hub), JSON.stringify(marked)); } catch {}
+      if (eligible.length && now - lastWake >= 30 * 1000 && !normalDue) {
+        completeness = true;
+        lastWakeUpAt.set(hub, now);
+        // Mark before I/O; failures must not cause a ten-second retry loop.
+        for (const proof of eligible) {
+          const retry = retries[proof] || { attemptCount: 0 };
+          retries[proof] = { attemptCount: retry.attemptCount + 1, lastAttemptAt: now };
+        }
+        const marked = { ...browserCached, missingRetries: retries };
+        delete marked.attemptedMissing;
+        manifestCache.set(hub, marked);
+        try { localStorage.setItem(cacheKey(hub), JSON.stringify(marked)); } catch {}
+      } else if (!normalDue) return;
     }
 
     const last = Number(lastAttemptAt.get(hub) || 0);
-    if (!force && !completeness && Date.now() - last < 5 * 60 * 1000) return;
-    if (!completeness) lastAttemptAt.set(hub, Date.now());
+    if (!force && !completeness && now - last < 5 * 60 * 1000) return;
+    if (!completeness) lastAttemptAt.set(hub, now);
     syncInFlight = (async () => {
       try {
         const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(','), ...(completeness ? { completeness: '1' } : {}) });
         const rows = Array.isArray(result?.rows) ? result.rows : [];
-        const present = new Set(rows.map((row) => normalizeManifestProof(row?.proofId)));
-        const attempted = new Set(browserCached?.attemptedMissing || []);
-        for (const proof of activeProofs) if (!present.has(proof)) attempted.add(proof);
-        for (const proof of present) attempted.delete(proof);
-        saveBrowserCache(hub, rows, result?.refreshedAt || '', [...attempted]);
+        const retries = completeness ? retryState(manifestCache.get(hub) || browserCached, activeProofs) : {};
+        saveBrowserCache(hub, rows, result?.refreshedAt || '', retries, activeProofs,
+          completeness ? baselineAt : now);
         applyCachedManifest();
         if (typeof render === 'function') render();
       } catch (error) {

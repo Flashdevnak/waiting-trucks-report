@@ -189,6 +189,39 @@ test("Origin, Destination and Drop render local proof barcode on desktop and mob
   assert.doesNotMatch(code, /\b(fetch|apiGet|apiPost)\s*\(|env\.DB|\.prepare\s*\(/);
 });
 
+test("opened Origin barcode survives a Manifest-triggered row rerender", () => {
+  const stored = new Map();
+  const barcodeContext = {
+    Set, JSON, encodeURIComponent, decodeURIComponent,
+    isOrigin: (row) => row.attendanceType === "ต้นทาง",
+    isDestination: () => false, isDrop: () => false,
+    esc: (value) => String(value),
+    sessionStorage: { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) },
+  };
+  vm.createContext(barcodeContext);
+  vm.runInContext(between(frontend, "// LOCAL_ROUTE_BARCODE_V1", "// Barcode presentation") +
+    "\nglobalThis.buttonHtml=localBarcodeButton;globalThis.toggle=toggleLocalRouteBarcode;", barcodeContext);
+  const row = { proofId: "PROOF001", attendanceType: "ต้นทาง" };
+  assert.match(barcodeContext.buttonHtml(row), /aria-expanded="false"/);
+  const panel = {
+    dataset: {}, innerHTML: "", hidden: true,
+    classList: {
+      contains: () => panel.hidden,
+      toggle: (_name, hidden) => { panel.hidden = hidden; },
+    },
+  };
+  const button = {
+    dataset: { barcodeValue: "PROOF001" },
+    closest: () => ({ querySelector: () => panel }),
+    setAttribute() {}, textContent: "",
+  };
+  barcodeContext.toggle(button);
+  assert.match(panel.innerHTML, /PROOF001/);
+  assert.match(barcodeContext.buttonHtml({ ...row, manifestShippedParcels: 7, manifestWeightKg: 12.5 }), /aria-expanded="true"/);
+  assert.match(barcodeContext.buttonHtml(row), /ซ่อนบาร์โค้ด/);
+  assert.match(stored.get("ms_local_barcode_open_v2"), /PROOF001/);
+});
+
 test("staging preserves inbound queue, Origin Route day authority and zero new acquisition", () => {
   assert.match(frontend, /if \(isOrigin\(row\)\) \{\s*const actualDeparture = parseDate\(row\?\.actualDepartureAt\)/);
   assert.match(frontend, /q\.active && isOrigin\(row\) && !String\(row\.id \|\| ""\)\.startsWith\("TBR:"\)/);

@@ -1,4 +1,5 @@
 const MANIFEST_REFRESH_MS = 5 * 60 * 1000;
+const MANIFEST_COMPLETENESS_MIN_MS = 30 * 1000;
 const MANIFEST_STALE_MAX_MS = 30 * 60 * 1000;
 const MANIFEST_PAGE_SIZE = 100;
 const MANIFEST_MAX_PAGES = 20;
@@ -7,6 +8,7 @@ const MANIFEST_KEY_PREFIX = "__LH_MANIFEST__:";
 export const ORIGIN_MANIFEST_POLICY = Object.freeze({
   marker: "MS_ORIGIN_LH_MANIFEST_V1",
   refreshMs: MANIFEST_REFRESH_MS,
+  completenessMinMs: MANIFEST_COMPLETENESS_MIN_MS,
   sharedPerHub: true,
   originOnly: true,
   matchKey: "proofId",
@@ -143,11 +145,11 @@ export class ManifestRefreshCache {
     this.active.clear();
   }
 
-  async get(day) {
+  async get(day, { completeness = false } = {}) {
     const now = this.now();
     const cached = this.cache.get(day);
-    if (cached?.until > now) return { ...cached, cacheHit: true };
     if (this.active.has(day)) return this.active.get(day);
+    if (!completeness && cached?.until > now) return { ...cached, cacheHit: true };
     const task = (async () => {
       try {
         const loaded = await this.loader(day);
@@ -372,6 +374,8 @@ export class OriginManifestCoordinator {
     this.ctx = ctx;
     this.env = env;
     this.fetchImpl = options.fetchImpl || fetch;
+    this.now = options.now || (() => Date.now());
+    this.lastCompletenessAt = 0;
     this.credentialsLoaded = false;
     this.credentials = null;
     this.cache = new ManifestRefreshCache({
@@ -380,7 +384,7 @@ export class OriginManifestCoordinator {
         if (!credentials) fail("HUB นี้ยังไม่ได้เชื่อม LH Manifest", "MANIFEST_NOT_CONFIGURED", 404);
         return readManifestDay(credentials, day, this.fetchImpl);
       },
-      now: options.now || (() => Date.now()),
+      now: this.now,
     });
   }
 
@@ -395,6 +399,7 @@ export class OriginManifestCoordinator {
     this.credentialsLoaded = false;
     this.credentials = null;
     this.cache.clear();
+    this.lastCompletenessAt = 0;
   }
 
   async fetch(request) {
@@ -410,8 +415,13 @@ export class OriginManifestCoordinator {
     const days = [...new Set((Array.isArray(body?.days) ? body.days : []).filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(String(day))))].slice(-2);
     if (!days.length) return json({ ok: true, rows: [], days: [], upstreamRequests: 0, cacheHits: 0 });
 
+    // One bounded HUB-wide wake-up, regardless of the number of missing proofs
+    // or simultaneous browsers. No proof identity enters this request.
+    const completeness = body?.completeness === true &&
+      (this.lastCompletenessAt === 0 || this.now() - this.lastCompletenessAt >= MANIFEST_COMPLETENESS_MIN_MS);
+    if (completeness) this.lastCompletenessAt = this.now();
     const results = [];
-    for (const day of days) results.push(await this.cache.get(day));
+    for (const day of days) results.push(await this.cache.get(day, { completeness }));
     const manifestByProof = new Map();
     for (const result of results) {
       for (const [proofId, row] of normalizeManifestRows(result.rows, result.fetchedAt)) {
@@ -430,6 +440,7 @@ export class OriginManifestCoordinator {
       error: results.find((item) => item.error)?.error || "",
       refreshedAt: results.map((item) => item.fetchedAt).filter(Boolean).sort().at(-1) || "",
       refreshMs: MANIFEST_REFRESH_MS,
+      completenessWakeUp: completeness,
     });
   }
 }
@@ -489,7 +500,7 @@ export async function saveOriginManifestConnection(env, actor, wantedHub, inputC
   };
 }
 
-export async function originManifestLive(env, actor, wantedHub, wantedDays) {
+export async function originManifestLive(env, actor, wantedHub, wantedDays, completeness = false) {
   const hub = requireAccess(wantedHub, actor);
   const days = [...new Set((Array.isArray(wantedDays) ? wantedDays : String(wantedDays || "").split(","))
     .map((day) => String(day).trim())
@@ -503,7 +514,7 @@ export async function originManifestLive(env, actor, wantedHub, wantedDays) {
     new Request("https://origin-manifest.internal/origin-manifest/refresh", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ hub, days }),
+      body: JSON.stringify({ hub, days, completeness: completeness === true }),
     }),
   );
   const live = await response.json();
@@ -727,6 +738,7 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
 
   const manifestCache = new Map();
   const lastAttemptAt = new Map();
+  const lastWakeUpAt = new Map();
   let syncInFlight = null;
 
   function cacheKey(hub) { return 'ms_origin_manifest_v1_' + String(hub || '').toUpperCase(); }
@@ -740,11 +752,34 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     } catch { return null; }
   }
 
-  function saveBrowserCache(hub, rows, refreshedAt) {
-    const value = { rows, refreshedAt: refreshedAt || '', savedAt: Date.now() };
+  function saveBrowserCache(hub, rows, refreshedAt, attemptedMissing = []) {
+    // A later base snapshot or temporarily sparse Manifest response must not
+    // erase a previously accepted positive metric for the same proof.
+    const previous = manifestCache.get(String(hub || '').toUpperCase()) || loadBrowserCache(hub);
+    const byProof = new Map((previous?.rows || []).map((row) => [normalizeManifestProof(row?.proofId), row]));
+    for (const row of rows) {
+      const key = normalizeManifestProof(row?.proofId);
+      if (key) byProof.set(key, { ...(byProof.get(key) || {}), ...row });
+    }
+    const value = { rows: [...byProof.values()], refreshedAt: refreshedAt || '', savedAt: Date.now(), attemptedMissing };
     manifestCache.set(String(hub || '').toUpperCase(), value);
     try { localStorage.setItem(cacheKey(hub), JSON.stringify(value)); } catch {}
     return value;
+  }
+
+  function normalizeManifestProof(value) {
+    return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+  }
+
+  function activeOriginProofsLocal() {
+    const proofs = new Set();
+    for (const row of state?.currentRows || []) {
+      if (!isOrigin(row) || row?.actualDepartureAt || row?.queueCancelledAt) continue;
+      if (typeof queueInfo === 'function' && !queueInfo(row).active) continue;
+      const proof = normalizeManifestProof(row?.proofId);
+      if (proof) proofs.add(proof);
+    }
+    return [...proofs];
   }
 
   function activeOriginDaysLocal() {
@@ -770,10 +805,10 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
       if (cached) manifestCache.set(hub, cached);
     }
     if (!cached?.rows?.length) return;
-    const byProof = new Map(cached.rows.map((item) => [String(item?.proofId || '').trim().toUpperCase().replace(/\s+/g, ''), item]));
+    const byProof = new Map(cached.rows.map((item) => [normalizeManifestProof(item?.proofId), item]));
     const patch = (row) => {
       if (!isOrigin(row)) return row;
-      const item = byProof.get(String(row?.proofId || '').trim().toUpperCase().replace(/\s+/g, ''));
+      const item = byProof.get(normalizeManifestProof(row?.proofId));
       return item ? { ...row, ...item } : row;
     };
     const previous = state.currentRows;
@@ -799,20 +834,38 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     if (!days.length) return;
 
     const browserCached = loadBrowserCache(hub);
+    const activeProofs = activeOriginProofsLocal();
+    let completeness = false;
     if (!force && browserCached) {
       manifestCache.set(hub, browserCached);
       applyCachedManifest();
-      return;
+      const present = new Set(browserCached.rows.map((row) => normalizeManifestProof(row?.proofId)));
+      const attempted = new Set(browserCached.attemptedMissing || []);
+      const newMissing = activeProofs.filter((proof) => !present.has(proof) && !attempted.has(proof));
+      if (!newMissing.length) return;
+      const lastWake = Number(lastWakeUpAt.get(hub) || 0);
+      if (Date.now() - lastWake < 30 * 1000) return;
+      completeness = true;
+      lastWakeUpAt.set(hub, Date.now());
+      // Record the attempted set before I/O so a failed or stale source cannot
+      // turn the same missing proofs into a ten-second retry loop.
+      const marked = { ...browserCached, attemptedMissing: [...new Set([...attempted, ...newMissing])] };
+      manifestCache.set(hub, marked);
+      try { localStorage.setItem(cacheKey(hub), JSON.stringify(marked)); } catch {}
     }
 
     const last = Number(lastAttemptAt.get(hub) || 0);
-    if (!force && Date.now() - last < 5 * 60 * 1000) return;
-    lastAttemptAt.set(hub, Date.now());
+    if (!force && !completeness && Date.now() - last < 5 * 60 * 1000) return;
+    if (!completeness) lastAttemptAt.set(hub, Date.now());
     syncInFlight = (async () => {
       try {
-        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(',') });
+        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(','), ...(completeness ? { completeness: '1' } : {}) });
         const rows = Array.isArray(result?.rows) ? result.rows : [];
-        saveBrowserCache(hub, rows, result?.refreshedAt || '');
+        const present = new Set(rows.map((row) => normalizeManifestProof(row?.proofId)));
+        const attempted = new Set(browserCached?.attemptedMissing || []);
+        for (const proof of activeProofs) if (!present.has(proof)) attempted.add(proof);
+        for (const proof of present) attempted.delete(proof);
+        saveBrowserCache(hub, rows, result?.refreshedAt || '', [...attempted]);
         applyCachedManifest();
         if (typeof render === 'function') render();
       } catch (error) {

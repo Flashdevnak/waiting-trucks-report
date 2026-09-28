@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 import { patchDevDurableCoordinator } from "./patch-ms-durable-coordinator.mjs";
 import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
 import {
   ManifestRefreshCache,
+  OriginManifestCoordinator,
   ORIGIN_MANIFEST_POLICY,
   activeOriginDays,
   applyManifestToRows,
@@ -268,4 +270,137 @@ test("frontend addon shows origin parcels and Kg and polls source only every fiv
   assert.match(js, /MS_ORIGIN_LH_MANIFEST_V1/);
   const other = await (await wrapped.ASSETS.fetch(new Request("https://dev.test/style.css"))).text();
   assert.equal(other, "plain");
+});
+
+test("fresh Manifest cache missing a new TBR Origin proof wakes one shared HUB refresh and preserves accepted metrics", async () => {
+  const source = originManifestFrontendSource();
+  const start = source.indexOf("  const manifestCache = new Map();");
+  const end = source.indexOf("  function installManifestScheduler()", start);
+  assert.ok(start >= 0 && end > start);
+  let now = Date.parse("2026-09-28T16:00:00Z");
+  const storage = new Map();
+  const calls = [];
+  let sourceRows = [{ proofId: "A", manifestShippedParcels: 10, manifestWeightKg: 50 }];
+  const state = {
+    auth: { token: "test" }, branch: "NE1", archiveView: false,
+    currentRows: [{ proofId: "A", attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-28T16:00:00Z" }],
+  };
+  state.rows = state.currentRows;
+  const context = {
+    state,
+    Date: class extends Date { static now() { return now; } },
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+    },
+    isOrigin: (row) => row.attendanceType === "ต้นทาง",
+    queueInfo: () => ({ active: true }),
+    bangkokDateValue: () => "2026-09-28",
+    apiGet: async (action, args) => {
+      calls.push({ action, args });
+      return { rows: sourceRows, refreshedAt: new Date(now).toISOString() };
+    },
+    render() {},
+    console,
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end) + "\nglobalThis.manifestTest = { maybeSyncManifest, applyCachedManifest };", context);
+  storage.set("ms_origin_manifest_v1_NE1", JSON.stringify({ rows: sourceRows, savedAt: now, refreshedAt: "" }));
+  await context.manifestTest.maybeSyncManifest();
+  assert.equal(calls.length, 0, "a present proof reuses the fresh cache");
+  assert.equal(state.currentRows[0].manifestShippedParcels, 10);
+  assert.equal(state.currentRows[0].manifestWeightKg, 50);
+
+  state.currentRows = [
+    { proofId: "A", attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-28T16:00:00Z" },
+    { proofId: "B", attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-28T16:00:00Z", scheduleTbrArrivalAt: "2026-09-28T15:59:00Z" },
+  ];
+  state.rows = state.currentRows;
+  await context.manifestTest.maybeSyncManifest();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].action, "msOriginManifestLive");
+  assert.equal(calls[0].args.completeness, "1");
+  assert.equal(state.currentRows[1].manifestShippedParcels, undefined, "missing source cannot fabricate a count");
+  await context.manifestTest.maybeSyncManifest();
+  assert.equal(calls.length, 1, "same missing proof cannot create a retry loop");
+
+  state.currentRows.push({ proofId: "C", attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-28T16:00:00Z" });
+  await context.manifestTest.maybeSyncManifest();
+  assert.equal(calls.length, 1, "new proofs inside 30 seconds coalesce");
+  now += 30_001;
+  sourceRows = [...sourceRows, { proofId: "C", manifestShippedParcels: 3, manifestWeightKg: 12 }];
+  await context.manifestTest.maybeSyncManifest();
+  assert.equal(calls.length, 2, "one HUB request covers multiple active proofs");
+  assert.equal(state.currentRows[2].manifestWeightKg, 12);
+  assert.equal(state.currentRows[1].manifestWeightKg, undefined);
+
+  state.currentRows = [
+    { proofId: "A", attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-28T16:00:00Z", scheduleTbrArrivalAt: "2026-09-28T15:59:00Z" },
+    { proofId: "C", attendanceType: "ต้นทาง", estimatedDepartureAt: "2026-09-28T16:00:00Z", scheduleKitArrivalAt: "2026-09-28T16:03:00Z" },
+  ];
+  state.rows = state.currentRows;
+  context.manifestTest.applyCachedManifest();
+  assert.equal(state.currentRows[0].manifestShippedParcels, 10, "WebSocket base replacement retains accepted metrics");
+  assert.equal(state.currentRows[1].manifestWeightKg, 12, "TBR placeholder to Route row retains metrics by proof");
+});
+
+test("shared Manifest coordinator bypasses the five-minute cache only once per 30-second HUB wake-up", async () => {
+  let now = Date.parse("2026-09-28T16:00:00Z");
+  let calls = 0;
+  let rows = [{ proofId: "A", actual_shipment_total: 10, weight: 50 }];
+  const coordinator = new OriginManifestCoordinator({}, {}, {
+    now: () => now,
+    fetchImpl: async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 3));
+      return Response.json({ code: 1, data: { DataList: rows, total: rows.length } });
+    },
+  });
+  coordinator.getCredentials = async () => ({ auth: "test", fbid: "test", time: "test", storeFrom: "test" });
+  const request = (completeness = false) => new Request("https://internal/origin-manifest/refresh", {
+    method: "POST", body: JSON.stringify({ hub: "NE1", days: ["2026-09-28"], completeness }),
+  });
+  const baseline = await (await coordinator.fetch(request())).json();
+  assert.equal(baseline.rows[0].manifestShippedParcels, 10);
+  assert.equal(calls, 1);
+  rows = [...rows, { proofId: "B", actual_shipment_total: 2, weight: 8 }];
+  const normal = await (await coordinator.fetch(request())).json();
+  assert.equal(normal.rows.length, 1, "server cache is time-fresh but incomplete");
+  const simultaneous = await Promise.all(Array.from({ length: 8 }, async () =>
+    (await coordinator.fetch(request(true))).json()));
+  assert.equal(calls, 2, "eight clients share one forced day fetch");
+  assert.ok(simultaneous.some((result) => result.rows.some((row) => row.proofId === "B")));
+  rows = [...rows, { proofId: "C", actual_shipment_total: 1, weight: 4 }];
+  await coordinator.fetch(request(true));
+  assert.equal(calls, 2, "rate gate ignores repeated browser wake-ups");
+  now += 30_001;
+  const later = await (await coordinator.fetch(request(true))).json();
+  assert.equal(calls, 3);
+  assert.ok(later.rows.some((row) => row.proofId === "C"));
+  assert.equal(ORIGIN_MANIFEST_POLICY.completenessMinMs, 30_000);
+  assert.equal(ORIGIN_MANIFEST_POLICY.dataPersistenceWrites, 0);
+});
+
+test("Origin Manifest badge coexists with local barcode and never adorns Destination or Drop", () => {
+  const source = originManifestFrontendSource();
+  const start = source.indexOf("  const kgf = new Intl.NumberFormat");
+  const end = source.indexOf("  function parseResponseJson", start);
+  const context = {
+    globalThis: {}, Intl,
+    nf: new Intl.NumberFormat("th-TH"), esc: (value) => String(value),
+    isOrigin: (row) => row.attendanceType === "ต้นทาง",
+    tableRow: () => '<div class="route-plate">ทะเบียน -</div><div class="local-route-barcode">▥ ดูบาร์โค้ด</div>',
+    card: () => '<p>ทะเบียน -</p><div>▥ ดูบาร์โค้ด</div>',
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end) + "\nglobalThis.wrapRenderers = wrapRenderers;", context);
+  context.wrapRenderers();
+  const origin = { attendanceType: "ต้นทาง", manifestShippedParcels: 7, manifestWeightKg: 12.5 };
+  const html = context.tableRow(origin);
+  assert.match(html, /▥ ดูบาร์โค้ด/);
+  assert.match(html, /พัสดุออกจริง.*7 ชิ้น/);
+  assert.match(html, /น้ำหนัก.*12\.5 Kg/);
+  assert.match(context.card(origin), /พัสดุออกจริง/);
+  for (const attendanceType of ["ปลายทาง", "จุดดรอป"])
+    assert.doesNotMatch(context.tableRow({ ...origin, attendanceType }), /พัสดุออกจริง/);
 });

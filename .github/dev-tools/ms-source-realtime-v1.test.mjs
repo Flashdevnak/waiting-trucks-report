@@ -41,10 +41,11 @@ test("existing unload and drop truth stay behind their dedicated regressions whi
   assert.match(stagedFront, /MS_OPERATIONAL_12H_EXPIRY_V1/);
 });
 
-test("silent leader failure is recovered after about two missed visible cycles", () => {
-  assert.match(front, /MS_REALTIME_FAILOVER_V2/);
-  assert.match(front, /REALTIME_FOLLOWER_TAKEOVER_MS = 2 \* CONFIG\.pollMs \+ 1000/);
+test("silent leader failure is recovered after one missed visible cycle", () => {
+  assert.match(front, /MS_REALTIME_FAILOVER_V3/);
+  assert.match(front, /REALTIME_FOLLOWER_TAKEOVER_MS = CONFIG\.pollMs \+ 1000/);
   assert.match(front, /now - realtimeLastSnapshotAt > REALTIME_FOLLOWER_TAKEOVER_MS/);
+  assert.match(front, /realtimeFollowerWatchdog = setTimeout\(/);
 });
 
 test("in-flight shared Route refresh is joined instead of replaying stale unload state", () => {

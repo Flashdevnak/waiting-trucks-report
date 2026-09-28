@@ -32,7 +32,7 @@ test("4-second visible cycle can observe fresh shared Route source without per-c
   assert.match(hotLanePatch, /!force &&[\s\S]*!cron &&[\s\S]*MS_REALTIME_SOURCE_MIN_MS/);
   assert.match(front, /pollMs:\s*4000/);
   assert.doesNotMatch(hotLanePatch, /MS_REALTIME_SOURCE_MIN_MS = 12 \* 1000/);
-  assert.match(front, /REALTIME_FOLLOWER_TAKEOVER_MS = 2 \* CONFIG\.pollMs \+ 1000/);
+  assert.match(front, /REALTIME_FOLLOWER_TAKEOVER_MS = CONFIG\.pollMs \+ 1000/);
   assert.match(front, /now - realtimeLastSnapshotAt > REALTIME_FOLLOWER_TAKEOVER_MS/);
 });
 

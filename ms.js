@@ -61,9 +61,9 @@ let completedTodayZeroProbedKey = "";
 // leads refreshes; the shared Durable Object broadcasts the same accepted data.
 const REALTIME_WS_RETRY_MS = 3000;
 const REALTIME_AUTH_HEARTBEAT_MS = 60 * 1000;
-// MS_REALTIME_FAILOVER_V2: after two missed visible cycles plus 1s grace, a follower
+// MS_REALTIME_FAILOVER_V3: after one missed visible cycle plus 1s grace, a follower
 // can refresh the same shared per-HUB coordinator. Healthy followers remain passive.
-const REALTIME_FOLLOWER_TAKEOVER_MS = 2 * CONFIG.pollMs + 1000;
+const REALTIME_FOLLOWER_TAKEOVER_MS = CONFIG.pollMs + 1000;
 let realtimeSocket = null;
 let realtimeSocketKey = "";
 let realtimeConnectStartedAt = 0;
@@ -71,6 +71,7 @@ let realtimeRetryAt = 0;
 let realtimeIsLeader = null;
 let realtimeLastSnapshotAt = 0;
 let realtimeLastAuthSentAt = 0;
+let realtimeFollowerWatchdog = null;
 
 // HBI_TRUCK_PHOTO_LAZY_V1: zero HBI/OSS photo request until the user clicks.
 // Cache is memory-only for this page; no database write and no background refresh.
@@ -213,6 +214,8 @@ function realtimeSocketUrl() {
 }
 
 function stopRealtimeTransport() {
+  clearTimeout(realtimeFollowerWatchdog);
+  realtimeFollowerWatchdog = null;
   const socket = realtimeSocket;
   realtimeSocket = null;
   realtimeSocketKey = "";
@@ -259,6 +262,8 @@ function ensureRealtimeTransport() {
     socket.onerror = () => {};
     socket.onclose = () => {
       if (socket !== realtimeSocket) return;
+      clearTimeout(realtimeFollowerWatchdog);
+      realtimeFollowerWatchdog = null;
       realtimeSocket = null;
       realtimeSocketKey = "";
       realtimeConnectStartedAt = 0;
@@ -303,6 +308,7 @@ function handleRealtimeMessage(raw) {
   catch { return; }
   if (payload?.type === "role") {
     realtimeIsLeader = payload.leader === true;
+    armRealtimeFollowerWatchdog();
     return;
   }
   if (payload?.type === "auth_error") {
@@ -318,7 +324,21 @@ function handleRealtimeMessage(raw) {
   }
   if (payload?.type !== "snapshot") return;
   realtimeLastSnapshotAt = Date.now();
+  armRealtimeFollowerWatchdog();
   if (applyAcceptedLiveResult(payload, true)) saveFastRefreshSnapshot();
+}
+
+function armRealtimeFollowerWatchdog() {
+  clearTimeout(realtimeFollowerWatchdog);
+  realtimeFollowerWatchdog = null;
+  if (realtimeIsLeader !== false || !realtimeLastSnapshotAt || realtimeSocket?.readyState !== 1) return;
+  // The regular 4-second tick could otherwise notice a 5-second deadline only
+  // near 8-9 seconds. This one-shot timer sends through the shared WebSocket.
+  const remaining = Math.max(1, realtimeLastSnapshotAt + REALTIME_FOLLOWER_TAKEOVER_MS + 1 - Date.now());
+  realtimeFollowerWatchdog = setTimeout(() => {
+    realtimeFollowerWatchdog = null;
+    realtimeTick();
+  }, remaining);
 }
 
 function realtimeTick() {

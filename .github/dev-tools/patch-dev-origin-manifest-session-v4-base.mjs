@@ -135,8 +135,8 @@ export function patchOriginManifestSessionReplay(source) {
 
     output = replaceUnique(
       output,
-      `        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(',') });\n        const rows = Array.isArray(result?.rows) ? result.rows : [];`,
-      `        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(',') });\n        if (manifestNeedsReconnect(result?.errorCode, result?.error)) {\n          showManifestReconnect(result?.error);\n          return;\n        }\n        const rows = Array.isArray(result?.rows) ? result.rows : [];`,
+      `        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(','), ...(completeness ? { completeness: '1' } : {}) });\n        const rows = Array.isArray(result?.rows) ? result.rows : [];`,
+      `        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(','), ...(completeness ? { completeness: '1' } : {}) });\n        if (manifestNeedsReconnect(result?.errorCode, result?.error)) {\n          showManifestReconnect(result?.error);\n          return;\n        }\n        const rows = Array.isArray(result?.rows) ? result.rows : [];`,
       "return background expired session to MS upload UI",
     );
 

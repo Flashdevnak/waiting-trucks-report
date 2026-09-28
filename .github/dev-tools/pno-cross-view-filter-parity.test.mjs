@@ -105,8 +105,8 @@ test("effective staging parses, is idempotent and has three shared controls with
 for (const [type, status, expected] of [
   ["total", "รอ", ["SYNTHETIC-A", "SYNTHETIC-B", "SYNTHETIC-D"]],
   ["already", "เข้าแล้ว", ["SYNTHETIC-C"]],
-  ["no_entry", "สงสัยหลุดสแกนเข้า", ["SYNTHETIC-A"]],
-  ["scan_gap", "ประวัติไม่เพียงพอ", ["SYNTHETIC-C"]],
+  ["no_entry", "หลุดสแกนเข้า", ["SYNTHETIC-A"]],
+  ["scan_gap", "ข้อมูลสแกนเข้ายังไม่พร้อม", ["SYNTHETIC-C"]],
 ]) test(`${type}: shared status filter respects view-specific status`, () => {
   const h = harness({ type }); h.state.filters.status = status;
   assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], expected);
@@ -208,7 +208,7 @@ test("scan-gap page navigation follows filtered rows, not provider total", () =>
   const many = Array.from({ length: 205 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
   const h = harness({ type: "scan_gap", all: many });
   h.state.filterRows = many;
-  h.state.filters.status = "สงสัยหลุดสแกนเข้า";
+  h.state.filters.status = "หลุดสแกนเข้า";
   h.call("pnoV18Navigate(1)");
   assert.equal(h.state.filterPage, 2);
   assert.equal(h.observed.gap.length, 5);
@@ -245,7 +245,7 @@ test("scan-gap export contains only filtered evidence membership", async () => {
   await h.call("pnoV18Export()");
   assert.equal(h.observed.downloads[0].name, "หลักฐานสแกนเข้า");
   assert.deepEqual(Array.from(h.observed.downloads[0].values, (v) => v.PNO), ["SYNTHETIC-A"]);
-  assert.equal(h.observed.downloads[0].values[0]["สถานะหลักฐานสแกนเข้า"], "สงสัยหลุดสแกนเข้า");
+  assert.equal(h.observed.downloads[0].values[0]["สถานะหลักฐานสแกนเข้า"], "หลุดสแกนเข้า");
   assert.ok("เหตุผล" in h.observed.downloads[0].values[0]);
   assert.deepEqual(h.observed.fetch.map(([type, page]) => [type, page]), [["total", 1]]);
 });
@@ -332,7 +332,7 @@ test("traffic: scan-gap remains page-by-page until an explicit filter action", a
   await h.call("pnoV18CopyLine()");
   assert.equal(h.observed.fetch.length, 2);
   assert.equal(h.observed.clip.includes("SYNTHETIC-0"), false, "ordinary Copy uses the current page");
-  await h.select("status", "สงสัยหลุดสแกนเข้า");
+  await h.select("status", "หลุดสแกนเข้า");
   assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 2, 1, 2, 3]);
   assert.deepEqual(Array.from(h.observed.result), [200, 401]);
   h.call("pnoV18Navigate(1)");
@@ -356,7 +356,7 @@ test("traffic: leaving and reopening scan-gap never preloads all pages", async (
   assert.equal(h.state.filterRows, null);
 });
 
-for (const [key, value] of [["status", "สงสัยหลุดสแกนเข้า"], ["action", "รับ"], ["branch", "BRANCH-A"]])
+for (const [key, value] of [["status", "หลุดสแกนเข้า"], ["action", "รับ"], ["branch", "BRANCH-A"]])
   test(`traffic: scan-gap ${key} selection alone permits existing bounded full-page loading`, async () => {
     const all = Array.from({ length: 201 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
     const h = harness({ type: "total", all, current: all.slice(0, 200) });

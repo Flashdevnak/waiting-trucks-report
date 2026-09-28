@@ -64,11 +64,11 @@ test("paired detail and history require the exact vehicle arrival store and time
     [{ route_action: "ARRIVAL_GOODS_VAN_CHECK_SCAN", store_id: "STORE_CURRENT", routed_at: arrival }]), false);
 });
 
-test("an explicitly supplied exact history confirms a late-start downstream row and survives reload", async () => {
+test("legacy exact-history positive remains sticky, while a late-start row begins as a gap", async () => {
   const storage = new MemoryStorage();
   const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
-  assert.equal((await observePnoEvidencePage(storage, locator, [current], departedAt))[0].reason,
-    "MONITORING_STARTED_AFTER_ARRIVAL");
+  assert.equal((await observePnoEvidencePage(storage, locator, [current], departedAt))[0].classification,
+    PNO_SCAN_CLASSES.SUSPECTED);
   const accepted = await ingestPnoExactHistory(storage, locator, current, history(),
     "2026-09-23T20:19:00.000Z");
   assert.equal(accepted.classification, PNO_SCAN_CLASSES.CONFIRMED);
@@ -201,7 +201,7 @@ test("older positive arrival evidence does not regress the latest downstream act
   assert.equal(positive.record.latestObservedActionAt, downstream);
 });
 
-test("gap remains a suspicion only with attested local coverage and early monitoring", () => {
+test("arrival or downstream without remembered scan becomes a gap regardless of coverage", () => {
   const first = observePnoSnapshot(null, locator, row("ARRIVAL_GOODS_VAN_CHECK_SCAN", arrival),
     arrivedAt, { monitoringStartedAt: before, coverageComplete: true });
   const gap = observePnoSnapshot(first.record, locator, row("SHIPMENT_WAREHOUSE_SCAN", downstream),
@@ -210,19 +210,35 @@ test("gap remains a suspicion only with attested local coverage and early monito
   assert.equal(gap.record.scanInObserved, false);
   const missingInterval = observePnoSnapshot(first.record, locator,
     row("SHIPMENT_WAREHOUSE_SCAN", downstream), departedAt);
-  assert.equal(missingInterval.view.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+  assert.equal(missingInterval.view.classification, PNO_SCAN_CLASSES.SUSPECTED);
   assert.equal(missingInterval.record.coverageState, "UNKNOWN");
+  assert.equal(first.view.classification, PNO_SCAN_CLASSES.SUSPECTED);
 });
 
-test("late monitoring and missing arrival anchor fail closed", () => {
+test("late monitoring becomes gap; invalid arrival anchor remains technical unknown", () => {
   const late = observePnoSnapshot(null, locator, row("SHIPMENT_WAREHOUSE_SCAN", downstream), departedAt,
     { coverageComplete: true });
-  assert.equal(late.view.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+  assert.equal(late.view.classification, PNO_SCAN_CLASSES.SUSPECTED);
   assert.equal(late.record.coverageState, "LATE_START");
   const missing = observePnoSnapshot(null, locator,
     row("ARRIVAL_WAREHOUSE_SCAN", scan, { real_arrive_time: "" }), scannedAt);
   assert.equal(missing.changed, false);
   assert.equal(missing.view.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+});
+
+test("vehicle arrival alone is gap, later actions stay gap, source-store pre-arrival stays NOT_YET", async () => {
+  const storage = new MemoryStorage();
+  const pre = await observePnoEvidencePage(storage, locator, [row("RECEIVED",
+    "2026-09-24 02:30:00", { real_arrive_time: "", store_id: "STORE_BEFORE" })], before);
+  assert.equal(pre[0].classification, PNO_SCAN_CLASSES.NOT_YET);
+  for (const [action, time] of [
+    ["ARRIVAL_GOODS_VAN_CHECK_SCAN", arrival], ["SEAL", "2026-09-24 03:20:00"],
+    ["RECEIVED", "2026-09-24 03:22:00"],
+  ]) {
+    const observed = observePnoSnapshot(null, locator, row(action, time), departedAt);
+    assert.equal(observed.view.classification, PNO_SCAN_CLASSES.SUSPECTED);
+    assert.equal(observed.record.scanInObserved, false);
+  }
 });
 
 test("pre-arrival monitoring rejects unrelated store and malformed event time", async () => {
@@ -261,10 +277,31 @@ test("same PNO same store with another arrival, and same PNO different HUB, use 
   assert.equal((await observePnoEvidencePage(storage, locator,
     [row("SHIPMENT_WAREHOUSE_SCAN", "2026-09-25 03:17:54",
       { real_arrive_time: "2026-09-25 02:58:37" })], "2026-09-24T20:18:00.000Z"))[0]
-    .classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+    .classification, PNO_SCAN_CLASSES.SUSPECTED);
   assert.equal((await observePnoEvidencePage(storage, { ...locator, hub: "NE2" },
     [row("SHIPMENT_WAREHOUSE_SCAN", downstream)], departedAt))[0].classification,
-    PNO_SCAN_CLASSES.INSUFFICIENT);
+    PNO_SCAN_CLASSES.SUSPECTED);
+});
+
+test("every exact identity component isolates remembered positive scan state", async () => {
+  const storage = new MemoryStorage();
+  await observePnoEvidencePage(storage, locator, [row("ARRIVAL_WAREHOUSE_SCAN", scan)], scannedAt);
+  const variants = [
+    [{ ...locator, hub: "NE2" }, row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
+    [{ ...locator, proofId: "PROOF_B" }, row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
+    [{ ...locator, day: "2026-09-25" }, row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
+    [{ ...locator, lineId: "LINE_B" }, row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
+    [{ ...locator, storeId: "OTHER_SOURCE" }, row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
+    [{ ...locator, nextStoreId: "OTHER_TARGET" },
+      row("SHIPMENT_WAREHOUSE_SCAN", downstream, { store_id: "OTHER_TARGET" })],
+    [locator, row("SHIPMENT_WAREHOUSE_SCAN", downstream, { pno: "TEST_PNO_B" })],
+    [locator, row("SHIPMENT_WAREHOUSE_SCAN", "2026-09-25 03:17:54",
+      { real_arrive_time: "2026-09-25 02:58:37" }), "2026-09-24T20:18:00.000Z"],
+  ];
+  for (const [otherLocator, otherRow, observedAt = departedAt] of variants) {
+    const [view] = await observePnoEvidencePage(storage, otherLocator, [otherRow], observedAt);
+    assert.notEqual(view.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  }
 });
 
 test("invalid store, unknown action, malformed timestamps and duplicates do not overwrite facts", async () => {
@@ -304,6 +341,17 @@ test("provider failure and malformed response preserve accepted evidence", async
   assert.equal(storage.writes, originalWrites);
 });
 
+test("storage failure yields technical unknown rather than a fabricated scan gap", async () => {
+  const owner = { ctx: { storage: { transaction: async () => { throw Error("storage unavailable"); } } } };
+  const page = await readSharedPnoPage(owner, {}, locator, {
+    now: () => Date.parse(departedAt), readCredential: async () => ({}),
+    fetchDetailPage: async () => ({ items: [row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
+      total: 1, sourceValid: true }),
+  });
+  assert.equal(page.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+  assert.equal(page.parcels[0].scanEvidence.reason, "EVIDENCE_STORAGE_UNAVAILABLE");
+});
+
 test("as-of reads do not reveal scan-in before evidence acquisition", () => {
   const accepted = observePnoSnapshot(null, locator,
     row("ARRIVAL_WAREHOUSE_SCAN", scan), scannedAt, { monitoringStartedAt: before }).record;
@@ -334,7 +382,7 @@ test("a positive fact refreshes another tab's cached negative projection", async
       ? row("ARRIVAL_WAREHOUSE_SCAN", scan) : row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
     total: 1, sourceValid: true }) };
   const negative = await readSharedPnoPage(owner, {}, { ...locator, type: "no_entry" }, deps);
-  assert.equal(negative.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+  assert.equal(negative.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.SUSPECTED);
   const positive = await readSharedPnoPage(owner, {}, locator, deps);
   assert.equal(positive.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.CONFIRMED);
   const cached = await readSharedPnoPage(owner, {}, { ...locator, type: "no_entry" }, deps);
@@ -352,11 +400,11 @@ test("cached positive projection cannot cross a route segment", async () => {
     }) };
   const other = { ...locator, lineId: "OTHER_LINE" };
   assert.equal((await readSharedPnoPage(owner, {}, other, deps)).parcels[0].scanEvidence.classification,
-    PNO_SCAN_CLASSES.INSUFFICIENT);
+    PNO_SCAN_CLASSES.SUSPECTED);
   assert.equal((await readSharedPnoPage(owner, {}, locator, deps)).parcels[0].scanEvidence.classification,
     PNO_SCAN_CLASSES.CONFIRMED);
   assert.equal((await readSharedPnoPage(owner, {}, other, deps)).parcels[0].scanEvidence.classification,
-    PNO_SCAN_CLASSES.INSUFFICIENT);
+    PNO_SCAN_CLASSES.SUSPECTED);
 });
 
 test("concurrent detail tabs cannot erase a positive event", async () => {
@@ -375,7 +423,7 @@ test("concurrent detail tabs cannot erase a positive event", async () => {
   assert.equal(owner.ctx.storage.values.get(key.occurrence).scanInObserved, true);
 });
 
-test("new tab follows Backing, shows only suspected/insufficient, and renders without history traffic", () => {
+test("scan-gap tab shows gaps and technical unknowns without history controls", () => {
   const staged = stageFrontend(readFileSync(new URL("../../ms.js", import.meta.url), "utf8"));
   assert.match(staged, /data-pno-v18-type="bag">แบ็กกิ้ง<\/button>' \+\s*'<button type="button" data-pno-v18-type="scan_gap">หลุดสแกนเข้า/);
   assert.match(staged, /else if \(type === "scan_gap"\) void pnoInboundLoad\(1\)/);
@@ -390,18 +438,17 @@ test("new tab follows Backing, shows only suspected/insufficient, and renders wi
   assert.doesNotMatch(renderSource, /curl_pno|fetch\(|apiGet\(/);
   const list = { innerHTML: "" };
   const esc = (value) => String(value).replaceAll("<", "&lt;");
-  const render = new Function("el", "esc", "pnoExactHistoryNoticeHtml", "pnoV18SourceRow",
-    "pnoExactHistoryKey", "pnoExactHistoryActive", "pnoExactHistoryChecked",
-    "pnoExactHistoryLocatorReady", "pnoExactHistoryMatches", `${renderSource}; return pnoInboundRender;`)(
-    () => list, esc, () => "", () => ({}), () => "test", new Set(), new Set(), () => false, () => []);
+  const render = new Function("el", "esc", `${renderSource}; return pnoInboundRender;`)(
+    () => list, esc);
   render([
     { pno: "SUSPECT", scanEvidence: { classification: PNO_SCAN_CLASSES.SUSPECTED, reason: "OBSERVED" } },
     { pno: "UNKNOWN", scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "LATE" } },
     { pno: "SCANNED", scanEvidence: { classification: PNO_SCAN_CLASSES.CONFIRMED } },
     { pno: "PENDING", scanEvidence: { classification: PNO_SCAN_CLASSES.NOT_YET } },
   ]);
-  assert.match(list.innerHTML, /สงสัยหลุดสแกนเข้า/);
-  assert.match(list.innerHTML, /ประวัติไม่เพียงพอ/);
+  assert.match(list.innerHTML, /หลุดสแกนเข้า/);
+  assert.match(list.innerHTML, /ข้อมูลสแกนเข้ายังไม่พร้อม/);
+  assert.doesNotMatch(list.innerHTML, /ตรวจประวัติ|data-pno-history|สงสัยหลุดสแกนเข้า/);
   assert.doesNotMatch(list.innerHTML, /SCANNED|PENDING/);
   assert.match(list.innerHTML, /SUSPECT|UNKNOWN/);
   assert.doesNotThrow(() => new Function(staged));

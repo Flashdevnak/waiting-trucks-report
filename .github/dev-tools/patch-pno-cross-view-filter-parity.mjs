@@ -19,7 +19,7 @@ function replaceFunction(source, name, replacement) {
 function pnoV18ParcelStatus(item, type = pnoV18State.type) {
   if (type === "no_entry") return pnoPendingEvidenceLabel(item);
   if (type === "scan_gap") return item?.scanEvidence?.classification === "SUSPECTED_SCAN_IN_GAP"
-    ? "สงสัยหลุดสแกนเข้า" : "ประวัติไม่เพียงพอ";
+    ? "หลุดสแกนเข้า" : "ข้อมูลสแกนเข้ายังไม่พร้อม";
   return pnoV18TextValue(item?.status || pnoV18TypeLabel(type));
 }
 

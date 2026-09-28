@@ -46,7 +46,7 @@ test("summary uses existing row counts without extra summary request", () => {
   assert.match(staged, /row\?\.enteredParcels/);
   assert.match(staged, /row\?\.pendingParcels/);
   const summary = staged.slice(staged.indexOf("function pnoV18RenderSummary"),
-    staged.indexOf("const pnoExactHistoryActive = new Set();"));
+    staged.indexOf("function pnoInboundRender(rows) {"));
   assert.doesNotMatch(summary, /apiGet|apiPost/);
 });
 

@@ -77,10 +77,6 @@ import {
   patchPnoInboundScanEvidenceFrontend,
   patchPnoInboundScanEvidenceWorker,
 } from "./patch-pno-inbound-scan-evidence.mjs";
-import {
-  patchPnoExactHistoryFrontend,
-  patchPnoExactHistoryWorker,
-} from "./patch-pno-exact-history-caller.mjs";
 // V29_SYNC_CLAIM_HOTFIX_GATE: shared sync-claim helpers must survive V29 staging.
 // V29_STAGE_CONTRACT_HOTFIX: retain prior completed-cache truth marker while staging V29.
 import {
@@ -461,7 +457,7 @@ export function stageFrontend(source) {
   output = patchDevAuxiliaryEvidenceFrontend(output);
   output = patchPnoDetailAffordanceFrontendV30(output);
   output = patchPnoInboundScanEvidenceFrontend(output);
-  output = patchPnoExactHistoryFrontend(output);
+  // Manual per-PNO history acquisition is superseded by sticky observed scan state.
   output = patchPnoDestinationLabelsFrontend(output);
   output = patchPnoCrossViewFilterParity(output);
   output = patchPnoDestinationHubFrontend(output);
@@ -559,12 +555,9 @@ if (invokedPath) {
     stdio: "inherit",
   });
   const auxiliaryWorker = await readFile(workerTarget, "utf8");
-  await writeFile(
-    workerTarget,
-    patchPnoExactHistoryWorker(
-      patchPnoInboundScanEvidenceWorker(patchPnoDetailAffordanceWorkerV30(auxiliaryWorker))),
-    "utf8",
-  );
+  await writeFile(workerTarget,
+    patchPnoInboundScanEvidenceWorker(patchPnoDetailAffordanceWorkerV30(auxiliaryWorker)),
+    "utf8");
   const busTimeHotLaneWorker = await readFile(workerTarget, "utf8");
   if (!busTimeHotLaneWorker.includes("BUS_TIME_HOT_LANE_V14"))
     throw new Error("DEV BusTime hot-lane marker missing after staging");

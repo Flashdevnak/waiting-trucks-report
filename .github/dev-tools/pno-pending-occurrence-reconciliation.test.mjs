@@ -68,7 +68,7 @@ test("provider no_entry Total and PreEntry aggregate remain separate from the cu
   assert.equal(ui.row.pendingParcels, 37);
 });
 
-test("confirmed candidates are explicitly scanned while downstream and vehicle arrival remain unresolved", () => {
+test("confirmed, gap and technical unknown labels stay distinct in pending candidates", () => {
   const ui = makeUi();
   const rows = [
     { pno: "CONFIRMED", status: "ยังไม่เข้า", lastAction: "สแกนเข้าคลัง",
@@ -81,9 +81,9 @@ test("confirmed candidates are explicitly scanned while downstream and vehicle a
   ];
   ui.pnoV18State.rows = rows;
   assert.match(ui.pnoV18ParcelStatus(rows[0]), /ยืนยันสแกนเข้าคลังแล้ว/);
-  assert.equal(ui.pnoV18ParcelStatus(rows[1]), "หลักฐานการสแกนเข้ายังไม่เพียงพอ");
-  assert.equal(ui.pnoV18ParcelStatus(rows[2]), "หลักฐานการสแกนเข้ายังไม่เพียงพอ");
-  assert.equal(ui.pnoV18ParcelStatus(rows[3]), "สงสัยหลุดสแกนเข้า");
+  assert.equal(ui.pnoV18ParcelStatus(rows[1]), "ข้อมูลสแกนเข้ายังไม่พร้อม");
+  assert.equal(ui.pnoV18ParcelStatus(rows[2]), "ข้อมูลสแกนเข้ายังไม่พร้อม");
+  assert.equal(ui.pnoV18ParcelStatus(rows[3]), "หลุดสแกนเข้า");
   assert.equal(ui.pnoV18ParcelStatus(rows[0], "already"), "ยังไม่เข้า");
   const render = new Function("deps", `const {el, nf, pnoV18State, pnoV18ParcelStatus} = deps;
     const esc = (value) => String(value ?? "").replaceAll("<", "&lt;");
@@ -99,7 +99,7 @@ test("confirmed candidates are explicitly scanned while downstream and vehicle a
   render("no_entry", rows);
   const html = ui.nodes.get("pending-parcels-list").innerHTML;
   assert.match(html, /CONFIRMED[\s\S]*ยืนยันสแกนเข้าคลังแล้ว/);
-  assert.match(html, /DOWNSTREAM[\s\S]*หลักฐานการสแกนเข้ายังไม่เพียงพอ/);
+  assert.match(html, /DOWNSTREAM[\s\S]*ข้อมูลสแกนเข้ายังไม่พร้อม/);
   assert.doesNotMatch(html, /ยังไม่เข้า<\/span>/);
 });
 

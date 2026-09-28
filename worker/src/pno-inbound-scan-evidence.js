@@ -1,5 +1,5 @@
-// DEV PNO inbound evidence. The provider detail page is read only on an explicit
-// PNO request; this module never calls a provider or scans parcels in the background.
+// DEV PNO inbound evidence from the existing shared detail observation.
+// This module never calls a provider or scans parcels in the background.
 export const PNO_SCAN_CLASSES = Object.freeze({
   CONFIRMED: "CONFIRMED_SCAN_IN",
   SUSPECTED: "SUSPECTED_SCAN_IN_GAP",
@@ -14,7 +14,6 @@ const ACTIONS = new Set([
 ]);
 const ARRIVAL = "ARRIVAL_GOODS_VAN_CHECK_SCAN";
 const SCAN_IN = "ARRIVAL_WAREHOUSE_SCAN";
-const DOWNSTREAM = "SHIPMENT_WAREHOUSE_SCAN";
 const KEY_PREFIX = "pno-inbound-evidence-v1:";
 
 export function pnoProviderTime(value) {
@@ -86,18 +85,16 @@ export function projectPnoEvidence(record, { asOf } = {}) {
   };
   const latestKnown = Date.parse(record.lastObservedAt || "") <= cutoff;
   if (!latestKnown) return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "NOT_YET_OBSERVED" };
-  if (record.coverageState === "COMPLETE_LOCAL" && record.arrivalStageObserved === true &&
-      record.downstreamObserved === true && record.monitoringBeforeArrival === true)
-    return { classification: PNO_SCAN_CLASSES.SUSPECTED, reason: "OBSERVED_DOWNSTREAM_WITHOUT_RETAINED_SCAN" };
   if (record.preArrivalStageObserved === true && record.arrivalStageObserved !== true &&
       record.downstreamObserved !== true)
     return { classification: PNO_SCAN_CLASSES.NOT_YET, reason: "POSITIVE_PRE_ARRIVAL_STAGE" };
-  return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: record.coverageState === "LATE_START"
-    ? "MONITORING_STARTED_AFTER_ARRIVAL" : "OBSERVATION_COVERAGE_UNKNOWN" };
+  if (record.arrivalStageObserved === true || record.downstreamObserved === true)
+    return { classification: PNO_SCAN_CLASSES.SUSPECTED, reason: "SCAN_IN_STATE_ABSENT_AT_REQUIRED_STAGE" };
+  return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "OBSERVATION_STAGE_UNKNOWN" };
 }
 
-// Pure reducer: coverageComplete is an internal attestation. The current
-// click-only page reader does not provide it, so it cannot manufacture a gap.
+// Pure reducer. The exact occurrence and a valid arrival/downstream stage are
+// required before absence of remembered scan-in becomes a gap.
 export function observePnoSnapshot(previous, locator, row, observedAt, { monitoringStartedAt, coverageComplete = false } = {}) {
   const identity = sourceIdentity(locator, row);
   const anchor = pnoProviderTime(row?.real_arrive_time);
@@ -128,7 +125,7 @@ export function observePnoSnapshot(previous, locator, row, observedAt, { monitor
     arrivalStageObserved: previous?.arrivalStageObserved === true ||
       (action === ARRIVAL && eventAt === anchor),
     downstreamObserved: previous?.downstreamObserved === true ||
-      (action === DOWNSTREAM && eventAt > anchor),
+      (action !== ARRIVAL && action !== SCAN_IN && eventAt > anchor),
     preArrivalStageObserved: previous?.preArrivalStageObserved === true,
     scanInObserved: previous?.scanInObserved === true || action === SCAN_IN,
     scanInAction: previous?.scanInAction || (action === SCAN_IN ? action : null),
@@ -167,12 +164,14 @@ export async function observePnoEvidencePage(storage, locator, rawRows, observed
       if (!key.anchor) {
         // A successful detail observation before vehicle arrival starts the
         // monitoring window; it cannot be treated as evidence of scan-in.
-        if (!previousBase && ACTIONS.has(String(row?.LastAction || "").trim()) &&
-            [key.identity.sourceStoreId, key.identity.targetStoreId]
-              .includes(String(row?.store_id || "").trim()) &&
-            pnoProviderTime(row?.LastActionTime))
+        const preArrival = String(row?.store_id || "").trim() === key.identity.sourceStoreId &&
+          ACTIONS.has(String(row?.LastAction || "").trim()) &&
+          Boolean(pnoProviderTime(row?.LastActionTime));
+        if (!previousBase && preArrival)
           updates[key.base] = { monitoringStartedAt: observedAt, activeAnchor: "" };
-        return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "ARRIVAL_ANCHOR_MISSING" };
+        return preArrival
+          ? { classification: PNO_SCAN_CLASSES.NOT_YET, reason: "ARRIVAL_NOT_YET_RECORDED" }
+          : { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "ARRIVAL_ANCHOR_MISSING" };
       }
       const previous = updates[key.occurrence] || saved.get(key.occurrence) || null;
       const preStart = !previousBase?.activeAnchor ? previousBase?.monitoringStartedAt : null;

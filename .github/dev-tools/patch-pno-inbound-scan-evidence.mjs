@@ -194,11 +194,11 @@ function pnoInboundRender(rows) {
   const cases = (rows || []).filter((row) => ["SUSPECTED_SCAN_IN_GAP", "INSUFFICIENT_HISTORY"]
     .includes(row?.scanEvidence?.classification));
   if (!cases.length) {
-    list.innerHTML = '<div class="empty-state">หน้านี้ไม่มีรายการสงสัยหลุดสแกนเข้าหรือประวัติไม่เพียงพอ</div>';
+    list.innerHTML = '<div class="empty-state">หน้านี้ไม่มีรายการหลุดสแกนเข้าหรือข้อมูลที่ยังไม่พร้อม</div>';
     return;
   }
   const label = (value) => value === "SUSPECTED_SCAN_IN_GAP"
-    ? "สงสัยหลุดสแกนเข้า" : "ประวัติไม่เพียงพอ";
+    ? "หลุดสแกนเข้า" : "ข้อมูลสแกนเข้ายังไม่พร้อม";
   const cell = (value) => esc(String(value || "-").trim() || "-");
   const content = (row, mobile = false) => {
     const evidence = row.scanEvidence || {};
@@ -282,9 +282,9 @@ async function pnoInboundLoad(page) {
 function pnoPendingEvidenceLabel(row) {
   const classification = row?.scanEvidence?.classification;
   if (classification === "CONFIRMED_SCAN_IN") return "ยืนยันสแกนเข้าคลังแล้วในเที่ยวนี้";
-  if (classification === "SUSPECTED_SCAN_IN_GAP") return "สงสัยหลุดสแกนเข้า";
+  if (classification === "SUSPECTED_SCAN_IN_GAP") return "หลุดสแกนเข้า";
   if (classification === "NOT_YET_SCAN_IN_STAGE") return "พบหลักฐานขั้นก่อนสแกนเข้า";
-  return "หลักฐานการสแกนเข้ายังไม่เพียงพอ";
+  return "ข้อมูลสแกนเข้ายังไม่พร้อม";
 }
 
 function pnoPendingPageReconciliation(rows, providerTotal, sourceValid) {

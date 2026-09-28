@@ -57,7 +57,8 @@ test("Backing HUB aggregates parcel destination independently of route next_stor
   const start = front.indexOf("function pnoV18BagSummary(items)");
   const end = front.indexOf("function pnoV18RenderBags", start);
   const block = front.slice(start, end);
-  assert.match(block, /pnoV18BagValue\(items, \(item\) => item\.targetHub, "หลาย HUB"\)/);
+  assert.match(block, /hub: \[\.\.\.new Set\(items\.map\(\(item\) => String\(item\?\.targetHub/);
+  assert.doesNotMatch(block, /หลาย HUB/);
   assert.doesNotMatch(block, /pnoNextStoreName|nextStoreName|state\.branch/);
 });
 

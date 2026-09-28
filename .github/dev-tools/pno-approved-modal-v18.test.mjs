@@ -173,7 +173,8 @@ test("V27/V28 table UX keeps display detail while copy uses latest-only and one 
   assert.match(staged, /หลายสถานะ/);
   assert.match(staged, /หลายสาขา/);
   const bagSummary = staged.slice(staged.indexOf("function pnoV18BagSummary"), staged.indexOf("function pnoV18RenderBags"));
-  assert.match(bagSummary, /pnoV18BagValue\(items, \(item\) => item\.targetHub, "หลาย HUB"\)/);
+  assert.match(bagSummary, /hub: \[\.\.\.new Set\(items\.map\(\(item\) => String\(item\?\.targetHub/);
+  assert.doesNotMatch(bagSummary, /หลาย HUB/);
   assert.doesNotMatch(bagSummary, /pnoNextStoreName|nextStoreName|state\.branch/);
   const bagRender = staged.slice(staged.indexOf("function pnoV18RenderBags"), staged.indexOf("async function pnoV18LoadBags"));
   assert.doesNotMatch(bagRender, />Backing</);

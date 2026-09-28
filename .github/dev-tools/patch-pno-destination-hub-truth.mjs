@@ -43,7 +43,7 @@ export function patchPnoDestinationHubFrontend(source) {
   return {
     status: pnoV18BagValue(items, (item) => item.status || item.lastAction, "หลายสถานะ"),
     latest: pnoV18BagLatest(items),
-    hub: pnoV18BagValue(items, (item) => item.targetHub, "หลาย HUB"),
+    hub: [...new Set(items.map((item) => String(item?.targetHub ?? "").trim()).filter(Boolean))].join(" · ") || "-",
     branch: pnoV18BagValue(items, (item) => item.targetBranch, "หลายสาขา"),
   };
 }`,

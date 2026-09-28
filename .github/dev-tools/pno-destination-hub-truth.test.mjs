@@ -145,7 +145,7 @@ test("V25/V28 differential count semantics preserve exact first-nonempty legacy 
   assert.equal(missing.operationalMatchHub, "CURRENT_HUB");
   assert.equal(bagSummary([missing]).hub, "-");
   assert.equal(bagSummary([parcel({ dst_hub_name: "HUB_A" }, "A", false),
-    parcel({ dst_hub_name: "HUB_B" }, "B", false)]).hub, "หลาย HUB");
+    parcel({ dst_hub_name: "HUB_B" }, "B", false)]).hub, "HUB_A · HUB_B");
   const mixed = [{ next_hub_name: "CURRENT_HUB", dst_hub_name: "DEST_HUB" },
     { dst_hub_name: "REMOTE_HUB" }];
   const before = mixed.map((item, index) => parcel(item, `M-${index}`, true));
@@ -170,7 +170,8 @@ test("operational compatibility value is confined to V25/V28 matching and never 
     frontend.indexOf("function pnoOperationalRawSummary("));
   assert.equal((frontend.match(/operationalMatchHub\b/g) || []).length, 3);
   assert.equal((context.match(/operationalMatchHub\b/g) || []).length, 3);
-  assert.match(frontend, /hub: pnoV18BagValue\(items, \(item\) => item\.targetHub, "หลาย HUB"\)/);
+  assert.match(frontend, /hub: \[\.\.\.new Set\(items\.map\(\(item\) => String\(item\?\.targetHub/);
+  assert.doesNotMatch(frontend.slice(frontend.indexOf("function pnoV18BagSummary"), frontend.indexOf("function pnoV18RenderBags")), /หลาย HUB/);
 });
 
 test("current HUB differs from destination, and a missing next store stays unknown", () => {
@@ -202,10 +203,72 @@ test("bag HUB uses unique nonempty parcel destinations, independent of delivery 
   ];
   assert.equal(bagSummary(parcels).hub, "DEST_HUB");
   assert.equal(bagSummary(parcels).branch, "NEXT_A");
-  assert.equal(bagSummary([{ targetHub: "HUB_A" }, { targetHub: "HUB_B" }]).hub, "หลาย HUB");
+  assert.equal(bagSummary([{ targetHub: "HUB_A" }, { targetHub: "HUB_B" }]).hub, "HUB_A · HUB_B");
   assert.equal(bagSummary([{ targetHub: "" }, { targetHub: "" }]).hub, "-");
   assert.equal(bagSummary([{ targetHub: "HUB_A", targetBranch: "NEXT_A" },
     { targetHub: "HUB_A", targetBranch: "NEXT_B" }]).branch, "หลายสาขา");
+});
+
+test("bag HUB retains one, two and three full destinations in provider order", () => {
+  const cases = [
+    [["10 NE3_HUB-อุดรธานี"], "10 NE3_HUB-อุดรธานี"],
+    [["05 LAS_HUB-ลาซาล", "05 LAS_HUB-ลาซาล"], "05 LAS_HUB-ลาซาล"],
+    [["37 PHS_BHUB-พิษณุโลก", "17 NO5_HUB-พิษณุโลก"],
+      "37 PHS_BHUB-พิษณุโลก · 17 NO5_HUB-พิษณุโลก"],
+    [["16 Central_HUB-วังน้อย", "23 AYU_BHUB-วังน้อย", "65 WNO_BHUB-วังน้อย"],
+      "16 Central_HUB-วังน้อย · 23 AYU_BHUB-วังน้อย · 65 WNO_BHUB-วังน้อย"],
+    [["", "05 LAS_HUB-ลาซาล", null, "05 LAS_HUB-ลาซาล", "21 BPL_BHUB-บางพลี"],
+      "05 LAS_HUB-ลาซาล · 21 BPL_BHUB-บางพลี"],
+    [["23 AYU_BHUB-วังน้อย", "05 LAS_HUB-ลาซาล", "23 AYU_BHUB-วังน้อย", "65 WNO_BHUB-วังน้อย"],
+      "23 AYU_BHUB-วังน้อย · 05 LAS_HUB-ลาซาล · 65 WNO_BHUB-วังน้อย"],
+    [[null, "  ", ""], "-"],
+  ];
+  for (const [hubs, expected] of cases) {
+    const actual = bagSummary(hubs.map((targetHub) => ({ targetHub }))).hub;
+    assert.equal(actual, expected);
+    assert.doesNotMatch(actual, /หลาย HUB/);
+  }
+});
+
+test("bag table, Copy, LINE and Export share the complete summary without acquisition", async () => {
+  const names = ["pnoV18BagGroups", "pnoV18BagValue", "pnoV18BagLatest", "pnoV18BagSummary",
+    "pnoV18FilteredBagGroups", "pnoV18RenderBags", "pnoV18TsvCell", "pnoV18LineCell",
+    "pnoV18AppendLineLimited", "pnoV18Copy", "pnoV18CopyLine", "pnoV18Export"];
+  const blocks = names.map((name) => {
+    const prefix = frontend.includes(`async function ${name}(`) ? `async function ${name}(` : `function ${name}(`;
+    const start = frontend.indexOf(prefix), end = frontend.indexOf("\n}\n", start);
+    assert.ok(start >= 0 && end > start, name);
+    return frontend.slice(start, end + 2);
+  });
+  const list = { innerHTML: "", querySelectorAll: () => [] };
+  const observed = { copies: [], exports: [], reads: 0 };
+  const hubs = ["16 Central_HUB-วังน้อย", "23 AYU_BHUB-วังน้อย", "65 WNO_BHUB-วังน้อย"];
+  const items = hubs.map((targetHub, i) => ({ backingNo: "SYNTHETIC-BAG", targetHub,
+    targetBranch: "SYNTHETIC-NEXT", lastAction: "SYNTHETIC-ACTION", lastActionAt: String(i) }));
+  const context = { pnoV18State: { type: "bag", bagRows: items, expandedBag: "",
+      filters: { status: "", action: "", branch: "" } },
+    el: () => list, esc: (value) => String(value), nf: new Intl.NumberFormat("en-US"),
+    pnoV18RenderBagSummary() {}, pnoV18UpdateFilterResult() {},
+    pnoV18LineHeader: () => ["SYNTHETIC HEADER"], pnoV18FilterSummaryText: () => "",
+    pnoV18WriteClipboard: async (value) => { observed.copies.push(value); return true; },
+    pnoV18Fetch: () => { observed.reads++; throw new Error("unexpected read"); },
+    toast() {}, XLSX: { utils: { json_to_sheet: (value) => value, book_new: () => ({}),
+      book_append_sheet: (_book, value) => observed.exports.push(value) }, writeFile() {} },
+    Date,
+  };
+  vm.runInNewContext(blocks.join("\n") +
+    "this.render=pnoV18RenderBags;this.copy=pnoV18Copy;this.line=pnoV18CopyLine;this.export=pnoV18Export;", context);
+  const expected = hubs.join(" · ");
+  context.render(items);
+  assert.equal(list.innerHTML.split(expected).length - 1, 2, "desktop and mobile table show every name");
+  await context.copy();
+  await context.line();
+  await context.export();
+  for (const value of observed.copies) assert.ok(value.includes(expected), "clipboard preserves all HUBs");
+  assert.equal(observed.exports[0][0]["HUB ถัดไป"], expected);
+  assert.equal(observed.exports[0][0]["จำนวนพัสดุ"], items.length);
+  assert.equal(observed.reads, 0);
+  assert.doesNotMatch(list.innerHTML + observed.copies.join("\n") + JSON.stringify(observed.exports), /หลาย HUB/);
 });
 
 test("parcel table, Copy and Export use the exact owner labels; LINE preserves two values", () => {

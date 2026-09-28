@@ -85,6 +85,7 @@ import {
 } from "./apply-ms-daily-history.mjs";
 import { patchMsQuotaSafeLiveWorker } from "./patch-ms-quota-safe-live.mjs";
 import { patchMsTbrShadowFeedWorker } from "./patch-ms-tbr-shadow-feed.mjs";
+import { patchMsOriginTbrFrontend, patchMsOriginTbrWorker } from "./patch-ms-origin-tbr-queue.mjs";
 import { patchMsTransientEmptyGuardWorker } from "./patch-ms-transient-empty-guard.mjs";
 import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
 import { patchSupervisorAccessGuard } from "./patch-supervisor-access-guard.mjs";
@@ -461,6 +462,7 @@ export function stageFrontend(source) {
   output = patchPnoDestinationLabelsFrontend(output);
   output = patchPnoCrossViewFilterParity(output);
   output = patchPnoDestinationHubFrontend(output);
+  output = patchMsOriginTbrFrontend(output);
   return output;
 }
 
@@ -505,6 +507,7 @@ export function stageWorker(source) {
   output = patchDevLiveRouteRecoveryHotfix(output);
   output = patchPnoNextBranchTruthWorker(output);
   output = patchPnoDestinationHubWorker(output);
+  output = patchMsOriginTbrWorker(output);
   return output;
 }
 

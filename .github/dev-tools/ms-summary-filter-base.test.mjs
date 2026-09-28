@@ -75,7 +75,7 @@ test("lower waiting/unloading cards follow operational state, not shared queue b
     staged,
     /state\.summary === "unloading" &&\s*\(isDestination\(row\) \|\| isDrop\(row\)\) &&\s*queue\.active &&\s*queue\.started/,
   );
-  assert.match(staged, /state\.summary === "origin" &&\s*isOrigin\(row\) &&\s*!queue\.done &&\s*!queue\.cancelled/);
+  assert.match(staged, /state\.summary === "origin" && isOrigin\(row\) && queue\.active/);
   assert.doesNotMatch(staged, /state\.summary === "origin"[^;]+queue\.awaitingRelease/);
   assert.match(
     staged,

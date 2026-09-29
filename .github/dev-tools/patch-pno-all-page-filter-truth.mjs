@@ -45,7 +45,7 @@ async function pnoV18EnsureParcelFilterRows() {
   if (!sourceRow) throw new Error("ไม่พบข้อมูลรถสำหรับกรองทุกหน้า");
   const key = pnoV18LocatorKey(sourceRow) + "|" + pnoV18State.type;
   if (pnoV18State.filterKey === key && Array.isArray(pnoV18State.filterRows) &&
-      Date.now() - Number(pnoV18State.filterAt || 0) < PNO_V18_VIEW_CACHE_MS && !pnoV18State.filterForce)
+      !pnoV18State.filterForce)
     return pnoV18State.filterRows;
   if (pnoV18State.filterKey === key && pnoV18State.filterPromise)
     return pnoV18State.filterPromise;
@@ -116,7 +116,7 @@ function pnoV18RenderFilters() {
   const type = pnoV18State.type;
   const complete = type === "bag" || (Array.isArray(pnoV18State.filterRows) &&
     pnoV18State.filterKey === pnoV18LocatorKey(pnoV18SourceRow()) + "|" + type &&
-    Date.now() - Number(pnoV18State.filterAt || 0) < PNO_V18_VIEW_CACHE_MS);
+    !pnoV18State.filterForce);
   const rows = type === "bag" ? (pnoV18State.bagRows || []) : (complete ? pnoV18State.filterRows : []);
   const source = type === "bag" ? pnoV18BagGroups(rows).map(([, items]) => pnoV18BagSummary(items))
     : type === "scan_gap" ? rows.filter((row) =>

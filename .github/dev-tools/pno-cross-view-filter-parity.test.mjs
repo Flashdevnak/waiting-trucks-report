@@ -34,6 +34,7 @@ const rows = [
 
 function harness({ type = "total", all = rows, current = rows, total = all.length, fetchPage } = {}) {
   const nodes = new Map(), observed = { fetch: [], downloads: [], clip: "", gap: [], toast: [] };
+  const clock = { now: Date.now() };
   const node = (key) => {
     if (!nodes.has(key)) nodes.set(key, {
       innerHTML: "", textContent: "", disabled: false,
@@ -52,6 +53,7 @@ function harness({ type = "total", all = rows, current = rows, total = all.lengt
   };
   const context = vm.createContext({
     pnoV18State: state, state: { branch: "CURRENT-HUB" },
+    Date: class extends Date { static now() { return clock.now; } },
     PNO_V18_VIEW_CACHE_MS: 60 * 1000,
     nf: new Intl.NumberFormat("en-US"),
     esc: (v) => String(v ?? ""), el: node,
@@ -85,7 +87,8 @@ function harness({ type = "total", all = rows, current = rows, total = all.lengt
     setTimeout, console,
   });
   vm.runInContext(functions.map(extract).join("\n"), context);
-  return { state, observed, nodes, call: (expression) => vm.runInContext(expression, context),
+  return { state, observed, nodes, advance: (ms) => { clock.now += ms; },
+    call: (expression) => vm.runInContext(expression, context),
     installActualRender: () => vm.runInContext(extract("pnoV18RenderRows"), context),
     select: async (key, value) => {
       vm.runInContext("pnoV18RenderFilters()", context);
@@ -461,6 +464,38 @@ test("first latest-action interaction loads page-25-only options without manual 
   await h.select("branch", "LAST-BRANCH");
   assert.equal(h.observed.fetch.length, 25, "switching all three filters reuses the assembled pages");
   assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 1);
+});
+
+test("materialized global options survive view-cache TTL while selected filter and pager remain active", async () => {
+  const all = Array.from({ length: 401 }, (_, i) => ({ pno: `SYNTHETIC-${i}`,
+    status: i < 301 ? "READY" : "OTHER", lastAction: i < 301 ? "SCAN_OUT" : "OTHER",
+    targetBranch: i < 301 ? "BRANCH-A" : "BRANCH-B" }));
+  const h = harness({ all, current: all.slice(0, 200) });
+  h.installActualRender();
+  await h.select("action", "SCAN_OUT");
+  assert.equal(h.observed.fetch.length, 3);
+  assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 301);
+  h.advance(60_001);
+  h.call("pnoV18RenderFilters(); pnoV18RenderCurrentFilteredView()");
+  const options = h.nodes.get("pno-v18-filterbar").innerHTML;
+  assert.match(options, />SCAN_OUT</);
+  assert.match(options, />READY</);
+  assert.match(options, />BRANCH-A</);
+  assert.doesNotMatch(options, /เลือกเพื่อรวมข้อมูลทุกหน้า/);
+  assert.equal(h.state.filters.action, "SCAN_OUT");
+  assert.equal(h.call("pnoV18VisibleParcelEntries().length"), 200);
+  assert.match(h.nodes.get("pno-v18-page").textContent, /1 \/ 2/);
+  await h.select("status", "READY");
+  await h.select("branch", "BRANCH-A");
+  assert.equal(h.observed.fetch.length, 3, "same locator reuses materialized rows after view TTL");
+  assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 301);
+  h.call("pnoV18Navigate(1)");
+  assert.equal(h.call("pnoV18VisibleParcelEntries().length"), 101);
+  assert.match(h.nodes.get("pno-v18-page").textContent, /2 \/ 2/);
+  h.nodes.get("pno-v18-filter-reset").onclick();
+  assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 401);
+  assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, />SCAN_OUT</);
+  assert.equal(h.observed.fetch.length, 3);
 });
 
 test("5000 source, 843 matches and 200-row display have separate truthful counts", async () => {

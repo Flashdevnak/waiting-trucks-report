@@ -63,8 +63,14 @@ export function summarizePnoDetailAvailability(rows, eligibility, sourceRowCount
   };
 }
 
+export function pnoDetailDiagEnabled(locationLike) {
+  const query = new URLSearchParams(locationLike?.search || "");
+  const hash = new URLSearchParams(String(locationLike?.hash || "").replace(/^#/, ""));
+  return query.get("pnoDetailDiag") === "1" || hash.get("pnoDetailDiag") === "1";
+}
+
 function pnoDetailDiagRender(rows) {
-  if (new URLSearchParams(location.search).get("pnoDetailDiag") !== "1") return;
+  if (!pnoDetailDiagEnabled(location)) return;
   const marker = "PNO_DETAIL_AVAILABILITY_DIAG_V1";
   const sourceRows = Array.isArray(state.rows) ? state.rows : [];
   const parcelRows = (Array.isArray(rows) ? rows : []).filter((row) =>
@@ -98,5 +104,6 @@ export function patchPnoDetailAvailabilityDiagnostic(source) {
     "  const rows = filteredRows();\n  pnoDetailDiagRender(rows);\n  renderFilterSummary(summaryRows);",
     "route render hook");
   return output + "\n// DEV_PNO_DETAIL_DIAG_FINAL_HOOK_V1\n" +
-    summarizePnoDetailAvailability.toString() + "\n" + pnoDetailDiagRender.toString() + "\n";
+    summarizePnoDetailAvailability.toString() + "\n" +
+    pnoDetailDiagEnabled.toString() + "\n" + pnoDetailDiagRender.toString() + "\n";
 }

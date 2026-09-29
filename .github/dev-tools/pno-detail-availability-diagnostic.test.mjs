@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import { detailEligibilityFixtureV30 } from "./patch-pno-detail-affordance-recovery.mjs";
-import { patchPnoDetailAvailabilityDiagnostic, summarizePnoDetailAvailability } from
+import { patchPnoDetailAvailabilityDiagnostic, pnoDetailDiagEnabled, summarizePnoDetailAvailability } from
   "./patch-pno-detail-availability-diagnostic.mjs";
 import { stageFrontend } from "./stage-dev-runtime.mjs";
 
@@ -80,7 +80,24 @@ test("unknown canonical reason stays UNKNOWN without changing eligibility", () =
   assert.equal(result.detailAvailable, 0);
 });
 
-function simulatedPage(search) {
+test("explicit query and fragment parameters alone enable diagnostic mode", () => {
+  const cases = [
+    ["?pnoDetailDiag=1", "", true],
+    ["", "#pnoDetailDiag=1", true],
+    ["", "#foo=bar&pnoDetailDiag=1", true],
+    ["?pnoDetailDiag=0", "", false],
+    ["", "#pnoDetailDiag=0", false],
+    ["?foo=bar", "", false],
+    ["", "#foo=bar", false],
+    ["", "", false],
+    ["", "#foo=pnoDetailDiag=1", false],
+    ["", "#pnoDetailDiag", false],
+  ];
+  for (const [search, hash, expected] of cases)
+    assert.equal(pnoDetailDiagEnabled({ search, hash }), expected, `${search}${hash}`);
+});
+
+function simulatedPage(search, hash = "") {
   const elements = new Map();
   const document = {
     getElementById: (id) => elements.get(id) || null,
@@ -90,7 +107,7 @@ function simulatedPage(search) {
     body: { appendChild(node) { elements.set(node.id, node); } },
   };
   let eligibilityCalls = 0;
-  const context = { document, location: { search }, URLSearchParams,
+  const context = { document, location: { search, hash }, URLSearchParams,
     state: { rows: [row()] },
     pnoReadOnlyDetailEligibility: (item) => { eligibilityCalls++; return detailEligibilityFixtureV30(item); } };
   vm.createContext(context);
@@ -105,6 +122,42 @@ test("normal UI has no panel or diagnostic evaluation without explicit DEV flag"
   page.context.pnoDetailDiagRender([row()]);
   assert.equal(page.elements.size, 0);
   assert.equal(page.calls(), 0);
+});
+
+test("actual ms.html query cleanup retains fragment activation without persistence", () => {
+  const html = readFileSync(new URL("ms.html", root), "utf8");
+  const cleanup = html.match(/if\(location\.search\)history\.replaceState\(null,'',location\.pathname\+location\.hash\);/)?.[0];
+  assert.ok(cleanup, "real ms.html query cleanup contract");
+  const url = new URL("https://dev.test/ms.html?pnoDetailDiag=1#pnoDetailDiag=1");
+  const location = { pathname: url.pathname, search: url.search, hash: url.hash };
+  const history = { replaceState(_state, _unused, target) {
+    const after = new URL(target, url.origin);
+    location.search = after.search;
+    location.hash = after.hash;
+  } };
+  vm.runInNewContext(cleanup, { location, history });
+  assert.equal(location.search, "");
+  assert.equal(location.hash, "#pnoDetailDiag=1");
+  const page = simulatedPage(location.search, location.hash);
+  page.context.pnoDetailDiagRender([row()]);
+  assert.equal(page.elements.get("pno-detail-availability-diag")?.children[0]?.textContent,
+    "PNO_DETAIL_AVAILABILITY_DIAG_V1");
+  const normal = simulatedPage("");
+  normal.context.pnoDetailDiagRender([row()]);
+  assert.equal(normal.elements.size, 0);
+  assert.equal(normal.calls(), 0);
+});
+
+test("hash-only page renders once without fetch or provider activity", () => {
+  const page = simulatedPage("", "#pnoDetailDiag=1");
+  for (const forbidden of ["fetch", "browserPnoPage", "pnoV18Fetch", "pendingPnoHistory"])
+    page.context[forbidden] = () => { throw new Error(`${forbidden} called`); };
+  page.context.pnoDetailDiagRender([row()]);
+  page.context.pnoDetailDiagRender([row()]);
+  assert.equal(page.elements.size, 1);
+  assert.equal(page.elements.get("pno-detail-availability-diag")?.children[0]?.textContent,
+    "PNO_DETAIL_AVAILABILITY_DIAG_V1");
+  assert.equal(JSON.parse(page.elements.get("pno-detail-availability-diag").children[1].textContent).reason.OK, 1);
 });
 
 test("opt-in DOM panel projects current rows without requests or automatic detail open", () => {

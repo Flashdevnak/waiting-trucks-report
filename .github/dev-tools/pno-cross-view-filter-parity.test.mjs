@@ -10,7 +10,7 @@ const functions = [
   "pnoV18TextValue", "pnoV18UniqueValues", "pnoV18FilterOption", "pnoV18ValidateFilter",
   "pnoPendingEvidenceLabel", "pnoV18TypeLabel", "pnoV18ParcelStatus", "pnoV18ParcelAction",
   "pnoV18ParcelFilterActive", "pnoV18ParcelFilterDataset", "pnoV18FilteredParcelEntries",
-  "pnoV18VisibleParcelEntries", "pnoV18EnsureParcelFilterRows", "pnoV18Navigate",
+  "pnoV18VisibleParcelEntries", "pnoV18EnsureParcelFilterRows", "pnoV18PrepareCurrentFilters", "pnoV18Navigate",
   "pnoV18BagGroups", "pnoV18BagValue", "pnoV18BagLatest", "pnoV18BagSummary",
   "pnoV18FilteredBagGroups", "pnoV18FilterSummaryText", "pnoV18RenderCurrentFilteredView",
   "pnoV18RenderFilters", "pnoInboundLoad", "pnoV18Export", "pnoV18Copy", "pnoV18CopyLine",
@@ -33,21 +33,21 @@ const rows = [
 ];
 
 function harness({ type = "total", all = rows, current = rows, total = all.length, fetchPage } = {}) {
-  const nodes = new Map(), observed = { fetch: [], downloads: [], clip: "", gap: [], toast: [] };
+  const nodes = new Map(), observed = { fetch: [], upstream: [], downloads: [], clip: "", gap: [], toast: [] };
   const clock = { now: Date.now() };
   const node = (key) => {
     if (!nodes.has(key)) nodes.set(key, {
       innerHTML: "", textContent: "", disabled: false,
       classList: { add() {}, remove() {} },
-      querySelectorAll() { this.selects = [...this.innerHTML.matchAll(/data-pno-v18-filter="([^"]+)"/g)]
-        .map((match) => ({ dataset: { pnoV18Filter: match[1] }, value: "", onchange: null })); return this.selects; },
+      querySelectorAll() { this.selects = [...this.innerHTML.matchAll(/<select[^>]*data-pno-v18-filter="([^"]+)"([^>]*)>/g)]
+        .map((match) => ({ dataset: { pnoV18Filter: match[1] }, disabled: /\bdisabled\b/.test(match[2]), value: "", onchange: null })); return this.selects; },
       selects: [],
     });
     return nodes.get(key);
   };
   const state = {
     type, page: 1, rows: current, total, bagRows: type === "bag" ? all : null,
-    filterRows: null, filterKey: "", filterAt: 0, filterPromise: null, filterError: "", filterForce: false,
+    filterRows: null, filterKey: "", filterAt: 0, filterPromise: null, filterError: "", filterProgress: "", filterForce: false,
     filterPage: 1, sourceRow: { proofId: "SYNTHETIC_PROOF", pnoNextStoreName: "NEXT-STORE" },
     filters: { status: "", action: "", branch: "" }, busy: false,
   };
@@ -90,14 +90,23 @@ function harness({ type = "total", all = rows, current = rows, total = all.lengt
   return { state, observed, nodes, advance: (ms) => { clock.now += ms; },
     call: (expression) => vm.runInContext(expression, context),
     installActualRender: () => vm.runInContext(extract("pnoV18RenderRows"), context),
+    installActualFetch: () => {
+      context.browserPnoPage = async (_row, sourceType, page, force) => {
+        observed.upstream.push([sourceType, page, force]);
+        if (fetchPage) return fetchPage(sourceType, page, state);
+        return { page, parcels: all.slice((page - 1) * 200, page * 200), total: all.length };
+      };
+      context.pnoPendingPropagatePositive = () => {};
+      vm.runInContext([extract("pnoV18CacheGet"), extract("pnoV18CacheSet"), extract("pnoV18Fetch")].join("\n"), context);
+      const effective = context.pnoV18Fetch;
+      context.pnoV18Fetch = (...args) => { observed.fetch.push(args); return effective(...args); };
+    },
+    waitPrepared: async () => { if (state.filterPromise) await state.filterPromise; await new Promise(setImmediate); },
     select: async (key, value) => {
       vm.runInContext("pnoV18RenderFilters()", context);
       let element = node("pno-v18-filterbar").selects.find((item) => item.dataset.pnoV18Filter === key);
       assert.ok(element, `filter ${key} exists`);
-      if (type !== "bag" && !Array.isArray(state.filterRows)) {
-        await element.onfocus();
-        element = node("pno-v18-filterbar").selects.find((item) => item.dataset.pnoV18Filter === key);
-      }
+      assert.equal(element.disabled, false, `filter ${key} is ready before interaction`);
       element.value = value;
       await element.onchange();
     } };
@@ -111,6 +120,167 @@ test("effective staging parses, is idempotent and has three shared controls with
   assert.doesNotMatch(extract("pnoV18RenderFilters"), /bagHub|targetHub|pnoNextStoreName/);
   for (const control of ["status", "action", "branch"])
     assert.match(extract("pnoV18RenderFilters"), new RegExp(`\\["${control}"`));
+});
+
+test("opening one 2466-row view automatically prepares 13 pages with passive progress and one ready selection", async () => {
+  const all = Array.from({ length: 2466 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
+  let releasePage2;
+  const gate = new Promise((resolve) => { releasePage2 = resolve; });
+  const h = harness({ all, current: all.slice(0, 200), fetchPage: async (_type, page) => {
+    if (page === 2) await gate;
+    return { page, total: all.length, parcels: all.slice((page - 1) * 200, page * 200) };
+  } });
+  h.installActualRender();
+  await h.call('pnoV18Load("total", 1)');
+  assert.equal((h.nodes.get("pending-parcels-list").innerHTML.match(/<tr>/g) || []).length, 201,
+    "first page is available while later pages prepare");
+  assert.ok(h.state.filterPromise, "preparation started without interacting with any selector");
+  assert.equal(h.state.filterRows, null);
+  const selects = h.nodes.get("pno-v18-filterbar").selects;
+  assert.equal(selects.length, 3);
+  assert.ok(selects.every((item) => item.disabled && !item.onfocus && !item.onpointerdown));
+  assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, /กำลังเตรียมตัวกรอง…/);
+  assert.doesNotMatch(h.nodes.get("pno-v18-filterbar").innerHTML, /เลือกเพื่อรวมข้อมูลทุกหน้า/);
+  await new Promise(setImmediate);
+  assert.match(h.nodes.get("pno-v18-filter-result").textContent, /2\/13 หน้า/);
+  const active = h.state.filterPromise;
+  h.call("pnoV18PrepareCurrentFilters(); pnoV18PrepareCurrentFilters(); pnoV18RenderFilters()");
+  assert.equal(h.state.filterPromise, active, "one active preparation for the same authority");
+  assert.match(h.nodes.get("pno-v18-filter-result").textContent, /2\/13 หน้า/, "rerender preserves progress");
+  releasePage2();
+  await h.waitPrepared();
+  assert.match(h.nodes.get("pno-v18-filter-result").textContent, /ทั้งหมด 2,466/);
+  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, ...Array.from({ length: 13 }, (_, i) => i + 1)]);
+  assert.equal(h.state.filterRows.length, 2466);
+  assert.ok(h.nodes.get("pno-v18-filterbar").selects.every((item) => !item.disabled));
+  assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, /<option value="">ทั้งหมด<\/option>/);
+  const acquired = h.observed.fetch.length;
+  await h.select("action", "รับ");
+  assert.equal(h.state.filters.action, "รับ", "first ready interaction performs the real filter");
+  assert.equal(h.observed.fetch.length, acquired);
+});
+
+for (const total of [0, 200, 2466])
+  test(`effective page cache reuses the already fetched first page for ${total} rows`, async () => {
+    const all = Array.from({ length: total }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
+    const h = harness({ all, current: all.slice(0, 200) });
+    h.installActualFetch();
+    await h.call('pnoV18Load("total", 1)');
+    await h.waitPrepared();
+    const pages = Math.max(1, Math.ceil(total / 200));
+    assert.equal(h.state.filterRows.length, total);
+    assert.equal(h.observed.fetch.length, pages + 1, "initial page plus internal preparation page calls");
+    assert.equal(h.observed.upstream.length, pages, "actual upstream pages each acquired once");
+    assert.equal(h.observed.upstream.filter(([, page]) => page === 1).length, 1,
+      "automatic preparation does not duplicate upstream page 1");
+    assert.ok(h.nodes.get("pno-v18-filterbar").selects.every((item) => !item.disabled));
+    h.call("pnoV18PrepareCurrentFilters()");
+    assert.equal(h.observed.upstream.length, pages, "ready rerender has no second full acquisition");
+    if (total === 0)
+      assert.doesNotMatch(h.nodes.get("pno-v18-filterbar").innerHTML, /SYNTHETIC|เตรียมตัวกรอง/);
+  });
+
+test("explicit refresh fetches one new page 1 and prepares one new authority", async () => {
+  const all = Array.from({ length: 401 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
+  const h = harness({ all, current: all.slice(0, 200) });
+  h.installActualFetch();
+  await h.call('pnoV18Load("total", 1)');
+  await h.waitPrepared();
+  assert.deepEqual(h.observed.upstream.map(([, page]) => page), [1, 2, 3]);
+  Object.assign(h.state, { force: true, filterForce: true, filterRows: null,
+    filterKey: "", filterError: "", filterProgress: "" });
+  await h.call('pnoV18Load("total", 1)');
+  await h.waitPrepared();
+  assert.deepEqual(h.observed.upstream.map(([, page]) => page), [1, 2, 3, 1, 2, 3]);
+  assert.equal(h.observed.upstream.filter(([, page]) => page === 1).length, 2,
+    "each baseline cycle has exactly one upstream page-1 acquisition");
+});
+
+test("automatic middle-page failure leaves first page visible and never retries from selectors", async () => {
+  const all = Array.from({ length: 5000 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
+  const h = harness({ all, current: all.slice(0, 200), fetchPage: (_type, page) => {
+    if (page === 17) throw new Error("synthetic page failure");
+    return { page, total: all.length, parcels: all.slice((page - 1) * 200, page * 200) };
+  } });
+  h.installActualRender();
+  await h.call('pnoV18Load("total", 1)');
+  if (h.state.filterPromise) await h.state.filterPromise.catch(() => {});
+  await new Promise(setImmediate);
+  assert.equal(h.state.filterRows, null);
+  assert.equal((h.nodes.get("pending-parcels-list").innerHTML.match(/<tr>/g) || []).length, 201);
+  assert.match(h.nodes.get("pno-v18-filter-result").textContent, /เตรียมตัวกรองทุกหน้าไม่สำเร็จ/);
+  assert.ok(h.nodes.get("pno-v18-filterbar").selects.every((item) => item.disabled));
+  const acquired = h.observed.fetch.length;
+  for (const element of h.nodes.get("pno-v18-filterbar").selects) {
+    assert.equal(element.onfocus, undefined);
+    assert.equal(element.onpointerdown, undefined);
+    element.onchange();
+  }
+  h.call("pnoV18PrepareCurrentFilters()");
+  assert.equal(h.observed.fetch.length, acquired);
+  assert.equal(h.observed.toast.length, 0);
+});
+
+test("locator change after opening prepares only the new exact occurrence", async () => {
+  const tripA = Array.from({ length: 401 }, (_, i) => ({ ...rows[0], pno: `A-${i}`, lastAction: "A" }));
+  const tripB = Array.from({ length: 201 }, (_, i) => ({ ...rows[0], pno: `B-${i}`, lastAction: "B" }));
+  const h = harness({ all: tripA, current: tripA.slice(0, 200), fetchPage: (_type, page, state) => {
+    const dataset = state.sourceRow.proofId === "TRIP-B" ? tripB : tripA;
+    return { page, total: dataset.length, parcels: dataset.slice((page - 1) * 200, page * 200) };
+  } });
+  await h.call('pnoV18Load("total", 1)');
+  await h.waitPrepared();
+  assert.equal(h.state.filterRows.length, 401);
+  h.state.sourceRow = { proofId: "TRIP-B", pnoSourceDay: "2026-09-29" };
+  h.state.filterRows = null; h.state.filterKey = ""; h.state.filterError = "";
+  await h.call('pnoV18Load("total", 1)');
+  await h.waitPrepared();
+  assert.equal(h.state.filterRows.length, 201);
+  assert.ok(h.state.filterRows.every((row) => row.pno.startsWith("B-")));
+  assert.doesNotMatch(h.nodes.get("pno-v18-filterbar").innerHTML, />A</);
+  assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, />B</);
+});
+
+for (const scenario of ["missing PNO", "page identity mismatch", "reported total change", "locator changes mid-acquisition"]) {
+  test(`automatic preparation fails closed on ${scenario}`, async () => {
+    const all = Array.from({ length: 401 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
+    const h = harness({ all, current: all.slice(0, 200), fetchPage: (_type, page, state) => {
+      if (page === 2 && scenario === "locator changes mid-acquisition")
+        state.sourceRow = { proofId: "OTHER" };
+      const parcels = all.slice((page - 1) * 200, page * 200).map((row) => ({ ...row }));
+      if (page === 2 && scenario === "missing PNO") parcels[0].pno = "";
+      return { page: page === 2 && scenario === "page identity mismatch" ? 3 : page,
+        total: page === 2 && scenario === "reported total change" ? 402 : all.length, parcels };
+    } });
+    await h.call('pnoV18Load("total", 1)');
+    if (h.state.filterPromise) await h.state.filterPromise.catch(() => {});
+    await new Promise(setImmediate);
+    assert.equal(h.state.filterRows, null);
+    assert.ok(h.state.filterError || scenario === "locator changes mid-acquisition");
+    assert.equal(h.observed.fetch.length, 3);
+  });
+}
+
+test("desktop table and responsive cards preserve the visible page while selectors are disabled", async () => {
+  const all = Array.from({ length: 201 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const h = harness({ all, current: all.slice(0, 200), fetchPage: async (_type, page) => {
+    if (page === 2) await gate;
+    return { page, total: all.length, parcels: all.slice((page - 1) * 200, page * 200) };
+  } });
+  h.installActualRender();
+  await h.call('pnoV18Load("total", 1)');
+  const list = h.nodes.get("pending-parcels-list").innerHTML;
+  assert.equal((list.match(/<tr>/g) || []).length, 201);
+  assert.equal((list.match(/class="pno-v18-mobile-card /g) || []).length, 200);
+  assert.match(list, /pno-v18-desktop/);
+  assert.match(list, /pno-v18-mobile/);
+  assert.ok(h.nodes.get("pno-v18-filterbar").selects.every((item) => item.disabled));
+  assert.match(staged, /pno-v18-filterbar\{[^}]*flex-wrap:wrap/);
+  release();
+  await h.waitPrepared();
+  assert.ok(h.nodes.get("pno-v18-filterbar").selects.every((item) => !item.disabled));
 });
 
 for (const [type, status, expected] of [
@@ -154,7 +324,7 @@ for (const type of ["total", "already", "no_entry", "bag", "scan_gap"])
 
 for (const from of ["total", "already", "no_entry", "bag", "scan_gap"])
   for (const to of ["total", "already", "no_entry", "bag", "scan_gap"].filter((type) => type !== from))
-    test(`${from} → ${to}: switching tabs clears filters and loads no extra pages`, async () => {
+    test(`${from} → ${to}: switching tabs clears filters and prepares only the opened view`, async () => {
       const h = harness({ type: from });
       Object.assign(h.state.filters, { status: "รอ", action: "รับ", branch: "BRANCH-A" });
       h.state.filterRows = rows;
@@ -162,9 +332,12 @@ for (const from of ["total", "already", "no_entry", "bag", "scan_gap"])
       h.state.filterAt = Date.now();
       await h.call(to === "scan_gap" ? "pnoInboundLoad(1)"
         : to === "bag" ? "pnoV18LoadBags()" : `pnoV18Load("${to}", 1)`);
+      await h.waitPrepared();
       assert.deepEqual(h.state.filters, { status: "", action: "", branch: "" });
-      assert.equal(h.state.filterRows, null);
-      assert.equal(h.observed.fetch.length, 1, "only parent-equivalent first page");
+      assert.equal(to === "bag" ? h.state.filterRows : h.state.filterRows?.length, to === "bag" ? null : rows.length);
+      assert.deepEqual(h.observed.fetch.map(([sourceType, page]) => [sourceType, page]),
+        to === "bag" ? [["total", 1]] : [[to === "scan_gap" ? "total" : to, 1], [to === "scan_gap" ? "total" : to, 1]],
+        "only the explicitly selected view prepares");
       assert.equal(h.observed.toast.length, 0);
     });
 
@@ -200,16 +373,16 @@ test("explicit parcel filter loads existing bounded pages and paginates filtered
   assert.equal(h.call("pnoV18VisibleParcelEntries().length"), 25);
 });
 
-test("scan-gap opens one source page; explicit filter loads bounded pages before local pager", async () => {
+test("scan-gap opens page 1 then prepares its mapped total source automatically", async () => {
   const all = Array.from({ length: 201 }, (_, i) => ({ ...rows[i === 0 || i === 200 ? 0 : 1], pno: `SYNTHETIC-${i}` }));
   const h = harness({ type: "total", current: all.slice(0, 200), all });
   await h.call("pnoInboundLoad(1)");
   assert.equal(h.state.type, "scan_gap");
-  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1]);
-  assert.equal(h.state.filterRows, null);
-  assert.deepEqual(Array.from(h.observed.gap), ["SYNTHETIC-0"]);
-  assert.match(h.nodes.get("pno-v18-page").textContent, /หน้าข้อมูลต้นทาง 1 \/ 2/);
-  assert.match(h.nodes.get("pno-v18-filter-result").textContent, /หลักฐานในหน้านี้ 1/);
+  await h.waitPrepared();
+  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 1, 2]);
+  assert.equal(h.state.filterRows.length, 201);
+  assert.deepEqual(Array.from(h.observed.gap), ["SYNTHETIC-0", "SYNTHETIC-200"]);
+  assert.match(h.nodes.get("pno-v18-page").textContent, /ผลกรอง หน้า 1 \/ 1/);
   await h.select("branch", "BRANCH-A");
   assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 1, 2]);
   assert.deepEqual(Array.from(h.observed.gap), ["SYNTHETIC-0", "SYNTHETIC-200"]);
@@ -292,34 +465,38 @@ test("LINE copy reads filtered rows and grouped bag summary", async () => {
   assert.match(h.observed.clip, /BRANCH-B/);
 });
 
-test("ordinary tabs do not auto-load every page without an active filter", () => {
+test("view lifecycle prepares filters; selector events never acquire pages", () => {
   const load = staged.slice(staged.indexOf("async function pnoV18Load(type, page)"), staged.indexOf("function pnoV18BagGroups"));
   assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(load, /pnoV18PrepareCurrentFilters\(\)/);
+  assert.doesNotMatch(extract("pnoV18RenderFilters"), /onfocus|onpointerdown|pnoV18EnsureParcelFilterRows/);
 });
 
-test("traffic: modal open, ordinary Copy, LINE Copy and Export have the parent's request budget", async () => {
+test("traffic: modal open prepares once; Copy, LINE Copy and Export reuse authority", async () => {
   const all = Array.from({ length: 401 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
   const h = harness({ all, current: all.slice(0, 200) });
   await h.call('pnoV18Load("total", 1)');
-  assert.deepEqual(h.observed.fetch, [["total", 1]]);
+  await h.waitPrepared();
+  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 1, 2, 3]);
   h.call("pnoV18RenderFilters()");
-  assert.equal(h.observed.fetch.length, 1);
+  assert.equal(h.observed.fetch.length, 4);
   await h.call("pnoV18Copy()");
-  assert.equal(h.observed.fetch.length, 1);
-  assert.equal(h.observed.clip.split("\n").length, 201, "ordinary Copy uses the loaded page");
+  assert.equal(h.observed.fetch.length, 4);
+  assert.equal(h.observed.clip.split("\n").length, 402, "Copy uses the complete current authority");
   h.call("pnoV18LineHeader = () => ['SYNTHETIC HEADER']");
   await h.call("pnoV18CopyLine()");
-  assert.equal(h.observed.fetch.length, 1);
+  assert.equal(h.observed.fetch.length, 4);
   await h.call("pnoV18Export()");
   assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 1, 2, 3]);
   assert.equal(h.observed.downloads[0].values.length, 401);
 });
 
 for (const [key, value] of [["status", "รอ"], ["action", "รับ"], ["branch", "BRANCH-A"]])
-  test(`traffic: explicit ${key} selection loads only the existing bounded pages`, async () => {
+  test(`traffic: first ready ${key} selection adds no acquisition`, async () => {
     const all = Array.from({ length: 401 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
     const h = harness({ all, current: all.slice(0, 200) });
     await h.call('pnoV18Load("total", 1)');
+    await h.waitPrepared();
     await h.select(key, value);
     assert.deepEqual(h.observed.fetch.map(([type, page]) => [type, page]),
       [["total", 1], ["total", 1], ["total", 2], ["total", 3]]);
@@ -332,22 +509,22 @@ for (const [key, value] of [["status", "รอ"], ["action", "รับ"], ["bra
     assert.equal(h.observed.fetch.length, acquired, "Copy, LINE Copy and Export reuse materialized rows");
   });
 
-test("traffic: scan-gap remains page-by-page until an explicit filter action", async () => {
+test("traffic: scan-gap prepares mapped source and navigates locally after readiness", async () => {
   const all = Array.from({ length: 401 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
   const h = harness({ type: "total", all, current: all.slice(0, 200) });
   await h.call("pnoInboundLoad(1)");
-  assert.deepEqual(h.observed.fetch, [["total", 1]]);
+  await h.waitPrepared();
+  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 1, 2, 3]);
   h.call("pnoV18Navigate(1)");
-  await new Promise(setImmediate);
-  assert.deepEqual(h.observed.fetch, [["total", 1], ["total", 2]]);
-  assert.match(h.nodes.get("pno-v18-page").textContent, /หน้าข้อมูลต้นทาง 2 \/ 3/);
+  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 1, 2, 3]);
+  assert.match(h.nodes.get("pno-v18-page").textContent, /ผลกรอง หน้า 2 \/ 3/);
   await h.call("pnoV18Copy()");
   h.call("pnoV18LineHeader = () => ['SYNTHETIC HEADER']");
   await h.call("pnoV18CopyLine()");
-  assert.equal(h.observed.fetch.length, 2);
-  assert.equal(h.observed.clip.includes("SYNTHETIC-0"), false, "ordinary Copy uses the current page");
+  assert.equal(h.observed.fetch.length, 4);
+  assert.equal(h.observed.clip.includes("SYNTHETIC-0"), true, "Copy uses prepared source");
   await h.select("status", "หลุดสแกนเข้า");
-  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 2, 1, 2, 3]);
+  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 1, 2, 3]);
   assert.deepEqual(Array.from(h.observed.result), [200, 401]);
   h.call("pnoV18Navigate(1)");
   assert.deepEqual(Array.from(h.observed.result), [200, 401]);
@@ -360,22 +537,29 @@ test("traffic: scan-gap remains page-by-page until an explicit filter action", a
   assert.equal(h.observed.downloads[0].values.length, 401);
 });
 
-test("traffic: leaving and reopening scan-gap never preloads all pages", async () => {
+test("traffic: leaving and reopening scan-gap isolates type authority", async () => {
   const all = Array.from({ length: 401 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
   const h = harness({ type: "total", all, current: all.slice(0, 200) });
   await h.call("pnoInboundLoad(1)");
+  await h.waitPrepared();
+  const firstKey = h.state.filterKey;
   await h.call('pnoV18Load("total", 1)');
+  await h.waitPrepared();
+  assert.notEqual(h.state.filterKey, firstKey);
   await h.call("pnoInboundLoad(1)");
-  assert.deepEqual(h.observed.fetch, [["total", 1], ["total", 1], ["total", 1]]);
-  assert.equal(h.state.filterRows, null);
+  await h.waitPrepared();
+  assert.equal(h.state.filterKey, firstKey);
+  assert.equal(h.state.filterRows.length, 401);
+  assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, 1, 2, 3, 1, 1, 2, 3, 1, 1, 2, 3]);
 });
 
 for (const [key, value] of [["status", "หลุดสแกนเข้า"], ["action", "รับ"], ["branch", "BRANCH-A"]])
-  test(`traffic: scan-gap ${key} selection alone permits existing bounded full-page loading`, async () => {
+  test(`traffic: scan-gap ${key} selection reuses automatic authority`, async () => {
     const all = Array.from({ length: 201 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
     const h = harness({ type: "total", all, current: all.slice(0, 200) });
     await h.call("pnoInboundLoad(1)");
-    assert.equal(h.observed.fetch.length, 1);
+    await h.waitPrepared();
+    assert.equal(h.observed.fetch.length, 3);
     await h.select(key, value);
     assert.deepEqual(h.observed.fetch.map(([type, page]) => [type, page]),
       [["total", 1], ["total", 1], ["total", 2]]);
@@ -391,7 +575,8 @@ test("traffic: unfiltered scan-gap Export uses the parent's bounded page budget"
   const all = Array.from({ length: 401 }, (_, i) => ({ ...rows[0], pno: `SYNTHETIC-${i}` }));
   const h = harness({ type: "total", all, current: all.slice(0, 200) });
   await h.call("pnoInboundLoad(1)");
-  assert.equal(h.observed.fetch.length, 1);
+  await h.waitPrepared();
+  assert.equal(h.observed.fetch.length, 4);
   await h.call("pnoV18Export()");
   assert.deepEqual(h.observed.fetch.map(([type, page]) => [type, page]),
     [["total", 1], ["total", 1], ["total", 2], ["total", 3]]);
@@ -444,25 +629,25 @@ for (const total of [200, 201, 1000, 4000, 5000, 5037]) {
   });
 }
 
-test("first latest-action interaction loads page-25-only options without manual pagination", async () => {
+test("automatic preparation exposes page-25-only options before first latest-action interaction", async () => {
   const all = Array.from({ length: 5000 }, (_, i) => ({ pno: `SYNTHETIC-${i}`,
     status: "READY", lastAction: i === 0 ? "A" : i === 1 ? "B" :
       i === 200 ? "C" : i === 1800 ? "D" : i === 4999 ? "E" : "A",
     targetBranch: i === 4999 ? "LAST-BRANCH" : "FIRST-BRANCH" }));
   const h = harness({ all, current: all.slice(0, 200) });
-  h.call("pnoV18RenderFilters()");
-  assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, /เลือกเพื่อรวมข้อมูลทุกหน้า/);
-  assert.doesNotMatch(h.nodes.get("pno-v18-filterbar").innerHTML, /LAST-BRANCH|>E</);
-  assert.equal(h.observed.fetch.length, 0);
+  await h.call('pnoV18Load("total", 1)');
+  await h.waitPrepared();
+  assert.equal(h.observed.fetch.length, 26);
+  assert.doesNotMatch(h.nodes.get("pno-v18-filterbar").innerHTML, /เลือกเพื่อรวมข้อมูลทุกหน้า/);
   await h.select("action", "E");
   const options = h.nodes.get("pno-v18-filterbar").innerHTML;
   for (const action of ["A", "B", "C", "D", "E"]) assert.match(options, new RegExp(`>${action}<`));
   assert.match(options, /LAST-BRANCH/);
-  assert.equal(h.observed.fetch.length, 25);
+  assert.equal(h.observed.fetch.length, 26);
   assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], ["SYNTHETIC-4999"]);
   await h.select("status", "READY");
   await h.select("branch", "LAST-BRANCH");
-  assert.equal(h.observed.fetch.length, 25, "switching all three filters reuses the assembled pages");
+  assert.equal(h.observed.fetch.length, 26, "switching all three filters reuses the assembled pages");
   assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 1);
 });
 
@@ -472,8 +657,10 @@ test("materialized global options survive view-cache TTL while selected filter a
     targetBranch: i < 301 ? "BRANCH-A" : "BRANCH-B" }));
   const h = harness({ all, current: all.slice(0, 200) });
   h.installActualRender();
+  await h.call('pnoV18Load("total", 1)');
+  await h.waitPrepared();
   await h.select("action", "SCAN_OUT");
-  assert.equal(h.observed.fetch.length, 3);
+  assert.equal(h.observed.fetch.length, 4);
   assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 301);
   h.advance(60_001);
   h.call("pnoV18RenderFilters(); pnoV18RenderCurrentFilteredView()");
@@ -487,7 +674,7 @@ test("materialized global options survive view-cache TTL while selected filter a
   assert.match(h.nodes.get("pno-v18-page").textContent, /1 \/ 2/);
   await h.select("status", "READY");
   await h.select("branch", "BRANCH-A");
-  assert.equal(h.observed.fetch.length, 3, "same locator reuses materialized rows after view TTL");
+  assert.equal(h.observed.fetch.length, 4, "same locator reuses materialized rows after view TTL");
   assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 301);
   h.call("pnoV18Navigate(1)");
   assert.equal(h.call("pnoV18VisibleParcelEntries().length"), 101);
@@ -495,7 +682,7 @@ test("materialized global options survive view-cache TTL while selected filter a
   h.nodes.get("pno-v18-filter-reset").onclick();
   assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 401);
   assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, />SCAN_OUT</);
-  assert.equal(h.observed.fetch.length, 3);
+  assert.equal(h.observed.fetch.length, 4);
 });
 
 test("5000 source, 843 matches and 200-row display have separate truthful counts", async () => {
@@ -503,6 +690,8 @@ test("5000 source, 843 matches and 200-row display have separate truthful counts
     status: i < 843 ? "MATCH" : "OTHER", lastAction: "ACTION", targetBranch: "BRANCH" }));
   const h = harness({ all, current: all.slice(0, 200) });
   h.installActualRender();
+  await h.call('pnoV18Load("total", 1)');
+  await h.waitPrepared();
   await h.select("status", "MATCH");
   assert.equal(h.call("pnoV18FilteredParcelEntries().length"), 843);
   assert.equal(h.call("pnoV18VisibleParcelEntries().length"), 200);
@@ -521,7 +710,7 @@ test("5000 source, 843 matches and 200-row display have separate truthful counts
   assert.match(h.observed.clip, /ยังมีอีก/);
   await h.call("pnoV18Export()");
   assert.equal(h.observed.downloads[0].values.length, 843);
-  assert.equal(h.observed.fetch.length, 25);
+  assert.equal(h.observed.fetch.length, 26);
 });
 
 test("locator change and explicit refresh invalidate assembled filter authority", async () => {

@@ -215,7 +215,7 @@ test("V27 LINE copy uses loaded filtered data, sorts HUB-status-bag, and shows e
 });
 
 
-test("V19 filter data is loaded on explicit selection and copy uses filtered rows", () => {
+test("V19 filter data prepares after page one and copy uses filtered rows", () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.match(staged, /id="pno-v18-filterbar"/);
   assert.match(staged, /id="pno-v18-bag-summary"/);
@@ -228,7 +228,9 @@ test("V19 filter data is loaded on explicit selection and copy uses filtered row
   assert.doesNotMatch(staged, /สาขาปลายทาง/);
   assert.match(staged, /จำนวนถุงแบ็กกิ้ง/);
   assert.match(staged, /จำนวนชิ้นในถุง/);
-  assert.match(staged, /select\.onchange = async \(\) =>/);
+  assert.match(staged, /function pnoV18PrepareCurrentFilters\(\)/);
+  assert.match(staged, /select\.onchange = \(\) =>/);
+  assert.doesNotMatch(staged, /เลือกเพื่อรวมข้อมูลทุกหน้า/);
   assert.match(staged, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(staged, /pnoV18FilteredBagGroups\(\)/);
   const filterCode = staged.slice(staged.indexOf("function pnoV18FilteredParcelEntries"), staged.indexOf("function pnoV18RenderRows"));
@@ -287,12 +289,15 @@ test("V18 Backing table derives Latest from the newest loaded parcel action", ()
 });
 
 
-test("global parcel filters reuse bounded page loading on explicit filter or Export actions", () => {
+test("global parcel filters prepare on page one and reuse bounded loading for Export", () => {
   assert.match(staged, /PNO_GLOBAL_FILTER_V19/);
   assert.match(staged, /async function pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(staged, /for \(let page = 1; page <= pages; page \+= 1\)/);
   assert.match(staged, /await pnoV18Fetch\(sourceType, page\)/);
-  assert.match(staged, /select\.onchange = async \(\) =>/);
+  assert.match(staged, /pnoV18PrepareCurrentFilters\(\)/);
+  assert.match(staged, /select\.onchange = \(\) =>/);
+  const renderFilters = staged.slice(staged.indexOf("function pnoV18RenderFilters"), staged.indexOf("function pnoV18RenderRows"));
+  assert.doesNotMatch(renderFilters, /onfocus|onpointerdown|pnoV18EnsureParcelFilterRows/);
   assert.match(staged, /await pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(staged, /function pnoV18VisibleParcelEntries\(\)/);
   assert.match(staged, /entries\.slice\(start, start \+ 200\)/);
@@ -301,11 +306,12 @@ test("global parcel filters reuse bounded page loading on explicit filter or Exp
   assert.doesNotMatch(ensure, /setInterval|setTimeout|apiPost|Turso|SQL/i);
 });
 
-test("V19 normal tab resets filters and never loads extra pages on a tab switch", () => {
+test("V19 normal tab resets filters and prepares only the selected view", () => {
   const load = staged.slice(staged.indexOf("async function pnoV18Load(type, page)"), staged.indexOf("function pnoV18BagGroups"));
   assert.match(load, /const result = await pnoV18Fetch\(type, pnoV18State\.page\)/);
   assert.match(load, /pnoV18State\.filters\.branch = ""/);
   assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(load, /pnoV18ApplyPageResult\(type, result\);\s*pnoV18PrepareCurrentFilters\(\)/);
 });
 
 

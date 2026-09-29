@@ -52,17 +52,21 @@ async function pnoV18EnsureParcelFilterRows() {
   pnoV18State.filterKey = key;
   pnoV18State.filterRows = null;
   pnoV18State.filterError = "";
+  pnoV18State.filterProgress = "กำลังเตรียมตัวกรอง…";
   const task = (async () => {
     const all = [];
     const seen = new Set();
     const sourceType = pnoV18State.type === "scan_gap" ? "total" : pnoV18State.type;
     const force = pnoV18State.filterForce === true;
     let total = null;
-    let pages = 1;
+    let pages = Math.max(1, Math.ceil((Number(pnoV18State.total) || 0) / 200));
     for (let page = 1; page <= pages; page += 1) {
       const resultNode = el("pno-v18-filter-result");
-      if (resultNode) resultNode.textContent = "กำลังรวมข้อมูลทุกหน้าเพื่อกรอง… " + nf.format(page) + "/" + nf.format(pages);
-      if (force) pnoV18State.force = true;
+      pnoV18State.filterProgress = "กำลังเตรียมตัวกรอง… " + nf.format(page) + "/" + nf.format(pages) + " หน้า";
+      if (resultNode) resultNode.textContent = pnoV18State.filterProgress;
+      // Page 1 was just loaded by the opened view (including explicit refresh).
+      // Its valid view-cache entry prevents a second upstream page-1 request.
+      if (force && page > 1) pnoV18State.force = true;
       const result = await pnoV18Fetch(sourceType, page);
       const rows = result?.parcels;
       const reported = Number(result?.total);
@@ -93,6 +97,7 @@ async function pnoV18EnsureParcelFilterRows() {
     pnoV18State.filterAt = Date.now();
     pnoV18State.filterForce = false;
     pnoV18State.filterPage = 1;
+    pnoV18State.filterProgress = "";
     return all;
   })();
   pnoV18State.filterPromise = task;
@@ -100,7 +105,8 @@ async function pnoV18EnsureParcelFilterRows() {
   catch (error) {
     if (pnoV18State.filterKey === key) {
       pnoV18State.filterRows = null;
-      pnoV18State.filterError = "รวมข้อมูลทุกหน้าไม่สำเร็จ · ยังไม่แสดงผลกรองทั้งชุด";
+      pnoV18State.filterError = "เตรียมตัวกรองทุกหน้าไม่สำเร็จ · ยังไม่แสดงผลกรองทั้งชุด";
+      pnoV18State.filterProgress = "";
       const node = el("pno-v18-filter-result");
       if (node) node.textContent = pnoV18State.filterError;
     }
@@ -108,6 +114,26 @@ async function pnoV18EnsureParcelFilterRows() {
   } finally {
     if (pnoV18State.filterPromise === task) pnoV18State.filterPromise = null;
   }
+}
+
+function pnoV18PrepareCurrentFilters() {
+  const type = pnoV18State.type;
+  if (type === "bag" || pnoV18State.page !== 1 ||
+      !Number.isSafeInteger(pnoV18State.total) || pnoV18State.total < 0 ||
+      !Array.isArray(pnoV18State.rows)) return;
+  const row = pnoV18SourceRow();
+  if (!row) return;
+  const key = pnoV18LocatorKey(row) + "|" + type;
+  if (pnoV18State.filterKey === key &&
+      (Array.isArray(pnoV18State.filterRows) || pnoV18State.filterPromise || pnoV18State.filterError)) return;
+  void pnoV18EnsureParcelFilterRows().then(() => {
+    if (pnoV18LocatorKey(pnoV18SourceRow()) + "|" + pnoV18State.type !== key) return;
+    pnoV18RenderFilters();
+    pnoV18RenderCurrentFilteredView();
+  }).catch(() => {
+    if (pnoV18LocatorKey(pnoV18SourceRow()) + "|" + pnoV18State.type === key)
+      pnoV18RenderFilters();
+  });
 }
 
 function pnoV18RenderFilters() {
@@ -134,33 +160,18 @@ function pnoV18RenderFilters() {
     ["branch", "ชื่อสาขาต่อไป", branches]];
   bar.innerHTML = fields.map(([key, label, values]) =>
     '<label class="pno-v18-filter-field"><span>' + esc(label) + '</span><select id="pno-v18-filter-' + key +
-    '" data-pno-v18-filter="' + key + '">' + (complete
+    '" data-pno-v18-filter="' + key + '"' + (complete ? '' : ' disabled') + '>' + (complete
       ? '<option value="">ทั้งหมด</option>' + values.map((value) => pnoV18FilterOption(value, filters[key])).join("")
-      : '<option value="">เลือกเพื่อรวมข้อมูลทุกหน้า</option>') + '</select></label>'
+      : '<option value="">' + (pnoV18State.filterError ? 'เตรียมตัวกรองไม่สำเร็จ' : 'กำลังเตรียมตัวกรอง…') + '</option>') + '</select></label>'
   ).join("") +
     '<button id="pno-v18-filter-reset" class="btn btn-secondary pno-v18-filter-reset" type="button">ล้างฟิลเตอร์</button>' +
     '<div id="pno-v18-filter-result" class="pno-v18-filter-result"></div>';
   bar.classList.remove("hidden");
-  if (!complete && pnoV18State.filterError)
-    el("pno-v18-filter-result").textContent = pnoV18State.filterError;
+  if (!complete)
+    el("pno-v18-filter-result").textContent = pnoV18State.filterError || pnoV18State.filterProgress || "กำลังเตรียมตัวกรอง…";
   bar.querySelectorAll("[data-pno-v18-filter]").forEach((select) => {
-    const loadOnFirstInteraction = async (event) => {
-      if (complete || type === "bag") return;
-      if (event?.preventDefault) event.preventDefault();
-      const resultNode = el("pno-v18-filter-result");
-      if (resultNode) resultNode.textContent = "กำลังรวมข้อมูลทุกหน้าเพื่อกรอง…";
-      try {
-        await pnoV18EnsureParcelFilterRows();
-        if (pnoV18State.type !== type) return;
-        pnoV18RenderFilters();
-        pnoV18RenderCurrentFilteredView();
-        el("pno-v18-filter-" + select.dataset.pnoV18Filter)?.focus?.();
-      } catch (error) { toast(error.message || "โหลดข้อมูลสำหรับฟิลเตอร์ไม่สำเร็จ", true); }
-    };
-    select.onpointerdown = loadOnFirstInteraction;
-    select.onfocus = loadOnFirstInteraction;
-    select.onchange = async () => {
-      if (!complete && type !== "bag") return loadOnFirstInteraction();
+    select.onchange = () => {
+      if (!complete) return;
       filters[select.dataset.pnoV18Filter] = select.value;
       pnoV18State.filterPage = 1;
       pnoV18RenderFilters();
@@ -182,13 +193,30 @@ export function patchPnoAllPageFilterFrontend(source) {
   if (output.includes(MARKER)) return output;
   if (!output.includes("PNO_CROSS_VIEW_FILTER_PARITY_V1")) throw new Error(`${MARKER}: parity prerequisite missing`);
   output = replaceOne(output, `  filterPage: 1,\n`,
-    `  filterPage: 1,\n  filterAt: 0,\n  filterPromise: null,\n  filterError: "",\n  filterForce: false,\n`, "filter state");
+    `  filterPage: 1,\n  filterAt: 0,\n  filterPromise: null,\n  filterError: "",\n  filterProgress: "",\n  filterForce: false,\n`, "filter state");
   for (const fn of [pnoV18LocatorKey, pnoV18ParcelFilterDataset, pnoV18VisibleParcelEntries,
     pnoV18EnsureParcelFilterRows, pnoV18RenderFilters])
     output = replaceFunction(output, fn.name, fn);
+  output = replaceOne(output, "function pnoV18RenderFilters() {",
+    pnoV18PrepareCurrentFilters.toString() + "\n\nfunction pnoV18RenderFilters() {", "automatic preparation helper");
+  output = replaceOne(output,
+    `    pnoV18ApplyPageResult(type, cached);\n    return;`,
+    `    pnoV18ApplyPageResult(type, cached);\n    pnoV18PrepareCurrentFilters();\n    return;`, "cached view preparation");
+  output = replaceOne(output,
+    `    const result = await pnoV18Fetch(type, pnoV18State.page);\n    pnoV18ApplyPageResult(type, result);`,
+    `    const result = await pnoV18Fetch(type, pnoV18State.page);\n    pnoV18ApplyPageResult(type, result);\n    pnoV18PrepareCurrentFilters();`, "loaded view preparation");
+  output = replaceOne(output,
+    `  if (pnoV18State.type !== type) {\n    pnoV18State.filterRows = null;\n    pnoV18State.filterKey = "";\n    pnoV18State.filterPage = 1;`,
+    `  if (pnoV18State.type !== type) {\n    pnoV18State.filterRows = null;\n    pnoV18State.filterKey = "";\n    pnoV18State.filterPage = 1;\n    pnoV18State.filterError = "";\n    pnoV18State.filterProgress = "";`, "parcel tab filter reset");
+  output = replaceOne(output,
+    `  if (pnoV18State.type !== "scan_gap") {\n    pnoV18State.filterRows = null;\n    pnoV18State.filterKey = "";\n    pnoV18State.filterPage = 1;`,
+    `  if (pnoV18State.type !== "scan_gap") {\n    pnoV18State.filterRows = null;\n    pnoV18State.filterKey = "";\n    pnoV18State.filterPage = 1;\n    pnoV18State.filterError = "";\n    pnoV18State.filterProgress = "";`, "scan evidence tab filter reset");
+  output = replaceOne(output,
+    `    pnoV18RenderCurrentFilteredView();\n    el("pending-parcels-loading").classList.add("hidden");\n    el("pending-parcels-list").classList.remove("hidden");`,
+    `    pnoV18RenderCurrentFilteredView();\n    el("pending-parcels-loading").classList.add("hidden");\n    el("pending-parcels-list").classList.remove("hidden");\n    pnoV18PrepareCurrentFilters();`, "scan-evidence view preparation");
   output = replaceOne(output,
     `  const scopeTotal = filteredMode ? pnoV18State.filterRows.length : rows.length;\n  pnoV18UpdateFilterResult(allEntries.length, scopeTotal, filteredMode ? "รายการจากข้อมูลทั้งชุด" : "รายการในหน้านี้");`,
-    `  const scopeTotal = filteredMode ? pnoV18State.filterRows.length : pnoV18State.total;\n  pnoV18UpdateFilterResult(allEntries.length, scopeTotal, "รายการ");\n  el("pno-v18-filter-result").textContent = "ทั้งหมด " + nf.format(scopeTotal) +
+    `  const scopeTotal = filteredMode ? pnoV18State.filterRows.length : pnoV18State.total;\n  pnoV18UpdateFilterResult(allEntries.length, scopeTotal, "รายการ");\n  if (filteredMode || (!pnoV18State.filterPromise && !pnoV18State.filterError))\n    el("pno-v18-filter-result").textContent = "ทั้งหมด " + nf.format(scopeTotal) +
     (filteredMode ? " · ผลกรอง " + nf.format(allEntries.length) : " · ตัวเลือกกรองยังไม่รวมทุกหน้า") +
     " · แสดงหน้านี้ " + nf.format(entries.length);`, "parcel counts");
   output = replaceOne(output,
@@ -208,8 +236,12 @@ export function patchPnoAllPageFilterFrontend(source) {
     `      pnoV18UpdateFilterResult(visible.length, entries.length, "รายการหลักฐาน");\n      el("pno-v18-filter-result").textContent = "ทั้งหมด " + nf.format(pnoV18State.filterRows.length) +
         " · ผลกรอง " + nf.format(entries.length) + " · แสดงหน้านี้ " + nf.format(visible.length);`, "scan evidence counts");
   output = replaceOne(output,
+    `      el("pno-v18-filter-result").textContent = "หลักฐานในหน้านี้ " + nf.format(entries.length) + " รายการ";`,
+    `      if (!pnoV18State.filterPromise && !pnoV18State.filterError)\n        el("pno-v18-filter-result").textContent = "หลักฐานในหน้านี้ " + nf.format(entries.length) + " รายการ";`,
+    "scan evidence preparation progress");
+  output = replaceOne(output,
     `  pnoV18State.force = args.force;\n  pnoV18State.type = args.type;`,
-    `  pnoV18State.force = args.force;\n  pnoV18State.filterForce = args.force;\n  pnoV18State.filterRows = null;\n  pnoV18State.filterKey = "";\n  pnoV18State.filterAt = 0;\n  pnoV18State.filterError = "";\n  pnoV18State.type = args.type;`, "modal identity and explicit refresh");
+    `  pnoV18State.force = args.force;\n  pnoV18State.filterForce = args.force;\n  pnoV18State.filterRows = null;\n  pnoV18State.filterKey = "";\n  pnoV18State.filterAt = 0;\n  pnoV18State.filterError = "";\n  pnoV18State.filterProgress = "";\n  pnoV18State.type = args.type;`, "modal identity and explicit refresh");
   return `${output}\n// ${MARKER}: explicit global option discovery; no background polling.\n`;
 }
 

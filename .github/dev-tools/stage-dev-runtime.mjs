@@ -61,6 +61,7 @@ import { patchPnoV27Frontend, patchPnoV27Worker, patchPnoV28PendingIntersection,
 import { patchPnoNextBranchTruthWorker, patchPnoDestinationLabelsFrontend } from "./patch-pno-next-branch-truth.mjs";
 import { patchPnoCrossViewFilterParity } from "./patch-pno-cross-view-filter-parity.mjs";
 import { patchPnoAllPageFilterFrontend, patchPnoAllPageFilterWorker } from "./patch-pno-all-page-filter-truth.mjs";
+import { patchPnoDetailAvailabilityDiagnostic } from "./patch-pno-detail-availability-diagnostic.mjs";
 import { patchPnoDestinationHubFrontend, patchPnoDestinationHubWorker } from "./patch-pno-destination-hub-truth.mjs";
 import { patchLiveEvidenceV29Frontend, patchLiveEvidenceV29Worker } from "./patch-live-evidence-v29.mjs";
 import { patchMsHistoryPointInTimeWorker } from "./patch-ms-history-point-in-time-v1.mjs";
@@ -465,6 +466,7 @@ export function stageFrontend(source) {
   output = patchPnoAllPageFilterFrontend(output);
   output = patchPnoDestinationHubFrontend(output);
   output = patchMsOriginTbrFrontend(output);
+  output = patchPnoDetailAvailabilityDiagnostic(output);
   return output;
 }
 

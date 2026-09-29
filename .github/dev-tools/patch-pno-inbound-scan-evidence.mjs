@@ -110,7 +110,7 @@ export function patchPnoInboundScanEvidenceFrontend(source) {
   output = replaceUnique(output,
     `        '<button type="button" data-pno-v18-type="bag">แบ็กกิ้ง</button>' +`,
     `        '<button type="button" data-pno-v18-type="bag">แบ็กกิ้ง</button>' +
-        '<button type="button" data-pno-v18-type="scan_gap">หลุดสแกนเข้า</button>' +`,
+        '<button type="button" data-pno-v18-type="scan_gap">หลักฐานสแกนเข้า</button>' +`,
     "tab after bagging");
   output = replaceUnique(output,
     `      if (type === "bag") void pnoV18LoadBags();
@@ -193,8 +193,12 @@ function pnoInboundRender(rows) {
   const list = el("pending-parcels-list");
   const cases = (rows || []).filter((row) => ["SUSPECTED_SCAN_IN_GAP", "INSUFFICIENT_HISTORY"]
     .includes(row?.scanEvidence?.classification));
+  const suspected = cases.filter((row) => row.scanEvidence.classification === "SUSPECTED_SCAN_IN_GAP").length;
+  const unknown = cases.length - suspected;
+  const summary = '<div class="pno-v18-evidence-counts">เฉพาะหน้านี้: หลุดสแกนเข้า ' + suspected +
+    ' · ข้อมูลสแกนเข้ายังไม่พร้อม ' + unknown + '</div>';
   if (!cases.length) {
-    list.innerHTML = '<div class="empty-state">หน้านี้ไม่มีรายการหลุดสแกนเข้าหรือข้อมูลที่ยังไม่พร้อม</div>';
+    list.innerHTML = summary + '<div class="empty-state">หน้านี้ไม่มีรายการหลุดสแกนเข้าหรือข้อมูลที่ยังไม่พร้อม</div>';
     return;
   }
   const label = (value) => value === "SUSPECTED_SCAN_IN_GAP"
@@ -212,7 +216,7 @@ function pnoInboundRender(rows) {
         '</small><b>' + cell(value) + '</b></div>').join("") + '</div></article>';
     return '<tr>' + values.map((value) => '<td>' + cell(value) + '</td>').join("") + '</tr>';
   };
-  list.innerHTML = '<div class="pno-v18-desktop"><table class="pno-v18-table"><thead><tr>' +
+  list.innerHTML = summary + '<div class="pno-v18-desktop"><table class="pno-v18-table"><thead><tr>' +
     ["PNO", "เลขแบ็กกิ้ง", "การดำเนินการล่าสุด", "เวลาการดำเนินการล่าสุด",
     "สถานะหลักฐานสแกนเข้า", "เวลาหลักฐานสแกนเข้า", "เหตุผล"]
       .map((value) => '<th>' + value + '</th>').join("") + '</tr></thead><tbody>' +

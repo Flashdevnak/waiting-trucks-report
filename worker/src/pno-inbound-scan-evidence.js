@@ -88,13 +88,22 @@ export function projectPnoEvidence(record, { asOf } = {}) {
   if (record.preArrivalStageObserved === true && record.arrivalStageObserved !== true &&
       record.downstreamObserved !== true)
     return { classification: PNO_SCAN_CLASSES.NOT_YET, reason: "POSITIVE_PRE_ARRIVAL_STAGE" };
-  if (record.arrivalStageObserved === true || record.downstreamObserved === true)
-    return { classification: PNO_SCAN_CLASSES.SUSPECTED, reason: "SCAN_IN_STATE_ABSENT_AT_REQUIRED_STAGE" };
+  // A current downstream action cannot reveal an earlier scan that occurred
+  // before observation began or within an unverified interval. Only an
+  // explicit continuity attestation covering this occurrence can support a gap.
+  if (record.downstreamObserved === true) {
+    if (record.monitoringBeforeArrival === true && record.coverageState === "COMPLETE_LOCAL")
+      return { classification: PNO_SCAN_CLASSES.SUSPECTED, reason: "SCAN_IN_STATE_ABSENT_AT_REQUIRED_STAGE" };
+    return { classification: PNO_SCAN_CLASSES.INSUFFICIENT,
+      reason: record.coverageState === "LATE_START" ? "LATE_START_SCAN_STATE_UNKNOWN" : "OBSERVATION_WINDOW_NOT_COVERED" };
+  }
+  if (record.arrivalStageObserved === true)
+    return { classification: PNO_SCAN_CLASSES.NOT_YET, reason: "ARRIVAL_BEFORE_SCAN_IN_STAGE" };
   return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "OBSERVATION_STAGE_UNKNOWN" };
 }
 
-// Pure reducer. The exact occurrence and a valid arrival/downstream stage are
-// required before absence of remembered scan-in becomes a gap.
+// Pure reducer. Absence of remembered scan-in is a gap only if the exact
+// occurrence also has a verified complete observation window and downstream stage.
 export function observePnoSnapshot(previous, locator, row, observedAt, { monitoringStartedAt, coverageComplete = false } = {}) {
   const identity = sourceIdentity(locator, row);
   const anchor = pnoProviderTime(row?.real_arrive_time);

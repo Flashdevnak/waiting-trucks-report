@@ -306,7 +306,7 @@ export function patchPnoCrossViewFilterParity(source) {
     `  pnoV18State.filters.branch = "";`, "modal reset");
   output = replaceOne(output,
     `    lines.push("หมวด: " + pnoV18TypeLabel(pnoV18State.type) + " | หน้า " + nf.format(pnoV18State.page));`,
-    `    lines.push("หมวด: " + (pnoV18State.type === "scan_gap" ? "หลุดสแกนเข้า" : pnoV18TypeLabel(pnoV18State.type)) +\n      (pnoV18ParcelFilterActive() && Array.isArray(pnoV18State.filterRows) ? " · ผลกรองทั้งชุด" : " | หน้า " + nf.format(pnoV18State.page)));`, "LINE dataset description");
+    `    lines.push("หมวด: " + (pnoV18State.type === "scan_gap" ? "หลักฐานสแกนเข้า" : pnoV18TypeLabel(pnoV18State.type)) +\n      (pnoV18ParcelFilterActive() && Array.isArray(pnoV18State.filterRows) ? " · ผลกรองทั้งชุด" : " | หน้า " + nf.format(pnoV18State.page)));`, "LINE dataset description");
   output = replaceOne(output,
     `    lines.push("พบ " + nf.format(entries.length) + " รายการในหน้านี้");`,
     `    lines.push("พบ " + nf.format(entries.length) + (pnoV18ParcelFilterActive() && Array.isArray(pnoV18State.filterRows) ? " รายการในผลกรอง" : " รายการในหน้านี้"));`, "LINE result description");

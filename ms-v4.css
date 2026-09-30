@@ -536,3 +536,19 @@ html body.ms-page .operation-compact.origin .classic-status-chip {
     border: 0 !important;
   }
 }
+
+/* MS_EXISTING_UNLOAD_WARNING_ORANGE_V1: presentation for the existing SLA warning only. */
+html body.ms-page .operation-compact .classic-operation-summary.is-warning {
+  color: #754100 !important;
+  background: #fff0d6 !important;
+  border-color: #dda353 !important;
+}
+html body.ms-page .operation-compact .classic-operation-summary.is-warning > span {
+  color: #754100 !important;
+  background: #fff2df !important;
+}
+html body.ms-page .operation-compact .classic-operation-summary.is-warning > strong {
+  color: #713a00 !important;
+  background: #ffe8c2 !important;
+  border-left-color: #dda353 !important;
+}

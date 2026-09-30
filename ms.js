@@ -70,6 +70,8 @@ let realtimeConnectStartedAt = 0;
 let realtimeRetryAt = 0;
 let realtimeIsLeader = null;
 let realtimeLastSnapshotAt = 0;
+// A follower's first snapshot has its own deadline; this is never a snapshot time.
+let realtimeFollowerNoSnapshotAt = 0;
 let realtimeLastAuthSentAt = 0;
 let realtimeFollowerWatchdog = null;
 
@@ -222,6 +224,7 @@ function stopRealtimeTransport() {
   realtimeConnectStartedAt = 0;
   realtimeIsLeader = null;
   realtimeLastSnapshotAt = 0;
+  realtimeFollowerNoSnapshotAt = 0;
   realtimeLastAuthSentAt = 0;
   if (!socket) return;
   try {
@@ -268,6 +271,7 @@ function ensureRealtimeTransport() {
       realtimeSocketKey = "";
       realtimeConnectStartedAt = 0;
       realtimeIsLeader = null;
+      realtimeFollowerNoSnapshotAt = 0;
       realtimeRetryAt = Date.now() + REALTIME_WS_RETRY_MS;
     };
     return true;
@@ -308,6 +312,9 @@ function handleRealtimeMessage(raw) {
   catch { return; }
   if (payload?.type === "role") {
     realtimeIsLeader = payload.leader === true;
+    realtimeFollowerNoSnapshotAt = realtimeIsLeader || realtimeLastSnapshotAt
+      ? 0
+      : realtimeFollowerNoSnapshotAt || Date.now();
     armRealtimeFollowerWatchdog();
     return;
   }
@@ -324,6 +331,7 @@ function handleRealtimeMessage(raw) {
   }
   if (payload?.type !== "snapshot") return;
   realtimeLastSnapshotAt = Date.now();
+  realtimeFollowerNoSnapshotAt = 0;
   armRealtimeFollowerWatchdog();
   if (applyAcceptedLiveResult(payload, true)) saveFastRefreshSnapshot();
 }
@@ -331,10 +339,11 @@ function handleRealtimeMessage(raw) {
 function armRealtimeFollowerWatchdog() {
   clearTimeout(realtimeFollowerWatchdog);
   realtimeFollowerWatchdog = null;
-  if (realtimeIsLeader !== false || !realtimeLastSnapshotAt || realtimeSocket?.readyState !== 1) return;
+  const referenceAt = realtimeLastSnapshotAt || realtimeFollowerNoSnapshotAt;
+  if (realtimeIsLeader !== false || !referenceAt || realtimeSocket?.readyState !== 1 || document.hidden) return;
   // The regular 4-second tick could otherwise notice a 5-second deadline only
-  // near 8-9 seconds. This one-shot timer sends through the shared WebSocket.
-  const remaining = Math.max(1, realtimeLastSnapshotAt + REALTIME_FOLLOWER_TAKEOVER_MS + 1 - Date.now());
+  // near 8-9 seconds. Each bounded deadline sends through the shared WebSocket.
+  const remaining = Math.max(1, referenceAt + REALTIME_FOLLOWER_TAKEOVER_MS + 1 - Date.now());
   realtimeFollowerWatchdog = setTimeout(() => {
     realtimeFollowerWatchdog = null;
     realtimeTick();
@@ -349,8 +358,10 @@ function realtimeTick() {
     const now = Date.now();
     const staleFollower =
       realtimeIsLeader === false &&
-      realtimeLastSnapshotAt > 0 &&
-      now - realtimeLastSnapshotAt > REALTIME_FOLLOWER_TAKEOVER_MS;
+      ((realtimeLastSnapshotAt > 0 &&
+        now - realtimeLastSnapshotAt > REALTIME_FOLLOWER_TAKEOVER_MS) ||
+        (realtimeLastSnapshotAt === 0 && realtimeFollowerNoSnapshotAt > 0 &&
+          now - realtimeFollowerNoSnapshotAt > REALTIME_FOLLOWER_TAKEOVER_MS));
     const shouldRefresh =
       realtimeIsLeader === true || realtimeIsLeader === null || staleFollower;
     const shouldAuth =
@@ -362,9 +373,23 @@ function realtimeTick() {
           type: shouldRefresh ? "refresh" : "auth",
           token: state.auth.token,
         }));
+        if (staleFollower && !realtimeLastSnapshotAt) {
+          realtimeFollowerNoSnapshotAt = now;
+          armRealtimeFollowerWatchdog();
+        }
         if (shouldAuth) realtimeLastAuthSentAt = now;
         return;
-      } catch {}
+      } catch {
+        // An OPEN socket must not trigger a second, direct HTTP acquisition.
+        // Its close handler or the next shared-socket tick owns reconnection.
+        if (socket.readyState === 1) {
+          if (staleFollower && !realtimeLastSnapshotAt) {
+            realtimeFollowerNoSnapshotAt = now;
+            armRealtimeFollowerWatchdog();
+          }
+          return;
+        }
+      }
     } else {
       return;
     }

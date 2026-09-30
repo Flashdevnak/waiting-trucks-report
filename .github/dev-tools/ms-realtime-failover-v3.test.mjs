@@ -27,6 +27,7 @@ test("one-shot follower watchdog recovers at 5 seconds, resets on healthy snapsh
     clearTimeout: (id) => timers.delete(id),
     state: { auth: { token: "test" } }, document: { hidden: false },
     realtimeSocket: socket, realtimeIsLeader: false, realtimeLastSnapshotAt: 0,
+    realtimeFollowerNoSnapshotAt: 0,
     realtimeLastAuthSentAt: now, realtimeFollowerWatchdog: null,
     realtimeConnectStartedAt: 0, REALTIME_AUTH_HEARTBEAT_MS: 60_000,
     REALTIME_FOLLOWER_TAKEOVER_MS: 5_000,
@@ -51,6 +52,122 @@ test("one-shot follower watchdog recovers at 5 seconds, resets on healthy snapsh
   assert.equal(httpFallbacks, 0);
   context.testRealtime.handleRealtimeMessage(JSON.stringify({ type: "role", leader: true }));
   assert.equal(timers.size, 0, "promotion clears stale follower watchdog");
+});
+
+function zeroSnapshotFollowerHarness() {
+  const start = front.indexOf("function handleRealtimeMessage(raw) {");
+  const end = front.indexOf("function loadAuth() {", start);
+  assert.ok(start >= 0 && end > start);
+  let now = 1_000;
+  let nextId = 0;
+  let accepted = 0;
+  let httpFallbacks = 0;
+  const timers = new Map();
+  const sent = [];
+  const socket = { readyState: 1, send: (value) => sent.push(JSON.parse(value).type) };
+  const context = {
+    Date: { now: () => now }, JSON, Math,
+    setTimeout: (fn, ms) => { const id = ++nextId; timers.set(id, { fn, at: now + ms }); return id; },
+    clearTimeout: (id) => timers.delete(id),
+    state: { auth: { token: "test" } }, document: { hidden: false },
+    realtimeSocket: socket, realtimeIsLeader: null, realtimeLastSnapshotAt: 0,
+    realtimeFollowerNoSnapshotAt: 0, realtimeLastAuthSentAt: now,
+    realtimeFollowerWatchdog: null, realtimeConnectStartedAt: 0,
+    REALTIME_AUTH_HEARTBEAT_MS: 60_000, REALTIME_FOLLOWER_TAKEOVER_MS: 5_000,
+    ensureRealtimeTransport: () => true,
+    applyAcceptedLiveResult: () => { accepted += 1; return true; },
+    saveFastRefreshSnapshot() {}, loadData: async () => { httpFallbacks += 1; },
+  };
+  vm.createContext(context);
+  vm.runInContext(front.slice(start, end) + "\nglobalThis.testRealtime = { handleRealtimeMessage, realtimeTick };", context);
+  function advance(ms) {
+    now += ms;
+    for (const [id, timer] of [...timers]) {
+      if (timer.at <= now) { timers.delete(id); timer.fn(); }
+    }
+  }
+  return {
+    context, socket, timers, sent, advance,
+    role: (leader) => context.testRealtime.handleRealtimeMessage(JSON.stringify({ type: "role", leader })),
+    snapshot: () => context.testRealtime.handleRealtimeMessage(JSON.stringify({ type: "snapshot", rows: [] })),
+    tick: () => context.testRealtime.realtimeTick(),
+    accepted: () => accepted,
+    httpFallbacks: () => httpFallbacks,
+  };
+}
+
+test("zero-snapshot follower waits one grace period, refreshes on shared WebSocket, and rate limits retries", () => {
+  const h = zeroSnapshotFollowerHarness();
+  h.role(false);
+  assert.equal(h.timers.size, 1, "role(false) arms a first-snapshot deadline");
+  assert.equal(h.context.realtimeLastSnapshotAt, 0, "no synthetic accepted snapshot");
+  h.advance(4_000);
+  h.tick();
+  assert.deepEqual(h.sent, [], "one normal visible cycle is still within grace");
+  assert.equal(h.httpFallbacks(), 0);
+  h.advance(1_001);
+  assert.deepEqual(h.sent, ["refresh"], "first deadline sends exactly one shared refresh");
+  assert.equal(h.context.realtimeLastSnapshotAt, 0);
+  assert.equal(h.httpFallbacks(), 0);
+  h.tick();
+  h.advance(4_000);
+  h.tick();
+  assert.deepEqual(h.sent, ["refresh"], "ticks do not cause a refresh storm");
+  h.advance(1_001);
+  assert.deepEqual(h.sent, ["refresh", "refresh"], "another attempt waits a full grace period");
+  assert.equal(h.httpFallbacks(), 0);
+  assert.ok(!h.sent.includes("auth"), "auth heartbeat is not the only recovery mechanism");
+});
+
+test("first snapshot before deadline cancels zero-snapshot recovery and uses its real timestamp", () => {
+  const h = zeroSnapshotFollowerHarness();
+  h.role(false);
+  h.advance(4_000);
+  h.snapshot();
+  assert.equal(h.accepted(), 1);
+  assert.equal(h.context.realtimeFollowerNoSnapshotAt, 0);
+  assert.equal(h.context.realtimeLastSnapshotAt, 5_000);
+  assert.equal(h.timers.size, 1, "snapshot replaces the first-snapshot deadline");
+  h.advance(1_001);
+  h.tick();
+  assert.deepEqual(h.sent, [], "old first-snapshot deadline cannot fire");
+  h.advance(3_000);
+  h.tick();
+  assert.deepEqual(h.sent, [], "healthy follower remains passive");
+});
+
+test("snapshot after zero-snapshot recovery restores ordinary follower behavior", () => {
+  const h = zeroSnapshotFollowerHarness();
+  h.role(false);
+  h.advance(5_001);
+  assert.deepEqual(h.sent, ["refresh"]);
+  h.advance(100);
+  h.snapshot();
+  assert.equal(h.accepted(), 1);
+  assert.equal(h.context.realtimeFollowerNoSnapshotAt, 0);
+  assert.equal(h.timers.size, 1, "real snapshot replaces retry deadline");
+  h.advance(4_000);
+  h.tick();
+  assert.deepEqual(h.sent, ["refresh"], "no extra stale recovery follows the accepted snapshot");
+  assert.equal(h.httpFallbacks(), 0);
+});
+
+test("leader promotion clears first-snapshot deadline, and hidden tabs stay passive", () => {
+  const h = zeroSnapshotFollowerHarness();
+  h.role(false);
+  h.role(true);
+  assert.equal(h.timers.size, 0);
+  assert.equal(h.context.realtimeFollowerNoSnapshotAt, 0);
+  h.advance(6_000);
+  assert.deepEqual(h.sent, [], "no stale follower timer after promotion");
+
+  const hidden = zeroSnapshotFollowerHarness();
+  hidden.context.document.hidden = true;
+  hidden.role(false);
+  assert.equal(hidden.timers.size, 0, "hidden follower has no recovery timer");
+  hidden.advance(6_000);
+  hidden.tick();
+  assert.deepEqual(hidden.sent, []);
 });
 
 test("open stream sends an immediate shared snapshot and leader promotion reuses it without upstream read", async () => {

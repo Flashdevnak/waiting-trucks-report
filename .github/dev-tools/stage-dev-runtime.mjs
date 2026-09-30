@@ -79,6 +79,7 @@ import {
   patchPnoInboundScanEvidenceFrontend,
   patchPnoInboundScanEvidenceWorker,
 } from "./patch-pno-inbound-scan-evidence.mjs";
+import { patchPnoPassiveCoverageWorker } from "./patch-pno-passive-coverage.mjs";
 // V29_SYNC_CLAIM_HOTFIX_GATE: shared sync-claim helpers must survive V29 staging.
 // V29_STAGE_CONTRACT_HOTFIX: retain prior completed-cache truth marker while staging V29.
 import {
@@ -565,7 +566,7 @@ if (invokedPath) {
   });
   const auxiliaryWorker = await readFile(workerTarget, "utf8");
   await writeFile(workerTarget,
-    patchPnoInboundScanEvidenceWorker(patchPnoDetailAffordanceWorkerV30(auxiliaryWorker)),
+    patchPnoPassiveCoverageWorker(patchPnoInboundScanEvidenceWorker(patchPnoDetailAffordanceWorkerV30(auxiliaryWorker))),
     "utf8");
   const busTimeHotLaneWorker = await readFile(workerTarget, "utf8");
   if (!busTimeHotLaneWorker.includes("BUS_TIME_HOT_LANE_V14"))

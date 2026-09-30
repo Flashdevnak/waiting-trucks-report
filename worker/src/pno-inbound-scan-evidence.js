@@ -201,6 +201,36 @@ export async function observePnoEvidencePage(storage, locator, rawRows, observed
   });
 }
 
+// A cached detail view can predate a positive accepted by another tab or
+// coordinator instance. Reproject only persisted positives for the exact
+// occurrence; this read does not acquire another provider page or invent a scan.
+export async function reconcilePnoCachedPositive(storage, locator, value) {
+  if (!storage?.get || value?.sourceValid !== true || !Array.isArray(value.parcels))
+    return value;
+  const candidates = value.parcels.filter((row) =>
+    row?.scanEvidence?.classification !== PNO_SCAN_CLASSES.CONFIRMED &&
+    row?.pno && row?.arrivalAnchorAt);
+  if (!candidates.length) return value;
+  const pairs = await Promise.all(candidates.map(async (row) => ({
+    row, key: await pnoEvidenceKeys(locator,
+      { pno: row.pno, real_arrive_time: row.arrivalAnchorAt }),
+  })));
+  const occurrences = [...new Set(pairs.map(({ key }) => key?.occurrence).filter(Boolean))];
+  const saved = new Map();
+  for (let start = 0; start < occurrences.length; start += 128) {
+    const batch = await storage.get(occurrences.slice(start, start + 128));
+    for (const [key, record] of batch) saved.set(key, record);
+  }
+  for (const { row, key } of pairs) {
+    const record = saved.get(key?.occurrence);
+    if (!record || record.arrivalAnchorAt !== key.anchor) continue;
+    const view = projectPnoEvidence(record);
+    if (view.classification === PNO_SCAN_CLASSES.CONFIRMED)
+      row.scanEvidence = view;
+  }
+  return value;
+}
+
 // Accept only a result from an explicit exact WaybillDetail read. This helper
 // performs no acquisition; the caller must pass the current detail row and the
 // already received history together. Persist only the matched positive fact.

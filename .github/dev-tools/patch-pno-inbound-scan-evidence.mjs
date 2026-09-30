@@ -20,7 +20,7 @@ export function patchPnoInboundScanEvidenceWorker(source) {
     throw new Error(`${MARKER}: requires exact PNO locator staging`);
   output = replaceUnique(output,
     "const SESSION_MS = 180 * 86400000;",
-    `import { observePnoEvidencePage, PNO_SCAN_CLASSES } from "./pno-inbound-scan-evidence.js";
+    `import { observePnoEvidencePage, reconcilePnoCachedPositive, PNO_SCAN_CLASSES } from "./pno-inbound-scan-evidence.js";
 // ${MARKER}: accepted facts are stored in the per-HUB coordinator on explicit detail reads.
 const SESSION_MS = 180 * 86400000;`, "module import");
   output = replaceUnique(output,
@@ -43,6 +43,14 @@ const SESSION_MS = 180 * 86400000;`, "module import");
           .catch(() => sourceRows.map(() => ({ classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "EVIDENCE_STORAGE_UNAVAILABLE" })))
       : sourceRows.map(() => ({ classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "SOURCE_RESPONSE_INVALID" }));
     const rows = sourceRows.map((row, index) => ({`, "valid shared observation");
+  output = replaceUnique(output,
+    `    state.pnoDiagnostics.cacheHits += 1;
+    return { ...cached.value, cacheState: "HIT", stale: false, upstreamCalls: 0 };`,
+    `    state.pnoDiagnostics.cacheHits += 1;
+    const current = await reconcilePnoCachedPositive(state.ctx?.storage, locator, cached.value)
+      .catch(() => cached.value);
+    return { ...current, cacheState: "HIT", stale: false, upstreamCalls: 0 };`,
+    "cached positive reconciliation without provider acquisition");
   output = replaceUnique(output,
     `      lastActionAt: text(row.LastActionTime || row.lastActionAt, 100),
       targetHub:`,
@@ -193,14 +201,10 @@ function pnoInboundRender(rows) {
   const list = el("pending-parcels-list");
   const cases = (rows || []).filter((row) => ["SUSPECTED_SCAN_IN_GAP", "INSUFFICIENT_HISTORY"]
     .includes(row?.scanEvidence?.classification));
-  const suspected = cases.filter((row) => row.scanEvidence.classification === "SUSPECTED_SCAN_IN_GAP").length;
-  const unknown = cases.length - suspected;
-  const summary = '<div class="pno-v18-evidence-counts">เฉพาะหน้านี้: หลุดสแกนเข้า ' + suspected +
-    ' · ข้อมูลสแกนเข้ายังไม่พร้อม ' + unknown + '</div>';
-  if (!cases.length) {
-    list.innerHTML = summary + '<div class="empty-state">หน้านี้ไม่มีรายการหลุดสแกนเข้าหรือข้อมูลที่ยังไม่พร้อม</div>';
-    return;
-  }
+  const suspectedRows = cases.filter((row) => row.scanEvidence.classification === "SUSPECTED_SCAN_IN_GAP");
+  const unknownRows = cases.filter((row) => row.scanEvidence.classification === "INSUFFICIENT_HISTORY");
+  const summary = '<div class="pno-v18-evidence-counts">เฉพาะหน้านี้: หลุดสแกนเข้า ' + suspectedRows.length +
+    ' · ข้อมูลสแกนเข้ายังไม่พร้อม ' + unknownRows.length + '</div>';
   const label = (value) => value === "SUSPECTED_SCAN_IN_GAP"
     ? "หลุดสแกนเข้า" : "ข้อมูลสแกนเข้ายังไม่พร้อม";
   const cell = (value) => esc(String(value || "-").trim() || "-");
@@ -216,13 +220,18 @@ function pnoInboundRender(rows) {
         '</small><b>' + cell(value) + '</b></div>').join("") + '</div></article>';
     return '<tr>' + values.map((value) => '<td>' + cell(value) + '</td>').join("") + '</tr>';
   };
-  list.innerHTML = summary + '<div class="pno-v18-desktop"><table class="pno-v18-table"><thead><tr>' +
-    ["PNO", "เลขแบ็กกิ้ง", "การดำเนินการล่าสุด", "เวลาการดำเนินการล่าสุด",
-    "สถานะหลักฐานสแกนเข้า", "เวลาหลักฐานสแกนเข้า", "เหตุผล"]
-      .map((value) => '<th>' + value + '</th>').join("") + '</tr></thead><tbody>' +
-    cases.map((row) => content(row)).join("") + '</tbody></table></div>' +
-    '<div class="pno-v18-mobile pno-v18-mobile-stack">' +
-    cases.map((row) => content(row, true)).join("") + '</div>';
+  const section = (kind, title, items) => '<section class="pno-v18-evidence-section" data-pno-evidence-section="' + kind + '">' +
+    '<h3>' + title + ' ' + items.length + '</h3>' + (items.length
+      ? '<div class="pno-v18-desktop"><table class="pno-v18-table"><thead><tr>' +
+        ["PNO", "เลขแบ็กกิ้ง", "การดำเนินการล่าสุด", "เวลาการดำเนินการล่าสุด",
+        "สถานะหลักฐานสแกนเข้า", "เวลาหลักฐานสแกนเข้า", "เหตุผล"]
+          .map((value) => '<th>' + value + '</th>').join("") + '</tr></thead><tbody>' +
+        items.map((row) => content(row)).join("") + '</tbody></table></div>' +
+        '<div class="pno-v18-mobile pno-v18-mobile-stack">' +
+        items.map((row) => content(row, true)).join("") + '</div>'
+      : '<div class="empty-state">ไม่มีรายการในกลุ่มนี้</div>') + '</section>';
+  list.innerHTML = summary + section("suspected", "หลุดสแกนเข้า", suspectedRows) +
+    section("insufficient", "ข้อมูลสแกนเข้ายังไม่พร้อม", unknownRows);
 }
 
 async function pnoInboundLoad(page) {

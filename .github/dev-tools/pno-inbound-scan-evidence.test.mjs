@@ -440,6 +440,47 @@ test("a positive fact refreshes another tab's cached negative projection", async
   assert.equal(cached.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.CONFIRMED);
 });
 
+test("late-start downstream, then an accepted exact scan-in, remains confirmed across owners and cached reopen", async () => {
+  const storage = new MemoryStorage();
+  const lateLocator = { ...locator, day: "2026-09-30" };
+  const anchor = "2026-09-30 00:38:48";
+  const scanAt = "2026-09-30 01:07:28";
+  const downstreamAt = "2026-09-30 01:13:27";
+  const observedAt = "2026-09-29T18:15:00.000Z";
+  const source = (action, time) => row(action, time, { real_arrive_time: anchor });
+  const staleOwner = { ctx: { storage } };
+  const freshOwner = { ctx: { storage } };
+  let upstreamCalls = 0;
+  const deps = { now: () => Date.parse(observedAt), readCredential: async () => ({}),
+    fetchDetailPage: async () => { upstreamCalls += 1; return {
+      items: [source("SHIPMENT_WAREHOUSE_SCAN", downstreamAt)], total: 1, sourceValid: true,
+    }; } };
+  const unknown = await readSharedPnoPage(staleOwner, {}, lateLocator, deps);
+  assert.deepEqual(unknown.parcels[0].scanEvidence, { classification: PNO_SCAN_CLASSES.INSUFFICIENT,
+    reason: "LATE_START_SCAN_STATE_UNKNOWN" });
+  // Another accepted ordinary detail snapshot supplies a positive event. The
+  // reducer keeps the later downstream action while remembering scan-in.
+  const [positive] = await observePnoEvidencePage(storage, lateLocator,
+    [source("ARRIVAL_WAREHOUSE_SCAN", scanAt)], observedAt);
+  assert.equal(positive.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  const [later] = await observePnoEvidencePage(storage, lateLocator,
+    [source("SHIPMENT_WAREHOUSE_SCAN", downstreamAt)], observedAt);
+  assert.equal(later.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  const reopened = await readSharedPnoPage(staleOwner, {}, lateLocator, deps);
+  assert.equal(reopened.cacheState, "HIT");
+  assert.equal(reopened.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  assert.equal(upstreamCalls, 1, "cached reconciliation adds no provider request");
+  const otherLine = await readSharedPnoPage(freshOwner, {},
+    { ...lateLocator, lineId: "ANOTHER_LINE" }, deps);
+  assert.equal(otherLine.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+  const otherAnchor = await readSharedPnoPage(freshOwner, {},
+    { ...lateLocator, page: 2 }, { ...deps, fetchDetailPage: async () => ({
+      items: [row("SHIPMENT_WAREHOUSE_SCAN", "2026-09-30 02:13:27",
+        { real_arrive_time: "2026-09-30 01:38:48" })], total: 1, sourceValid: true,
+    }) });
+  assert.equal(otherAnchor.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+});
+
 test("cached positive projection cannot cross a route segment", async () => {
   const owner = { ctx: { storage: new MemoryStorage() } };
   const deps = { now: () => Date.parse(departedAt), readCredential: async () => ({}),
@@ -502,6 +543,19 @@ test("scan-gap tab shows gaps and technical unknowns without history controls", 
   assert.doesNotMatch(list.innerHTML, /ตรวจประวัติ|data-pno-history|สงสัยหลุดสแกนเข้า/);
   assert.doesNotMatch(list.innerHTML, /SCANNED|PENDING/);
   assert.match(list.innerHTML, /SUSPECT|UNKNOWN/);
+  assert.match(list.innerHTML, /data-pno-evidence-section="suspected"[\s\S]*SUSPECT/);
+  assert.match(list.innerHTML, /data-pno-evidence-section="insufficient"[\s\S]*UNKNOWN/);
+  const gapSection = list.innerHTML.split('data-pno-evidence-section="suspected"')[1]
+    .split('data-pno-evidence-section="insufficient"')[0];
+  assert.doesNotMatch(gapSection, /UNKNOWN/);
+  render([
+    { pno: "UNKNOWN_A", scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT } },
+    { pno: "UNKNOWN_B", scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT } },
+  ]);
+  assert.match(list.innerHTML, /เฉพาะหน้านี้: หลุดสแกนเข้า 0 · ข้อมูลสแกนเข้ายังไม่พร้อม 2/);
+  assert.match(list.innerHTML, /data-pno-evidence-section="suspected"[^>]*>[\s\S]*?หลุดสแกนเข้า 0/);
+  assert.doesNotMatch(list.innerHTML.split('data-pno-evidence-section="suspected"')[1]
+    .split('data-pno-evidence-section="insufficient"')[0], /UNKNOWN_A|UNKNOWN_B/);
   assert.doesNotThrow(() => new Function(staged));
   const stagedWorker = readFileSync(new URL("../../worker/.dev-runtime/src/index.js", import.meta.url), "utf8");
   assert.match(stagedWorker, /json\.data\.DataList\.length <= PNO_PAGE_SIZE/);

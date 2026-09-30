@@ -496,6 +496,7 @@ export function createBusTimeHotLane(deps) {
 
   const states = new Map();
   const active = new Map();
+  const diagnosticActive = new Map();
 
   const isoNow = () => new Date(now()).toISOString();
 
@@ -560,6 +561,8 @@ export function createBusTimeHotLane(deps) {
         acceptedRouteHints: [],
         rateLeaseLoaded: false,
         rateLeasePresent: false,
+        // DEV one-shot diagnostics only; callbacks are removed on request exit.
+        provenanceObservers: new Set(),
       });
     }
     return states.get(key);
@@ -1000,6 +1003,9 @@ export function createBusTimeHotLane(deps) {
   function mergeItems(state, items, hub) {
     const at = now();
     for (const item of Array.isArray(items) ? items : []) {
+      for (const observe of state.provenanceObservers) {
+        try { observe(item, hub); } catch { /* diagnostics cannot change source processing */ }
+      }
       const targetStore = String(nestedValue(item.next_store_info, 0) || "");
       if (!matchHub(targetStore, hub)) continue;
       const proofId = nestedValue(item.proof_id, 0);
@@ -1544,9 +1550,14 @@ export function createBusTimeHotLane(deps) {
     }
   }
 
-  async function readBusTimeData(env, hub, wantedDays = liveSourceDays(), routeRows = []) {
+  async function readBusTimeData(env, hub, wantedDays = liveSourceDays(), routeRows = [], observeItem = null) {
     const key = String(hub || "").trim().toUpperCase();
     const state = stateFor(key);
+    const observer = typeof observeItem === "function" ? observeItem : null;
+    if (observer) state.provenanceObservers.add(observer);
+    const observed = (promise) => observer
+      ? promise.finally(() => state.provenanceObservers.delete(observer))
+      : promise;
     const routeHintsProvided = Array.isArray(routeRows) && routeRows.length > 0;
     state.busPagesLastCycle = 0;
     state.busP3Pending = state.p3Checkpoint?.pending ?? null;
@@ -1558,7 +1569,11 @@ export function createBusTimeHotLane(deps) {
     if (active.has(key)) {
       state.busCacheHits += 1;
       state.busDeduplicatedReaders += 1;
-      return active.get(key);
+      return observed(active.get(key));
+    }
+    if (diagnosticActive.has(key)) {
+      await diagnosticActive.get(key);
+      return observed(Promise.resolve(result(state)));
     }
 
     const task = (async () => {
@@ -1835,7 +1850,62 @@ export function createBusTimeHotLane(deps) {
     })().finally(() => active.delete(key));
 
     active.set(key, task);
-    return task;
+    return observed(task);
+  }
+
+  // Explicit DEV diagnostic only: inspect a bounded cycle through the same
+  // credential, cooldown, parser and merge path. Origin is excluded from normal
+  // active-demand planning, so the regular read cannot guarantee any source read.
+  async function probeOneSourceCycle(env, hub, wantedDays, routeRows, observeItem) {
+    const key = String(hub || "").trim().toUpperCase();
+    const state = stateFor(key);
+    const observer = typeof observeItem === "function" ? observeItem : null;
+    if (observer) state.provenanceObservers.add(observer);
+    try {
+      if (active.has(key)) {
+        return { data: await active.get(key), attempted: false, reason: "SHARED_FLIGHT" };
+      }
+      if (diagnosticActive.has(key)) return await diagnosticActive.get(key);
+      const at = now();
+      if (state.cooldownUntil > at) return { data: result(state, true, state.cooldownCode), attempted: false, reason: "COOLDOWN" };
+      if (state.lastHotAt && at - state.lastHotAt < BUS_TIME_HOT_REUSE_MS)
+        return { data: result(state), attempted: false, reason: "CACHE_FRESH" };
+      const credential = await credentials(env, key, state);
+      if (!credential) return { data: result(state, true, "BUS_TIME_NOT_CONFIGURED"), attempted: false, reason: "SOURCE_UNAVAILABLE" };
+      if (state.cooldownUntil > now()) return { data: result(state, true, state.cooldownCode), attempted: false, reason: "COOLDOWN" };
+      const days = hotDays(wantedDays, routeRows);
+      const day = days.find((candidate) => routeRows.some((row) => routeTouchesDay(row, candidate))) || days[0];
+      const task = (async () => {
+        state.lastHotAt = now();
+        try {
+          let pagesRead = 0;
+          let totalPages = 1;
+          do {
+            recordCall(state, "hot");
+            state.busP1Calls += 1;
+            // Reuse the existing P2 unfiltered mode so a departed Origin is not
+            // mislabeled source-absent by the unfinished-only active filter.
+            const page = await readPage(credential, pagesRead + 1, day, { fleetStatus: "" });
+            pagesRead++;
+            totalPages = Math.min(20, Math.max(1, Math.ceil((page.total || page.items.length) / 100)));
+            mergeItems(state, page.items, key);
+          } while (pagesRead < totalPages && pagesRead < BUS_TIME_MAX_CALLS_PER_CYCLE);
+          return {
+            data: result(state), attempted: true,
+            reason: pagesRead === totalPages ? "SOURCE_PAGES_COMPLETE" : "BOUNDED_PARTIAL_SOURCE",
+            pagesRead, totalPages,
+          };
+        } catch (error) {
+          if (error?.code === "BUS_TIME_RATE_LIMIT") applyRateLimit(state, error);
+          else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
+          return { data: result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR"), attempted: true, reason: "SOURCE_UNAVAILABLE" };
+        }
+      })().finally(() => diagnosticActive.delete(key));
+      diagnosticActive.set(key, task);
+      return await task;
+    } finally {
+      if (observer) state.provenanceObservers.delete(observer);
+    }
   }
 
   function diagnostics(hub) {
@@ -1952,6 +2022,7 @@ export function createBusTimeHotLane(deps) {
 
   return {
     readBusTimeData,
+    probeOneSourceCycle,
     diagnostics,
     resetCredentials,
   };

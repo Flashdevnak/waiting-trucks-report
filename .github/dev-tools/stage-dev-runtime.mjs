@@ -87,6 +87,7 @@ import {
 } from "./apply-ms-daily-history.mjs";
 import { patchMsQuotaSafeLiveWorker } from "./patch-ms-quota-safe-live.mjs";
 import { patchMsTbrShadowFeedWorker } from "./patch-ms-tbr-shadow-feed.mjs";
+import { stageTbrProvenanceDev } from "./patch-tbr-provenance-dev.mjs";
 import { patchMsOriginTbrFrontend, patchMsOriginTbrWorker } from "./patch-ms-origin-tbr-queue.mjs";
 import { patchMsTransientEmptyGuardWorker } from "./patch-ms-transient-empty-guard.mjs";
 import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
@@ -573,6 +574,8 @@ if (invokedPath) {
     throw new Error("DEV BusTime reverted to fake 60-second source TTL");
   if (!busTimeHotLaneWorker.includes("DEV_AUXILIARY_EVIDENCE_COMPLETENESS_V1"))
     throw new Error("DEV auxiliary-evidence completeness marker missing after staging");
+  // Last: instrument the exact final DEV composition, after all TBR/PNO patches.
+  await stageTbrProvenanceDev(workerTarget, frontendTarget);
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");

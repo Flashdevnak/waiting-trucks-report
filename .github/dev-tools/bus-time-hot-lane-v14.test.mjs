@@ -736,3 +736,50 @@ test("V28 HAR-seeded labelled TBR still paints immediately with zero duplicate p
   assert.equal(h.calls.length, 0);
   assert.equal(map.get("P:P1|A:ปลายทาง")?.scheduleTbrArrivalAt, "2026-09-13T00:02:00.000Z");
 });
+
+test("DEV one-shot provenance reads one normal page for Origin and respects cache/cooldown", async () => {
+  const h = harness({ fetchHandler: async () => response({ total: 1, items: [item("ORIGIN_SECRET", "NE1", "ต้นทาง")] }) });
+  const observed = [];
+  const rows = [{ proofId: "ORIGIN_SECRET", attendanceType: "ต้นทาง", scheduleKitArrivalAt: "2026-09-13T00:01:00.000Z", scheduleTbrArrivalAt: "" }];
+  const first = await h.lane.probeOneSourceCycle(h.env, "NE1", undefined, rows, (source) => observed.push(source.fleet_sign_info?.length || 0));
+  assert.equal(first.attempted, true);
+  assert.equal(first.reason, "SOURCE_PAGES_COMPLETE");
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0].fleetStatus, "");
+  assert.deepEqual(observed, [1]);
+  assert.ok(first.data.get("P:ORIGIN_SECRET|A:ต้นทาง")?.scheduleTbrArrivalAt);
+  const second = await h.lane.probeOneSourceCycle(h.env, "NE1", undefined, rows, () => { throw Error("unexpected source read"); });
+  assert.equal(second.attempted, false);
+  assert.equal(second.reason, "CACHE_FRESH");
+  assert.equal(h.calls.length, 1);
+});
+
+test("DEV one-shot provenance observes later page but never exceeds the shared three-call budget", async () => {
+  const h = harness({ fetchHandler: async (call) => response({
+    total: 450,
+    items: call.page === 2 ? [item("ORIGIN_SECRET", "NE1", "ต้นทาง")] : [],
+  }) });
+  const rows = [{ proofId: "ORIGIN_SECRET", attendanceType: "ต้นทาง", scheduleKitArrivalAt: "2026-09-13T00:01:00.000Z", scheduleTbrArrivalAt: "" }];
+  let seen = 0;
+  const result = await h.lane.probeOneSourceCycle(h.env, "NE1", undefined, rows, (source) => {
+    if (source.proof_id?.[0]?.value === "ORIGIN_SECRET") seen++;
+  });
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2, 3]);
+  assert.equal(result.reason, "BOUNDED_PARTIAL_SOURCE");
+  assert.equal(result.pagesRead, 3);
+  assert.equal(result.totalPages, 5);
+  assert.equal(seen, 1);
+});
+
+test("DEV one-shot provider limit is fail-closed and never retries", async () => {
+  const h = harness({ fetchHandler: async () => response({ status: 429, message: "Request exceeds the limit", retryAfter: "120" }) });
+  const rows = [{ proofId: "ORIGIN_SECRET", attendanceType: "ต้นทาง", actualArrivalAt: "2026-09-13T00:01:00.000Z" }];
+  const first = await h.lane.probeOneSourceCycle(h.env, "NE1", undefined, rows, () => {});
+  assert.equal(first.attempted, true);
+  assert.equal(first.reason, "SOURCE_UNAVAILABLE");
+  assert.equal(h.calls.length, 1);
+  const second = await h.lane.probeOneSourceCycle(h.env, "NE1", undefined, rows, () => {});
+  assert.equal(second.attempted, false);
+  assert.equal(second.reason, "COOLDOWN");
+  assert.equal(h.calls.length, 1);
+});

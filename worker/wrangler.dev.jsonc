@@ -12,7 +12,8 @@
   },
   "vars": {
     "MS_BRANCH": "NE1",
-    "DB_BACKEND": "turso"
+    "DB_BACKEND": "turso",
+    "DEV_ACCEPTANCE_TELEMETRY": "1"
   },
   "triggers": {
     "crons": ["* * * * *"]

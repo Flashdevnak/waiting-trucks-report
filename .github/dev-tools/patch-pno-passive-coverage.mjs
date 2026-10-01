@@ -15,7 +15,8 @@ export function patchPnoPassiveCoverageWorker(source) {
   output = once(output,
     'import { observePnoEvidencePage, reconcilePnoCachedPositive, PNO_SCAN_CLASSES } from "./pno-inbound-scan-evidence.js";',
     'import { observePnoEvidencePage, reconcilePnoCachedPositive, PNO_SCAN_CLASSES } from "./pno-inbound-scan-evidence.js";\n' +
-    'import { registerPnoPassiveRoutes, runPnoPassiveCycle } from "./pno-passive-coverage.js";');
+    'import { registerPnoPassiveRoutes, runPnoPassiveCycle } from "./pno-passive-coverage.js";\n' +
+    'import { emitDevAcceptance, summarizeCentralRows } from "./dev-acceptance-evidence.js";');
   output = once(output,
     '    this.lastSnapshotBranch = "";\n  }\n\n  async loadRepairState() {',
     '    this.lastSnapshotBranch = "";\n  }\n\n' +
@@ -25,6 +26,13 @@ export function patchPnoPassiveCoverageWorker(source) {
   output = once(output,
     '        this.lastResult = result;\n        this.lastSourceAt = Date.now();\n        this.recentUntil = Date.now() + MS_SYNC_TTL;',
     '        this.lastResult = result;\n        this.lastSourceAt = Date.now();\n        this.recentUntil = Date.now() + MS_SYNC_TTL;\n' +
+    '        // Diagnostic projection is capped at one accepted snapshot per HUB/minute.\n' +
+    '        if (result?.status === "synced" && Array.isArray(result.rows) &&\n' +
+    '            Date.now() - (this.lastDevAcceptanceAt || 0) >= 60_000) {\n' +
+    '          this.lastDevAcceptanceAt = Date.now();\n' +
+    '          if (this.env.DEV_ACCEPTANCE_TELEMETRY === "1")\n' +
+    '            emitDevAcceptance(this.env, "CENTRAL", summarizeCentralRows(result.rows));\n' +
+    '        }\n' +
     '        if (result?.status === "synced" && Array.isArray(result.rows))\n' +
     '          this.ctx.waitUntil(registerPnoPassiveRoutes(this, branch, result.rows)\n' +
     '            .catch(() => undefined));');

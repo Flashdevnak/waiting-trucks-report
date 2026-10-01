@@ -36,6 +36,8 @@ jobs:
 
       - run: npm ci
       - run: npm run check
+      - name: Verify sanitized DEV acceptance contract
+        run: node --test ../.github/dev-tools/dev-self-observable-acceptance.test.mjs
       - name: Verify 100-device 180-day auth session resilience
         run: node --test tests/auth-session-resilience.test.mjs
       - run: node --test tests/dev-archive-patch.test.mjs
@@ -303,6 +305,10 @@ jobs:
           const msV4Response=await fetch(`${base}/${msV4Style}`,{cache:'no-store'});
           const msV4Css=await msV4Response.text();
           if(!msV4Response.ok||!msV4Css.includes('MS_UI_V4_VISUAL_CONTRACT')) throw new Error('live MS UI V4 CSS missing');
+          const generic=msV4Css.lastIndexOf('html body.ms-page .operation-compact .classic-operation-summary {');
+          const warning=msV4Css.lastIndexOf('html body.ms-page .operation-compact .classic-operation-summary.is-warning {');
+          if(generic<0||warning<=generic||!/background:\s*#fff0d6\s*!important/.test(msV4Css.slice(warning,msV4Css.indexOf('}',warning))))
+            throw new Error('DEV warning CSS cascade contract missing');
           for(const legacy of ['index.html','scan.html','warehouse.html']) if(!(await get(legacy)).includes('ms.html')) throw new Error(`${legacy} redirect missing`);
           if(!(await get('')).includes('ms.html')) throw new Error('DEV root entry missing');
           console.log('DEV_HEALTH=PASS');
@@ -324,10 +330,13 @@ jobs:
           console.log('DEV_DIRECT_HTTP_4S_TIMER=0');
           console.log('DEV_UI_LIVE_AUDIT=PASS');
           console.log('DEV_MS_UI_V4_ASSET=PASS');
+          console.log('DEV_ACCEPTANCE_CSS_SOURCE_CASCADE=PASS');
           console.log('DEV_DATABASE_BACKEND=TURSO');
           console.log('DEV_D1_RUNTIME_BINDING=0');
           console.log('PRODUCTION_TOUCHED=NO');
           NODE
+      - name: Collect sanitized DEV acceptance from existing runtime cycles
+        run: node ../.github/dev-tools/collect-dev-acceptance-tail.mjs
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -32,6 +32,7 @@ test("one-shot follower watchdog recovers at 5 seconds, resets on healthy snapsh
     realtimeConnectStartedAt: 0, REALTIME_AUTH_HEARTBEAT_MS: 60_000,
     REALTIME_FOLLOWER_TAKEOVER_MS: 5_000,
     ensureRealtimeTransport: () => true,
+    sendForegroundRefresh: () => false,
     applyAcceptedLiveResult: () => true, saveFastRefreshSnapshot() {},
     loadData: async () => { httpFallbacks += 1; },
   };
@@ -75,6 +76,7 @@ function zeroSnapshotFollowerHarness() {
     realtimeFollowerWatchdog: null, realtimeConnectStartedAt: 0,
     REALTIME_AUTH_HEARTBEAT_MS: 60_000, REALTIME_FOLLOWER_TAKEOVER_MS: 5_000,
     ensureRealtimeTransport: () => true,
+    sendForegroundRefresh: () => false,
     applyAcceptedLiveResult: () => { accepted += 1; return true; },
     saveFastRefreshSnapshot() {}, loadData: async () => { httpFallbacks += 1; },
   };

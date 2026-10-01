@@ -74,6 +74,8 @@ let realtimeLastSnapshotAt = 0;
 let realtimeFollowerNoSnapshotAt = 0;
 let realtimeLastAuthSentAt = 0;
 let realtimeFollowerWatchdog = null;
+let realtimeWasHidden = false;
+let realtimeForegroundRefreshPending = false;
 
 // HBI_TRUCK_PHOTO_LAZY_V1: zero HBI/OSS photo request until the user clicks.
 // Cache is memory-only for this page; no database write and no background refresh.
@@ -257,6 +259,7 @@ function ensureRealtimeTransport() {
       if (socket !== realtimeSocket || realtimeSocketKey !== key) return;
       realtimeConnectStartedAt = 0;
       realtimeRetryAt = 0;
+      sendForegroundRefresh();
     };
     socket.onmessage = (event) => {
       if (socket !== realtimeSocket || realtimeSocketKey !== key) return;
@@ -287,23 +290,34 @@ function restartRealtimeTransport() {
   ensureRealtimeTransport();
 }
 
+function sendForegroundRefresh() {
+  if (!realtimeForegroundRefreshPending || realtimeSocket?.readyState !== 1) return false;
+  try {
+    realtimeSocket.send(JSON.stringify({ type: "refresh", token: state.auth.token }));
+    realtimeForegroundRefreshPending = false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // MS_RESUME_NO_ZERO_FLASH_V1: returning from a backgrounded tab must keep the
-// last accepted rows visible while the existing shared realtime coordinator reconnects.
-// No foreground HTTP refresh, upstream MS poll, DB read/write, timer, or subscription is added.
+// last accepted rows and freshness while requesting one shared WebSocket refresh.
 function handleRealtimeVisibility() {
   if (document.hidden) {
+    realtimeWasHidden = true;
+    realtimeForegroundRefreshPending = false;
     stopRealtimeTransport();
     return;
   }
-  if (!state.auth) return;
+  if (!state.auth || !realtimeWasHidden) return;
+  realtimeWasHidden = false;
   if (!Array.isArray(state.currentRows) || state.currentRows.length === 0)
     restoreFastRefreshSnapshot();
-  state.transportLastOkAt = 0;
-  if (el("last-refresh"))
-    el("last-refresh").textContent =
-      "แสดงข้อมูลล่าสุด · กำลังเชื่อมต่อข้อมูลสด";
-  renderFreshness();
-  restartRealtimeTransport();
+  realtimeForegroundRefreshPending = true;
+  realtimeRetryAt = 0;
+  ensureRealtimeTransport();
+  sendForegroundRefresh();
 }
 
 function handleRealtimeMessage(raw) {
@@ -319,6 +333,7 @@ function handleRealtimeMessage(raw) {
     return;
   }
   if (payload?.type === "auth_error") {
+    realtimeForegroundRefreshPending = false;
     stopRealtimeTransport();
     invalidateSession();
     return;
@@ -333,7 +348,10 @@ function handleRealtimeMessage(raw) {
   realtimeLastSnapshotAt = Date.now();
   realtimeFollowerNoSnapshotAt = 0;
   armRealtimeFollowerWatchdog();
-  if (applyAcceptedLiveResult(payload, true)) saveFastRefreshSnapshot();
+  if (applyAcceptedLiveResult(payload, true)) {
+    realtimeForegroundRefreshPending = false;
+    saveFastRefreshSnapshot();
+  }
 }
 
 function armRealtimeFollowerWatchdog() {
@@ -355,6 +373,7 @@ function realtimeTick() {
   const available = ensureRealtimeTransport();
   const socket = realtimeSocket;
   if (socket?.readyState === 1) {
+    if (sendForegroundRefresh()) return;
     const now = Date.now();
     const staleFollower =
       realtimeIsLeader === false &&

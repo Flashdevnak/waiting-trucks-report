@@ -44,8 +44,9 @@ test("returning from background preserves accepted rows until realtime resumes",
   assert.ok(start >= 0 && end > start, "resume stability marker missing");
   const block = frontend.slice(start, end);
   assert.match(block, /restoreFastRefreshSnapshot\(\)/);
-  assert.match(block, /restartRealtimeTransport\(\)/);
-  assert.match(block, /state\.transportLastOkAt = 0/);
+  assert.match(block, /realtimeForegroundRefreshPending = true/);
+  assert.match(block, /ensureRealtimeTransport\(\)/);
+  assert.doesNotMatch(block, /state\.transportLastOkAt = 0/);
   assert.doesNotMatch(block, /loadData\s*\(/);
   assert.doesNotMatch(block, /apiGet\s*\(|fetch\s*\(/);
 });

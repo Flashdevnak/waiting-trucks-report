@@ -13,7 +13,7 @@ test("MS frontend preserves accepted rows across transient empty snapshots witho
   assert.match(front, /function applyAcceptedLiveResult/);
   assert.match(front, /ได้รับข้อมูลว่างชั่วคราว/);
   assert.match(front, /คงข้อมูลล่าสุดไว้/);
-  assert.match(front, /if \(applyAcceptedLiveResult\(payload, true\)\) saveFastRefreshSnapshot\(\)/);
+  assert.match(front, /if \(applyAcceptedLiveResult\(payload, true\)\) \{\s*realtimeForegroundRefreshPending = false;\s*saveFastRefreshSnapshot\(\);\s*\}/);
   assert.match(front, /if \(applyAcceptedLiveResult\(result, false\)\) saveFastRefreshSnapshot\(\)/);
   assert.match(front, /snapshot\.rows\.length > 0/);
   assert.match(front, /transientEmptyHoldActive/);

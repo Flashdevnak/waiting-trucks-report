@@ -80,6 +80,7 @@ import {
   patchPnoInboundScanEvidenceWorker,
 } from "./patch-pno-inbound-scan-evidence.mjs";
 import { patchPnoPassiveCoverageWorker } from "./patch-pno-passive-coverage.mjs";
+import { patchMsCentralNearExpiry } from "./patch-ms-central-near-expiry.mjs";
 // V29_SYNC_CLAIM_HOTFIX_GATE: shared sync-claim helpers must survive V29 staging.
 // V29_STAGE_CONTRACT_HOTFIX: retain prior completed-cache truth marker while staging V29.
 import {
@@ -469,6 +470,7 @@ export function stageFrontend(source) {
   output = patchPnoDestinationHubFrontend(output);
   output = patchMsOriginTbrFrontend(output);
   output = patchPnoDetailAvailabilityDiagnostic(output);
+  output = patchMsCentralNearExpiry(output);
   return output;
 }
 

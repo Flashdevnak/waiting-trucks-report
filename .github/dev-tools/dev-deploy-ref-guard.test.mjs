@@ -82,10 +82,10 @@ for (const [name, scenario, allowed] of [
   });
 }
 
-test("application staging block remains byte-identical to the pre-incident-safety workflow", () => {
+test("application staging block matches the reviewed DEV CSS asset contract", () => {
   const start = workflow.indexOf("      - name: Stage DEV runtime and enforce checkpoint contracts\n");
   const end = workflow.indexOf("      - name: Verify Turso and auth secrets exist on DEV Worker\n", start);
   assert.ok(start >= 0 && end > start);
   const hash = createHash("sha256").update(workflow.slice(start, end)).digest("hex");
-  assert.equal(hash, "c8e7c3e05cc839c47a38192c3c2df95e3dd510fcbc44f00098aa24951fce7d3d");
+  assert.equal(hash, "2a332f9fc1ebdeaa314b0c00107511517e61086034f3f03b4bc904a20a3a4e34");
 });

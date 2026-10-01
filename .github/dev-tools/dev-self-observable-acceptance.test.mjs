@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { spawn } from 'node:child_process';
 import { CENTRAL_MINUTES, centralBand, summarizePnoPages,
   summarizeCentralRows, devAcceptanceEnabled, emitDevAcceptance }
   from '../../worker/src/dev-acceptance-evidence.js';
@@ -114,6 +116,177 @@ test('tail reader allowlists only a fixed aggregate, discarding envelope secrets
   assert.equal(result.event, 'DEV_ACCEPTANCE_PNO_V1');
   assert.equal(JSON.stringify(result).includes('RAW_'), false);
   assert.equal(sanitizedTailEvent(JSON.stringify({ logs: [{ message: '{invalid' }] })), null);
+  assert.equal(sanitizedTailEvent(JSON.stringify({ logs: [{ message: [JSON.stringify({
+    event: 'UNSUPPORTED', inspectedCount: 1,
+  })] }] })), null);
+  assert.equal(sanitizedTailEvent(JSON.stringify({ logs: [{ message: [JSON.stringify({
+    ...payload, confirmedScanIn: -1,
+  })] }] })), null);
+});
+
+const tailLine = (event, secret) => JSON.stringify({
+  request: { url: `https://redacted.invalid/${secret}` },
+  logs: [{ message: [JSON.stringify({ ...event, proofId: secret,
+    plate: secret, token: secret })] }],
+}) + '\n';
+
+function fakeTail({ termCloses = true, killCloses = true } = {}) {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.signals = [];
+  child.unref = () => {};
+  child.kill = (signal) => {
+    child.signals.push(signal);
+    if ((signal === 'SIGTERM' && termCloses) || (signal === 'SIGKILL' && killCloses))
+      queueMicrotask(() => child.emit('close'));
+    return true;
+  };
+  return child;
+}
+
+test('tail closes normally, releases pipes/listeners, and returns null/null', async () => {
+  let child;
+  const result = await collectTail({ durationMs: 100, spawnTail: () => {
+    child = fakeTail();
+    queueMicrotask(() => child.emit('close'));
+    return child;
+  } });
+  assert.deepEqual([result.pnoSample, result.centralSample], [null, null]);
+  assert.deepEqual(child.signals, []);
+  assert.equal(child.stdout.destroyed, true);
+  assert.equal(child.stderr.destroyed, true);
+  assert.equal(child.listenerCount('close'), 0);
+  assert.equal(child.listenerCount('error'), 0);
+});
+
+test('deadline terminates cooperative child and retains both latest populated samples', async () => {
+  const counts = { ...summarizePnoPages([]), cadenceSeconds: 120,
+    maxRoutesPerCycle: 2, maxRequestsPerCycle: 4, maxConcurrency: 1 };
+  const central = { event: 'DEV_ACCEPTANCE_CENTRAL_V1',
+    ...summarizeCentralRows([], at) };
+  let child;
+  const result = await collectTail({ durationMs: 10, shutdownGraceMs: 10,
+    spawnTail: (bin, args, opts) => {
+      assert.equal(bin, process.execPath);
+      assert.match(args[0], /worker\/node_modules\/wrangler\/bin\/wrangler\.js$/);
+      assert.equal(args[1], 'tail');
+      assert.equal(opts.detached, process.platform !== 'win32');
+      child = fakeTail();
+      queueMicrotask(() => {
+        child.stdout.write(tailLine({ event: 'DEV_ACCEPTANCE_PNO_V1',
+          ...counts, inspectedCount: 3 }, 'RAW_PNO'));
+        child.stdout.write(tailLine({ event: 'DEV_ACCEPTANCE_PNO_V1',
+          ...counts, inspectedCount: 0 }, 'RAW_LATE'));
+        child.stdout.write(tailLine({ ...central, inspectedCount: 2 }, 'RAW_CENTRAL'));
+        child.stdout.write(tailLine({ ...central, inspectedCount: 0 }, 'RAW_LATE'));
+        child.stderr.write('RAW_STDERR_SECRET');
+        child.stdout.write('not-json\n');
+      });
+      return child;
+    } });
+  assert.deepEqual(child.signals, ['SIGTERM']);
+  assert.equal(result.pnoSample.inspectedCount, 3);
+  assert.equal(result.centralSample.inspectedCount, 2);
+  assert.equal(child.stdout.destroyed, true);
+  assert.equal(child.stderr.destroyed, true);
+  assert.equal(child.listenerCount('close'), 0);
+  assert.equal(child.listenerCount('error'), 0);
+  assert.equal(JSON.stringify(result).includes('RAW_'), false);
+  assert.deepEqual(Object.keys(result).sort(),
+    ['channel', 'pnoSample', 'centralSample', 'cssComputedLive'].sort());
+});
+
+test('stubborn child and open pipes are force-stopped within a fixed grace', async () => {
+  let child;
+  let closeEvents = 0;
+  const started = Date.now();
+  const result = await collectTail({ durationMs: 15, shutdownGraceMs: 15,
+    spawnTail: () => {
+      child = fakeTail({ termCloses: false, killCloses: false });
+      child.on('close', () => { closeEvents++; });
+      return child;
+    } });
+  assert.ok(Date.now() - started < 500);
+  assert.deepEqual(child.signals, ['SIGTERM', 'SIGKILL']);
+  assert.equal(child.stdout.destroyed, true);
+  assert.equal(child.stderr.destroyed, true);
+  assert.equal(child.listenerCount('close'), 1); // only the test observer remains
+  child.emit('close');
+  assert.equal(closeEvents, 1);
+  assert.deepEqual([result.pnoSample, result.centralSample], [null, null]);
+});
+
+test('real stubborn subprocess is killed and cannot hold the test process open', async () => {
+  let child;
+  let closed;
+  const started = Date.now();
+  try {
+    const result = await collectTail({ durationMs: 500, shutdownGraceMs: 100,
+      spawnTail: (_bin, _args, opts) => {
+        child = spawn(process.execPath, ['-e',
+          'process.on("SIGTERM",()=>{});process.stdout.write("ready\\n");setInterval(()=>{},1000)'], opts);
+        closed = new Promise((resolve) => child.once('close', (_code, signal) => resolve(signal)));
+        return child;
+      } });
+    assert.deepEqual([result.pnoSample, result.centralSample], [null, null]);
+    assert.ok(Date.now() - started < 2_000);
+    assert.equal(child.stdout.destroyed, true);
+    assert.equal(child.stderr.destroyed, true);
+    const closeLimit = setTimeout(() => child.kill('SIGKILL'), 500);
+    try { assert.equal(await closed, 'SIGKILL'); }
+    finally { clearTimeout(closeLimit); }
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+    }
+  }
+});
+
+test('a descendant inheriting pipes cannot survive the bounded process-group shutdown',
+  { skip: process.platform === 'win32' }, async () => {
+    let child;
+    let closed;
+    let observed = '';
+    const descendant = 'process.on("SIGTERM",()=>{});' +
+      'process.stdout.write("GRANDCHILD_READY\\n");setInterval(()=>{},1000)';
+    const wrapper = [
+      'const {spawn}=require("node:child_process");',
+      `spawn(process.execPath,["-e",${JSON.stringify(descendant)}],`,
+      '{stdio:["ignore","inherit","inherit"]});',
+      'process.on("SIGTERM",()=>process.exit(0));',
+      'setInterval(()=>{},1000);',
+    ].join('');
+    try {
+      const result = await collectTail({ durationMs: 700, shutdownGraceMs: 100,
+        spawnTail: (_bin, _args, opts) => {
+          child = spawn(process.execPath, ['-e', wrapper], opts);
+          child.stdout.on('data', (chunk) => { observed += String(chunk); });
+          closed = new Promise((resolve) => child.once('close', resolve));
+          return child;
+        } });
+      assert.deepEqual([result.pnoSample, result.centralSample], [null, null]);
+      assert.match(observed, /GRANDCHILD_READY/);
+      const closeLimit = setTimeout(() => child.kill('SIGKILL'), 500);
+      try { await closed; }
+      finally { clearTimeout(closeLimit); }
+      assert.equal(child.stdout.destroyed, true);
+      assert.equal(child.stderr.destroyed, true);
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      }
+    }
+  });
+
+test('spawn failure terminates with sanitized null samples and no raw stderr', async () => {
+  const result = await collectTail({ durationMs: 5,
+    spawnTail: () => { throw Error('RAW_CLOUDFLARE_ACCOUNT'); } });
+  assert.deepEqual([result.pnoSample, result.centralSample], [null, null]);
+  assert.equal(JSON.stringify(result).includes('RAW_'), false);
+  const emittedError = await collectTail({ durationMs: 500,
+    spawnTail: (_bin, _args, opts) => spawn('/nonexistent/dev-tail-command', [], opts) });
+  assert.deepEqual([emittedError.pnoSample, emittedError.centralSample], [null, null]);
 });
 
 test('workflow tail keeps a populated sample and never prints raw envelopes', async () => {
@@ -150,6 +323,10 @@ test('diagnostic has no acquisition, history endpoint, DB mutation or loop', asy
     assert.doesNotMatch(text, /\.prepare\(|\.put\(|fetch\s*\(|setInterval\s*\(/);
   }
   assert.match(collector, /150_000/);
+  assert.match(collector, /shutdownGraceMs = 1_000/);
+  assert.doesNotMatch(collector, /spawnTail\('npx'/);
+  const workflow = await source('.github/workflows/deploy-worker-dev.yml');
+  assert.match(workflow, /- name: Collect sanitized DEV acceptance from existing runtime cycles\n\s+timeout-minutes: 4\n\s+run: node/);
   assert.match(await source('worker/wrangler.dev.jsonc'), /"DEV_ACCEPTANCE_TELEMETRY": "1"/);
   assert.doesNotMatch(await source('worker/wrangler.example.jsonc'), /DEV_ACCEPTANCE_TELEMETRY/);
 });

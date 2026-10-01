@@ -336,6 +336,7 @@ jobs:
           console.log('PRODUCTION_TOUCHED=NO');
           NODE
       - name: Collect sanitized DEV acceptance from existing runtime cycles
+        timeout-minutes: 4
         run: node ../.github/dev-tools/collect-dev-acceptance-tail.mjs
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

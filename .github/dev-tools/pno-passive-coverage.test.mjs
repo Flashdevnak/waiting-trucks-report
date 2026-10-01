@@ -124,3 +124,12 @@ test("staged coordinator registers on accepted refresh, uses alarm, and leaves o
   assert.equal(PNO_PASSIVE_LIMITS.maxRoutesPerCycle * PNO_PASSIVE_LIMITS.maxPagesPerRoute,
     PNO_PASSIVE_LIMITS.maxPagesPerCycle);
 });
+
+test("passive alarm delegates acquisition through normal pendingParcels canonical authority", () => {
+  const normal = stage.match(/async function pendingParcels\([\s\S]*?\n}\n/);
+  const alarm = stage.match(/async alarm\(\) \{[\s\S]*?\n  }/);
+  assert.ok(normal && alarm);
+  assert.match(normal[0], /readCanonicalPnoPage\(env, locator\)/);
+  assert.match(alarm[0], /readCanonicalPnoPage\(env, locator\)/);
+  assert.doesNotMatch(alarm[0], /readSharedPnoPage\(this/);
+});

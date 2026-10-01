@@ -20,7 +20,7 @@ export function patchPnoPassiveCoverageWorker(source) {
     '    this.lastSnapshotBranch = "";\n  }\n\n  async loadRepairState() {',
     '    this.lastSnapshotBranch = "";\n  }\n\n' +
     `  // ${MARKER}: one per-HUB alarm; refresh only registers exact routes.\n` +
-    '  async alarm() {\n    await runPnoPassiveCycle(this, this.env, readSharedPnoPage);\n  }\n\n' +
+    '  async alarm() {\n    await runPnoPassiveCycle(this, this.env, (_owner, env, locator) => readCanonicalPnoPage(env, locator));\n  }\n\n' +
     '  async loadRepairState() {');
   output = once(output,
     '        this.lastResult = result;\n        this.lastSourceAt = Date.now();\n        this.recentUntil = Date.now() + MS_SYNC_TTL;',
@@ -28,5 +28,19 @@ export function patchPnoPassiveCoverageWorker(source) {
     '        if (result?.status === "synced" && Array.isArray(result.rows))\n' +
     '          this.ctx.waitUntil(registerPnoPassiveRoutes(this, branch, result.rows)\n' +
     '            .catch(() => undefined));');
+  output = once(output,
+    '  const locator = validatePnoLocator(normalizePnoLocator(input, hub));\n' +
+    '  if (!env.MS_REFRESH_COORDINATOR)\n' +
+    '    fail("ตัวประสาน PNO แบบแชร์ยังไม่พร้อมใช้งาน", "PNO_COORDINATOR_UNAVAILABLE", 503);\n' +
+    '  const id = env.MS_REFRESH_COORDINATOR.idFromName(hub);',
+    '  const locator = validatePnoLocator(normalizePnoLocator(input, hub));\n' +
+    '  return readCanonicalPnoPage(env, locator);\n}\n\n' +
+    '// PNO_PASSIVE_CANONICAL_AUTHORITY_V1: detail and the realtime alarm both\n' +
+    '// request the same per-HUB PNO object. The alarm retains scheduling state.\n' +
+    'export async function readCanonicalPnoPage(env, rawLocator) {\n' +
+    '  const locator = validatePnoLocator(normalizePnoLocator(rawLocator, rawLocator?.hub));\n' +
+    '  if (!env.MS_REFRESH_COORDINATOR)\n' +
+    '    fail("ตัวประสาน PNO แบบแชร์ยังไม่พร้อมใช้งาน", "PNO_COORDINATOR_UNAVAILABLE", 503);\n' +
+    '  const id = env.MS_REFRESH_COORDINATOR.idFromName(locator.hub);');
   return output;
 }

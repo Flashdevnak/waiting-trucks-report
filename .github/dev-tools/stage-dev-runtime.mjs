@@ -96,6 +96,7 @@ import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv
 import { patchSupervisorAccessGuard } from "./patch-supervisor-access-guard.mjs";
 import { patchSupervisorSharedSnapshot } from "./patch-supervisor-shared-snapshot.mjs";
 import { patchMsResilienceFrontend, patchMsResilienceWorker } from "./patch-ms-resilience-v1.mjs";
+import { patchPnoScanEvidenceUx } from "./patch-pno-scan-evidence-ux.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -193,7 +194,7 @@ export function patchDevUiShellSource(source, currentPage) {
     // The DEV modal script changed; ensure browsers acquire this version when
     // an owner later deploys the explicitly approved DEV runtime.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261003-ms-resilience-v1"');
+      'src="ms.js?v=20261003-pno-scan-evidence-v2"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -473,6 +474,7 @@ export function stageFrontend(source) {
   output = patchPnoDetailAvailabilityDiagnostic(output);
   output = patchMsCentralNearExpiry(output);
   output = patchMsResilienceFrontend(output);
+  output = patchPnoScanEvidenceUx(output);
   return output;
 }
 

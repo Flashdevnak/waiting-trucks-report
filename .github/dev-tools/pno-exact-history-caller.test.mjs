@@ -22,7 +22,9 @@ test("normal staged UI and Worker have no active exact-history acquisition path"
 
 test("5,000 eligible gap rows render with zero history or provider requests", () => {
   const front = frontend();
-  const renderer = front.slice(front.indexOf("function pnoInboundRender(rows) {"),
+  const actionStart = front.indexOf("function pnoV18ParcelAction(");
+  const actionEnd = front.indexOf("\n}\n", actionStart) + 2;
+  const renderer = front.slice(actionStart, actionEnd) + "\n" + front.slice(front.indexOf("function pnoInboundRender(rows) {"),
     front.indexOf("async function pnoInboundLoad(page) {"));
   assert.doesNotMatch(renderer, /apiGet|fetch\(|curl_pno|pnoExactHistory/);
   const list = { innerHTML: "" };
@@ -32,7 +34,7 @@ test("5,000 eligible gap rows render with zero history or provider requests", ()
     pno: `TEST_${index}`, scanEvidence: { classification: "SUSPECTED_SCAN_IN_GAP",
       reason: "SCAN_IN_STATE_ABSENT_AT_REQUIRED_STAGE" },
   })));
-  assert.match(list.innerHTML, /เฉพาะหน้านี้: หลุดสแกนเข้า 5000 · ข้อมูลสแกนเข้ายังไม่พร้อม 0/);
+  assert.match(list.innerHTML, /เฉพาะหน้านี้: ยืนยันว่าหลุดสแกนเข้า 5000 · ยังตรวจสแกนเข้าไม่ได้ 0/);
   assert.equal((list.innerHTML.match(/หลุดสแกนเข้า/g) || []).length, 10_002,
     "two labels per row plus the page summary and the section heading");
   assert.doesNotMatch(list.innerHTML, /ตรวจประวัติ|data-pno-history/);

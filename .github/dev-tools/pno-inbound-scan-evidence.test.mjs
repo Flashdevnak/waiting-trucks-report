@@ -368,7 +368,8 @@ test("invalid store, unknown action, malformed timestamps and duplicates do not 
     row("ARRIVAL_WAREHOUSE_SCAN", "BAD_TIMESTAMP"),
   ]) {
     const output = await observePnoEvidencePage(storage, locator, [invalid], departedAt);
-    assert.equal(output[0].classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+    assert.equal(output[0].classification, PNO_SCAN_CLASSES.CONFIRMED);
+    assert.equal(output[0].observationIssue.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
     assert.equal(storage.writes, count);
   }
 });
@@ -525,7 +526,9 @@ test("scan-gap tab shows gaps and technical unknowns without history controls", 
   assert.doesNotMatch(load, /pnoInboundToggleActions\(true\)|pno-v18-filterbar"\)\.classList\.add\("hidden"\)/);
   const start = staged.indexOf("function pnoInboundRender(rows) {");
   const end = staged.indexOf("async function pnoInboundLoad(page) {", start);
-  const renderSource = staged.slice(start, end);
+  const actionStart = staged.indexOf("function pnoV18ParcelAction(");
+  const actionEnd = staged.indexOf("\n}\n", actionStart) + 2;
+  const renderSource = staged.slice(actionStart, actionEnd) + "\n" + staged.slice(start, end);
   assert.doesNotMatch(renderSource, /curl_pno|fetch\(|apiGet\(/);
   const list = { innerHTML: "" };
   const esc = (value) => String(value).replaceAll("<", "&lt;");
@@ -538,8 +541,8 @@ test("scan-gap tab shows gaps and technical unknowns without history controls", 
     { pno: "PENDING", scanEvidence: { classification: PNO_SCAN_CLASSES.NOT_YET } },
   ]);
   assert.match(list.innerHTML, /หลุดสแกนเข้า/);
-  assert.match(list.innerHTML, /ข้อมูลสแกนเข้ายังไม่พร้อม/);
-  assert.match(list.innerHTML, /เฉพาะหน้านี้: หลุดสแกนเข้า 1 · ข้อมูลสแกนเข้ายังไม่พร้อม 1/);
+  assert.match(list.innerHTML, /ยังตรวจสแกนเข้าไม่ได้/);
+  assert.match(list.innerHTML, /เฉพาะหน้านี้: ยืนยันว่าหลุดสแกนเข้า 1 · ยังตรวจสแกนเข้าไม่ได้ 1/);
   assert.doesNotMatch(list.innerHTML, /ตรวจประวัติ|data-pno-history|สงสัยหลุดสแกนเข้า/);
   assert.doesNotMatch(list.innerHTML, /SCANNED|PENDING/);
   assert.match(list.innerHTML, /SUSPECT|UNKNOWN/);
@@ -552,14 +555,13 @@ test("scan-gap tab shows gaps and technical unknowns without history controls", 
     { pno: "UNKNOWN_A", scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT } },
     { pno: "UNKNOWN_B", scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT } },
   ]);
-  assert.match(list.innerHTML, /เฉพาะหน้านี้: หลุดสแกนเข้า 0 · ข้อมูลสแกนเข้ายังไม่พร้อม 2/);
-  assert.match(list.innerHTML, /data-pno-evidence-section="suspected"[^>]*>[\s\S]*?หลุดสแกนเข้า 0/);
-  assert.doesNotMatch(list.innerHTML.split('data-pno-evidence-section="suspected"')[1]
-    .split('data-pno-evidence-section="insufficient"')[0], /UNKNOWN_A|UNKNOWN_B/);
+  assert.match(list.innerHTML, /เฉพาะหน้านี้: ยืนยันว่าหลุดสแกนเข้า 0 · ยังตรวจสแกนเข้าไม่ได้ 2/);
+  assert.match(list.innerHTML, /data-pno-evidence-zero="true"/);
+  assert.doesNotMatch(list.innerHTML, /data-pno-evidence-section="suspected"/);
   assert.doesNotThrow(() => new Function(staged));
   const stagedWorker = readFileSync(new URL("../../worker/.dev-runtime/src/index.js", import.meta.url), "utf8");
   assert.match(stagedWorker, /json\.data\.DataList\.length <= PNO_PAGE_SIZE/);
   assert.match(stagedWorker, /json\.data\.DataList\.length <= Number\(json\.data\.Total\)/);
   const html = patchDevUiShellSource(readFileSync(new URL("../../ms.html", import.meta.url), "utf8"), "ms.html");
-  assert.match(html, /ms\.js\?v=20261003-ms-resilience-v1/);
+  assert.match(html, /ms\.js\?v=20261003-pno-scan-evidence-v2/);
 });

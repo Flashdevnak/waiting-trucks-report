@@ -318,7 +318,14 @@ test("V19 normal tab resets filters and prepares only the selected view", () => 
 test("V21 keeps real MS lastAction words and removes V20 no-entry inference", () => {
   assert.match(staged, /PNO_OPERATIONAL_RECEIPT_TRUTH_V21/);
   assert.doesNotMatch(staged, /function pnoV20NoEntryDisplayAction/);
-  assert.match(staged, /function pnoV18ParcelAction\(item\) \{\s*return pnoV18TextValue\(item\?\.lastAction\);\s*\}/);
+  const start = staged.indexOf("function pnoV18ParcelAction(item) {");
+  const end = staged.indexOf("\n}\n", start) + 2;
+  const action = new Function(staged.slice(start, end) + "; return pnoV18ParcelAction;")();
+  assert.equal(action({ lastAction: "สแกนเข้าคลัง" }), "สแกนเข้าคลัง");
+  assert.equal(action({ lastAction: "สแกนออกคลัง" }), "สแกนออกคลัง");
+  assert.equal(action({ lastAction: "สถานะจากข้อมูลต้นทาง" }), "สถานะจากข้อมูลต้นทาง");
+  assert.equal(action({ lastActionCode: "ARRIVAL_WAREHOUSE_SCAN" }), "สแกนเข้าคลัง");
+  assert.equal(action({}), "การดำเนินการล่าสุดยังไม่พร้อม");
   const render = staged.slice(staged.indexOf("function pnoV18RenderRows"), staged.indexOf("function pnoV18ApplyPageResult"));
   assert.match(render, /const action = pnoV18ParcelAction\(item\)/);
   assert.match(render, /pnoV18ActionClass\(action\)/);

@@ -26,6 +26,20 @@ export function pnoProviderTime(value) {
   return normalized;
 }
 
+export function pnoIdentityDiagnostics(locator, row) {
+  const issues = [];
+  for (const [field, value] of Object.entries({
+    hub: locator?.hub, proofId: locator?.proofId, day: locator?.day,
+    lineId: locator?.lineId || locator?.vanLineId, sourceStoreId: locator?.storeId,
+    targetStoreId: locator?.nextStoreId, pno: row?.pno,
+  })) {
+    if (!String(value || "").trim()) issues.push({ field, issue: "MISSING" });
+    else if (field === "day" && !/^\d{4}-\d{2}-\d{2}$/.test(String(value).trim()))
+      issues.push({ field, issue: "INVALID" });
+  }
+  return issues;
+}
+
 function sourceIdentity(locator, row) {
   const hub = String(locator?.hub || "").trim().toUpperCase();
   const proofId = String(locator?.proofId || "").trim().toUpperCase();
@@ -34,8 +48,7 @@ function sourceIdentity(locator, row) {
   const sourceStoreId = String(locator?.storeId || "").trim();
   const targetStoreId = String(locator?.nextStoreId || "").trim();
   const pno = String(row?.pno || "").trim().toUpperCase();
-  if (!hub || !proofId || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !lineId ||
-      !sourceStoreId || !targetStoreId || !pno) return null;
+  if (pnoIdentityDiagnostics(locator, row).length) return null;
   return { hub, proofId, day, lineId, sourceStoreId, targetStoreId, pno };
 }
 
@@ -102,21 +115,52 @@ export function projectPnoEvidence(record, { asOf } = {}) {
   return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "OBSERVATION_STAGE_UNKNOWN" };
 }
 
-// Pure reducer. Absence of remembered scan-in is a gap only if the exact
-// occurrence also has a verified complete observation window and downstream stage.
-export function observePnoSnapshot(previous, locator, row, observedAt, { monitoringStartedAt, coverageComplete = false } = {}) {
+// Diagnostic fields contain field names and closed reason codes, never payloads.
+function invalidPnoView(reasons, identityIssues = []) {
+  return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: reasons[0],
+    ...(reasons.length > 1 ? { validationReasons: reasons } : {}),
+    ...(identityIssues.length ? { identityIssues } : {}) };
+}
+
+function snapshotValidation(locator, row, observedAt) {
+  const identityIssues = pnoIdentityDiagnostics(locator, row);
   const identity = sourceIdentity(locator, row);
   const anchor = pnoProviderTime(row?.real_arrive_time);
   const eventAt = pnoProviderTime(row?.LastActionTime);
   const action = String(row?.LastAction || "").trim();
   const store = String(row?.store_id || "").trim();
-  if (!identity || !anchor || !eventAt || !ACTIONS.has(action) ||
-      store !== identity.targetStoreId || eventAt < anchor || !Number.isFinite(Date.parse(observedAt)))
-    return { record: previous || null, changed: false,
-      view: { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "OCCURRENCE_OR_SOURCE_INVALID" } };
-  if (previous && previous.arrivalAnchorAt !== anchor)
-    return { record: previous, changed: false,
-      view: { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "OCCURRENCE_MISMATCH" } };
+  const reasons = [];
+  if (identityIssues.length) reasons.push("IDENTITY_INCOMPLETE");
+  if (!anchor) reasons.push("ARRIVAL_ANCHOR_MISSING_OR_INVALID");
+  if (!eventAt) reasons.push("LAST_ACTION_TIME_MISSING_OR_INVALID");
+  if (!ACTIONS.has(action)) reasons.push("LAST_ACTION_CODE_MISSING_OR_UNSUPPORTED");
+  if (!store) reasons.push("TARGET_STORE_MISSING");
+  else if (identity && store !== identity.targetStoreId) reasons.push("TARGET_STORE_MISMATCH");
+  if (anchor && eventAt && eventAt < anchor) reasons.push("LAST_ACTION_BEFORE_ARRIVAL");
+  if (!Number.isFinite(Date.parse(observedAt))) reasons.push("OBSERVED_AT_INVALID");
+  return { identity, identityIssues, anchor, eventAt, action, reasons };
+}
+
+function samePnoOccurrence(previous, identity, anchor) {
+  return previous?.arrivalAnchorAt === anchor && identity &&
+    (!previous.occurrence || Object.entries(previous.occurrence)
+      .every(([field, value]) => identity[field] === value));
+}
+
+// Absence is a gap only for the exact occurrence with complete coverage and
+// downstream evidence. A weak later snapshot cannot erase its accepted positive.
+export function observePnoSnapshot(previous, locator, row, observedAt, { monitoringStartedAt, coverageComplete = false } = {}) {
+  const { identity, identityIssues, anchor, eventAt, action, reasons } = snapshotValidation(locator, row, observedAt);
+  if (previous && identity && anchor && !samePnoOccurrence(previous, identity, anchor))
+    return { record: previous, changed: false, invalid: true,
+      view: invalidPnoView(["OCCURRENCE_MISMATCH", ...reasons], identityIssues) };
+  if (reasons.length) {
+    const issue = invalidPnoView(reasons, identityIssues);
+    const positive = samePnoOccurrence(previous, identity, anchor) ? projectPnoEvidence(previous) : null;
+    return { record: previous || null, changed: false, invalid: true,
+      view: positive?.classification === PNO_SCAN_CLASSES.CONFIRMED
+        ? { ...positive, observationIssue: issue } : issue };
+  }
   if (previous && previous.latestObservedAction === action && previous.latestObservedActionAt === eventAt)
     return { record: previous, changed: false, view: projectPnoEvidence(previous) };
   const start = previous?.monitoringStartedAt || monitoringStartedAt || observedAt;
@@ -126,7 +170,7 @@ export function observePnoSnapshot(previous, locator, row, observedAt, { monitor
   const record = {
     occurrence: { hub: identity.hub, proofId: identity.proofId, day: identity.day,
       lineId: identity.lineId, sourceStoreId: identity.sourceStoreId,
-      targetStoreId: identity.targetStoreId },
+      targetStoreId: identity.targetStoreId, pno: identity.pno },
     arrivalAnchorAt: anchor, monitoringStartedAt: start,
     monitoringBeforeArrival, lastObservedAt: observedAt,
     latestObservedAction: latestIsNewer ? action : previous.latestObservedAction,
@@ -168,19 +212,21 @@ export async function observePnoEvidencePage(storage, locator, rawRows, observed
     const updates = {};
     const views = rawRows.map((row, index) => {
       const key = keys[index];
-      if (!key) return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "LOCATOR_INCOMPLETE" };
+      if (!key) return invalidPnoView(["IDENTITY_INCOMPLETE"], pnoIdentityDiagnostics(locator, row));
       const previousBase = updates[key.base] || saved.get(key.base) || null;
       if (!key.anchor) {
         // A successful detail observation before vehicle arrival starts the
         // monitoring window; it cannot be treated as evidence of scan-in.
-        const preArrival = String(row?.store_id || "").trim() === key.identity.sourceStoreId &&
+        const preArrival = !String(row?.real_arrive_time || "").trim() &&
+          Number.isFinite(Date.parse(observedAt)) &&
+          String(row?.store_id || "").trim() === key.identity.sourceStoreId &&
           ACTIONS.has(String(row?.LastAction || "").trim()) &&
           Boolean(pnoProviderTime(row?.LastActionTime));
         if (!previousBase && preArrival)
           updates[key.base] = { monitoringStartedAt: observedAt, activeAnchor: "" };
         return preArrival
           ? { classification: PNO_SCAN_CLASSES.NOT_YET, reason: "ARRIVAL_NOT_YET_RECORDED" }
-          : { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "ARRIVAL_ANCHOR_MISSING" };
+          : invalidPnoView(snapshotValidation(locator, row, observedAt).reasons);
       }
       const previous = updates[key.occurrence] || saved.get(key.occurrence) || null;
       const preStart = !previousBase?.activeAnchor ? previousBase?.monitoringStartedAt : null;
@@ -260,8 +306,7 @@ export async function ingestPnoExactHistory(storage, locator, row, response, obs
     const saved = await txn.get([key.occurrence]);
     const previous = saved.get(key.occurrence) || null;
     const outcome = observePnoSnapshot(previous, locator, row, observedAt);
-    if (outcome.view.reason === "OCCURRENCE_MISMATCH" ||
-        outcome.view.reason === "OCCURRENCE_OR_SOURCE_INVALID") return unavailable;
+    if (outcome.invalid === true) return unavailable;
     if (!outcome.record) return unavailable;
     const before = JSON.stringify(previous);
     const record = { ...outcome.record };

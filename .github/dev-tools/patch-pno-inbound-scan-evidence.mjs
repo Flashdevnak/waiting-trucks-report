@@ -57,6 +57,7 @@ const SESSION_MS = 180 * 86400000;`, "module import");
     `      lastActionAt: text(row.LastActionTime || row.lastActionAt, 100),
       lastActionCode: text(row.LastAction, 100),
       arrivalAnchorAt: text(row.real_arrive_time, 100),
+      evidenceStoreId: text(row.store_id, 160),
       scanEvidence: evidence[index],
       targetHub:`, "read-only evidence projection");
   output = replaceUnique(output,
@@ -199,39 +200,77 @@ function pnoInboundToggleActions(hidden) {
 
 function pnoInboundRender(rows) {
   const list = el("pending-parcels-list");
-  const cases = (rows || []).filter((row) => ["SUSPECTED_SCAN_IN_GAP", "INSUFFICIENT_HISTORY"]
-    .includes(row?.scanEvidence?.classification));
-  const suspectedRows = cases.filter((row) => row.scanEvidence.classification === "SUSPECTED_SCAN_IN_GAP");
-  const unknownRows = cases.filter((row) => row.scanEvidence.classification === "INSUFFICIENT_HISTORY");
-  const summary = '<div class="pno-v18-evidence-counts">เฉพาะหน้านี้: หลุดสแกนเข้า ' + suspectedRows.length +
-    ' · ข้อมูลสแกนเข้ายังไม่พร้อม ' + unknownRows.length + '</div>';
-  const label = (value) => value === "SUSPECTED_SCAN_IN_GAP"
-    ? "หลุดสแกนเข้า" : "ข้อมูลสแกนเข้ายังไม่พร้อม";
-  const cell = (value) => esc(String(value || "-").trim() || "-");
+  const suspectedRows = (rows || []).filter((row) => row?.scanEvidence?.classification === "SUSPECTED_SCAN_IN_GAP");
+  const unknownRows = (rows || []).filter((row) => row?.scanEvidence?.classification === "INSUFFICIENT_HISTORY");
+  const reasons = {
+    IDENTITY_INCOMPLETE: "ข้อมูลระบุเที่ยว/สาขายังไม่ครบ",
+    LOCATOR_INCOMPLETE: "ข้อมูลระบุเที่ยว/สาขายังไม่ครบ",
+    ARRIVAL_ANCHOR_MISSING_OR_INVALID: "ยังไม่มีเวลารถถึงสาขาที่ใช้ยืนยันเที่ยวนี้",
+    ARRIVAL_ANCHOR_MISSING: "ยังไม่มีเวลารถถึงสาขาที่ใช้ยืนยันเที่ยวนี้",
+    LAST_ACTION_TIME_MISSING_OR_INVALID: "เวลาการดำเนินการล่าสุดยังไม่พร้อม",
+    LAST_ACTION_CODE_MISSING_OR_UNSUPPORTED: "สถานะการดำเนินการล่าสุดยังไม่พร้อม",
+    TARGET_STORE_MISSING: "ยังไม่มีสาขาของข้อมูลพัสดุสำหรับตรวจเที่ยวนี้",
+    TARGET_STORE_MISMATCH: "ข้อมูลพัสดุยังไม่ตรงกับสาขาของเที่ยวนี้",
+    LAST_ACTION_BEFORE_ARRIVAL: "ข้อมูลล่าสุดอยู่ก่อนช่วงเที่ยวที่กำลังตรวจ",
+    OBSERVED_AT_INVALID: "เวลาเก็บหลักฐานยังไม่พร้อม",
+    OCCURRENCE_MISMATCH: "พบข้อมูลคนละรอบการเดินรถ",
+    LATE_START_SCAN_STATE_UNKNOWN: "เริ่มเก็บหลักฐานหลังรถถึงแล้ว จึงยังยืนยันไม่ได้",
+    OBSERVATION_WINDOW_NOT_COVERED: "หลักฐานช่วงสแกนเข้ายังไม่ครบ",
+    OBSERVATION_STAGE_UNKNOWN: "ยังไม่มีหลักฐานขั้นตอนที่ใช้ตรวจสแกนเข้า",
+    NO_OBSERVATION: "ยังไม่มีหลักฐานของเที่ยวนี้",
+    NOT_YET_OBSERVED: "ยังไม่มีหลักฐานในช่วงเวลาที่ตรวจ",
+    INVALID_AS_OF: "เวลาที่ใช้ตรวจหลักฐานยังไม่พร้อม",
+    SOURCE_UNAVAILABLE: "ข้อมูลพัสดุยังไม่พร้อม",
+    SOURCE_RESPONSE_INVALID: "ข้อมูลพัสดุที่ได้รับยังไม่ครบสำหรับตรวจ",
+    EVIDENCE_STORAGE_UNAVAILABLE: "หลักฐานที่เก็บไว้ยังอ่านไม่ได้",
+    HISTORY_OCCURRENCE_UNVERIFIED: "หลักฐานยังไม่ตรงกับเที่ยวนี้",
+    SCAN_IN_STATE_ABSENT_AT_REQUIRED_STAGE: "หลักฐานครบถึงขั้นตอนถัดไปโดยไม่พบสแกนเข้า",
+  };
+  const fieldLabels = { hub: "HUB", proofId: "เที่ยวรถ", day: "วันที่เที่ยว",
+    lineId: "สายรถ", sourceStoreId: "สาขาต้นทาง", targetStoreId: "สาขาที่ตรวจ", pno: "PNO" };
+  const reasonText = (evidence) => {
+    const codes = evidence.validationReasons || [evidence.reason];
+    const labels = [...new Set(codes.map((code) => reasons[code] || "ข้อมูลเที่ยวหรือข้อมูลพัสดุยังไม่พอ จึงยังยืนยันไม่ได้"))];
+    const fields = (evidence.identityIssues || []).map((issue) => fieldLabels[issue.field]).filter(Boolean);
+    return labels.join(" · ") + (fields.length ? " (ยังไม่พร้อม: " + fields.join(", ") + ")" : "");
+  };
+  const cell = (value, fallback = "-") => esc(String(value || fallback).trim() || fallback);
+  const summary = '<div class="pno-v18-evidence-counts" role="status">เฉพาะหน้านี้: ยืนยันว่าหลุดสแกนเข้า ' + suspectedRows.length +
+    ' · ยังตรวจสแกนเข้าไม่ได้ ' + unknownRows.length + '</div>' +
+    '<p class="pno-v18-evidence-scope">ผลหลักฐานด้านล่างเป็นเฉพาะรายการที่โหลดในหน้านี้ ไม่ใช่ยอดคงเหลือทั้งหมด</p>';
   const content = (row, mobile = false) => {
     const evidence = row.scanEvidence || {};
-    const values = [row.pno, row.backingNo, row.lastAction, row.lastActionAt,
-      label(evidence.classification), evidence.scanInEventAt || "-", evidence.reason];
+    const values = [row.pno, row.backingNo, pnoV18ParcelAction(row),
+      row.lastActionAt || "เวลาล่าสุดยังไม่พร้อม",
+      evidence.classification === "SUSPECTED_SCAN_IN_GAP" ? "ยืนยันว่าหลุดสแกนเข้า" : "ยังตรวจสแกนเข้าไม่ได้",
+      reasonText(evidence)];
     if (mobile) return '<article class="pno-v18-mobile-card pno-v18-parcel-card">' +
       '<strong class="pno-v18-pno">' + cell(values[0]) + '</strong>' +
       '<div class="pno-v18-mobile-meta">' + values.slice(1).map((value, index) =>
         '<div><small>' + ["เลขแบ็กกิ้ง", "การดำเนินการล่าสุด", "เวลาการดำเนินการล่าสุด",
-        "สถานะหลักฐานสแกนเข้า", "เวลาหลักฐานสแกนเข้า", "เหตุผล"][index] +
+        "สถานะตรวจสแกนเข้า", "เหตุผล"][index] +
         '</small><b>' + cell(value) + '</b></div>').join("") + '</div></article>';
     return '<tr>' + values.map((value) => '<td>' + cell(value) + '</td>').join("") + '</tr>';
   };
-  const section = (kind, title, items) => '<section class="pno-v18-evidence-section" data-pno-evidence-section="' + kind + '">' +
-    '<h3>' + title + ' ' + items.length + '</h3>' + (items.length
-      ? '<div class="pno-v18-desktop"><table class="pno-v18-table"><thead><tr>' +
-        ["PNO", "เลขแบ็กกิ้ง", "การดำเนินการล่าสุด", "เวลาการดำเนินการล่าสุด",
-        "สถานะหลักฐานสแกนเข้า", "เวลาหลักฐานสแกนเข้า", "เหตุผล"]
-          .map((value) => '<th>' + value + '</th>').join("") + '</tr></thead><tbody>' +
-        items.map((row) => content(row)).join("") + '</tbody></table></div>' +
-        '<div class="pno-v18-mobile pno-v18-mobile-stack">' +
-        items.map((row) => content(row, true)).join("") + '</div>'
-      : '<div class="empty-state">ไม่มีรายการในกลุ่มนี้</div>') + '</section>';
-  list.innerHTML = summary + section("suspected", "หลุดสแกนเข้า", suspectedRows) +
-    section("insufficient", "ข้อมูลสแกนเข้ายังไม่พร้อม", unknownRows);
+  const section = (kind, title, items, extra = "") => '<section class="pno-v18-evidence-section" data-pno-evidence-section="' + kind + '">' +
+    '<h3>' + title + ' ' + items.length + '</h3>' + extra +
+    '<div class="pno-v18-desktop"><table class="pno-v18-table"><thead><tr>' +
+      ["PNO", "เลขแบ็กกิ้ง", "การดำเนินการล่าสุด", "เวลาการดำเนินการล่าสุด", "สถานะตรวจสแกนเข้า", "เหตุผล"]
+        .map((value) => '<th>' + value + '</th>').join("") + '</tr></thead><tbody>' +
+      items.map((row) => content(row)).join("") + '</tbody></table></div>' +
+      '<div class="pno-v18-mobile pno-v18-mobile-stack">' +
+      items.map((row) => content(row, true)).join("") + '</div></section>';
+  const grouped = new Map();
+  for (const row of unknownRows) {
+    const label = reasonText(row.scanEvidence || {});
+    grouped.set(label, (grouped.get(label) || 0) + 1);
+  }
+  const unknownSummary = '<ul class="pno-v18-evidence-reasons" aria-label="เหตุผลที่ยังตรวจไม่ได้ในหน้านี้">' +
+    [...grouped].map(([label, count]) => '<li>' + cell(label) + ' <strong>' + count + '</strong></li>').join("") + '</ul>';
+  list.innerHTML = summary + (suspectedRows.length
+    ? section("suspected", "ยืนยันว่าหลุดสแกนเข้า — มีหลักฐานรองรับ", suspectedRows)
+    : '<p class="pno-v18-evidence-zero" data-pno-evidence-zero="true">ยังไม่พบรายการที่ยืนยันว่าเป็นหลุดสแกนเข้าในหน้านี้</p>') +
+    (unknownRows.length ? section("insufficient", "ยังตรวจสแกนเข้าไม่ได้", unknownRows, unknownSummary) : "");
 }
 
 async function pnoInboundLoad(page) {

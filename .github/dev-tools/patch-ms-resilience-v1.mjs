@@ -1,0 +1,336 @@
+// DEV-only final composition. Canonical Production assets are not modified.
+function unique(source, from, to) {
+  if (source.indexOf(from) < 0 || source.indexOf(from) !== source.lastIndexOf(from))
+    throw new Error("MS resilience staging anchor missing or ambiguous: " + from.slice(0, 90));
+  return source.replace(from, to);
+}
+
+export function patchMsResilienceFrontend(source) {
+  if (source.includes("MS_INCREMENTAL_RENDER_V1")) return source;
+  source = unique(source, '    const har = JSON.parse(await file.text());', '    const har = parseMsHar(await file.text());');
+  source = unique(source,
+    '    void reportMsConnectionObservation("error", source, hub, error).then(() => loadMsConnectionObservedError(hub));',
+    '    if (!String(error?.code || "").startsWith("LOCAL_"))\n      void reportMsConnectionObservation("error", source, hub, error).then(() => loadMsConnectionObservedError(hub));');
+  source = unique(source, '    try { har = JSON.parse(await file.text()); }\n    catch { throw new Error("อ่านไฟล์ HAR ปริ้นบาร์โค้ดรถไม่ได้"); }', '    har = parseMsHar(await file.text());');
+  source = unique(source, '  el(id).innerHTML =\n    \'<option value="all">ทั้งหมด</option>\' +', '  const optionHtml =\n    \'<option value="all">ทั้งหมด</option>\' +');
+  source = unique(source, '  const next = unique.includes(selected) ? selected : "all";', '  const select = el(id);\n  if (select.__msOptions !== optionHtml) {\n    select.innerHTML = optionHtml;\n    select.__msOptions = optionHtml;\n  }\n  const next = unique.includes(selected) ? selected : "all";');
+  source = unique(source, '  el(id).value = next;', '  if (select.value !== next) select.value = next;');
+  source = unique(source, `  el("branch-filter").innerHTML = list
+    .map((value) => \`<option value="\${esc(value)}">\${esc(value)}</option>\`)
+    .join("");
+  el("branch-filter").value = state.branch;`, `  const select = el("branch-filter");
+  const html = list.map((value) => \`<option value="\${esc(value)}">\${esc(value)}</option>\`).join("");
+  if (select.__msBranches !== html) { select.innerHTML = html; select.__msBranches = html; }
+  if (select.value !== state.branch) select.value = state.branch;`);
+  source = unique(source, '  el(id).textContent = nf.format(value);', '  const node = el(id), formatted = nf.format(value);\n  if (node.textContent !== formatted) node.textContent = formatted;');
+  const start = source.indexOf('function renderRowsProgressively(rows) {');
+  const end = source.indexOf('\nfunction completedTodayDatasetKey()', start);
+  if (start < 0 || end < start) throw new Error('incremental render boundary missing');
+  source = source.slice(0, start) + incrementalRenderer.toString() + source.slice(end);
+  source = source.replace('function incrementalRenderer(rows)', 'function renderRowsProgressively(rows)');
+  source = unique(source, '  el("filter-summary").innerHTML = `', '  const summaryHtml = `');
+  source = unique(source, '  el("filter-summary")\n    .querySelectorAll("[data-summary-status]")', '  if (updateMsSummary(el("filter-summary"), summaryHtml)) return;\n  el("filter-summary")\n    .querySelectorAll("[data-summary-status]")');
+  return source + '\n// MS_INCREMENTAL_RENDER_V1\n' + parseMsHar.toString() + '\n' + updateMsSummary.toString() + '\n';
+}
+
+export function parseMsHar(raw) {
+  try {
+    const har = JSON.parse(raw);
+    if (!har || !Array.isArray(har.log?.entries)) throw new Error();
+    return har;
+  } catch {
+    const error = new Error('ไฟล์ HAR ไม่สมบูรณ์หรือบันทึกมาไม่ครบ กรุณาบันทึก HAR ใหม่');
+    error.code = 'LOCAL_HAR_INVALID';
+    throw error;
+  }
+}
+
+function incrementalRenderer(rows) {
+  const generation = ++rowRenderGeneration;
+  const desktopSitePhone = isPhoneDesktopSiteLayout();
+  document.documentElement.classList.toggle("ms-desktop-site-phone", desktopSitePhone);
+  const mobileLayout = useMobileCardLayout();
+  const mobile = mobileLayout;
+  const target = el(mobile ? 'mobile-cards' : 'table-body');
+  const inactive = el(mobile ? 'table-body' : 'mobile-cards');
+  // Inactive layouts retain their own keys. Switching layouts updates the target
+  // against the latest dataset; no stale rows become visible.
+  inactive.classList.add('hidden');
+  target.classList.remove('hidden');
+  const renderer = mobile ? card : tableRow;
+  const nodes = target.__msRows || (target.__msRows = new Map());
+  const keys = rows.map((row) => String(row.id || '') + '|' + String(row.proofId || '') + '|' + String(row.attendanceType || '') + '|' + String(row.estimatedArrivalAt || row.estimatedDepartureAt || ''));
+  // Duplicate identities are a real structural change; use occurrence indexes
+  // only for those identities rather than losing a row through Map overwrite.
+  const totals = new Map();
+  for (const key of keys) totals.set(key, (totals.get(key) || 0) + 1);
+  const seen = new Map();
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (totals.get(key) > 1) {
+      const index = seen.get(key) || 0;
+      seen.set(key, index + 1);
+      keys[i] += '|duplicate:' + index;
+    }
+  }
+  const wanted = new Set(keys);
+  for (const [key, item] of nodes) if (!wanted.has(key)) { item.node.remove(); nodes.delete(key); }
+  const firstBatch = mobileLayout ? 32 : 64;
+  const nextBatch = mobileLayout ? 24 : 64;
+  let index = 0;
+  const pump = () => {
+    if (generation !== rowRenderGeneration) return;
+    const end = Math.min(index + (index === 0 ? firstBatch : nextBatch), rows.length);
+    for (; index < end; index++) {
+      const key = keys[index], html = renderer(rows[index]);
+      let item = nodes.get(key);
+      if (!item || item.html !== html) {
+        // A contextual fragment correctly parses table rows as well as cards.
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        const node = range.createContextualFragment(html).firstElementChild;
+        if (item) item.node.replaceWith(node);
+        item = { node, html };
+        nodes.set(key, item);
+      }
+      if (target.children[index] !== item.node)
+        target.insertBefore(item.node, target.children[index] || null);
+    }
+    if (index < rows.length) requestAnimationFrame(pump);
+  };
+  pump();
+}
+
+function updateMsSummary(root, html) {
+  if (!root.__msSummaryReady) {
+    root.innerHTML = html;
+    root.__msSummaryReady = true;
+    root.__msSummaryHtml = html;
+    return false;
+  }
+  if (root.__msSummaryHtml === html) return true;
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const incoming = template.content.querySelectorAll('[data-summary-status]');
+  for (const next of incoming) {
+    const current = root.querySelector('[data-summary-status="' + next.dataset.summaryStatus + '"]');
+    if (!current) { root.__msSummaryReady = false; return updateMsSummary(root, html); }
+    if (current.className !== next.className) current.className = next.className;
+    for (const tag of ['span', 'strong']) {
+      const before = current.querySelector(tag), after = next.querySelector(tag);
+      if (before && after && before.textContent !== after.textContent) before.textContent = after.textContent;
+    }
+  }
+  root.__msSummaryHtml = html;
+  return true;
+}
+
+export function patchMsResilienceWorker(source) {
+  if (source.includes('MS_OPTIONAL_NONBLOCKING_V1')) return source;
+  source = unique(source, `    const [rows, parcelCounts, busData] = await Promise.all([
+      readMsRoutes(credentials),
+      readPreEntryCounts(env, branch),
+      readBusTimeData(env, branch, liveSourceDays(), routeHintRows),
+    ]);`, `    // MS_OPTIONAL_NONBLOCKING_V1: optional acquisition has no Route barrier.
+    startMsOptionalRefresh(optionalEnv, branch, routeHintRows);
+    const rows = await readMsRoutes(credentials);
+    const parcelCounts = msOptionalData(branch, "preEntry");
+    const busData = msOptionalData(branch, "busTime");`);
+  source = unique(source, 'async function runMsRefresh(env, branch) {', 'async function runMsRefresh(env, branch) {\n  const optionalEnv = env;\n  env = msLiveDatabaseEnv(env);');
+  source = unique(source, '      errorCode === "TURSO_NETWORK_ERROR" ||', '      errorCode === "TURSO_NETWORK_ERROR" ||\n      errorCode === "TURSO_LIVE_TIMEOUT" ||\n      (errorCode === "TURSO_HTTP_ERROR" && Number(error?.status) >= 500 && Number(error?.status) <= 599) ||');
+  source = unique(source, '  async refresh(branch, force = false, cron = false) {\n    const nowMs = Date.now();', `  async refresh(branch, force = false, cron = false) {
+    // MS_ROUTE_ACCEPTED_IMMEDIATE_V1: never wait on the active acquisition.
+    if (this.active) return this.lastResult || this.active;
+    const nowMs = Date.now();`);
+  source = unique(source, `    if (this.active) {
+      try {
+        await this.active;
+      } catch {}
+      if (!force && this.lastResult)
+        return this.lastResult;
+    }`, `    if (this.active) return this.lastResult || this.active;`);
+  source = unique(source, '    const task = runMsRefresh(this.env, branch)', `    const optionalEnv = new Proxy(this.env, { get: (target, key) => {
+      if (key === "MS_OPTIONAL_ACCEPT") return () => this.acceptOptional(branch);
+      if (key === "BUS_TIME_SLOT_STORE") return this.ctx.storage;
+      if (key === "MS_BACKGROUND_WAIT") return (task) => this.ctx.waitUntil(task);
+      return target[key];
+    }});
+    const task = runMsRefresh(optionalEnv, branch)`);
+  source = unique(source,
+    '    if (url.pathname === "/stream") return this.openStream(request, branch);',
+    `    if (url.pathname === "/stream") return this.openStream(request, branch);
+    if (url.pathname === "/optional-bus") {
+      const input = await request.json();
+      const sharedEnv = new Proxy(this.env, { get: (target, key) =>
+        key === "BUS_TIME_SLOT_STORE" ? this.ctx.storage : target[key] });
+      if (input.credentials) {
+        busTimeHotLane.resetCredentials(branch, input.credentials);
+        await this.ctx.storage.transaction(async (store) => {
+          const key = "bus-automatic-slot-v1:" + branch;
+          const previous = await store.get(key) || {};
+          await store.put(key, { ...previous, until: Math.max(previous.until || 0, Date.now() + 12000) });
+        });
+      }
+      const data = await readBusTimeData(sharedEnv, branch, input.days || liveSourceDays(),
+        this.lastResult?.rows || busTimeRouteHints.get(branch) || []);
+      msOptionalState(branch).data.set("busTime", data);
+      this.acceptOptional(branch);
+      return Response.json(msSerializeOptionalMap(data));
+    }`);
+  source = unique(source,
+    '  const data = await busTimeHotLane.readBusTimeData(env, hub, wantedDays, routeRows);',
+    `  if (env.MS_REFRESH_COORDINATOR && !env.BUS_TIME_SLOT_STORE)
+    return msSharedBusRequest(env, hub, { days: wantedDays });
+  const data = await busTimeHotLane.readBusTimeData(env, hub, wantedDays, routeRows);`);
+  source = unique(source,
+    '  busTimeHotLane.resetCredentials(hub, credentials);',
+    '  busTimeHotLane.resetCredentials(hub, credentials);\n  if (env.MS_REFRESH_COORDINATOR) await msSharedBusRequest(env, hub, { credentials });');
+  source = unique(source, '        this.lastResult = result;\n        this.lastSourceAt = Date.now();', '        this.lastResult = mergeMsOptionalResult(branch, result);\n        result = this.lastResult;\n        this.lastSourceAt = Date.now();');
+  source = unique(source, '        if (this.active === task) this.active = null;', '        if (this.active === task) this.active = null;\n        this.sendAcceptedSnapshot(branch);');
+  source = unique(source, '  async refresh(branch, force = false, cron = false) {', `  sendAcceptedSnapshot(branch) {
+    if (!this.lastSnapshotPayload || !Array.isArray(this.lastResult?.rows)) return;
+    const result = this.lastResult;
+    const payload = { ...this.lastSnapshotPayload, rows: result.rows,
+      completedToday: Number(result.completedToday) || 0,
+      lastSync: result.syncedAt || "", msStatus: result.status || "",
+      syncError: result.error || "" };
+    this.lastSnapshotPayload = payload;
+    this.lastSnapshotBranch = branch;
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket.deserializeAttachment?.()?.branch !== branch) continue;
+      try { socket.send(JSON.stringify(payload)); } catch {}
+    }
+  }
+
+  acceptOptional(branch) {
+    if (!Array.isArray(this.lastResult?.rows)) return;
+    this.lastResult = mergeMsOptionalResult(branch, this.lastResult);
+    recentMsSync.set(branch, { until: this.recentUntil, result: this.lastResult });
+    this.sendAcceptedSnapshot(branch);
+  }
+
+  async refresh(branch, force = false, cron = false) {`);
+  // A Turso availability error while reading credentials must enter continuity
+  // directly, without a status write or another cache/credential read.
+  source = unique(source, '    const errorCode = error?.code === "MS_CREDENTIAL_ERROR"', `    if (msTursoAvailability(error)) {
+      const accepted = recentMsSync.get(branch)?.result;
+      return { ...(accepted || {}), status: "degraded", changes: 0,
+        errorCode: error.code, error: "ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด" };
+    }
+    const errorCode = error?.code === "MS_CREDENTIAL_ERROR"`);
+  const cacheStart = source.indexOf('async function readMsLiveCache(');
+  const cacheEnd = source.indexOf('\nasync function writeMsLiveCache(', cacheStart);
+  const cache = source.slice(cacheStart, cacheEnd);
+  source = source.slice(0, cacheStart) + unique(cache, '  } catch (error) {', '  } catch (error) {\n    if (msTursoAvailability(error)) throw error;') + source.slice(cacheEnd);
+  return source + '\n' + workerHelpers;
+}
+
+const workerHelpers = String.raw`
+const msOptionalAccepted = new Map();
+function msSerializeOptionalMap(data) {
+  const properties = {};
+  for (const key of Object.keys(data)) {
+    properties[key] = data[key] instanceof Set ? { setValues: [...data[key]] } : data[key];
+  }
+  return { entries: [...data], properties };
+}
+async function msSharedBusRequest(env, hub, body) {
+  const id = env.MS_REFRESH_COORDINATOR.idFromName(msCoordinatorIdentity(hub));
+  const response = await env.MS_REFRESH_COORDINATOR.get(id).fetch(new Request(
+    "https://ms-refresh.internal/optional-bus?branch=" + encodeURIComponent(hub),
+    { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } },
+  ));
+  if (!response.ok) throw Object.assign(new Error("Shared BusTime unavailable"), { code: "BUS_TIME_SHARED_ERROR" });
+  const payload = await response.json();
+  const data = new Map(payload.entries || []);
+  for (const [key, value] of Object.entries(payload.properties || {}))
+    data[key] = Array.isArray(value?.setValues) ? new Set(value.setValues) : value;
+  return data;
+}
+function msOptionalState(branch) {
+  if (!msOptionalAccepted.has(branch)) msOptionalAccepted.set(branch, { active: new Map(), data: new Map() });
+  return msOptionalAccepted.get(branch);
+}
+function msOptionalData(branch, name) {
+  const data = msOptionalState(branch).data.get(name);
+  if (data) return Object.assign(new Map(data), data);
+  const pending = new Map(); pending.sourceFailed = true; return pending;
+}
+function startMsOptionalRefresh(env, branch, hints) {
+  const state = msOptionalState(branch);
+  for (const [name, read] of [
+    ["preEntry", () => readPreEntryCounts(env, branch)],
+    ["busTime", () => readBusTimeData(env, branch, liveSourceDays(), hints)],
+  ]) {
+    if (state.active.has(name)) continue;
+    const task = Promise.resolve().then(read).then((data) => {
+      if (!(data instanceof Map)) return;
+      state.data.set(name, data);
+      env.MS_OPTIONAL_ACCEPT?.();
+    }).catch(() => {}).finally(() => state.active.delete(name));
+    state.active.set(name, task);
+    env.MS_BACKGROUND_WAIT?.(task);
+  }
+}
+function mergeMsOptionalResult(branch, result) {
+  if (!Array.isArray(result?.rows)) return result;
+  const parcels = msOptionalData(branch, "preEntry"), bus = msOptionalData(branch, "busTime");
+  markAuxiliaryOccurrenceAmbiguity(result.rows, parcels, bus);
+  const rows = result.rows.map((row) => {
+    // Weak/ambiguous source evidence cannot overwrite accepted occurrence truth.
+    const proof = normalizeProofId(row.proofId);
+    const partial = parcels.partialProofs?.has(proof) || parcels.ambiguousProofs?.has(proof);
+    const key = "P:" + proof + "|A:" + normalizeMsAttendance(row.attendanceType);
+    const safeParcels = parcels.sourceFailed || partial ? Object.assign(new Map(), { sourceFailed: true }) : parcels;
+    const safeBus = bus.sourceFailed || bus.ambiguousKeys?.has(key) ? new Map() : bus;
+    return enrichMsRow({ ...row }, safeParcels, safeBus);
+  });
+  // Queue-first admission uses the accepted source map, never KIT-as-TBR.
+  return { ...result, rows: msQueueFirstSourceRows(rows, bus, branch), tbrShadowFeed: msTbrShadowFeed(bus) };
+}
+function msTursoAvailability(error) {
+  return ["TURSO_NETWORK_ERROR", "TURSO_LIVE_TIMEOUT"].includes(error?.code) ||
+    (error?.code === "TURSO_HTTP_ERROR" && error.status >= 500 && error.status <= 599) ||
+    (error?.code === "TURSO_PROTOCOL_ERROR" && /\((?:5\d\d|unknown)\)/.test(error.message));
+}
+function msLiveDatabaseEnv(env) {
+  // The deadline applies to this live refresh's database work only. Administrative,
+  // history and archive operations keep their existing database adapter.
+  const database = env.DB;
+  if (!database || typeof database._pipeline !== "function") return env;
+  const db = Object.create(database);
+  // Bound cumulative live DB wait, excluding time spent in Route providers.
+  let remainingBudget = 2800;
+  let unavailable = null;
+  db._pipeline = async function(...args) {
+    if (unavailable) throw unavailable;
+    const started = Date.now();
+    const remaining = remainingBudget;
+    const timeoutError = () => Object.assign(new Error("Live database deadline exceeded"), { code: "TURSO_LIVE_TIMEOUT" });
+    if (remaining <= 0) throw timeoutError();
+    let timer;
+    let expired = false;
+    const transaction = args[0].some((request) => /^BEGIN\b/i.test(request.stmt?.sql || ""));
+    const pending = database._pipeline(...args);
+    // If a transaction response arrives after the live deadline, close its baton
+    // through the original adapter. Never commit abandoned live work.
+    if (transaction) pending.then((payload) => {
+      if (expired) database._finishTransaction(payload, "ROLLBACK").catch(() => {});
+    }, () => {});
+    try {
+      return await Promise.race([
+        pending,
+        new Promise((_, reject) => { timer = setTimeout(() => { expired = true; reject(timeoutError()); }, remaining); }),
+      ]);
+    } catch (error) {
+      if (msTursoAvailability(error)) unavailable = error;
+      throw error;
+    } finally { remainingBudget -= Math.max(0, Date.now() - started); clearTimeout(timer); }
+  };
+  db._finishTransaction = function(payload, command) {
+    if (command === "ROLLBACK") return database._finishTransaction(payload, command);
+    return Object.getPrototypeOf(database)._finishTransaction.call(db, payload, command);
+  };
+  return new Proxy(env, { get: (target, key) => key === "DB" ? db : target[key] });
+}
+`;

@@ -54,6 +54,7 @@ test("BusTime session expiry preserves accepted cache, stops retry churn, and fr
         return {
           bind() {
             return {
+              async run() { return { meta: { changes: 1 } }; },
               async first() {
                 if (String(sql).includes("FROM ms_live_cache"))
                   return { rows_json: JSON.stringify(acceptedRows) };

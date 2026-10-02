@@ -96,8 +96,17 @@ function harness({
   let rateLeaseUpserts = 0;
   let rateLeaseDeletes = 0;
   const calls = [];
+  const slotRows = rateLeaseStore.slots || (rateLeaseStore.slots = new Map());
 
   const env = {
+    BUS_TIME_SLOT_STORE: {
+      async transaction(fn) {
+        const task = (rateLeaseStore.slotSerial || Promise.resolve()).then(() =>
+          fn({ get: async (key) => slotRows.get(key), put: async (key, value) => slotRows.set(key, value) }));
+        rateLeaseStore.slotSerial = task.catch(() => {});
+        return task;
+      },
+    },
     DB: {
       prepare(sql) {
         return {
@@ -296,6 +305,47 @@ test("HAR seed is bounded and provider-limit backoff remains much longer than he
   assert.ok(BUS_TIME_RATE_LIMIT_BASE_COOLDOWN_MS > BUS_TIME_HOT_REUSE_MS);
 });
 
+test("partial successful HAR seed defers all automatic P2 work for one healthy slot", async () => {
+  const h = harness();
+  const seed = item("P1"); seed.fleet_sign_info = [];
+  h.lane.resetCredentials("NE1", { auth: "mock", seededAt: new Date(h.stats().clock).toISOString(), seedItems: [seed] });
+  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 2 }];
+  const map = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 0);
+  assert.equal(map.get("P:P1|A:ปลายทาง").scheduleKitArrivalAt, "2026-09-13T00:01:00.000Z");
+  h.advance(12000); await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1);
+});
+
+test("a new runtime respects the shared slot even without a provider rate limit", async () => {
+  const store = { row: null };
+  const routes = [{ proofId: "MISSING", attendanceType: "ปลายทาง", unloadingState: 0 }];
+  const a = harness({ rateLeaseStore: store }), b = harness({ rateLeaseStore: store });
+  await Promise.all([a.lane.readBusTimeData(a.env, "NE1", undefined, routes), b.lane.readBusTimeData(b.env, "NE1", undefined, routes)]);
+  assert.equal(a.calls.length + b.calls.length, 1);
+  a.advance(11999); b.advance(11999);
+  await Promise.all([a.lane.readBusTimeData(a.env, "NE1", undefined, routes), b.lane.readBusTimeData(b.env, "NE1", undefined, routes)]);
+  assert.equal(a.calls.length + b.calls.length, 1);
+  a.advance(1); b.advance(1);
+  await Promise.all([a.lane.readBusTimeData(a.env, "NE1", undefined, routes), b.lane.readBusTimeData(b.env, "NE1", undefined, routes)]);
+  assert.equal(a.calls.length + b.calls.length, 2);
+});
+
+for (const message of ["exceeds the limit", "rate limit", "too many requests"]) test(`provider message '${message}' opens the circuit with no same-slot retry`, async () => {
+  const h = harness({ fetchHandler: async () => response({ message }) });
+  const routes = [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }];
+  const result = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(result.sourceCode, "BUS_TIME_RATE_LIMIT");
+  for (let i = 0; i < 3; i++) { h.advance(4000); await h.lane.readBusTimeData(h.env, "NE1", undefined, routes); }
+  assert.equal(h.calls.length, 1);
+});
+
+test("Retry-After longer than the default circuit remains authoritative", async () => {
+  const h = harness({ fetchHandler: async () => response({ status: 429, retryAfter: "900" }) });
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.equal(Date.parse(h.lane.diagnostics("NE1").busCooldownUntil) - h.stats().clock, 900000);
+});
+
 test("canonical BusTime HAR save no longer re-hits provider just to validate the uploaded successful response", () => {
   const canonical = fs.readFileSync(canonicalWorker, "utf8");
   const start = canonical.indexOf("async function saveMsBusConnection(body, actor, env) {");
@@ -414,11 +464,16 @@ test("deep pagination and KIT/TBR page 1 remain bounded at ~12s", async () => {
   });
   const routes = [{ proofId: "P3", attendanceType: "ปลายทาง", unloadingState: 0 }];
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
+  assert.deepEqual(h.calls.map((call) => call.page), [1]);
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
-  assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
+  assert.deepEqual(h.calls.map((call) => call.page), [1]);
   h.advance(8000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
+  h.advance(12000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  h.advance(12000);
   const map = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
   assert.deepEqual(h.calls.map((call) => call.page), [1, 2, 1, 3]);
   assert.ok(map.has("P:P3|A:ปลายทาง"));
@@ -433,6 +488,9 @@ test("a newly active proof missing from page 1 gets background priority without 
       : response({ total: 200, items: [item("P2")] }),
   });
   const routes = [{ proofId: "P2", attendanceType: "ปลายทาง", unloadingState: 0 }];
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1);
+  h.advance(12000);
   const map = await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
   assert.equal(h.calls.length, 2);
   assert.ok(map.has("P:P2|A:ปลายทาง"));
@@ -482,9 +540,13 @@ test("origin routes never enter enrichment while P1/P2 share bounded current-day
     { proofId: "P-DROP-DONE", attendanceType: "จุดดรอป", unloadingState: 2, actualDepartureAt: "2026-09-12T16:00:00.000Z", estimatedArrivalAt: "2026-09-12T15:00:00.000Z" },
   ];
   await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
+  assert.equal(h.calls.length, 1, "P2 is deferred beyond the current operational slot");
+  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
+  h.advance(12000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, routes);
   assert.deepEqual(h.calls.map((call) => call.day), ["2026-09-13", "2026-09-13"]);
   assert.deepEqual(h.calls.map((call) => call.fleetStatus), ["1", ""]);
-  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 1);
+  assert.equal(h.lane.diagnostics("NE1").busActiveRows, 0, "accepted TBR resolves the active missing evidence");
 });
 
 test("persistent deep misses stay 12s while newly active proof gets immediate background priority", async () => {
@@ -494,22 +556,28 @@ test("persistent deep misses stay 12s while newly active proof gets immediate ba
       : response({ total: 300, items: [item("P" + page)] }),
   });
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P2", attendanceType: "ปลายทาง", unloadingState: 0 }]);
-  assert.deepEqual(h.calls.map((call) => call.page), [1, 2]);
+  assert.deepEqual(h.calls.map((call) => call.page), [1]);
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
-  assert.deepEqual(h.calls.slice(-1).map((call) => call.page), [3]);
+  assert.deepEqual(h.calls.map((call) => call.page), [1], "new demand cannot bypass the slot reservation");
   const callsAfterNewActive = h.calls.length;
   h.advance(4000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
   assert.equal(h.calls.length, callsAfterNewActive);
   h.advance(8000);
   await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
-  assert.equal(h.calls.length, callsAfterNewActive + 2);
+  assert.equal(h.calls.length, callsAfterNewActive + 1);
+  assert.equal(h.calls.at(-1).page, 2);
+  h.advance(12000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  h.advance(12000);
+  await h.lane.readBusTimeData(h.env, "NE1", undefined, [{ proofId: "P99", attendanceType: "ปลายทาง", unloadingState: 0 }]);
+  assert.equal(h.calls.at(-1).page, 3, "pending deep page advances across later slots");
 });
 
 test("cross-midnight P1 adds yesterday while completed unresolved truth advances through P2", async () => {
   const h1 = harness({
-    fetchHandler: async () => response({ total: 50, items: [item("P1")] }),
+    fetchHandler: async () => response({ total: 50, items: [] }),
   });
   const activeYesterday = [{
     proofId: "P1",
@@ -517,6 +585,9 @@ test("cross-midnight P1 adds yesterday while completed unresolved truth advances
     unloadingState: 0,
     estimatedArrivalAt: "2026-09-12T14:00:00.000Z",
   }];
+  await h1.lane.readBusTimeData(h1.env, "NE1", undefined, activeYesterday);
+  assert.equal(h1.calls.length, 1);
+  h1.advance(12000);
   await h1.lane.readBusTimeData(h1.env, "NE1", undefined, activeYesterday);
   assert.deepEqual(h1.calls.map((call) => call.day), ["2026-09-13", "2026-09-12"]);
 
@@ -682,7 +753,10 @@ test("provider cooldown survives a fresh hot-lane instance and recovery starts h
 
   recovered.advance(12_000);
   await recovered.lane.readBusTimeData(recovered.env, "NE1", undefined, routes);
-  assert.deepEqual(recovered.calls.map((call) => call.page), [1, 1, 2]);
+  assert.equal(recovered.calls.length, 2, "recovered healthy cadence has one call per slot");
+  recovered.advance(12000);
+  await recovered.lane.readBusTimeData(recovered.env, "NE1", undefined, routes);
+  assert.ok(recovered.calls.some((call) => call.page === 2), "deferred deep work resumes after recovery");
 });
 
 test("healthy steady state adds no rate-limit lease reads or writes", async () => {

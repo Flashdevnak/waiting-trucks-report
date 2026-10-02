@@ -225,7 +225,9 @@ export class TursoD1Database {
 
     if (!response.ok) {
       const message = payload?.error?.message || payload?.message || `Turso HTTP ${response.status}`;
-      throw tursoError("TURSO_HTTP_ERROR", message);
+      const error = tursoError("TURSO_HTTP_ERROR", message);
+      error.status = response.status;
+      throw error;
     }
 
     if (!Array.isArray(payload?.results)) {

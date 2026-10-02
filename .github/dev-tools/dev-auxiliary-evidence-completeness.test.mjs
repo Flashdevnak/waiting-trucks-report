@@ -269,7 +269,9 @@ test("staged worker classifies invalid PreEntry math as partial and preserves fa
   assert.match(stagedWorker, /parcelCounts\.sourceFailed \|\| parcelCounts\.sourcePartial/);
   assert.match(stagedWorker, /"scheduleUnloadingStartedAt", "scheduleUnloadingCompletedAt"/);
   const refresh = between(stagedWorker, "async function runMsRefresh", "async function readMsLiveCache");
-  assert.equal((refresh.match(/readPreEntryCounts\(env, branch\)/g) || []).length, 1);
+  assert.equal((refresh.match(/startMsOptionalRefresh\(optionalEnv, branch, routeHintRows\)/g) || []).length, 1);
+  assert.equal((stagedWorker.match(/\["preEntry", \(\) => readPreEntryCounts\(env, branch\)\]/g) || []).length, 1);
+  assert.doesNotMatch(refresh, /await Promise\.all/);
   assert.doesNotMatch(refresh, /for[\s\S]{0,120}readPreEntryCounts/);
 });
 

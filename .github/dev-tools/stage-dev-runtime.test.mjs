@@ -57,8 +57,9 @@ test("live polling stays live-only while explicit history search uses the daily 
   assert.match(first, /return viewport <= 1024 && !isPhoneDesktopSiteLayout\(viewport, screenWidth, screenHeight\)/);
   assert.match(first, /const mobileLayout = useMobileCardLayout\(\)/);
   assert.match(first, /classList\.toggle\("ms-desktop-site-phone", desktopSitePhone\)/);
-  assert.match(first, /tableBody\.innerHTML = ""/);
-  assert.match(first, /mobileCards\.innerHTML = ""/);
+  assert.doesNotMatch(first, /tableBody\.innerHTML = ""/);
+  assert.doesNotMatch(first, /mobileCards\.innerHTML = ""/);
+  assert.match(first, /MS_INCREMENTAL_RENDER_V1/);
 });
 
 test("upper metrics use today or the explicitly searched date range", () => {
@@ -88,7 +89,8 @@ test("ลงรถเสร็จ reuses browser cache and progressively renders
   assert.match(first, /completedTodayRetryAt = Date\.now\(\) \+ 60_000/);
   assert.match(first, /firstBatch = mobileLayout \? 32 : 64/);
   assert.match(first, /requestAnimationFrame\(pump\)/);
-  assert.match(first, /insertAdjacentHTML/);
+  assert.match(first, /createContextualFragment\(html\)/);
+  assert.match(first, /target\.insertBefore\(item\.node/);
 });
 
 test("ลงรถเสร็จ stays visible after the next 4-second live poll", () => {

@@ -141,6 +141,7 @@ test("Origin queue summary and filtered rows use the same active predicate", () 
     isCancelledToday: () => false,
     isOperationalOvertime: () => false,
     inboundOperationalStage: () => "none",
+    updateMsSummary: (root, html) => { root.innerHTML = html; return false; },
   });
   vm.runInContext(between(frontend, "function filteredRows(ignoreSummary", "async function loadRange") +
     "\nglobalThis.filtered=filteredRows;", context);

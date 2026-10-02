@@ -95,6 +95,7 @@ import { patchMsTransientEmptyGuardWorker } from "./patch-ms-transient-empty-gua
 import { patchMsConnectionErrorKvFrontend } from "./patch-ms-connection-error-kv.mjs";
 import { patchSupervisorAccessGuard } from "./patch-supervisor-access-guard.mjs";
 import { patchSupervisorSharedSnapshot } from "./patch-supervisor-shared-snapshot.mjs";
+import { patchMsResilienceFrontend, patchMsResilienceWorker } from "./patch-ms-resilience-v1.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -192,7 +193,7 @@ export function patchDevUiShellSource(source, currentPage) {
     // The DEV modal script changed; ensure browsers acquire this version when
     // an owner later deploys the explicitly approved DEV runtime.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20260924-pno-pending-reconcile-v1"');
+      'src="ms.js?v=20261003-ms-resilience-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -471,6 +472,7 @@ export function stageFrontend(source) {
   output = patchMsOriginTbrFrontend(output);
   output = patchPnoDetailAvailabilityDiagnostic(output);
   output = patchMsCentralNearExpiry(output);
+  output = patchMsResilienceFrontend(output);
   return output;
 }
 
@@ -579,6 +581,7 @@ if (invokedPath) {
     throw new Error("DEV auxiliary-evidence completeness marker missing after staging");
   // Last: instrument the exact final DEV composition, after all TBR/PNO patches.
   await stageTbrProvenanceDev(workerTarget, frontendTarget);
+  await writeFile(workerTarget, patchMsResilienceWorker(await readFile(workerTarget, "utf8")), "utf8");
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");

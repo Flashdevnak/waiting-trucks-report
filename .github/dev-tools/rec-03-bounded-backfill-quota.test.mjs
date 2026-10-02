@@ -127,6 +127,7 @@ class FakeDb {
       const [hub, source_hash, claim_token, state, lease_until, claimed_at, finished_at] = args;
       const current = this.claims.get(hub);
       const eligible = !current ||
+        (hub.startsWith("__BUS_SLOT__:") && current.lease_until <= claimed_at) ||
         (current.state !== "ACTIVE" && current.lease_until <= claimed_at) ||
         (current.state === "ACTIVE" && current.lease_until < claimed_at);
       if (!eligible) return { meta: { changes: 0 } };
@@ -337,7 +338,7 @@ test("REC-03 P3 query is indexed, HUB/date/range/record bounded, and one cycle u
   assert.equal(query.args.at(-1), BUS_TIME_P3_MAX_ROWS_PER_CYCLE);
   assert.equal(BUS_TIME_P3_RANGE_DAYS, 7);
   assert.equal(BUS_TIME_P3_MAX_CALLS_PER_CYCLE, 1);
-  assert.equal(BUS_TIME_MAX_CALLS_PER_CYCLE, 3);
+  assert.equal(BUS_TIME_MAX_CALLS_PER_CYCLE, 1);
 });
 
 test("REC-03 P3 late evidence is persisted missing-only with observed/fetched/accepted provenance", async () => {
@@ -439,7 +440,7 @@ test("REC-03 P3 cooldown distinguishes rate limit, source unavailable, and trans
   }
 });
 
-test("REC-03 strict priority reserves P2 and defers P3 when P1/P2 exhaust all three calls", async () => {
+test("REC-03 current work owns the first slot while P2/P3 remain deferred", async () => {
   const h = laneHarness({
     history: [historicalRow("R6", "P3-HIST")],
     fetchHandler: async () => response({ total: 300, items: [] }),
@@ -449,36 +450,43 @@ test("REC-03 strict priority reserves P2 and defers P3 when P1/P2 exhaust all th
     { id: "C", hub: "NE1", proofId: "P2", attendanceType: "ปลายทาง", unloadingState: 2 },
   ];
   await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], current);
-  assert.deepEqual(h.calls.map((call) => call.fleetStatus), ["1", "1", ""]);
+  assert.deepEqual(h.calls.map((call) => call.fleetStatus), ["1"]);
   const diag = h.lane.diagnostics("NE1");
-  assert.equal(diag.busP1Calls, 2);
-  assert.equal(diag.busP2Calls, 1);
+  assert.equal(diag.busP1Calls, 1);
+  assert.equal(diag.busP2Calls, 0);
   assert.equal(diag.busP3Calls, 0);
-  assert.equal(diag.busP3DeferredReason, "BUDGET_EXHAUSTED");
+  assert.equal(diag.busP3DeferredReason, "SLOT_ROTATION");
   assert.equal(diag.busBudgetExhausted, true);
   assert.equal(diag.busP3Checkpoint.cursorDay, "");
   assert.equal(BUS_TIME_P2_MAX_CALLS_PER_CYCLE, 1);
   assert.equal(BUS_TIME_P2_MAX_ROWS_PER_CYCLE, 25);
 });
 
-test("REC-03 P3 consumes only the third leftover slot after P1 then P2", async () => {
+test("REC-03 P3 advances in a later eligible slot after P1 then P2 without a burst", async () => {
   const h = laneHarness({
     history: [historicalRow("R5", "P3-HIST")],
     fetchHandler: async ({ day }) => day === "2026-09-19"
       ? response({ items: [providerItem("P3-HIST")], total: 1 })
       : response({ total: 0, items: [] }),
   });
-  await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], [
+  const current = [
     { id: "A", hub: "NE1", proofId: "P1", attendanceType: "ปลายทาง", unloadingState: 0 },
     { id: "C", hub: "NE1", proofId: "P2", attendanceType: "ปลายทาง", unloadingState: 2 },
-  ]);
+  ];
+  await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], current);
+  assert.equal(h.calls.length, 1);
+  h.advance(12000);
+  await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], current);
+  assert.equal(h.calls.length, 2);
+  h.advance(12000);
+  await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], current);
   assert.deepEqual(h.calls.map((call) => [call.day, call.fleetStatus]), [
     ["2026-09-21", "1"],
     ["2026-09-21", ""],
     ["2026-09-19", ""],
   ]);
   const diag = h.lane.diagnostics("NE1");
-  assert.equal(diag.busPagesLastCycle, 3);
+  assert.equal(diag.busPagesLastCycle, 1);
   assert.equal(diag.busP3Calls, 1);
   assert.equal(diag.busP3Accepted, 1);
 });
@@ -511,7 +519,7 @@ test("REC-03 cross-isolate P3 claim permits exactly one provider flight", async 
   assert.equal(providerCalls, 1);
   assert.equal(
     [a.lane.diagnostics("NE1"), b.lane.diagnostics("NE1")]
-      .some((diag) => diag.busP3DeferredReason === "SHARED_FLIGHT"),
+      .some((diag) => diag.busP3DeferredReason === "SHARED_SLOT"),
     true,
   );
   assert.ok(shared.claims.has("__BUS_P3__:NE1"));
@@ -549,6 +557,16 @@ test("REC-03 exact BusTime lane matrix is one provider call for 1/10/100 readers
   }
 });
 
+test("empty P3 discovery cannot consume a healthy current-source slot", async () => {
+  const h = laneHarness({ history: [], fetchHandler: async () => response({ total: 0 }) });
+  const current = [{ id: "A", hub: "NE1", proofId: "MISSING", attendanceType: "ปลายทาง", unloadingState: 0 }];
+  for (let slot = 0; slot < 6; slot++) {
+    if (slot) h.advance(12000);
+    await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], current);
+    assert.equal(h.calls.length, slot + 1, "healthy current acquisition remains once per eligible 12-second slot");
+  }
+});
+
 test("REC-03 reconnect burst keeps Route/BusTime/PreEntry at one flight", async () => {
   assert.deepEqual(await sharedRefreshCounts(100), { route: 1, busTime: 1, preEntry: 1 });
 });
@@ -567,7 +585,7 @@ test("REC-03 telemetry is observational and exposes deterministic P1/P2/P3 budge
     "busSharedCalls", "busDeduplicatedReaders", "busBudgetExhausted",
   ]) assert.ok(Object.hasOwn(diag, key), `missing telemetry ${key}`);
   assert.equal(after, before, "diagnostics must not poll provider");
-  assert.equal(diag.maxCallsPerCycle, 3);
+  assert.equal(diag.maxCallsPerCycle, 1);
   assert.equal(diag.maxP3CallsPerCycle, 1);
   assert.equal(diag.maxP3RowsPerCycle, 25);
 });

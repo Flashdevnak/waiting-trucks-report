@@ -244,7 +244,7 @@ test("REC-04 runtime remains bounded, indexed, Turso-only, and provider-neutral"
   assert.match(staged, /MS_REC04_HISTORY_FRESHNESS_TRUTH_V1/);
   assert.match(staged, /parcelCounts\.sourceEvaluated === true/);
   assert.match(staged, /lastMeaningfulObservationAt/);
-  assert.match(runtime, /BUS_TIME_MAX_CALLS_PER_CYCLE = 3/);
+  assert.match(runtime, /BUS_TIME_MAX_CALLS_PER_CYCLE = 1/);
   assert.match(runtime, /BUS_TIME_P3_MAX_CALLS_PER_CYCLE = 1/);
   assert.match(runtime, /BUS_TIME_P3_MAX_ROWS_PER_CYCLE = 25/);
   assert.doesNotMatch(devConfig, /d1_databases/);

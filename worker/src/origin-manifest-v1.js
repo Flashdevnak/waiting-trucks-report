@@ -540,7 +540,10 @@ export async function appendOriginManifestFrontend(response) {
   headers.set("cache-control", "no-store");
   if (base.includes("MS_ORIGIN_LH_MANIFEST_V1"))
     return new Response(base, { status: response.status, headers });
-  return new Response(`${base.trimEnd()}\n${ORIGIN_MANIFEST_UI_JS}\n`, {
+  const ui = base.includes("MS_INCREMENTAL_RENDER_V1")
+    ? ORIGIN_MANIFEST_UI_JS.replace("JSON.parse(await file.text())", "parseMsHar(await file.text())")
+    : ORIGIN_MANIFEST_UI_JS;
+  return new Response(`${base.trimEnd()}\n${ui}\n`, {
     status: response.status,
     headers,
   });

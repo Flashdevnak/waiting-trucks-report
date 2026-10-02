@@ -185,7 +185,7 @@ function providerHarness({ credentials = true, items = [], total = items.length 
                   return credentials ? { credentials_cipher: "cipher", last_error: "" } : null;
                 return null;
               },
-              async run() { return { success: true }; },
+              async run() { return { success: true, meta: { changes: 1 } }; },
             };
           },
         };
@@ -249,10 +249,16 @@ test("REC-02 completed missing TBR makes bounded P2 progress and preserves missi
 
 test("REC-02 continuous P1 demand reserves provider capacity for P2 forward progress", async () => {
   const h = providerHarness({ total: 300 });
-  await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], [
+  const rows = [
     row({ proofId: "ACTIVE" }),
     row({ proofId: "COMPLETE", unloadingState: 2 }),
-  ]);
+  ];
+  await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], rows);
+  assert.equal(h.calls(), 1, "current work gets the first eligible slot");
+  h.advance(12000);
+  await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], rows);
+  h.advance(12000);
+  await h.lane.readBusTimeData(h.env, "NE1", ["2026-09-21"], rows);
   assert.deepEqual(
     h.urls.map((url) => url.searchParams.get("fleetStatus")),
     ["1", "1", ""],

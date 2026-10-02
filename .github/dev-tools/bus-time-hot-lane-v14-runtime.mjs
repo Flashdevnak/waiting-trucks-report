@@ -6,7 +6,7 @@ export const BUS_TIME_HOT_REUSE_MS = 12_000;
 export const BUS_TIME_ACTIVE_FLEET_STATUS = "1";
 export const BUS_TIME_BACKGROUND_INTERVAL_MS = 12_000;
 export const BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE = 1;
-export const BUS_TIME_MAX_CALLS_PER_CYCLE = 3;
+export const BUS_TIME_MAX_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_P2_MAX_ROWS_PER_CYCLE = 25;
 export const BUS_TIME_P2_MAX_CALLS_PER_CYCLE = 1;
 export const BUS_TIME_P3_MAX_ROWS_PER_CYCLE = 25;
@@ -712,7 +712,52 @@ export function createBusTimeHotLane(deps) {
   const RATE_LEASE_SOURCE = "BUS_TIME_RATE_LIMIT";
   const rateLeaseHub = (hub) => `__BUS_RATE_LIMIT__:${String(hub || "").trim().toUpperCase()}`;
   const isRateLimitMessage = (value) =>
-    /request\s+exceeds\s+the\s+limit|rate.?limit|too many requests/i.test(String(value || ""));
+    /exceeds\s+the\s+limit|rate.?limit|too many requests/i.test(String(value || ""));
+
+  // BUS_TIME_AUTOMATIC_SLOT_V1: one persisted reservation across every automatic
+  // lane. A failed reservation never permits provider work.
+  async function reserveAutomaticSlot(env, hub, state) {
+    const at = now();
+    if (state.nextAutomaticAt > at) return null;
+    const key = `bus-automatic-slot-v1:${hub}`;
+    if (env.BUS_TIME_SLOT_STORE?.transaction) {
+      const reservation = await env.BUS_TIME_SLOT_STORE.transaction(async (store) => {
+        const previous = await store.get(key) || {};
+        if (previous.circuitUntil > at) {
+          state.cooldownUntil = previous.circuitUntil;
+          state.cooldownCode = "BUS_TIME_RATE_LIMIT";
+          state.rateLimitStrikes = Number(previous.strikes) || 1;
+          return null;
+        }
+        if (previous.until > at) return null;
+        const next = { ...previous, until: at + BUS_TIME_HOT_REUSE_MS, turn: (previous.turn || 0) + 1 };
+        await store.put(key, next);
+        return next;
+      });
+      if (reservation) state.nextAutomaticAt = reservation.until;
+      return reservation;
+    }
+    // Non-coordinator fallback uses the existing shared claims table atomically.
+    const until = new Date(at + BUS_TIME_HOT_REUSE_MS).toISOString();
+    const claimed = new Date(at).toISOString();
+    const saved = await env.DB.prepare(
+      "INSERT INTO ms_sync_claims(hub,source_hash,claim_token,state,lease_until,claimed_at,finished_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(hub) DO UPDATE SET lease_until=excluded.lease_until,claimed_at=excluded.claimed_at WHERE ms_sync_claims.lease_until<=excluded.claimed_at",
+    ).bind(`__BUS_SLOT__:${hub}`, "BUS_TIME_AUTOMATIC_SLOT_V1", "slot", "ACTIVE", until, claimed, "").run();
+    if (Number(saved?.meta?.changes ?? saved?.changes) !== 1) return null;
+    state.nextAutomaticAt = at + BUS_TIME_HOT_REUSE_MS;
+    state.automaticTurn = (state.automaticTurn || 0) + 1;
+    return { until: state.nextAutomaticAt, turn: state.automaticTurn };
+  }
+
+  async function persistAutomaticCircuit(env, hub, state) {
+    const store = env.BUS_TIME_SLOT_STORE;
+    if (!store?.transaction) return;
+    await store.transaction(async (storage) => {
+      const key = `bus-automatic-slot-v1:${hub}`;
+      const previous = await storage.get(key) || {};
+      await storage.put(key, { ...previous, circuitUntil: state.cooldownUntil, strikes: state.rateLimitStrikes });
+    });
+  }
 
   async function loadRateLimitLease(env, hub, state) {
     if (state.rateLeaseLoaded) return;
@@ -1083,7 +1128,10 @@ export function createBusTimeHotLane(deps) {
     const added = Math.max(0, state.cache.size - before);
     // Fresh upload should paint its confirmed HAR data immediately and wait one
     // normal healthy 12-second cycle before touching the provider again.
-    if (age <= BUS_TIME_HOT_REUSE_MS) state.lastHotAt = now();
+    if (age <= BUS_TIME_HOT_REUSE_MS) {
+      state.lastHotAt = now();
+      state.nextAutomaticAt = Math.max(state.nextAutomaticAt || 0, seededAt + BUS_TIME_HOT_REUSE_MS);
+    }
     if (added || items.length) state.busLastSuccessAt = new Date(seededAt).toISOString();
     return added;
   }
@@ -1161,20 +1209,26 @@ export function createBusTimeHotLane(deps) {
   }
 
   function nextBackground(state, days) {
-    for (const day of [...new Set(days)]) {
+    const uniqueDays = [...new Set(days)];
+    const offset = state.backgroundDayOffset || 0;
+    for (const day of [...uniqueDays.slice(offset), ...uniqueDays.slice(0, offset)]) {
       const pages = Math.min(20, Math.max(1, Number(state.pageCounts.get(day) || 1)));
       if (pages <= 1) continue;
       let page = Math.max(2, Number(state.pageCursor.get(day) || 2));
       if (page > pages) page = 2;
       state.pageCursor.set(day, page >= pages ? 2 : page + 1);
+      state.backgroundDayOffset = (uniqueDays.indexOf(day) + 1) % Math.max(1, uniqueDays.length);
       return { day, page };
     }
     return null;
   }
 
   function nextP2Page(state, days) {
-    const day = [...new Set(days)].find(Boolean);
+    const candidates = [...new Set(days)].filter(Boolean);
+    const offset = state.p2DayOffset || 0;
+    const day = candidates[offset % Math.max(1, candidates.length)];
     if (!day) return null;
+    state.p2DayOffset = (offset + 1) % candidates.length;
     const pages = Math.min(20, Math.max(1, Number(state.p2PageCounts.get(day) || 1)));
     let page = Math.max(1, Number(state.p2PageCursor.get(day) || 1));
     if (page > pages) page = 1;
@@ -1281,7 +1335,9 @@ export function createBusTimeHotLane(deps) {
     const json = await response.json();
     if (Number(json.code) !== 1) {
       const message = json.msg || json.message || "การจัดการตารางเวลาตอบกลับผิดพลาด";
-      const failure = classifyFailure(message);
+      const failure = isRateLimitMessage(message)
+        ? { code: "BUS_TIME_RATE_LIMIT", status: 429 }
+        : classifyFailure(message);
       throw sourceError(message, failure.code, failure.status);
     }
     return {
@@ -1589,7 +1645,6 @@ export function createBusTimeHotLane(deps) {
         p2Offset: state.p2Offset,
       });
       state.ambiguousKeys = new Set(plan.ambiguousKeys);
-      state.p2Offset = plan.nextP2Offset;
       const p1Rows = plan.p1.map((item) => item.row);
       const p2Rows = plan.p2.map((item) => item.row);
       state.busActiveRows = p1Rows.length;
@@ -1619,7 +1674,7 @@ export function createBusTimeHotLane(deps) {
       state.busP3CooldownUntil = p3Checkpoint.nextEligibleAt || "";
       state.busP3CooldownCode = p3Checkpoint.cooldownCode || "";
       state.busP3Pending = p3Checkpoint.pending ?? null;
-      const p3Due = p3Enabled && p3Eligible(p3Checkpoint);
+      let p3Due = p3Enabled && p3Eligible(p3Checkpoint);
       if (state.cooldownUntil > at) {
         applyEvidence(state, plan.selected, {
           sourceUnavailable: true,
@@ -1631,13 +1686,13 @@ export function createBusTimeHotLane(deps) {
         return result(state, true, state.cooldownCode || "BUS_TIME_RATE_LIMIT");
       }
 
-      const hotDue =
+      let hotDue =
         p1Rows.length > 0 &&
         (!state.lastHotAt || at - state.lastHotAt >= BUS_TIME_HOT_REUSE_MS);
       const backgroundDueBefore =
         missingKeys.length > 0 &&
         (newlyActive || at - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS);
-      const p2Due =
+      let p2Due =
         p2Rows.length > 0 &&
         (!state.lastP2At || at - state.lastP2At >= BUS_TIME_BACKGROUND_INTERVAL_MS);
 
@@ -1675,6 +1730,31 @@ export function createBusTimeHotLane(deps) {
         state.cooldownCode === "BUS_TIME_RATE_LIMIT" &&
         state.cooldownUntil > 0 &&
         state.cooldownUntil <= afterCredentialAt;
+      let reservation;
+      try { reservation = await reserveAutomaticSlot(env, key, state); }
+      catch { return result(state, true, "BUS_TIME_SLOT_UNAVAILABLE"); }
+      if (!reservation) {
+        state.busP3Deferred = p3Due;
+        state.busP3DeferredReason = p3Due ? "SHARED_SLOT" : "";
+        return result(state, state.cooldownUntil > now(), state.cooldownCode);
+      }
+      // Operational work wins the first slot. Pending lower-priority work rotates
+      // through later slots; it is retained rather than discarded by the budget.
+      const eligible = [];
+      if (hotDue) eligible.push("hot");
+      if (backgroundDueBefore && [...state.pageCounts.values()].some((pages) => pages > 1)) eligible.push("background");
+      if (p2Due) eligible.push("p2");
+      if (p3Due) eligible.push("p3");
+      const selected = recoveringFromRateLimit ? eligible[0] : eligible[(reservation.turn - 1) % eligible.length];
+      const hotRefreshDue = hotDue;
+      if (p3Due && selected !== "p3") {
+        state.busP3Deferred = true;
+        state.busP3DeferredReason = "SLOT_ROTATION";
+        state.busBudgetExhausted = true;
+      }
+      hotDue = hotDue && selected === "hot";
+      p2Due = p2Due && selected === "p2";
+      p3Due = p3Due && selected === "p3";
       const p1Days = hotDays(wantedDays, p1Rows);
       const p2Days = hotDays(wantedDays, p2Rows);
       let cycleCalls = 0;
@@ -1687,6 +1767,7 @@ export function createBusTimeHotLane(deps) {
         state.busLastErrorAt = isoNow();
         if (error?.code === "BUS_TIME_RATE_LIMIT") {
           applyRateLimit(state, error);
+          await persistAutomaticCircuit(env, key, state);
           await persistRateLimitLease(env, key, state);
         } else if (error?.code === "BUS_TIME_SESSION_EXPIRED") applySessionExpiry(state);
         await persistError(env, key, state, error);
@@ -1703,7 +1784,9 @@ export function createBusTimeHotLane(deps) {
       };
 
       if (hotDue) {
-        for (const day of p1Days) {
+        const offset = state.hotDayOffset || 0;
+        state.hotDayOffset = (offset + 1) % Math.max(1, p1Days.length);
+        for (const day of [...p1Days.slice(offset), ...p1Days.slice(0, offset)]) {
           if (cycleCalls >= BUS_TIME_MAX_CALLS_PER_CYCLE) break;
           try {
             recordCall(state, "hot");
@@ -1736,15 +1819,14 @@ export function createBusTimeHotLane(deps) {
       else state.busCacheHits += 1;
 
       const backgroundDue =
+        selected === "background" &&
         !recoveringFromRateLimit &&
         missing > 0 &&
         (newlyActive || now() - state.lastBackgroundAt >= BUS_TIME_BACKGROUND_INTERVAL_MS);
       let backgroundCalls = 0;
       if (
         backgroundDue &&
-        cycleCalls <
-          BUS_TIME_MAX_CALLS_PER_CYCLE -
-            (p2Due ? BUS_TIME_P2_MAX_CALLS_PER_CYCLE : 0) &&
+        cycleCalls < BUS_TIME_MAX_CALLS_PER_CYCLE &&
         backgroundCalls < BUS_TIME_MAX_BACKGROUND_CALLS_PER_CYCLE
       ) {
         const background = nextBackground(
@@ -1790,6 +1872,8 @@ export function createBusTimeHotLane(deps) {
               p2Page.day,
               Math.min(20, Math.max(1, Math.ceil((page.total || page.items.length) / 100))),
             );
+            const pages = state.p2PageCounts.get(p2Page.day);
+            state.p2PageCursor.set(p2Page.day, p2Page.page < pages ? p2Page.page + 1 : 1);
             mergeItems(state, page.items, key);
             state.lastP2At = now();
             sourceSucceeded = true;
@@ -1831,11 +1915,35 @@ export function createBusTimeHotLane(deps) {
         }
       }
 
+      // A deferred lane may complete from existing evidence or have no pending
+      // page. Use its still-unspent slot for due current work, so healthy source
+      // acquisition is never slowed by an empty historical/discovery lane.
+      if (cycleCalls === 0 && hotRefreshDue && p1Rows.length > 0) {
+        try {
+          recordCall(state, "hot");
+          state.busP1Calls += 1;
+          cycleCalls += 1;
+          const day = p1Days[state.hotDayOffset || 0] || p1Days[0];
+          const first = await readPage(credential, 1, day);
+          state.pageCounts.set(day, Math.min(20, Math.max(1, Math.ceil((first.total || first.items.length) / 100))));
+          state.hotDayOffset = ((state.hotDayOffset || 0) + 1) % Math.max(1, p1Days.length);
+          mergeItems(state, first.items, key);
+          sourceSucceeded = true;
+          p1Succeeded = true;
+          state.lastHotAt = now();
+        } catch (error) {
+          await failCycle(error, "bus_time_hot_lane_error", plan.p1);
+          return result(state, true, error?.code || "BUS_TIME_SOURCE_ERROR");
+        }
+      }
+
       const observedAt = sourceSucceeded ? isoNow() : "";
       if (p1Succeeded)
         applyEvidence(state, plan.p1, { sourceEvaluated: true, observedAt });
-      if (p2Succeeded)
+      if (p2Succeeded) {
+        state.p2Offset = plan.nextP2Offset;
         applyEvidence(state, plan.p2, { sourceEvaluated: true, observedAt });
+      }
 
       if (sourceSucceeded) {
         state.busLastSuccessAt = observedAt;
@@ -1889,7 +1997,7 @@ export function createBusTimeHotLane(deps) {
             pagesRead++;
             totalPages = Math.min(20, Math.max(1, Math.ceil((page.total || page.items.length) / 100)));
             mergeItems(state, page.items, key);
-          } while (pagesRead < totalPages && pagesRead < BUS_TIME_MAX_CALLS_PER_CYCLE);
+          } while (pagesRead < totalPages && pagesRead < 3);
           return {
             data: result(state), attempted: true,
             reason: pagesRead === totalPages ? "SOURCE_PAGES_COMPLETE" : "BOUNDED_PARTIAL_SOURCE",

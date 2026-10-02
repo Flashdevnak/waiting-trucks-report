@@ -33,7 +33,8 @@ test("5,000 eligible gap rows render with zero history or provider requests", ()
       reason: "SCAN_IN_STATE_ABSENT_AT_REQUIRED_STAGE" },
   })));
   assert.match(list.innerHTML, /เฉพาะหน้านี้: หลุดสแกนเข้า 5000 · ข้อมูลสแกนเข้ายังไม่พร้อม 0/);
-  assert.equal((list.innerHTML.match(/หลุดสแกนเข้า/g) || []).length, 10_001);
+  assert.equal((list.innerHTML.match(/หลุดสแกนเข้า/g) || []).length, 10_002,
+    "two labels per row plus the page summary and the section heading");
   assert.doesNotMatch(list.innerHTML, /ตรวจประวัติ|data-pno-history/);
 });
 

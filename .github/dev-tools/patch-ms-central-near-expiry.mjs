@@ -24,32 +24,8 @@ function centralVehicleStandard(vehicleType) {
     ? CENTRAL_NEAR_EXPIRY_MINUTES[type] : null;
 }
 
-function centralNearExpiryBand(vehicleType) {
-  const standardMinutes = centralVehicleStandard(vehicleType);
-  return standardMinutes === null ? null : {
-    standardMinutes,
-    warningBandMinutes: Math.max(1, Math.ceil(standardMinutes * 0.2)),
-  };
-}
-
-function centralReleaseSeverity(row, countdown, normal) {
-  if (!countdown) return "neutral";
-  if (countdown.key === "late") return "danger";
-  if (countdown.key === "ontime") return "safe";
-  if (countdown.key !== "pending") return "neutral";
-  const band = centralNearExpiryBand(row.vehicleType);
-  if (!band) return "neutral";
-  return countdown.minutes <= band.warningBandMinutes ? "warning" : normal;
-}
-
 function unloadStandard(row) {
   return centralVehicleStandard(row.vehicleType);
 }`);
-  output = once(output,
-    'const releaseSeverity = release?.key === "late" ? "danger" : release?.key === "ontime" && drop.onwardDone ? "safe" : "drop";',
-    'const releaseSeverity = release?.key === "ontime" && !drop.onwardDone ? "drop" : centralReleaseSeverity(row, release, "drop");');
-  output = once(output,
-    'const releaseSeverity = countdown?.key === "late" ? "danger" : countdown ? "safe" : "neutral";',
-    'const releaseSeverity = centralReleaseSeverity(row, countdown, "safe");');
   return output;
 }

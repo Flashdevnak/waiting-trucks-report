@@ -42,8 +42,8 @@ function runtime() {
       unloadingDone: row.unloadingState === 2, onwardMinutes: null, onwardLabel: "รอไปต่อ" }),
     shortDateTime: () => "-",
   };
-  return runInNewContext(source + `\n({ centralVehicleStandard, centralNearExpiryBand,
-    centralReleaseSeverity, adjustedDropDeparturePlan, departureCountdown,
+  return runInNewContext(source + `\n({ centralVehicleStandard,
+    adjustedDropDeparturePlan, departureCountdown,
     unloadStandard, unloadTiming, unloadSlaSummary, renderOperation })`, context);
 }
 
@@ -56,11 +56,8 @@ test("all CENTRAL standards and 20% boundaries isolate conflicting HUB settings"
   for (const [type, standard, band] of standards) {
     assert.equal(r.centralVehicleStandard(type), standard);
     assert.equal(r.unloadStandard({ vehicleType: type }), standard);
-    assert.equal(r.centralNearExpiryBand(type).warningBandMinutes, band);
     for (const [remaining, severity] of [[band + 1, "safe"], [band, "warning"],
       [1, "warning"], [0, "warning"], [-1, "danger"]]) {
-      const countdown = { key: remaining < 0 ? "late" : "pending", minutes: Math.abs(remaining) };
-      assert.equal(r.centralReleaseSeverity({ vehicleType: type }, countdown, "safe"), severity);
       const unload = r.unloadSlaSummary({ arrival: true, completed: false,
         standard, slaMinutes: standard - remaining });
       assert.equal(unload.severity, severity, `${type} ${remaining}`);
@@ -71,16 +68,22 @@ test("all CENTRAL standards and 20% boundaries isolate conflicting HUB settings"
 test("origin uses existing deadline and actual departure truth on both UI render paths", () => {
   const r = runtime(), plan = "2026-10-01T10:00:00Z";
   const origin = { attendanceType: "ต้นทาง", vehicleType: "4W", estimatedDepartureAt: plan };
-  for (const [minutes, expected] of [[5, "safe"], [4, "warning"], [1, "warning"], [0, "warning"], [-1, "danger"]]) {
+  for (const [minutes, expected] of [[5, "pending"], [4, "pending"], [1, "pending"], [0, "pending"], [-1, "late"]]) {
     const now = new Date(Date.parse(plan) - minutes * 60_000);
     const countdown = r.departureCountdown(origin, now);
-    assert.equal(r.centralReleaseSeverity(origin, countdown, "safe"), expected);
+    assert.equal(countdown.key, expected);
   }
   assert.equal(r.departureCountdown({ ...origin, actualDepartureAt: "2026-10-01T09:55:00Z" }).key, "ontime");
   assert.equal(r.departureCountdown({ ...origin, actualDepartureAt: "2026-10-01T10:01:00Z" }).key, "late");
   assert.match(r.renderOperation({ ...origin, actualDepartureAt: "2026-10-01T09:55:00Z" }), /is-safe/);
   assert.match(r.renderOperation({ ...origin, actualDepartureAt: "2026-10-01T10:01:00Z" }), /is-danger/);
   assert.match(r.renderOperation({ ...origin, estimatedDepartureAt: null }), /is-neutral/);
+  for (const minutes of [5, 4, 1]) {
+    const pending = r.renderOperation({ ...origin,
+      estimatedDepartureAt: new Date(Date.now() + minutes * 60_000).toISOString() });
+    assert.match(pending, /classic-operation-summary compact-summary is-safe/);
+    assert.doesNotMatch(pending, /is-warning/);
+  }
 });
 
 test("Destination and Drop unload preserve trusted arrival and completion, with central warning", () => {
@@ -100,30 +103,39 @@ test("Destination and Drop unload preserve trusted arrival and completion, with 
   }
 });
 
-test("Drop release compares to adjusted late-arrival plan, not raw plan", () => {
+test("Drop release compares to adjusted late-arrival plan without an unload warning band", () => {
   const r = runtime(), row = { attendanceType: "จุดดรอป", vehicleType: "4W",
     estimatedArrivalAt: "2026-10-01T09:00:00Z",
     actualArrivalAt: "2026-10-01T09:10:00Z",
     estimatedDepartureAt: "2026-10-01T10:00:00Z" };
   assert.equal(r.adjustedDropDeparturePlan(row).plan.toISOString(), "2026-10-01T10:10:00.000Z");
-  assert.equal(r.centralReleaseSeverity(row, r.departureCountdown(row,
-    new Date("2026-10-01T10:05:00Z")), "drop"), "drop");
-  assert.equal(r.centralReleaseSeverity(row, r.departureCountdown(row,
-    new Date("2026-10-01T10:06:00Z")), "drop"), "warning");
-  assert.equal(r.centralReleaseSeverity(row, r.departureCountdown(row,
-    new Date("2026-10-01T10:11:00Z")), "drop"), "danger");
+  for (const minute of ["10:05", "10:06"]) {
+    assert.equal(r.departureCountdown(row,
+      new Date(`2026-10-01T${minute}:00Z`)).key, "pending");
+  }
+  assert.equal(r.departureCountdown(row,
+    new Date("2026-10-01T10:11:00Z")).key, "late");
   assert.equal(r.departureCountdown({ ...row, actualDepartureAt: "2026-10-01T10:08:00Z" }).key, "ontime");
+  const drop = { attendanceType: "จุดดรอป", vehicleType: "4W",
+    estimatedDepartureAt: new Date(Date.now() + 60_000).toISOString() };
+  const pending = r.renderOperation(drop);
+  assert.match(pending, /classic-operation-summary compact-summary is-drop"><span>สถานะไปต่อ \/ ปล่อยรถ/);
+  assert.doesNotMatch(pending, /is-warning/);
+  assert.match(r.renderOperation({ ...drop, estimatedDepartureAt: new Date(Date.now() - 120_000).toISOString() }),
+    /classic-operation-summary compact-summary is-danger"><span>สถานะไปต่อ \/ ปล่อยรถ/);
+  assert.match(r.renderOperation({ ...drop, actualDepartureAt: new Date().toISOString() }),
+    /classic-operation-summary compact-summary is-safe"><span>สถานะไปต่อ \/ ปล่อยรถ/);
 });
 
 test("unknown vehicle and missing plan fail closed; CSS reused on desktop/mobile with fresh asset URL", () => {
   const r = runtime();
   assert.equal(r.centralVehicleStandard("UNSUPPORTED"), null);
-  assert.equal(r.centralNearExpiryBand("UNSUPPORTED"), null);
-  assert.equal(r.centralReleaseSeverity({ vehicleType: "UNSUPPORTED" },
-    { key: "pending", minutes: 1 }, "safe"), "neutral");
   assert.equal(r.unloadStandard({ vehicleType: "UNSUPPORTED" }), null);
   assert.equal(r.departureCountdown({ attendanceType: "ต้นทาง", vehicleType: "4W" }), null);
-  assert.equal(r.centralReleaseSeverity({}, null, "safe"), "neutral");
+  assert.equal(r.unloadSlaSummary({ arrival: true, completed: false,
+    standard: null, slaMinutes: null }).severity, "neutral");
+  assert.match(r.renderOperation({ attendanceType: "ต้นทาง", vehicleType: "UNSUPPORTED",
+    estimatedDepartureAt: new Date(Date.now() + 60_000).toISOString() }), /is-safe/);
   assert.match(css, /MS_EXISTING_UNLOAD_WARNING_ORANGE_V1[\s\S]*?\.classic-operation-summary\.is-warning\s*\{[^}]*background:\s*#fff0d6/i);
   assert.match(html, /ms-v4\.css\?v=20261001-01/);
   assert.doesNotMatch(canonical, /MS_CENTRAL_NEAR_EXPIRY_V1/);
@@ -131,7 +143,7 @@ test("unknown vehicle and missing plan fail closed; CSS reused on desktop/mobile
   assert.equal(stageFrontend(staged), staged);
 });
 
-test("four operation summaries emit the same reusable warning class on responsive layouts", () => {
+test("only unload summaries emit warning on responsive layouts", () => {
   const r = runtime(), now = Date.now();
   const origin = { attendanceType: "ต้นทาง", vehicleType: "4W",
     estimatedDepartureAt: new Date(now + 3 * 60_000).toISOString() };
@@ -139,11 +151,12 @@ test("four operation summaries emit the same reusable warning class on responsiv
     estimatedDepartureAt: new Date(now + 3 * 60_000).toISOString(),
     actualArrivalAt: new Date(now - 16 * 60_000).toISOString() };
   const destination = { ...drop, attendanceType: "ปลายทาง" };
-  for (const [name, row] of [["origin release", origin], ["drop unload/release", drop],
-    ["destination unload", destination]]) {
-    assert.match(r.renderOperation(row), /classic-operation-summary compact-summary is-warning/, name);
-  }
-  assert.match(r.renderOperation(drop), /is-warning[\s\S]*is-warning/);
+  assert.doesNotMatch(r.renderOperation(origin), /is-warning/);
+  assert.match(r.renderOperation(origin), /classic-operation-summary compact-summary is-safe/);
+  assert.match(r.renderOperation(drop), /classic-operation-summary compact-summary is-warning"><span>SLA ลงของ/);
+  assert.match(r.renderOperation(drop), /classic-operation-summary compact-summary is-drop"><span>สถานะไปต่อ \/ ปล่อยรถ/);
+  assert.equal((r.renderOperation(drop).match(/is-warning/g) || []).length, 1);
+  assert.match(r.renderOperation(destination), /classic-operation-summary compact-summary is-warning/);
   // The responsive layout changes dimensions, not severity classes; both
   // operation representations reuse this same warning selector.
   assert.match(css, /@media[\s\S]*?\.ms-page \.classic-operation-summary\.compact-summary/);

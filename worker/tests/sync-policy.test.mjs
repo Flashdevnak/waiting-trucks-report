@@ -8,6 +8,9 @@ import {
   resolveUnloadingCompletedAt,
   resolveCompletionTruth,
   sameMsSnapshot,
+  sameMsRouteCore,
+  MS_ROUTE_CORE_KEYS,
+  MS_ROUTE_ENRICHMENT_KEYS,
   shouldWriteError,
   shouldWriteSuccessHeartbeat,
 } from "../src/sync-policy.js";
@@ -103,9 +106,23 @@ test("DEV staging permanently wires completion truth, repair, archive and daily-
   assert.match(quotaPatch, /sourceHash: String\(row\.source_hash \|\| ""\)/);
 });
 
-test("parcel and bus enrichment changes are business changes", () => {
+test("parcel and bus enrichment changes remain visible in the full snapshot", () => {
   assert.equal(sameMsSnapshot(base, { ...base, pendingParcels: 4 }), false);
   assert.equal(sameMsSnapshot(base, { ...base, scheduleKitArrivalAt: "2026-09-01T01:05:00.000Z" }), false);
+});
+
+test("Route history excludes optional sources but retains completion provenance", () => {
+  for (const key of ["expectedParcels", "enteredParcels", "pendingParcels",
+    "scheduleKitArrivalAt", "scheduleTbrArrivalAt", "arrivedParcels", "arrivedBags",
+    "scheduleUnloadingStartedAt", "scheduleUnloadingCompletedAt"])
+    assert.ok(MS_ROUTE_ENRICHMENT_KEYS.includes(key));
+  for (const key of ["actualDepartureAt", "unloadingState", "unloadingCompletedAt",
+    "completionSource", "sourceUpdatedAt"])
+    assert.ok(MS_ROUTE_CORE_KEYS.includes(key));
+  assert.equal(sameMsRouteCore(base, { ...base, pendingParcels: 4 }), true);
+  assert.equal(sameMsRouteCore(base, { ...base, scheduleTbrArrivalAt: "later" }), true);
+  assert.equal(sameMsRouteCore(base, { ...base, actualDepartureAt: "later" }), false);
+  assert.equal(sameMsRouteCore(base, { ...base, completionSource: "SCHEDULE" }), false);
 });
 
 test("missing routes respect preserveMissing", () => {

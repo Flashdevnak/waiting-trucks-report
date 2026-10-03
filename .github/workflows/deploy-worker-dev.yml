@@ -56,6 +56,8 @@ jobs:
       - run: node --test ../.github/dev-tools/ms-archive-completeness.test.mjs
       - run: node --test ../.github/dev-tools/daily-history.test.mjs
       - run: node --test ../.github/dev-tools/ms-quota-safe-live.test.mjs
+      - name: Verify MS Route persistence and retry contract
+        run: node --test ../.github/dev-tools/ms-route-persistence-v1.test.mjs
       - run: node --test ../.github/dev-tools/stage-dev-runtime.test.mjs
       - run: node --test ../.github/dev-tools/ms-unload-completion-ui.test.mjs
       - run: node --test ../.github/dev-tools/realtime-quota-hardening.test.mjs
@@ -139,6 +141,7 @@ jobs:
           if(!worker.includes('upstreamMsCalls: 0')||!worker.includes('historyWrites: 0')) throw new Error('daily-history read-only evidence missing');
           if(!worker.includes('const baselineCache = currentCache || cache')||!worker.includes('String(baselineCache?.sourceHash || "").startsWith("completion-v2:")')) throw new Error('completion-v2 live-cache baseline gate missing');
           if(!worker.includes('completionTruth = resolveCompletionTruth')||!worker.includes('ensureMsCompletionRepair')) throw new Error('completion truth resolver/repair missing');
+          if(!worker.includes('MS_ROUTE_PERSISTENCE_V1')||!worker.includes('routePersistenceBudget = 60_000')) throw new Error('bounded Route persistence recovery missing');
           if(!front.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('compact HAR action marker missing');
           if(!originManifest.includes('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2')) throw new Error('origin manifest session replay marker missing');
           if(!originManifest.includes('requestHeaders.Cookie = credentials.cookie')||!originManifest.includes('requestHeaders.Authorization = credentials.authorization')) throw new Error('origin manifest exact HAR session replay missing');

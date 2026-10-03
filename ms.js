@@ -809,7 +809,7 @@ function applyLiveResult(result, fromStream = false) {
     toast(state.syncError, true);
   el("last-refresh").textContent =
     state.msStatus === "degraded"
-      ? "MS ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที"
+      ? "Route ยังไม่อัปเดต · แสดงข้อมูลล่าสุด · กำลังตรวจสถานะทุก 4 วินาที"
       : `อัปเดตล่าสุด ${dtf.format(new Date())} น. · ตรวจสถานะใหม่ทุก 4 วินาที`;
   render();
   const zeroProbeKey = completedTodayDatasetKey();
@@ -2859,8 +2859,12 @@ async function loadMsConnectionStatus() {
       const source401 = key === "routes"
         ? routeRepair?.code === "MS_SESSION_HTTP_401"
         : /(^|\D)401(\D|$)/.test(String(item?.lastError || ""));
+      const routeDegraded = key === "routes" && (
+        ["retry_wait", "needs_login", "error"].includes(String(routeRepair?.state || "")) ||
+        (hub === state.branch && state.msStatus === "degraded")
+      );
       node.className = item?.configured
-        ? (item.lastError || source401 ? "source-error" : isStale ? "source-stale" : "source-ok")
+        ? (item.lastError || source401 ? "source-error" : routeDegraded || isStale ? "source-stale" : "source-ok")
         : "source-missing";
       node.textContent = !item?.configured
         ? key === "hbiPhotos"
@@ -2870,6 +2874,8 @@ async function loadMsConnectionStatus() {
           ? "บันทึก HAR แล้ว · รูปจะโหลดเฉพาะเมื่อกดดูรูปท้ายรถ"
           : item.lastError
             ? `เชื่อมต่อมีปัญหา · ${item.lastError}`
+            : routeDegraded
+              ? `Route ยังไม่อัปเดต · สำเร็จล่าสุด ${shortDateTime(item.lastSuccessAt || item.updatedAt)} · ระบบกำลังลองใหม่`
             : isStale
               ? `มีการเชื่อมต่อที่บันทึกไว้ · สำเร็จล่าสุด ${shortDateTime(item.lastSuccessAt || item.updatedAt)} · สถานะปัจจุบันยังไม่ยืนยัน`
               : `พร้อมใช้งาน · อัปเดตล่าสุด ${shortDateTime(item.lastSuccessAt || item.updatedAt)}`;

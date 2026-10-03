@@ -216,7 +216,7 @@ export function patchMsResilienceWorker(source) {
       const accepted = recentMsSync.get(branch)?.result;
       return { ...(accepted || {}), status: "degraded", changes: 0,
         errorCode: error.code, dbTrace: error.dbTrace || null,
-        error: "ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด" };
+        error: "การอ่านหรือบันทึกข้อมูลภายในใช้เวลาถึงขีดจำกัด ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด" };
     }
     const errorCode = error?.code === "MS_CREDENTIAL_ERROR"`);
   const cacheStart = source.indexOf('async function readMsLiveCache(');
@@ -232,7 +232,7 @@ export function patchMsResilienceWorker(source) {
   return source + '\n' + workerHelpers;
 }
 
-const workerHelpers = String.raw`
+export const workerHelpers = String.raw`
 const msOptionalAccepted = new Map();
 function msSerializeOptionalMap(data) {
   const properties = {};
@@ -304,6 +304,7 @@ function msTursoAvailability(error) {
 function msLiveDbStage(requests, transactionStage) {
   const sql = (Array.isArray(requests) ? requests : [])
     .map((request) => String(request?.stmt?.sql || "")).join("\n");
+  if (/^\s*SELECT\b/i.test(sql) && /\bms_routes\b/i.test(sql)) return "route_state_read";
   if (/\b(?:ms_route_registry|ms_route_history)\b|\b(?:INSERT|REPLACE|UPDATE|DELETE)\b[^;]*\bms_routes\b/i.test(sql)) return "route_batch_write";
   if (/\b(?:COMMIT|ROLLBACK)\b/i.test(sql) && transactionStage) return transactionStage;
   if (/\b(?:INSERT|UPDATE|REPLACE)\b[^;]*\bms_live_cache\b/i.test(sql)) return "live_cache_write";
@@ -320,8 +321,10 @@ function msLiveDatabaseEnv(env) {
   const database = env.DB;
   if (!database || typeof database._pipeline !== "function") return env;
   const db = Object.create(database);
-  // Bound cumulative live DB wait, excluding time spent in Route providers.
+  // Critical reads/status writes retain the cumulative live DB deadline.
+  // Route transactions have a separate bounded total and individual deadline.
   let remainingBudget = 2800;
+  let routePersistenceBudget = 60_000;
   let unavailable = null;
   let pipelineCount = 0;
   let statementCountTotal = 0;
@@ -334,8 +337,11 @@ function msLiveDatabaseEnv(env) {
     const requests = Array.isArray(args[0]) ? args[0] : [];
     const started = Date.now();
     if (firstPipelineAt === null) firstPipelineAt = started;
-    const remaining = remainingBudget;
     const stage = msLiveDbStage(requests, transactionStage);
+    const routeWrite = stage === "route_batch_write";
+    const remaining = routeWrite
+      ? Math.min(2800, routePersistenceBudget)
+      : remainingBudget;
     const sequence = ++pipelineCount;
     const statementCount = requests.filter((request) => request?.type === "execute" &&
       !/^\s*(?:BEGIN|COMMIT|ROLLBACK)\b/i.test(String(request?.stmt?.sql || ""))).length;
@@ -383,7 +389,8 @@ function msLiveDatabaseEnv(env) {
       throw error;
     } finally {
       const trace = record(expired);
-      remainingBudget -= Math.max(0, Date.now() - started);
+      if (routeWrite) routePersistenceBudget -= Math.max(0, Date.now() - started);
+      else remainingBudget -= Math.max(0, Date.now() - started);
       clearTimeout(timer);
       if (caught?.code === "TURSO_LIVE_TIMEOUT") {
         caught.dbTrace = trace;

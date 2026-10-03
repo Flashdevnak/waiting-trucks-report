@@ -227,7 +227,7 @@ async function readMsCompletedToday(env, actor, hub) {
     "async function readMsCompletedToday(env, actor, hub) {",
   );
   const syncClaimHelpersStart = output.indexOf(
-    "const MS_SYNC_CLAIM_LEASE_MS = 15000;",
+    "const MS_SYNC_CLAIM_LEASE_MS = 75000;",
     completedReadStart,
   );
   const markConnectionStart = output.indexOf(
@@ -237,7 +237,7 @@ async function readMsCompletedToday(env, actor, hub) {
   const completedReadEndNeedle =
     syncClaimHelpersStart >= 0 &&
     (markConnectionStart < 0 || syncClaimHelpersStart < markConnectionStart)
-      ? "const MS_SYNC_CLAIM_LEASE_MS = 15000;"
+      ? "const MS_SYNC_CLAIM_LEASE_MS = 75000;"
       : "async function markConnectionSuccess(env, table, hub, now = new Date().toISOString()) {";
 
   output = replaceBetween(

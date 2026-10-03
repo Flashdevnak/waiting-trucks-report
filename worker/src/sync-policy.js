@@ -14,6 +14,26 @@ export const MS_SOURCE_KEYS = MS_SNAPSHOT_KEYS.filter(
   (key) => !["id", "hub", "unloadingCompletedAt"].includes(key),
 );
 
+// Route history records provider business transitions and observed completion
+// provenance. PreEntry and BusTime fields remain in the accepted live snapshot,
+// but cannot by themselves create an UPDATED Route event.
+export const MS_ROUTE_CORE_KEYS = MS_SNAPSHOT_KEYS.filter((key) => ![
+  "expectedParcels", "enteredParcels", "pendingParcels",
+  "scheduleKitArrivalAt", "scheduleTbrArrivalAt", "arrivedParcels",
+  "arrivedBags", "scheduleUnloadingStartedAt",
+  "scheduleUnloadingCompletedAt",
+].includes(key));
+
+export const MS_ROUTE_ENRICHMENT_KEYS = MS_SNAPSHOT_KEYS.filter(
+  (key) => !MS_ROUTE_CORE_KEYS.includes(key),
+);
+
+export function sameMsRouteCore(oldRow, nextRow) {
+  return MS_ROUTE_CORE_KEYS.every(
+    (key) => String(oldRow?.[key] ?? "") === String(nextRow?.[key] ?? ""),
+  );
+}
+
 function previousUnloadingState(row) {
   const value = row?.unloading_state ?? row?.unloadingState;
   if (value === "" || value === null || value === undefined) return null;

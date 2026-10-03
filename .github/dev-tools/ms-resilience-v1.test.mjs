@@ -190,6 +190,110 @@ test('live Turso deadline is 2800ms, blocks subsequent work after timeout and le
   database._pipeline(requests); assert.equal(calls, 2);
 });
 
+const liveSql = {
+  credential_db_read: 'SELECT session_cipher,device_cipher FROM ms_connections WHERE hub=?',
+  live_cache_read: 'SELECT source_hash,rows_json FROM ms_live_cache WHERE hub=?',
+  route_state_read: 'SELECT * FROM ms_routes WHERE hub=?',
+  route_batch_write: 'INSERT OR REPLACE INTO ms_routes(id,hub) VALUES(?,?)',
+  audit_write: 'INSERT INTO audit_log(timestamp,action) VALUES(?,?)',
+  live_cache_write: 'INSERT INTO ms_live_cache(hub,source_hash) VALUES(?,?)',
+  connection_status_write: "UPDATE ms_connections SET last_success_at=?,last_error='' WHERE hub=?",
+};
+const execute = (sql, args = []) => [{ type: 'execute', stmt: { sql, args } }, { type: 'close' }];
+
+for (const [stage, sql] of Object.entries(liveSql)) {
+  test('live DB timeout trace identifies ' + stage + ' from SQL without values', async () => {
+    const h = liveHarness();
+    let expire;
+    h.context.setTimeout = (fn) => { expire = fn; return 1; };
+    h.context.clearTimeout = () => {};
+    const db = { _pipeline: () => new Promise(() => {}) };
+    const env = h.context.msLiveDatabaseEnv({ DB: db });
+    const task = env.DB._pipeline(execute(sql, ['SECRET_SESSION', 'PRIVATE_DRIVER']));
+    expire();
+    await assert.rejects(task, (error) => {
+      assert.equal(error.code, 'TURSO_LIVE_TIMEOUT');
+      assert.equal(error.dbTrace.failureStage, stage);
+      assert.equal(error.dbTrace.pipelineSequence, 1);
+      assert.equal(error.dbTrace.statementCountTotal, 1);
+      assert.equal(error.dbTrace.pipelines.length, 1);
+      assert.equal(error.dbTrace.pipelines[0].timedOut, true);
+      assert.doesNotMatch(JSON.stringify(error.dbTrace), /SECRET_SESSION|PRIVATE_DRIVER|SELECT|INSERT|UPDATE/);
+      return true;
+    });
+  });
+}
+
+test('cumulative fast pipelines identify the exact later timeout and bound trace to twelve entries', async () => {
+  const h = liveHarness();
+  let clock = 0;
+  h.context.Date = class extends Date { static now() { return clock; } };
+  h.context.setTimeout = () => 1;
+  h.context.clearTimeout = () => {};
+  const db = { _pipeline: async () => { clock += 200; return { results: [] }; } };
+  const env = h.context.msLiveDatabaseEnv({ DB: db });
+  for (let i = 0; i < 14; i++) await env.DB._pipeline(execute(liveSql.live_cache_read));
+  await assert.rejects(env.DB._pipeline(execute(liveSql.connection_status_write)), (error) => {
+    assert.equal(error.code, 'TURSO_LIVE_TIMEOUT');
+    assert.equal(error.dbTrace.failureStage, 'connection_status_write');
+    assert.equal(error.dbTrace.pipelineCount, 15);
+    assert.equal(error.dbTrace.statementCountTotal, 15);
+    assert.equal(error.dbTrace.pipelines.length, 12);
+    assert.equal(error.dbTrace.pipelines[0].sequence, 4);
+    return true;
+  });
+});
+
+test('timed-out Route transaction keeps the existing late rollback behavior and stage', async () => {
+  const h = liveHarness();
+  let expire, resolvePipeline, rollback = 0;
+  h.context.setTimeout = (fn) => { expire = fn; return 1; };
+  h.context.clearTimeout = () => {};
+  const db = {
+    _pipeline: () => new Promise((resolve) => { resolvePipeline = resolve; }),
+    _finishTransaction: async (_payload, command) => { if (command === 'ROLLBACK') rollback++; },
+  };
+  const env = h.context.msLiveDatabaseEnv({ DB: db });
+  const task = env.DB._pipeline([
+    { type: 'execute', stmt: { sql: 'BEGIN IMMEDIATE' } },
+    { type: 'execute', stmt: { sql: 'INSERT INTO ms_route_history VALUES(?)', args: ['PRIVATE'] } },
+  ]);
+  expire();
+  await assert.rejects(task, (error) => {
+    assert.equal(error.dbTrace.failureStage, 'route_batch_write');
+    assert.equal(error.dbTrace.transaction, true);
+    return true;
+  });
+  resolvePipeline({ baton: 'opaque', results: [] });
+  await flush();
+  assert.equal(rollback, 1);
+});
+
+test('credential timeout reaches repair outcome without an extra DB read', async () => {
+  const h = liveHarness();
+  const dbTrace = { failureStage: 'credential_db_read', pipelineSequence: 1 };
+  h.context.msCredentials = async () => { throw Object.assign(new Error('deadline'), { code: 'TURSO_LIVE_TIMEOUT', dbTrace }); };
+  const result = await h.context.runMsRefresh({}, 'NE1');
+  assert.equal(result.status, 'degraded');
+  assert.equal(result.errorCode, 'TURSO_LIVE_TIMEOUT');
+  assert.equal(result.dbTrace, dbTrace);
+  assert.equal(h.stats().dbReads, 0);
+});
+
+test('cache timeout reaches repair outcome while preserving accepted timestamp', async () => {
+  const h = liveHarness();
+  const dbTrace = { failureStage: 'live_cache_read', pipelineSequence: 2 };
+  h.context.recentMsSync.set('NE1', { result: { rows: [h.prior], syncedAt: 'genuine-old' } });
+  h.context.readMsLiveCache = async () => { throw Object.assign(new Error('deadline'), { code: 'TURSO_LIVE_TIMEOUT', dbTrace }); };
+  const task = h.context.runMsRefresh({}, 'NE1');
+  await flush(); h.routeSuccess();
+  const result = await task;
+  assert.equal(result.status, 'degraded');
+  assert.equal(result.syncedAt, 'genuine-old');
+  assert.equal(result.dbTrace, dbTrace);
+  assert.equal(result.errorCode, 'TURSO_LIVE_TIMEOUT');
+});
+
 test('administrative database adapter remains independent of the scoped live deadline', async () => {
   const h = liveHarness(); let timers = 0;
   h.context.setTimeout = () => { timers++; };

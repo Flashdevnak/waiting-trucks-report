@@ -215,13 +215,20 @@ export function patchMsResilienceWorker(source) {
   source = unique(source, '    const errorCode = error?.code === "MS_CREDENTIAL_ERROR"', `    if (msTursoAvailability(error)) {
       const accepted = recentMsSync.get(branch)?.result;
       return { ...(accepted || {}), status: "degraded", changes: 0,
-        errorCode: error.code, error: "ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด" };
+        errorCode: error.code, dbTrace: error.dbTrace || null,
+        error: "ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด" };
     }
     const errorCode = error?.code === "MS_CREDENTIAL_ERROR"`);
   const cacheStart = source.indexOf('async function readMsLiveCache(');
   const cacheEnd = source.indexOf('\nasync function writeMsLiveCache(', cacheStart);
   const cache = source.slice(cacheStart, cacheEnd);
   source = source.slice(0, cacheStart) + unique(cache, '  } catch (error) {', '  } catch (error) {\n    if (msTursoAvailability(error)) throw error;') + source.slice(cacheEnd);
+  source = unique(source, '    const errorCode = String(error?.code || "");',
+    '    const errorCode = String(error?.code || "");\n    const dbTrace = errorCode === "TURSO_LIVE_TIMEOUT" ? error.dbTrace || null : null;');
+  source = unique(source, '          ...remembered,\n          status: "degraded",',
+    '          ...remembered,\n          status: "degraded",\n          dbTrace,');
+  source = unique(source, '      status: "error",\n      errorCode: errorCode || "MS_SYNC_FAILED",',
+    '      status: "error",\n      errorCode: errorCode || "MS_SYNC_FAILED",\n      dbTrace,');
   return source + '\n' + workerHelpers;
 }
 
@@ -293,6 +300,20 @@ function msTursoAvailability(error) {
     (error?.code === "TURSO_HTTP_ERROR" && error.status >= 500 && error.status <= 599) ||
     (error?.code === "TURSO_PROTOCOL_ERROR" && /\((?:5\d\d|unknown)\)/.test(error.message));
 }
+// Only the SQL shape is inspected. SQL text and bound values are never retained.
+function msLiveDbStage(requests, transactionStage) {
+  const sql = (Array.isArray(requests) ? requests : [])
+    .map((request) => String(request?.stmt?.sql || "")).join("\n");
+  if (/\b(?:ms_route_registry|ms_route_history)\b|\b(?:INSERT|REPLACE|UPDATE|DELETE)\b[^;]*\bms_routes\b/i.test(sql)) return "route_batch_write";
+  if (/\b(?:COMMIT|ROLLBACK)\b/i.test(sql) && transactionStage) return transactionStage;
+  if (/\b(?:INSERT|UPDATE|REPLACE)\b[^;]*\bms_live_cache\b/i.test(sql)) return "live_cache_write";
+  if (/\bSELECT\b[^;]*\bms_live_cache\b/i.test(sql)) return "live_cache_read";
+  if (/\bSELECT\b[^;]*\bms_routes\b/i.test(sql)) return "route_state_read";
+  if (/\b(?:INSERT|UPDATE|REPLACE)\b[^;]*\baudit_log\b/i.test(sql)) return "audit_write";
+  if (/\b(?:INSERT|UPDATE|REPLACE)\b[^;]*\bms_connections\b/i.test(sql)) return "connection_status_write";
+  if (/\bSELECT\b[^;]*\bms_connections\b/i.test(sql)) return "credential_db_read";
+  return "other_live_db";
+}
 function msLiveDatabaseEnv(env) {
   // The deadline applies to this live refresh's database work only. Administrative,
   // history and archive operations keep their existing database adapter.
@@ -302,30 +323,74 @@ function msLiveDatabaseEnv(env) {
   // Bound cumulative live DB wait, excluding time spent in Route providers.
   let remainingBudget = 2800;
   let unavailable = null;
+  let pipelineCount = 0;
+  let statementCountTotal = 0;
+  let cumulativeDbElapsedMs = 0;
+  let transactionStage = "";
+  let firstPipelineAt = null;
+  const pipelines = [];
   db._pipeline = async function(...args) {
     if (unavailable) throw unavailable;
+    const requests = Array.isArray(args[0]) ? args[0] : [];
     const started = Date.now();
+    if (firstPipelineAt === null) firstPipelineAt = started;
     const remaining = remainingBudget;
+    const stage = msLiveDbStage(requests, transactionStage);
+    const sequence = ++pipelineCount;
+    const statementCount = requests.filter((request) => request?.type === "execute" &&
+      !/^\s*(?:BEGIN|COMMIT|ROLLBACK)\b/i.test(String(request?.stmt?.sql || ""))).length;
+    statementCountTotal += statementCount;
+    const transaction = requests.some((request) => /^BEGIN\b/i.test(request.stmt?.sql || ""));
+    if (transaction) transactionStage = stage;
+    const record = (timedOut, submitted = true) => {
+      const elapsedMs = Math.max(0, Date.now() - started);
+      cumulativeDbElapsedMs += elapsedMs;
+      const entry = { sequence, stage, startedOffsetMs: Math.max(0, started - firstPipelineAt),
+        elapsedMs, cumulativeElapsedMs: cumulativeDbElapsedMs, remainingBeforeMs: Math.max(0, remaining),
+        remainingAfterMs: timedOut ? 0 : Math.max(0, remaining - elapsedMs),
+        requestCount: requests.length, statementCount, transaction: transaction || Boolean(transactionStage),
+        submitted, timedOut };
+      pipelines.push(entry);
+      if (pipelines.length > 12) pipelines.shift();
+      return { failureStage: stage, pipelineSequence: sequence, pipelineElapsedMs: elapsedMs,
+        cumulativeDbElapsedMs, remainingBeforeMs: Math.max(0, remaining), pipelineCount,
+        statementCountTotal, transaction: transaction || Boolean(transactionStage), pipelines: [...pipelines] };
+    };
     const timeoutError = () => Object.assign(new Error("Live database deadline exceeded"), { code: "TURSO_LIVE_TIMEOUT" });
-    if (remaining <= 0) throw timeoutError();
+    if (remaining <= 0) {
+      const failure = timeoutError();
+      failure.dbTrace = record(true, false);
+      console.warn(JSON.stringify({ event: "ms_live_db_timeout", ...failure.dbTrace }));
+      throw failure;
+    }
     let timer;
     let expired = false;
-    const transaction = args[0].some((request) => /^BEGIN\b/i.test(request.stmt?.sql || ""));
     const pending = database._pipeline(...args);
     // If a transaction response arrives after the live deadline, close its baton
     // through the original adapter. Never commit abandoned live work.
     if (transaction) pending.then((payload) => {
       if (expired) database._finishTransaction(payload, "ROLLBACK").catch(() => {});
     }, () => {});
+    let caught;
     try {
       return await Promise.race([
         pending,
         new Promise((_, reject) => { timer = setTimeout(() => { expired = true; reject(timeoutError()); }, remaining); }),
       ]);
     } catch (error) {
+      caught = error;
       if (msTursoAvailability(error)) unavailable = error;
       throw error;
-    } finally { remainingBudget -= Math.max(0, Date.now() - started); clearTimeout(timer); }
+    } finally {
+      const trace = record(expired);
+      remainingBudget -= Math.max(0, Date.now() - started);
+      clearTimeout(timer);
+      if (caught?.code === "TURSO_LIVE_TIMEOUT") {
+        caught.dbTrace = trace;
+        console.warn(JSON.stringify({ event: "ms_live_db_timeout", ...trace }));
+      }
+      if (/^\s*(?:COMMIT|ROLLBACK)\b/i.test(String(requests[0]?.stmt?.sql || ""))) transactionStage = "";
+    }
   };
   db._finishTransaction = function(payload, command) {
     if (command === "ROLLBACK") return database._finishTransaction(payload, command);

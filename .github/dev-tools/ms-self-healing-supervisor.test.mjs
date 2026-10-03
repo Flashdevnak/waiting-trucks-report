@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 import { stageWorker } from "./stage-dev-runtime.mjs";
 
 const root = new URL("../../", import.meta.url);
@@ -53,4 +54,40 @@ test("manual admin repair is role-gated, bounded and never touches HBI", () => {
 
 test("newly paired credentials bypass an old repair cooldown", () => {
   assert.match(staged, /refreshMsIfStale\(env, \{ username: "MS_QR", role: "admin", branches: \["\*"\] \}, row\.hub, true\)/);
+});
+
+test("one failed refresh persists only sanitized bounded DB trace with existing repair transition", async () => {
+  const sanitizer = staged.slice(staged.indexOf("const MS_REPAIR_DB_STAGES"), staged.indexOf("\nasync function mapMsRepairLimit"));
+  const coordinator = staged.slice(staged.indexOf("export class MsRefreshCoordinator"), staged.indexOf("\n// MS_CRON_LIVE_REFRESH_V1", staged.indexOf("export class MsRefreshCoordinator"))).replace("export class", "class");
+  assert.ok(sanitizer.includes("msSanitizeRepairDbTrace") && coordinator.includes("recordRepairResult"));
+  const context = { MS_REPAIR_POLICY_VERSION: 6, MS_REPAIR_TRANSIENT_BACKOFF_MS: [60000],
+    MS_REPAIR_SESSION_COOLDOWN_MS: 3600000, OriginManifestCoordinator: class {}, console };
+  vm.createContext(context);
+  vm.runInContext(sanitizer + "\n" + coordinator + "\nglobalThis.RepairCoordinator = MsRefreshCoordinator;", context);
+  const writes = [];
+  const owner = new context.RepairCoordinator({ storage: { put: async (key, value) => writes.push([key, value]) } }, {});
+  const pipelines = Array.from({ length: 20 }, (_, index) => ({
+    sequence: index + 1, stage: "live_cache_read", sql: "SELECT secret", args: ["SECRET_TOKEN"],
+    requestCount: 2, statementCount: 1, elapsedMs: 200,
+  }));
+  await owner.recordRepairResult({ status: "degraded", errorCode: "TURSO_LIVE_TIMEOUT",
+    dbTrace: { failureStage: "live_cache_read", pipelineCount: 20, pipelines, token: "SECRET_TOKEN" } }, 1000);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0][0], "ms-repair-v1");
+  assert.equal(owner.repairView(1000).dbTrace.pipelines.length, 12);
+  assert.equal(owner.repairView(1000).dbTrace.pipelines[0].sequence, 9);
+  assert.doesNotMatch(JSON.stringify(writes), /SECRET_TOKEN|SELECT secret|args|sql/);
+  await owner.recordRepairResult({ status: "synced" }, 2000);
+  assert.equal(writes.length, 2);
+  assert.equal(owner.repairView(2000).dbTrace, undefined);
+});
+
+test("msRepairHealthDev exposes the saved sanitized trace without Turso or upstream calls", () => {
+  const begin = staged.indexOf('if (action === "msRepairHealthDev")');
+  const end = staged.indexOf("const actor = await verify", begin);
+  const diagnostic = staged.slice(begin, end);
+  assert.ok(begin >= 0 && end > begin);
+  assert.match(diagnostic, /dbTrace: msSanitizeRepairDbTrace\(repair\.dbTrace\)/);
+  assert.match(diagnostic, /quota: \{ tursoReads: 0, tursoWrites: 0, upstreamCalls: 0 \}/);
+  assert.doesNotMatch(diagnostic, /env\.DB|readMsRoutes|readPreEntryCounts|readBusTimeData|fetchWithTimeout/);
 });

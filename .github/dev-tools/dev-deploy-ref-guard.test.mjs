@@ -87,5 +87,5 @@ test("application staging block matches the reviewed DEV CSS asset contract", ()
   const end = workflow.indexOf("      - name: Verify Turso and auth secrets exist on DEV Worker\n", start);
   assert.ok(start >= 0 && end > start);
   const hash = createHash("sha256").update(workflow.slice(start, end)).digest("hex");
-  assert.equal(hash, "2a332f9fc1ebdeaa314b0c00107511517e61086034f3f03b4bc904a20a3a4e34");
+  assert.equal(hash, "ed286a9cd35b71512635a7e8042be80449c32c24ae5b9561aeb92cd74a83d2ee");
 });

@@ -355,6 +355,7 @@ test("DEV Proof status uses only shared Session presence and bypasses Route heal
     };
     const context = {
       Date,
+      state: { branch: "HUB_A", msStatus: "synced" },
       document: { querySelector: (selector) => nodes.get(selector.match(/data-source-status="([^"]+)"/)?.[1]) },
       el: (id) => id === "ms-har-hub" ? { value: "HUB_A" } : null,
       apiGet: async (action) => {

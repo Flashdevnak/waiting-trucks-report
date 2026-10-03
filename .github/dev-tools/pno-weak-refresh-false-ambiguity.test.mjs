@@ -8,6 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { patchPnoDetailAffordanceWorkerV30 } from "./patch-pno-detail-affordance-recovery.mjs";
+import { exactPnoSegments, patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destination-truth.mjs";
 import { stageFrontend, stageWorker } from "./stage-dev-runtime.mjs";
 
 // Execute the effective DEV staging chain in a disposable directory.
@@ -22,7 +23,7 @@ try {
     "./patch-bus-time-hot-lane-v14.mjs",
     "./patch-dev-auxiliary-evidence-completeness.mjs",
   ]) execFileSync(process.execPath, [fileURLToPath(new URL(script, import.meta.url)), worker]);
-  workerSource = patchPnoDetailAffordanceWorkerV30(await readFile(worker, "utf8"));
+  workerSource = patchPnoSegmentDestinationWorker(patchPnoDetailAffordanceWorkerV30(await readFile(worker, "utf8")));
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
@@ -43,6 +44,7 @@ const projection = between(
 const sourceHelpers = between(workerSource, "const preEntryRowSourceDay =", "function preEntrySemanticKey(");
 const readCounts = between(workerSource, "async function readPreEntryCountsFresh(", "export function classifyPreEntryFailure(");
 const frontendHelpers = between(frontendSource, "function pnoReadOnlyDetailEligibility", "function findPnoRowById");
+const exactSegments = between(frontendSource, "function pnoV18ExactSegments", "async function pnoV18UnionPage");
 
 const branch = "NE1";
 const occurrence = {
@@ -118,7 +120,8 @@ const frontend = {
   esc: (value) => String(value ?? "").replaceAll('"', "&quot;"),
 };
 vm.createContext(frontend);
-vm.runInContext(`${frontendHelpers}
+vm.runInContext(`${exactSegments}
+${frontendHelpers}
 globalThis.eligibility = pnoReadOnlyDetailEligibility;
 globalThis.message = pnoReadOnlyUnavailableMessage;
 globalThis.renderBadge = expectedParcelsBadge;`, frontend);
@@ -131,6 +134,7 @@ async function project(parcelCounts, previous, current = occurrence) {
     enrichMsRow: (row, counts) => ({ ...row, ...(counts.get(`P:${row.proofId}`) || {}) }),
     normalizeProofId: (value) => String(value || "").trim().toUpperCase(),
     normalizeMsAttendance: (value) => String(value || ""),
+    exactPnoSegments,
     text: (value) => String(value || ""),
     date: (value) => value ? new Date(value).toISOString() : "",
   };
@@ -143,7 +147,7 @@ const weakPartial = () => Object.assign(new Map(), {
   sourcePartial: true, partialProofs: new Set([occurrence.proofId]),
 });
 const complete = (counts) => Object.assign(counts, { sourceEvaluated: true });
-const multiWarning = "หลายจุดส่ง จึงไม่เปิดรายละเอียดรวมเพื่อป้องกันการเลือกเที่ยวผิด";
+const multiWarning = "หลายจุดส่ง: ข้อมูลอ้างอิงเที่ยวไม่ครบ จึงยังเปิดรายละเอียดไม่ได้";
 
 const singleCounts = await aggregate([{ ...segment }]);
 const single = singleCounts.get(`P:${occurrence.proofId}`);
@@ -165,11 +169,19 @@ test("1: successful nonempty single segment stays eligible", () => {
   assert.equal(frontend.message(result), "");
 });
 
-test("2: genuine two-segment evidence remains fail closed with multi-stop warning", () => {
+test("2: genuine complete two-segment evidence becomes exact-segment eligible", () => {
   assert.equal(multi.pnoSegmentCount, 2);
-  assert.equal(multi.pnoDetailAvailable, false);
+  assert.equal(multi.pnoDetailAvailable, true);
   const result = frontend.eligibility(previousMulti);
-  assert.equal(result.reason, "AMBIGUOUS_OCCURRENCE");
+  assert.equal(result.reason, "EXACT_SEGMENTS");
+  assert.equal(frontend.message(result), "");
+});
+
+test("incomplete multi-segment metadata remains unavailable", () => {
+  const incomplete = { ...previousMulti, pnoSegments: previousMulti.pnoSegments.slice(0, 1) };
+  const result = frontend.eligibility(incomplete);
+  assert.equal(result.available, false);
+  assert.equal(result.reason, "SEGMENTS_INCOMPLETE");
   assert.equal(frontend.message(result), multiWarning);
 });
 
@@ -211,8 +223,8 @@ test("7: the same proof on another business day cannot borrow segment evidence",
 test("8: complete multi-stop evidence replaces prior single-segment evidence", async () => {
   const row = await project(complete(multiCounts), previousSingle);
   assert.equal(row.pnoSegmentCount, 2);
-  assert.equal(row.pnoDetailAvailable, false);
-  assert.equal(frontend.message(frontend.eligibility(row)), multiWarning);
+  assert.equal(row.pnoDetailAvailable, true);
+  assert.equal(frontend.eligibility(row).reason, "EXACT_SEGMENTS");
 });
 
 test("9: complete single-segment evidence replaces prior multi-stop evidence", async () => {
@@ -263,8 +275,8 @@ test("14: unloading state 2 retains the existing read-only parcel detail afforda
 test("weak multi-stop stays multi-stop and unknown prior metadata never becomes eligible", async () => {
   const weakMulti = await project(weakFailure(), previousMulti);
   assert.equal(weakMulti.pnoSegmentCount, 2);
-  assert.equal(weakMulti.pnoDetailAvailable, false);
-  assert.equal(frontend.message(frontend.eligibility(weakMulti)), multiWarning);
+  assert.equal(weakMulti.pnoDetailAvailable, true);
+  assert.equal(frontend.eligibility(weakMulti).reason, "EXACT_SEGMENTS");
   const unknown = await project(weakPartial(), { ...previousSingle, pnoSegmentCount: undefined });
   assert.equal(unknown.pnoSegmentCount, undefined);
   assert.equal(unknown.pnoDetailAvailable, false);

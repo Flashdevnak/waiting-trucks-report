@@ -92,6 +92,7 @@ test("confirmed, gap and technical unknown labels stay distinct in pending candi
     const pnoV18ParcelFilterActive = () => false;
     const pnoV18UpdateFilterResult = () => {};
     const pnoV18ParcelAction = (item) => item.lastAction || "-";
+    ${section("function pnoV18DisplayBranch(", "function pnoV18ExactSegments(")}
     const pnoV18StatusClass = () => "";
     const pnoV18ActionClass = () => "";
     ${renderRowsSource}; return pnoV18RenderRows;`)({ el: ui.el, nf: ui.nf,

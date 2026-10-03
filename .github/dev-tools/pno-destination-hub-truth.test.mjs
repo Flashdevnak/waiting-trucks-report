@@ -197,16 +197,16 @@ test("destination and next store remain independent, and missing destination has
 
 test("bag HUB uses unique nonempty parcel destinations, independent of delivery stores", () => {
   const parcels = [
-    { targetHub: targetHub({ dst_hub_name: "DEST_HUB", ticket_delivery_store_name: "BRANCH_A" }, cleanStoreName), targetBranch: "NEXT_A" },
-    { targetHub: targetHub({ dst_hub_name: "DEST_HUB", ticket_delivery_store_name: "BRANCH_B" }, cleanStoreName), targetBranch: "NEXT_A" },
-    { targetHub: "", targetBranch: "" },
+    { targetHub: targetHub({ dst_hub_name: "DEST_HUB", ticket_delivery_store_name: "BRANCH_A" }, cleanStoreName), targetBranch: "BRANCH_A", nextStoreName: "NEXT_A" },
+    { targetHub: targetHub({ dst_hub_name: "DEST_HUB", ticket_delivery_store_name: "BRANCH_B" }, cleanStoreName), targetBranch: "BRANCH_B", nextStoreName: "NEXT_A" },
+    { targetHub: "", targetBranch: "", nextStoreName: "" },
   ];
   assert.equal(bagSummary(parcels).hub, "DEST_HUB");
   assert.equal(bagSummary(parcels).branch, "NEXT_A");
   assert.equal(bagSummary([{ targetHub: "HUB_A" }, { targetHub: "HUB_B" }]).hub, "HUB_A · HUB_B");
   assert.equal(bagSummary([{ targetHub: "" }, { targetHub: "" }]).hub, "-");
-  assert.equal(bagSummary([{ targetHub: "HUB_A", targetBranch: "NEXT_A" },
-    { targetHub: "HUB_A", targetBranch: "NEXT_B" }]).branch, "หลายสาขา");
+  assert.equal(bagSummary([{ targetHub: "HUB_A", nextStoreName: "NEXT_A" },
+    { targetHub: "HUB_A", nextStoreName: "NEXT_B" }]).branch, "หลายสาขา");
 });
 
 test("bag HUB retains one, two and three full destinations in provider order", () => {
@@ -231,7 +231,7 @@ test("bag HUB retains one, two and three full destinations in provider order", (
 });
 
 test("bag table, Copy, LINE and Export share the complete summary without acquisition", async () => {
-  const names = ["pnoV18BagGroups", "pnoV18BagValue", "pnoV18BagLatest", "pnoV18BagSummary",
+  const names = ["pnoV18ParcelAction", "pnoV18DisplayBranch", "pnoV18BagGroups", "pnoV18BagValue", "pnoV18BagLatest", "pnoV18BagSummary",
     "pnoV18FilteredBagGroups", "pnoV18RenderBags", "pnoV18TsvCell", "pnoV18LineCell",
     "pnoV18AppendLineLimited", "pnoV18Copy", "pnoV18CopyLine", "pnoV18Export"];
   const blocks = names.map((name) => {
@@ -244,7 +244,8 @@ test("bag table, Copy, LINE and Export share the complete summary without acquis
   const observed = { copies: [], exports: [], reads: 0 };
   const hubs = ["16 Central_HUB-วังน้อย", "23 AYU_BHUB-วังน้อย", "65 WNO_BHUB-วังน้อย"];
   const items = hubs.map((targetHub, i) => ({ backingNo: "SYNTHETIC-BAG", targetHub,
-    targetBranch: "SYNTHETIC-NEXT", lastAction: "SYNTHETIC-ACTION", lastActionAt: String(i) }));
+    nextStoreName: "SYNTHETIC-NEXT", targetBranch: "SYNTHETIC-DELIVERY",
+    lastAction: "SYNTHETIC-ACTION", lastActionAt: String(i) }));
   const context = { pnoV18State: { type: "bag", bagRows: items, expandedBag: "",
       filters: { status: "", action: "", branch: "" } },
     el: () => list, esc: (value) => String(value), nf: new Intl.NumberFormat("en-US"),
@@ -271,25 +272,26 @@ test("bag table, Copy, LINE and Export share the complete summary without acquis
   assert.doesNotMatch(list.innerHTML + observed.copies.join("\n") + JSON.stringify(observed.exports), /หลาย HUB/);
 });
 
-test("parcel table, Copy and Export use the exact owner labels; LINE preserves two values", () => {
-  assert.equal(frontend.split("ฮับปลายทาง").length - 1, 5);
-  assert.doesNotMatch(frontend, /จุดที่ระบุในข้อมูลพัสดุ|สาขาปลายทาง|HUB ปลายทาง/);
-  assert.match(frontend, /<th>ฮับปลายทาง<\/th><th>ชื่อสาขาต่อไป<\/th>/);
-  assert.match(frontend, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "ฮับปลายทาง", "ชื่อสาขาต่อไป", "เวลา"\]/);
-  assert.match(frontend, /"ฮับปลายทาง": row\.targetHub \|\| ""/);
-  assert.match(frontend, /"ชื่อสาขาต่อไป": row\.targetBranch \|\| ""/);
-  assert.match(frontend, /pnoV18LineCell\(row\.targetHub\) \+ " > " \+ pnoV18LineCell\(row\.targetBranch\)/);
+test("parcel table, Copy and Export distinguish destination from next store", () => {
+  assert.ok(frontend.split("HUB ปลายทาง").length > 5);
+  assert.doesNotMatch(frontend, /จุดที่ระบุในข้อมูลพัสดุ|HUBปลายทาง/);
+  assert.match(frontend, /<th>HUB ปลายทาง<\/th><th>สาขาปลายทาง<\/th>/);
+  assert.match(frontend, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา", \.\.\.\(pnoV18State\.selection === "union" \? \["จุดส่ง"\] : \[\]\)\]/);
+  assert.match(frontend, /"HUB ปลายทาง": row\.targetHub \|\| ""/);
+  assert.match(frontend, /"สาขาปลายทาง": pnoV18DisplayBranch\(row\.targetBranch\)/);
+  assert.match(frontend, /pnoV18LineCell\(row\.targetHub\) \+ " > " \+ pnoV18LineCell\(pnoV18DisplayBranch\(row\.targetBranch\)\)/);
   assert.match(frontend, /esc\(item\.targetHub \|\| "-"\)/);
 });
 
-test("scan-gap shares the destination projection and common filters omit HUB", () => {
+test("scan-gap shares destination projection and HUB parent filter", () => {
   assert.match(frontend, /type === "scan_gap"/);
-  assert.match(frontend, /"ฮับปลายทาง": row\.targetHub \|\| ""/);
-  assert.match(frontend, /\["branch", "ชื่อสาขาต่อไป", branches\]/);
+  assert.match(frontend, /"HUB ปลายทาง": row\.targetHub \|\| ""/);
+  assert.match(frontend, /\["branch", type === "bag" \? "ชื่อสาขาต่อไป" : "สาขาปลายทาง", branches\]/);
   assert.match(frontend, /\["status", "สถานะ", statuses\]/);
   assert.match(frontend, /\["action", "การดำเนินการล่าสุด", actions\]/);
   const filters = frontend.slice(frontend.indexOf("function pnoV18RenderFilters("), frontend.indexOf("function pnoV18RenderRows("));
-  assert.doesNotMatch(filters, /\["hub"|bagHub|pnoNextStoreName/);
+  assert.match(filters, /\["hub", "HUB ปลายทาง", hubs\]/);
+  assert.doesNotMatch(filters, /bagHub|pnoNextStoreName/);
 });
 
 test("patches are idempotent and introduce no acquisition or background machinery", () => {

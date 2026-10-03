@@ -49,24 +49,24 @@ test("different next stores remain distinct despite a shared delivery branch", (
 test("bag summary keeps next-store independent from authoritative parcel HUB", () => {
   const { group, summary } = bagFunctions();
   const rows = [
-    { backingNo: "BAG_A", targetHub: "HUB_A", targetBranch: nextBranch({ next_store_name: "NEXT_A", ticket_delivery_store_name: "DELIVERY_A" }, cleanStoreName) },
-    { backingNo: "BAG_A", targetHub: "HUB_A", targetBranch: nextBranch({ next_store_name: "NEXT_A", ticket_delivery_store_name: "DELIVERY_B" }, cleanStoreName) },
+    { backingNo: "BAG_A", targetHub: "HUB_A", nextStoreName: nextBranch({ next_store_name: "NEXT_A", ticket_delivery_store_name: "DELIVERY_A" }, cleanStoreName), targetBranch: "DELIVERY_A" },
+    { backingNo: "BAG_A", targetHub: "HUB_A", nextStoreName: nextBranch({ next_store_name: "NEXT_A", ticket_delivery_store_name: "DELIVERY_B" }, cleanStoreName), targetBranch: "DELIVERY_B" },
   ];
   const groups = group(rows);
   assert.equal(groups.length, 1);
   assert.equal(groups[0][0], "BAG_A");
   assert.equal(summary(groups[0][1]).branch, "NEXT_A");
   assert.equal(summary(groups[0][1]).hub, "HUB_A");
-  assert.equal(summary([{ targetBranch: "NEXT_A" }, { targetBranch: "NEXT_B" }]).branch, "หลายสาขา");
-  assert.equal(summary([{ targetBranch: "" }, { targetBranch: "" }]).branch, "-");
+  assert.equal(summary([{ nextStoreName: "NEXT_A" }, { nextStoreName: "NEXT_B" }]).branch, "หลายสาขา");
+  assert.equal(summary([{ nextStoreName: "" }, { nextStoreName: "" }]).branch, "-");
 });
 
 test("staged parcel and bag labels keep next-store distinct from destination HUB", () => {
-  assert.doesNotMatch(frontend, /HUB ปลายทาง|สาขาถัดไป|สาขาปลายทาง|จุดที่ระบุในข้อมูลพัสดุ/);
-  assert.match(frontend, /<th>ฮับปลายทาง<\/th><th>ชื่อสาขาต่อไป<\/th>/);
+  assert.doesNotMatch(frontend, /สาขาถัดไป|จุดที่ระบุในข้อมูลพัสดุ/);
+  assert.match(frontend, /<th>HUB ปลายทาง<\/th><th>สาขาปลายทาง<\/th>/);
   assert.match(frontend, /<th>HUB ถัดไป<\/th><th>ชื่อสาขาต่อไป<\/th>/);
-  assert.match(frontend, /"ฮับปลายทาง": row\.targetHub/);
-  assert.match(frontend, /"ชื่อสาขาต่อไป": row\.targetBranch/);
+  assert.match(frontend, /"HUB ปลายทาง": row\.targetHub/);
+  assert.match(frontend, /"สาขาปลายทาง": pnoV18DisplayBranch\(row\.targetBranch\)/);
   assert.match(frontend, /PNO_NEXT_STORE_SEMANTICS_V3/);
   assert.doesNotMatch(frontend, /HUBปลายทาง/);
   assert.equal(patchPnoDestinationLabelsFrontend(frontend), frontend, "frontend staging is idempotent");

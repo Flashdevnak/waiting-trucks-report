@@ -137,7 +137,7 @@ test("unknown vehicle and missing plan fail closed; CSS reused on desktop/mobile
   assert.match(r.renderOperation({ attendanceType: "ต้นทาง", vehicleType: "UNSUPPORTED",
     estimatedDepartureAt: new Date(Date.now() + 60_000).toISOString() }), /is-safe/);
   assert.match(css, /MS_EXISTING_UNLOAD_WARNING_ORANGE_V1[\s\S]*?\.classic-operation-summary\.is-warning\s*\{[^}]*background:\s*#fff0d6/i);
-  assert.match(html, /ms-v4\.css\?v=20261001-01/);
+  assert.match(html, /ms-v4\.css\?v=20261003-pno-operational-truth-v1/);
   assert.doesNotMatch(canonical, /MS_CENTRAL_NEAR_EXPIRY_V1/);
   assert.equal((staged.match(/MS_CENTRAL_NEAR_EXPIRY_V1/g) || []).length, 1);
   assert.equal(stageFrontend(staged), staged);

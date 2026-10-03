@@ -97,6 +97,8 @@ import { patchSupervisorAccessGuard } from "./patch-supervisor-access-guard.mjs"
 import { patchSupervisorSharedSnapshot } from "./patch-supervisor-shared-snapshot.mjs";
 import { patchMsResilienceFrontend, patchMsResilienceWorker } from "./patch-ms-resilience-v1.mjs";
 import { patchPnoScanEvidenceUx } from "./patch-pno-scan-evidence-ux.mjs";
+import { patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destination-truth.mjs";
+import { patchPnoSegmentDestinationFrontend } from "./patch-pno-segment-destination-frontend.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -194,7 +196,7 @@ export function patchDevUiShellSource(source, currentPage) {
     // The DEV modal script changed; ensure browsers acquire this version when
     // an owner later deploys the explicitly approved DEV runtime.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261003-pno-scan-evidence-v2"');
+      'src="ms.js?v=20261003-pno-operational-truth-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -475,6 +477,7 @@ export function stageFrontend(source) {
   output = patchMsCentralNearExpiry(output);
   output = patchMsResilienceFrontend(output);
   output = patchPnoScanEvidenceUx(output);
+  output = patchPnoSegmentDestinationFrontend(output);
   return output;
 }
 
@@ -572,7 +575,8 @@ if (invokedPath) {
   });
   const auxiliaryWorker = await readFile(workerTarget, "utf8");
   await writeFile(workerTarget,
-    patchPnoPassiveCoverageWorker(patchPnoInboundScanEvidenceWorker(patchPnoDetailAffordanceWorkerV30(auxiliaryWorker))),
+    patchPnoSegmentDestinationWorker(
+      patchPnoPassiveCoverageWorker(patchPnoInboundScanEvidenceWorker(patchPnoDetailAffordanceWorkerV30(auxiliaryWorker)))),
     "utf8");
   const busTimeHotLaneWorker = await readFile(workerTarget, "utf8");
   if (!busTimeHotLaneWorker.includes("BUS_TIME_HOT_LANE_V14"))

@@ -164,7 +164,7 @@ jobs:
             if(html.includes('href="waiting.html"')) throw new Error(`${page} exposes waiting.html in navigation`);
           }
           const msHtml=fs.readFileSync('.dev-assets/ms.html','utf8');
-          if(!msHtml.includes('ms-v4.css?v=20261001-01')) throw new Error('staged MS UI V4 link missing');
+          if(!msHtml.includes('ms-v4.css?v=20261003-pno-operational-truth-v1')) throw new Error('staged MS UI V4 link missing');
           const proofHtmlLive=fs.readFileSync('.dev-assets/proof.html','utf8');
           if(!msHtml.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS central QR/HAR entry missing');
           if(!proofHtmlLive.includes('ms.html#connection')||!proofHtmlLive.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('Proof shared QR/HAR entry missing');
@@ -235,7 +235,7 @@ jobs:
           const base='https://waiting-trucks-report-api-dev.26nak-testdev.workers.dev';
           const pages=['ms.html','proof.html','ms-report.html'];
           const style='style.css?v=20260905-dev-shell-v3';
-          const msV4Style='ms-v4.css?v=20261001-01';
+          const msV4Style='ms-v4.css?v=20261003-pno-operational-truth-v1';
           async function get(path){
             const response=await fetch(path?`${base}/${path}`:`${base}/`,{headers:{'cache-control':'no-cache'},cache:'no-store'});
             const body=await response.text();

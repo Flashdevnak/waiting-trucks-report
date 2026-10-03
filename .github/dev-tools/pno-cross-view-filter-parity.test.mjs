@@ -7,7 +7,7 @@ import { patchPnoCrossViewFilterParity } from "./patch-pno-cross-view-filter-par
 
 const staged = stageFrontend(readFileSync(new URL("../../ms.js", import.meta.url), "utf8"));
 const functions = [
-  "pnoV18TextValue", "pnoV18UniqueValues", "pnoV18FilterOption", "pnoV18ValidateFilter",
+  "pnoV18TextValue", "pnoV18UniqueValues", "pnoV18FilterOption", "pnoV18ValidateFilter", "pnoV18DisplayBranch",
   "pnoPendingEvidenceLabel", "pnoV18TypeLabel", "pnoV18ParcelStatus", "pnoV18ParcelAction",
   "pnoV18ParcelFilterActive", "pnoV18ParcelFilterDataset", "pnoV18FilteredParcelEntries",
   "pnoV18VisibleParcelEntries", "pnoV18EnsureParcelFilterRows", "pnoV18PrepareCurrentFilters", "pnoV18Navigate",
@@ -30,7 +30,7 @@ const rows = [
   { pno: "SYNTHETIC-B", backingNo: "SYNTHETIC-BAG-A", status: "รอ", lastAction: "ส่ง", lastActionAt: "2026-09-25T02:00:00Z", targetBranch: "BRANCH-A", scanEvidence: { classification: "CONFIRMED_SCAN_IN" } },
   { pno: "SYNTHETIC-C", backingNo: "SYNTHETIC-BAG-B", status: "เข้าแล้ว", lastAction: "ส่ง", lastActionAt: "2026-09-25T03:00:00Z", targetBranch: "BRANCH-B", scanEvidence: { classification: "INSUFFICIENT_HISTORY" } },
   { pno: "SYNTHETIC-D", backingNo: "", status: "รอ", lastAction: "รับ", lastActionAt: "2026-09-25T04:00:00Z", targetBranch: "", scanEvidence: { classification: "NOT_YET_SCAN_IN_STAGE" } },
-];
+].map((item) => ({ ...item, nextStoreName: item.targetBranch }));
 
 function harness({ type = "total", all = rows, current = rows, total = all.length, fetchPage } = {}) {
   const nodes = new Map(), observed = { fetch: [], upstream: [], downloads: [], clip: "", gap: [], toast: [] };
@@ -49,7 +49,7 @@ function harness({ type = "total", all = rows, current = rows, total = all.lengt
     type, page: 1, rows: current, total, bagRows: type === "bag" ? all : null,
     filterRows: null, filterKey: "", filterAt: 0, filterPromise: null, filterError: "", filterProgress: "", filterForce: false,
     filterPage: 1, sourceRow: { proofId: "SYNTHETIC_PROOF", pnoNextStoreName: "NEXT-STORE" },
-    filters: { status: "", action: "", branch: "" }, busy: false,
+    filters: { status: "", action: "", hub: "", branch: "" }, selection: null, busy: false,
   };
   const context = vm.createContext({
     pnoV18State: state, state: { branch: "CURRENT-HUB" },
@@ -112,13 +112,13 @@ function harness({ type = "total", all = rows, current = rows, total = all.lengt
     } };
 }
 
-test("effective staging parses, is idempotent and has three shared controls without a HUB filter", () => {
+test("effective staging parses and stages destination HUB parent filter", () => {
   assert.doesNotThrow(() => new Function(staged));
   assert.equal(stageFrontend(staged), staged);
   assert.equal(patchPnoCrossViewFilterParity(staged), staged);
   assert.match(staged, /PNO_CROSS_VIEW_FILTER_PARITY_V1/);
-  assert.doesNotMatch(extract("pnoV18RenderFilters"), /bagHub|targetHub|pnoNextStoreName/);
-  for (const control of ["status", "action", "branch"])
+  assert.match(extract("pnoV18RenderFilters"), /row\.targetHub/);
+  for (const control of ["status", "action", "hub", "branch"])
     assert.match(extract("pnoV18RenderFilters"), new RegExp(`\\["${control}"`));
 });
 
@@ -137,7 +137,7 @@ test("opening one 2466-row view automatically prepares 13 pages with passive pro
   assert.ok(h.state.filterPromise, "preparation started without interacting with any selector");
   assert.equal(h.state.filterRows, null);
   const selects = h.nodes.get("pno-v18-filterbar").selects;
-  assert.equal(selects.length, 3);
+  assert.equal(selects.length, 4);
   assert.ok(selects.every((item) => item.disabled && !item.onfocus && !item.onpointerdown));
   assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, /กำลังเตรียมตัวกรอง…/);
   assert.doesNotMatch(h.nodes.get("pno-v18-filterbar").innerHTML, /เลือกเพื่อรวมข้อมูลทุกหน้า/);
@@ -293,13 +293,52 @@ for (const [type, status, expected] of [
   assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], expected);
 });
 
-test("latest action and next-store name are independent predicates", () => {
+test("latest action, destination HUB and raw destination branch are independent predicates", () => {
   const h = harness(); h.state.filters.action = "ส่ง"; h.state.filters.branch = "BRANCH-B";
   assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], ["SYNTHETIC-C"]);
   assert.match(extract("pnoV18FilteredParcelEntries"), /item\?\.targetBranch/);
-  assert.doesNotMatch(extract("pnoV18FilteredParcelEntries"), /targetHub|nextStoreName/);
-  assert.match(readFileSync(new URL("./patch-pno-next-branch-truth.mjs", import.meta.url), "utf8"),
-    /targetBranch: cleanStoreName\(row\.next_store_name\)/);
+  assert.match(extract("pnoV18FilteredParcelEntries"), /item\?\.targetHub/);
+  assert.doesNotMatch(extract("pnoV18FilteredParcelEntries"), /nextStoreName/);
+  assert.match(readFileSync(new URL("./patch-pno-segment-destination-truth.mjs", import.meta.url), "utf8"),
+    /targetBranch: text\(row\.ticket_delivery_store_name/);
+});
+
+test("complete dataset cascades destination HUB into raw delivery branch identity", async () => {
+  const all = [
+    { ...rows[0], pno: "A1", targetHub: "HUB-A", targetBranch: "(TH01) สาขาเดียวกัน" },
+    { ...rows[0], pno: "B1", targetHub: "HUB-B", targetBranch: "(TH02) สาขาเดียวกัน" },
+  ];
+  const h = harness({ all, current: all.slice(0, 1) });
+  h.state.filterRows = all;
+  h.state.filterKey = "SYNTHETIC_OCCURRENCE|total";
+  h.call("pnoV18RenderFilters()");
+  assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, /value="\(TH01\) สาขาเดียวกัน">สาขาเดียวกัน/);
+  assert.match(h.nodes.get("pno-v18-filterbar").innerHTML, /value="\(TH02\) สาขาเดียวกัน">สาขาเดียวกัน/);
+  await h.select("hub", "HUB-A");
+  assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], ["A1"]);
+  const options = h.nodes.get("pno-v18-filterbar").innerHTML;
+  assert.match(options, /\(TH01\) สาขาเดียวกัน/);
+  assert.doesNotMatch(options, /\(TH02\) สาขาเดียวกัน/);
+  await h.select("branch", "(TH01) สาขาเดียวกัน");
+  await h.select("hub", "HUB-B");
+  assert.equal(h.state.filters.branch, "", "stale child selection clears on parent change");
+  assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], ["B1"]);
+});
+
+test("changing HUB retains a selected raw branch when it belongs to both HUBs", async () => {
+  const all = [
+    { ...rows[0], pno: "A1", targetHub: "HUB-A", targetBranch: "(TH01) SAME" },
+    { ...rows[0], pno: "B1", targetHub: "HUB-B", targetBranch: "(TH01) SAME" },
+  ];
+  const h = harness({ all, current: all.slice(0, 1) });
+  h.state.filterRows = all;
+  h.state.filterKey = "SYNTHETIC_OCCURRENCE|total";
+  h.call("pnoV18RenderFilters()");
+  await h.select("hub", "HUB-A");
+  await h.select("branch", "(TH01) SAME");
+  await h.select("hub", "HUB-B");
+  assert.equal(h.state.filters.branch, "(TH01) SAME");
+  assert.deepEqual([...h.call("pnoV18FilteredParcelEntries().map(({item}) => item.pno)")], ["B1"]);
 });
 
 test("bag filters use grouped status, latest action and next-store name", () => {
@@ -315,10 +354,11 @@ for (const type of ["total", "already", "no_entry", "bag", "scan_gap"])
   test(`${type}: shared filter bar is visible with identical control categories`, () => {
     const h = harness({ type }); h.call("pnoV18RenderFilters()");
     const markup = h.nodes.get("pno-v18-filterbar").innerHTML;
-    for (const label of ["สถานะ", "การดำเนินการล่าสุด", "ชื่อสาขาต่อไป"])
+    for (const label of ["สถานะ", "การดำเนินการล่าสุด",
+      type === "bag" ? "ชื่อสาขาต่อไป" : "สาขาปลายทาง", ...(type === "bag" ? [] : ["HUB ปลายทาง"])])
       assert.ok(markup.includes(label), label);
-    assert.doesNotMatch(markup, /HUB ถัดไป|HUBปลายทาง|สาขาปลายทาง/);
-    assert.equal((markup.match(/data-pno-v18-filter=/g) || []).length, 3);
+    assert.doesNotMatch(markup, /HUB ถัดไป|HUBปลายทาง/);
+    assert.equal((markup.match(/data-pno-v18-filter=/g) || []).length, type === "bag" ? 3 : 4);
     assert.equal(h.observed.fetch.length, 0, "rendering controls never reads another page");
   });
 
@@ -333,7 +373,7 @@ for (const from of ["total", "already", "no_entry", "bag", "scan_gap"])
       await h.call(to === "scan_gap" ? "pnoInboundLoad(1)"
         : to === "bag" ? "pnoV18LoadBags()" : `pnoV18Load("${to}", 1)`);
       await h.waitPrepared();
-      assert.deepEqual(h.state.filters, { status: "", action: "", branch: "" });
+      assert.deepEqual(h.state.filters, { status: "", action: "", hub: "", branch: "" });
       assert.equal(to === "bag" ? h.state.filterRows : h.state.filterRows?.length, to === "bag" ? null : rows.length);
       assert.deepEqual(h.observed.fetch.map(([sourceType, page]) => [sourceType, page]),
         to === "bag" ? [["total", 1]] : [[to === "scan_gap" ? "total" : to, 1], [to === "scan_gap" ? "total" : to, 1]],
@@ -344,7 +384,7 @@ for (const from of ["total", "already", "no_entry", "bag", "scan_gap"])
 test("reset clears all common fields and rerenders without a hidden restriction", () => {
   const h = harness(); Object.assign(h.state.filters, { status: "รอ", action: "รับ", branch: "BRANCH-A" });
   h.call("pnoV18RenderFilters()"); h.nodes.get("pno-v18-filter-reset").onclick();
-  assert.deepEqual(h.state.filters, { status: "", action: "", branch: "" });
+  assert.deepEqual(h.state.filters, { status: "", action: "", hub: "", branch: "" });
   assert.deepEqual(h.observed.parcels, rows.map((r) => r.pno));
 });
 
@@ -423,8 +463,8 @@ test("parcel copy and export use active full-dataset filter", async () => {
   assert.match(h.observed.clip, /SYNTHETIC-C/);
   assert.doesNotMatch(h.observed.clip, /SYNTHETIC-A/);
   assert.deepEqual(Array.from(h.observed.downloads[0].values, (v) => v.PNO), ["SYNTHETIC-C"]);
-  assert.equal(h.observed.downloads[0].values[0]["ชื่อสาขาต่อไป"], "BRANCH-B");
-  assert.match(h.observed.clip, /ชื่อสาขาต่อไป/);
+  assert.equal(h.observed.downloads[0].values[0]["สาขาปลายทาง"], "BRANCH-B");
+  assert.match(h.observed.clip, /สาขาปลายทาง/);
 });
 
 test("scan-gap export contains only filtered evidence membership", async () => {

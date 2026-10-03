@@ -45,7 +45,7 @@ test("V29 staged frontend makes PNO cards audit-clickable without background pol
   assert.match(front, /pno-detail-cta|ดูรายละเอียดพัสดุ/);
   assert.match(front, /content:\\"ดูรายละเอียดพัสดุ\\"/);
   assert.match(front, /pnoV29OpenDetail/);
-  assert.match(front, /openPendingParcels\(row, target\.type, 1\)/);
+  assert.match(front, /openPendingParcels\(row, target\.type, 1, \{ selection: target\.mode === "union" \? "union" : null \}\)/);
   assert.match(front, /document\.addEventListener\("click", pnoV29OpenDetail, true\)/);
   assert.match(front, /document\.addEventListener\("keydown", pnoV29OpenDetailByKeyboard, true\)/);
   const section = front.slice(front.indexOf("LIVE_EVIDENCE_FRONTEND_V29"), front.indexOf('document.addEventListener("DOMContentLoaded", pnoV18EnsureUi)') + 80);

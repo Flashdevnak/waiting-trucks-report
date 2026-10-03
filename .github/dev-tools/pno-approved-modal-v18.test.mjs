@@ -55,7 +55,8 @@ test("approved UI adds no background timer, SQL persistence, or realtime poll", 
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
   assert.doesNotMatch(patchSource, /\b(?:INSERT|UPDATE|DELETE|CREATE\s+TABLE)\b/i);
   const fetchSection = staged.slice(staged.indexOf("async function pnoV18Fetch"), staged.indexOf("function pnoV18ActionClass"));
-  assert.match(fetchSection, /browserPnoPage\(sourceRow, type, page, force\)/);
+  assert.match(fetchSection, /browserPnoPage\(locator, type, page, force\)/);
+  assert.match(fetchSection, /pnoV18UnionPage\(sourceRow, type, page, force\)/);
   assert.doesNotMatch(fetchSection, /apiGet\("pendingParcels"/);
   assert.equal(patchPnoApprovedModalV18(staged), staged);
 });
@@ -81,7 +82,7 @@ test("V18 preserves the staged row-object PNO opener contract", () => {
   assert.match(opener, /pnoV18ResolveOpenArgs\(row, type, page, \{ force \}\)/);
   assert.match(opener, /pnoV18State\.sourceRow = args\.row/);
   assert.match(opener, /pnoV18State\.proofId = args\.proofId/);
-  assert.match(opener, /pnoV18State\.day = args\.day/);
+  assert.match(opener, /pnoV18State\.day = locator\?\.pnoSourceDay/);
   assert.match(opener, /pnoV18State\.type = args\.type/);
   assert.match(opener, /pnoV18State\.page = args\.page/);
   assert.match(opener, /await pnoV18Load\(args\.type, args\.page\)/);
@@ -167,7 +168,7 @@ test("V18 classic presentation uses neutral summary cards and centered grid tabl
 
 test("V27/V28 table UX keeps display detail while copy uses latest-only and one route HUB", () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
-  assert.ok(staged.includes("<th>ฮับปลายทาง</th><th>ชื่อสาขาต่อไป</th><th>เวลา</th>"));
+  assert.ok(staged.includes("<th>HUB ปลายทาง</th><th>สาขาปลายทาง</th><th>เวลา</th>"));
   assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>ล่าสุด</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>ชื่อสาขาต่อไป</th><th></th>"));
   assert.match(staged, /function pnoV18BagSummary/);
   assert.match(staged, /หลายสถานะ/);
@@ -175,7 +176,8 @@ test("V27/V28 table UX keeps display detail while copy uses latest-only and one 
   const bagSummary = staged.slice(staged.indexOf("function pnoV18BagSummary"), staged.indexOf("function pnoV18RenderBags"));
   assert.match(bagSummary, /hub: \[\.\.\.new Set\(items\.map\(\(item\) => String\(item\?\.targetHub/);
   assert.doesNotMatch(bagSummary, /หลาย HUB/);
-  assert.doesNotMatch(bagSummary, /pnoNextStoreName|nextStoreName|state\.branch/);
+  assert.match(bagSummary, /item\.nextStoreName/);
+  assert.doesNotMatch(bagSummary, /state\.branch/);
   const bagRender = staged.slice(staged.indexOf("function pnoV18RenderBags"), staged.indexOf("async function pnoV18LoadBags"));
   assert.doesNotMatch(bagRender, />Backing</);
   assert.ok(staged.includes("pno-v18-table td{padding:11px 12px;border:1px solid #e3e6e8;background:#fff;color:#252525;text-align:center"));
@@ -185,7 +187,7 @@ test("V27/V28 table UX keeps display detail while copy uses latest-only and one 
   assert.match(staged, /function pnoV18WriteClipboard/);
   assert.match(staged, /พร้อมวางใน Excel\/Sheets/);
   const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
-  assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "ฮับปลายทาง", "ชื่อสาขาต่อไป", "เวลา"\]/);
+  assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา", \.\.\.\(pnoV18State\.selection === "union" \? \["จุดส่ง"\] : \[\]\)\]/);
   assert.match(copy, /pnoV18ParcelStatus\(row\)/);
   assert.match(copy, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
   assert.doesNotMatch(copy, /"สถานะ"/);
@@ -225,7 +227,7 @@ test("V19 filter data prepares after page one and copy uses filtered rows", () =
   assert.match(staged, /\["status", "สถานะ", statuses\]/);
   assert.match(staged, /HUB ถัดไป/);
   assert.match(staged, /ชื่อสาขาต่อไป/);
-  assert.doesNotMatch(staged, /สาขาปลายทาง/);
+  assert.match(staged, /สาขาปลายทาง/);
   assert.match(staged, /จำนวนถุงแบ็กกิ้ง/);
   assert.match(staged, /จำนวนชิ้นในถุง/);
   assert.match(staged, /function pnoV18PrepareCurrentFilters\(\)/);
@@ -336,19 +338,19 @@ test("Backing latest-action filter shares common state and remains a local group
   assert.match(staged, /\["action", "การดำเนินการล่าสุด", actions\]/);
   assert.match(staged, /"การดำเนินการล่าสุด", actions/);
   assert.match(staged, /!action \|\| summary\.latest === action/);
-  assert.match(staged, /status \|\| action \|\| branch/);
+  assert.match(staged, /status \|\| action \|\| \(pnoV18State\.type !== "bag" && hub\) \|\| branch/);
   assert.match(staged, /action && "ล่าสุด=" \+ action/);
   const bagFilter = staged.slice(staged.indexOf("function pnoV18FilteredBagGroups"), staged.indexOf("function pnoV18RenderBagSummary"));
   assert.doesNotMatch(bagFilter, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
 });
 
-test("V27 copy and LINE expose raw latest action without a duplicate status column", () => {
+test("copy and LINE share latest-action presentation without a duplicate status column", () => {
   const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
-  assert.match(copy, /row\.lastAction \|\| ""/);
+  assert.match(copy, /pnoV18ParcelAction\(row\)/);
   assert.match(copy, /summary\.latest/);
   assert.doesNotMatch(copy, /"สถานะ"/);
   const line = staged.slice(staged.indexOf("async function pnoV18CopyLine()"), staged.indexOf("async function pnoV18Export()"));
-  assert.match(line, /pnoV18LineCell\(row\.lastAction\)/);
+  assert.match(line, /pnoV18LineCell\(pnoV18ParcelAction\(row\)\)/);
   assert.match(line, /group\.summary\.status/);
   const exp = staged.slice(staged.indexOf("async function pnoV18Export()"), staged.indexOf("openPendingParcels = async function"));
   assert.match(exp, /"การดำเนินการล่าสุด": pnoV18ParcelAction\(row\)/);
@@ -373,7 +375,7 @@ test("V22 inbound PNO is destination/drop only and origin is suppressed", () => 
 
 test("V22 explicit modal open resolves corrected truth before rendering any tab", () => {
   const opener = staged.slice(staged.indexOf("openPendingParcels = async function pnoV18OpenPendingParcels"), staged.indexOf('document.addEventListener("DOMContentLoaded", pnoV18EnsureUi)'));
-  assert.match(opener, /!pnoOperationalInboundEligible\(args\.row\)/);
+  assert.match(opener, /pnoOperationalInboundEligible\(args\.row\)/);
   const resolveAt = opener.indexOf("await pnoOperationalResolve(args.row)");
   const summaryAt = opener.indexOf("pnoV18RenderSummary()");
   const modalAt = opener.indexOf('showModal()');

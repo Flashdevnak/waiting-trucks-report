@@ -552,3 +552,30 @@ html body.ms-page .operation-compact .classic-operation-summary.is-warning > str
   background: #ffe8c2 !important;
   border-left-color: #dda353 !important;
 }
+
+/* Exact multi-drop detail choices live on the aggregate PNO card. */
+.ms-page .pno-multidrop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #d7dadd;
+}
+.ms-page .pno-multidrop-actions strong { width: 100%; font-size: 12px; }
+.ms-page .pno-multidrop-actions button {
+  padding: 7px 10px;
+  border: 1px solid #9da7ad;
+  border-radius: 6px;
+  background: #fff;
+  color: #202124;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ms-page .pno-multidrop-actions button:hover { background: #f1f2f3; }
+.ms-page .pno-v18-segment-chooser { display: grid; gap: 9px; padding: 10px; }
+.ms-page .pno-v18-segment-chooser button { text-align: left; white-space: normal; }
+.ms-page .pno-v18-pno small { display: block; color: #59636d; font-size: 11px; }

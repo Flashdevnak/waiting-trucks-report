@@ -95,8 +95,8 @@ test('CSS cascade and asset contract preserve warning orange and other palettes'
   const css = await source('ms-v4.css');
   const html = await source('ms.html');
   const workflow = await source('.github/workflows/deploy-worker-dev.yml');
-  assert.match(html, /ms-v4\.css\?v=20261001-01/);
-  assert.match(workflow, /ms-v4\.css\?v=20261001-01/);
+  assert.match(html, /ms-v4\.css\?v=20261003-pno-operational-truth-v1/);
+  assert.match(workflow, /ms-v4\.css\?v=20261003-pno-operational-truth-v1/);
   const generic = css.lastIndexOf('html body.ms-page .operation-compact .classic-operation-summary {');
   const warning = css.lastIndexOf('html body.ms-page .operation-compact .classic-operation-summary.is-warning {');
   assert.ok(generic >= 0 && warning > generic);

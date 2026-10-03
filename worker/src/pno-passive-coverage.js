@@ -16,9 +16,14 @@ const STATE_KEY = "pno-passive-coverage-v1";
 const inbound = new Set(["ปลายทาง", "จุดดรอป"]);
 
 export function pnoPassiveLocator(row, hub) {
-  if (row?.pnoDetailAvailable !== true || row?.pnoEnabled !== true ||
+  if (row?.pnoEnabled !== true ||
       !inbound.has(String(row?.attendanceType || "").trim()) || row?.queueCancelledAt)
     return null;
+  if (row?.pnoSegmentCount !== 1 || row?.pnoDetailAvailable !== true) return null;
+  return exactPassiveLocator(row, hub);
+}
+
+function exactPassiveLocator(row, hub) {
   const locator = {
     hub: String(hub || "").trim().toUpperCase(),
     day: String(row.pnoSourceDay || "").trim(),
@@ -34,9 +39,32 @@ export function pnoPassiveLocator(row, hub) {
   if (!locator.hub || !/^\d{4}-\d{2}-\d{2}$/.test(locator.day) ||
       !locator.proofId || !(locator.lineId || locator.vanLineId) ||
       !locator.storeId || !locator.nextStoreId ||
-      !Number.isSafeInteger(locator.count) || locator.count <= 0 ||
-      Number(row.pnoSegmentCount) !== 1) return null;
+      !Number.isSafeInteger(locator.count) || locator.count <= 0) return null;
   return locator;
+}
+
+export function pnoPassiveLocators(row, hub) {
+  if (row?.pnoEnabled !== true || row?.pnoDetailAvailable !== true ||
+      !inbound.has(String(row?.attendanceType || "").trim()) || row?.queueCancelledAt)
+    return [];
+  if (row.pnoSegmentCount === 1) {
+    const exact = pnoPassiveLocator(row, hub);
+    return exact ? [exact] : [];
+  }
+  const segments = row?.pnoSegments;
+  if (!Number.isSafeInteger(row.pnoSegmentCount) || row.pnoSegmentCount < 2 ||
+      !Array.isArray(segments) || segments.length !== row.pnoSegmentCount ||
+      segments.some((segment) => !segment || segment.proofId !== row.proofId)) return [];
+  const locators = segments.map((segment) => exactPassiveLocator(segment, hub));
+  if (locators.some((locator, index) => !locator ||
+      !Number.isSafeInteger(segments[index].enteredParcels) ||
+      !Number.isSafeInteger(segments[index].pendingParcels) ||
+      segments[index].enteredParcels + segments[index].pendingParcels !== locator.count)) return [];
+  if (new Set(locators.map(routeKey)).size !== locators.length) return [];
+  if (locators.reduce((sum, locator) => sum + locator.count, 0) !== row.expectedParcels ||
+      segments.reduce((sum, segment) => sum + segment.enteredParcels, 0) !== row.enteredParcels ||
+      segments.reduce((sum, segment) => sum + segment.pendingParcels, 0) !== row.pendingParcels) return [];
+  return locators;
 }
 
 function routeKey(locator) {
@@ -57,23 +85,42 @@ export async function registerPnoPassiveRoutes(owner, hub, rows, at = Date.now()
     const storage = owner.ctx.storage;
     const state = await storage.get(STATE_KEY) || { routes: [], cursor: 0 };
     const routes = Array.isArray(state.routes) ? state.routes : [];
+    // Retire completed lifecycles before admitting another exact occurrence.
+    // The same per-HUB candidate cap and round-robin request budget remain.
+    for (let index = routes.length - 1; index >= 0; index--)
+      if (routes[index].expired || at - routes[index].firstSeenAt >= PNO_PASSIVE_LIMITS.lifecycleMs)
+        routes.splice(index, 1);
+    state.cursor = routes.length ? (state.cursor || 0) % routes.length : 0;
     const known = new Set(routes.map((item) => item.key));
-    // A route is registered once in its bounded lifecycle. Repeated four-second
-    // snapshots only update its locator; they never fetch parcel pages.
-    for (const row of rows) {
-      const locator = pnoPassiveLocator(row, hub);
-      if (!locator) continue;
+    // Rotate admission after previously admitted candidates receive an attempt.
+    // This admits >12 exact segments over subsequent existing cycles while
+    // retaining at most 12 and never increasing the per-cycle page budget.
+    const candidates = [...new Map(rows.flatMap((row) => pnoPassiveLocators(row, hub))
+      .map((locator) => [routeKey(locator), locator])).values()];
+    const multiPresent = rows.some((row) => row?.pnoSegmentCount > 1 && pnoPassiveLocators(row, hub).length);
+    const offset = candidates.length ? (state.admissionCursor || 0) % candidates.length : 0;
+    for (let step = 0; step < candidates.length; step++) {
+      const locator = candidates[(offset + step) % candidates.length];
       const key = routeKey(locator);
       if (known.has(key)) {
         const entry = routes.find((item) => item.key === key);
         if (entry && !entry.expired) entry.locator = locator;
         continue;
       }
-      if (routes.length >= PNO_PASSIVE_LIMITS.maxCandidates) break;
+      if (routes.length >= PNO_PASSIVE_LIMITS.maxCandidates) {
+        if (!multiPresent) continue;
+        const attempted = routes.filter((entry) => entry.lastAttemptAt > 0)
+          .sort((a, b) => a.lastAttemptAt - b.lastAttemptAt)[0];
+        if (!attempted) continue;
+        routes.splice(routes.indexOf(attempted), 1);
+        known.delete(attempted.key);
+      }
       routes.push({ key, locator, firstSeenAt: at, lastAttemptAt: 0,
         nextPage: 2, totalPages: 1, backoffUntil: 0, expired: false });
       known.add(key);
+      state.admissionCursor = (offset + step + 1) % candidates.length;
     }
+    state.cursor = routes.length ? state.cursor % routes.length : 0;
     await storage.put(STATE_KEY, { ...state, routes });
     if (routes.some((item) => !item.expired) && storage.getAlarm && storage.setAlarm &&
         await storage.getAlarm() == null)
@@ -92,7 +139,10 @@ export async function runPnoPassiveCycle(owner, env, readPage, at = Date.now()) 
     state.lastCycleAt = at;
     await storage.put(STATE_KEY, state);
     const routes = Array.isArray(state.routes) ? state.routes : [];
-    const ordered = routes.length ? [...routes.slice(state.cursor || 0), ...routes.slice(0, state.cursor || 0)] : [];
+    const roundRobin = routes.length ? [...routes.slice(state.cursor || 0), ...routes.slice(0, state.cursor || 0)] : [];
+    const ordered = [...roundRobin.filter((item) => item.lastAttemptAt === 0)
+      .sort((a, b) => a.firstSeenAt - b.firstSeenAt),
+      ...roundRobin.filter((item) => item.lastAttemptAt > 0)];
     let handled = 0, pages = 0, errors = 0;
     const observedPages = [];
     for (const item of ordered) {

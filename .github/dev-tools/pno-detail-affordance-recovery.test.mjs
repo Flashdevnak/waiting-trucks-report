@@ -47,7 +47,7 @@ function renderContext() {
   };
   vm.createContext(context);
   vm.runInContext(
-    `${between(stagedFrontend, "function pnoReadOnlyDetailEligibility", "function findPnoRowById")};globalThis.renderBadge=expectedParcelsBadge`,
+    `${between(stagedFrontend, "function pnoV18ExactSegments", "async function pnoV18UnionPage")}\n${between(stagedFrontend, "function pnoReadOnlyDetailEligibility", "function findPnoRowById")};globalThis.renderBadge=expectedParcelsBadge`,
     context,
   );
   return context;
@@ -187,7 +187,7 @@ test("one explicit load issues one bounded detail request", async () => {
 
 test("staged worker restores exact single-segment locator without coupling can_report", () => {
   assert.match(stagedWorker, /PNO_DETAIL_LOCATOR_RECOVERY_V30/);
-  assert.match(stagedWorker, /value\.pnoDetailAvailable = completeCounts && locatorComplete && value\.pnoSegmentCount === 1/);
+  assert.match(stagedWorker, /value\.pnoDetailAvailable = completeCounts &&[\s\S]*?Boolean\(exactMulti\)/);
   assert.match(stagedWorker, /if \(exact\) Object\.assign\(value, exact\)/);
   assert.match(stagedWorker, /pnoCanReport: row\?\.__pnoCanReport === true \|\| Number\(row\?\.can_report\) === 1/);
   const eligibility = between(stagedFrontend, "function pnoReadOnlyDetailEligibility", "function pnoReadOnlyUnavailableMessage");

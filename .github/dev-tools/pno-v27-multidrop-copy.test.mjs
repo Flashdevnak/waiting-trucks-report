@@ -45,7 +45,7 @@ test("V27 bag copy keeps latest action while parcel copy names current evidence 
   assert.match(front, /PNO_MODAL_COPY_MULTIDROP_TRUTH_V27/);
   assert.match(front, /const truth = pnoOperationalRawSummary\(row\)/);
   assert.match(front, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
-  assert.match(front, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "ฮับปลายทาง", "ชื่อสาขาต่อไป", "เวลา"\]/);
+  assert.match(front, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา", \.\.\.\(pnoV18State\.selection === "union" \? \["จุดส่ง"\] : \[\]\)\]/);
   const copyStart = front.indexOf("async function pnoV18Copy()");
   const copyEnd = front.indexOf("function pnoV18LineCell", copyStart);
   const copy = front.slice(copyStart, copyEnd);
@@ -59,7 +59,8 @@ test("Backing HUB aggregates parcel destination independently of route next_stor
   const block = front.slice(start, end);
   assert.match(block, /hub: \[\.\.\.new Set\(items\.map\(\(item\) => String\(item\?\.targetHub/);
   assert.doesNotMatch(block, /หลาย HUB/);
-  assert.doesNotMatch(block, /pnoNextStoreName|nextStoreName|state\.branch/);
+  assert.match(block, /item\.nextStoreName/);
+  assert.doesNotMatch(block, /state\.branch/);
 });
 
 test("V27 LINE bag copy sorts HUB -> status -> bag and shows every bag without 30-row cap", () => {

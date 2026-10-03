@@ -200,11 +200,9 @@ test("frontend keeps transient degraded mode connected and visible without toast
     /state\.msStatus !== "error" && state\.msStatus !== "not_configured"/,
   );
   assert.match(frontend, /state\.msStatus !== "degraded"/);
-  assert.match(
-    frontend,
-    /ตอบช้าชั่วคราว · แสดงข้อมูลล่าสุด · กำลังลองใหม่ทุก 4 วินาที/,
-    "degraded UI must remain truthful without coupling the contract to a cosmetic prefix",
-  );
+  assert.match(frontend, /แสดงข้อมูลล่าสุด/);
+  assert.match(frontend, /ทุก 4 วินาที/);
+  assert.doesNotMatch(frontend, /ตอบช้าชั่วคราว/);
 });
 
 test("realtime recovery staging does not alter polling, cron, queue, or archive policy", () => {

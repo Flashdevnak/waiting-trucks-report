@@ -75,7 +75,7 @@ const SESSION_MS = 180 * 86400000;`, "module import");
             value?.sourceStoreId !== locator.storeId ||
             value?.targetStoreId !== locator.nextStoreId) continue;
         for (const cachedRow of value.parcels || []) {
-          if (cachedRow.pno === row.pno && cachedRow.arrivalAnchorAt === row.arrivalAnchorAt)
+          if (cachedRow.pno === row.pno)
             cachedRow.scanEvidence = row.scanEvidence;
         }
       }
@@ -369,16 +369,16 @@ function pnoPendingRenderNote() {
 }
 
 // A positive accepted on another explicitly opened detail tab refreshes local
-// cached views of the same exact segment and arrival anchor.
+// cached views of the same exact segment and PNO occurrence.
 function pnoPendingPropagatePositive(sourceRow, result) {
   const accepted = (result?.parcels || []).filter((row) =>
-    row?.scanEvidence?.classification === "CONFIRMED_SCAN_IN" && row?.pno && row?.arrivalAnchorAt);
+    row?.scanEvidence?.classification === "CONFIRMED_SCAN_IN" && row?.pno);
   if (!accepted.length) return;
   const positive = new Map(accepted.map((row) =>
-    [JSON.stringify([row.pno, row.arrivalAnchorAt]), row.scanEvidence]));
+    [row.pno, row.scanEvidence]));
   const propagate = (value) => {
     for (const row of value?.parcels || []) {
-      const match = positive.get(JSON.stringify([row.pno, row.arrivalAnchorAt]));
+      const match = positive.get(row.pno);
       if (match) row.scanEvidence = match;
     }
   };

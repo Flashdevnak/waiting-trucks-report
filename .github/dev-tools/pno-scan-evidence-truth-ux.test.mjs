@@ -94,7 +94,7 @@ test('exact positive is sticky on weaker later data; another occurrence cannot b
     assert.deepEqual(weak.record, positive.record);
   }
   for (const [l, r] of [[{...locator, lineId:'OTHER'}, row()], [locator,row({pno:'OTHER'})],
-    [locator,row({real_arrive_time:'2026-10-02 11:00:00', LastActionTime:'2026-10-02 11:20:00'})]]) {
+    [{...locator, day:'2026-10-03'},row({real_arrive_time:'2026-10-03 11:00:00', LastActionTime:'2026-10-03 11:20:00'})]]) {
     const out = observePnoSnapshot(positive.record, l, r, at);
     assert.equal(out.view.classification, 'INSUFFICIENT_HISTORY');
     assert.equal(out.view.reason, 'OCCURRENCE_MISMATCH');

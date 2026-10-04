@@ -117,7 +117,7 @@ test("count guards keep unknown distinct from authoritative zero", () => {
   assert.match(staged, /const truth = pnoOperationalRawSummary\(row\);\s*const expected = truth.expected/);
 });
 
-test("both browser cache layers isolate segments and accept only matching positive anchors", () => {
+test("browser caches share a refined arrival within one PNO and isolate segments", () => {
   const ui = makeUi();
   const other = { ...ui.row, pnoLineId: "LINE2" };
   assert.notEqual(ui.pnoBrowserBaseKey(ui.row, "no_entry"), ui.pnoBrowserBaseKey(other, "no_entry"));
@@ -127,19 +127,22 @@ test("both browser cache layers isolate segments and accept only matching positi
   const otherAnchor = structuredClone(target);
   otherAnchor.arrivalAnchorAt = "2026-09-24 04:00:00";
   const otherSegment = structuredClone(target);
+  const otherPno = structuredClone(target);
+  otherPno.pno = "OTHER";
   ui.pnoV18ViewCache.set(ui.pnoV18LocatorKey(ui.row) + "|no_entry|1",
-    { value: { parcels: [target, otherAnchor] } });
+    { value: { parcels: [target, otherAnchor, otherPno] } });
   ui.pnoV18ViewCache.set(ui.pnoV18LocatorKey(other) + "|no_entry|1",
     { value: { parcels: [otherSegment] } });
   const browserTarget = structuredClone(target);
   ui.pnoBrowserCache.set("same", { baseKey: ui.pnoBrowserBaseKey(ui.row, "no_entry"),
     value: { parcels: [browserTarget] } });
-  const accepted = { pno: "P", arrivalAnchorAt: target.arrivalAnchorAt,
+  const accepted = { pno: "P", arrivalAnchorAt: "",
     scanEvidence: { classification: "CONFIRMED_SCAN_IN" } };
   ui.pnoPendingPropagatePositive(ui.row, { parcels: [accepted] });
   assert.equal(target.scanEvidence.classification, "CONFIRMED_SCAN_IN");
   assert.equal(browserTarget.scanEvidence.classification, "CONFIRMED_SCAN_IN");
-  assert.equal(otherAnchor.scanEvidence.classification, "INSUFFICIENT_HISTORY");
+  assert.equal(otherAnchor.scanEvidence.classification, "CONFIRMED_SCAN_IN");
+  assert.equal(otherPno.scanEvidence.classification, "INSUFFICIENT_HISTORY");
   assert.equal(otherSegment.scanEvidence.classification, "INSUFFICIENT_HISTORY");
 });
 

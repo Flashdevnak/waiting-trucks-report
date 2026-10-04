@@ -151,7 +151,7 @@ test("errors consume request budget and back off without retry or positive rewri
   assert.equal(attempts, 3);
 });
 
-test("observed exact positive remains sticky; overwritten action and other arrival are not gap proof", async () => {
+test("observed exact positive remains sticky; another day is not gap proof", async () => {
   const st = storage();
   const locator = { hub: "HUB", proofId: "PROOF", day: "2026-09-30",
     lineId: "LINE", storeId: "SOURCE", nextStoreId: "TARGET" };
@@ -164,8 +164,8 @@ test("observed exact positive remains sticky; overwritten action and other arriv
   const downstream = await observePnoEvidencePage(st, locator,
     [parcel(anchor, "SHIPMENT_WAREHOUSE_SCAN", "2026-09-30 10:02:00")], "2026-09-30T03:02:01Z");
   assert.equal(downstream[0].classification, "CONFIRMED_SCAN_IN");
-  const other = await observePnoEvidencePage(st, locator,
-    [parcel("2026-09-30 11:00:00", "SHIPMENT_WAREHOUSE_SCAN", "2026-09-30 11:02:00")], "2026-09-30T04:02:01Z");
+  const other = await observePnoEvidencePage(st, { ...locator, day: "2026-10-01" },
+    [parcel("2026-10-01 11:00:00", "SHIPMENT_WAREHOUSE_SCAN", "2026-10-01 11:02:00")], "2026-10-01T04:02:01Z");
   assert.equal(other[0].classification, "INSUFFICIENT_HISTORY");
   assert.equal(projectPnoEvidence({ monitoringStartedAt: "2026-09-30T02:00:00Z",
     lastObservedAt: "2026-09-30T04:00:00Z", monitoringBeforeArrival: true,

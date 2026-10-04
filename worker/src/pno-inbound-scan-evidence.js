@@ -12,7 +12,7 @@ const ACTIONS = new Set([
   "SHIPMENT_WAREHOUSE_SCAN", "SEAL", "DRIVER_SIGN",
   "DEPARTURE_GOODS_VAN_CK_SCAN", "RECEIVE_WAREHOUSE_SCAN", "RECEIVED",
 ]);
-const ARRIVAL = "ARRIVAL_GOODS_VAN_CHECK_SCAN";
+const ARRIVAL_ACTIONS = new Set(["ARRIVAL_GOODS_VAN_CHECK_SCAN", "DRIVER_SIGN"]);
 const SCAN_IN = "ARRIVAL_WAREHOUSE_SCAN";
 const KEY_PREFIX = "pno-inbound-evidence-v1:";
 
@@ -58,27 +58,70 @@ async function digestKey(parts) {
   return KEY_PREFIX + [...bytes].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
+function earliestPnoArrival(...values) {
+  return values.map(pnoProviderTime).filter(Boolean).sort()[0] || "";
+}
+
+function snapshotArrival(row) {
+  const action = String(row?.LastAction || "").trim();
+  return earliestPnoArrival(row?.real_arrive_time,
+    ARRIVAL_ACTIONS.has(action) ? row?.LastActionTime : null);
+}
+
+async function legacyOccurrenceKey(identity, anchor) {
+  const accepted = pnoProviderTime(anchor);
+  return accepted ? digestKey(["occurrence", ...Object.values(identity), accepted]) : "";
+}
+
+async function readEvidenceKeys(storage, keys, saved) {
+  const requested = [...new Set(keys.filter(Boolean))];
+  for (let start = 0; start < requested.length; start += 128) {
+    const batch = await storage.get(requested.slice(start, start + 128));
+    for (const [key, value] of batch) saved.set(key, value);
+  }
+}
+
+function acceptedRecord(saved, key, base) {
+  const current = saved.get(key.occurrence);
+  if (current) return current;
+  const legacy = saved.get(key.legacyOccurrence) || saved.get(base?.legacyOccurrence);
+  // A legacy arrival-keyed record was read through this exact seven-part
+  // identity. Attach that identity before comparing an earlier arrival time.
+  return legacy && { ...legacy, occurrence: legacy.occurrence || key.identity };
+}
+
 export async function pnoEvidenceKeys(locator, row) {
   const identity = sourceIdentity(locator, row);
   if (!identity) return null;
   const components = Object.values(identity);
-  const anchor = pnoProviderTime(row?.real_arrive_time);
+  const anchor = snapshotArrival(row);
   return {
     identity,
     anchor,
     base: await digestKey(["base", ...components]),
-    occurrence: anchor ? await digestKey(["occurrence", ...components, anchor]) : "",
+    // Arrival time is evidence within this identity, not part of its identity.
+    occurrence: await digestKey(["occurrence-v2", ...components]),
+    legacyOccurrence: await legacyOccurrenceKey(identity,
+      pnoProviderTime(row?.real_arrive_time)),
   };
 }
 
-export function matchPnoHistoryArrival(locator, row, events) {
-  const anchor = pnoProviderTime(row?.real_arrive_time);
-  const store = String(row?.store_id || "").trim();
-  if (!sourceIdentity(locator, row) || !anchor || !store ||
-      store !== String(locator?.nextStoreId || "").trim() || !Array.isArray(events)) return false;
-  return events.some((event) => event?.route_action === ARRIVAL &&
-    String(event?.store_id || "").trim() === store &&
-    pnoProviderTime(event?.routed_at) === anchor);
+function historyArrivalTimes(locator, row, events) {
+  const identity = sourceIdentity(locator, row);
+  if (!identity || !Array.isArray(events) ||
+      String(row?.store_id || "").trim() !== identity.targetStoreId) return [];
+  return events.filter((event) => ARRIVAL_ACTIONS.has(event?.route_action) &&
+    String(event?.store_id || "").trim() === identity.targetStoreId)
+    .map((event) => pnoProviderTime(event?.routed_at)).filter(Boolean);
+}
+
+export function matchPnoHistoryArrival(locator, row, events, acceptedAnchorAt) {
+  const known = [pnoProviderTime(row?.real_arrive_time),
+    ARRIVAL_ACTIONS.has(String(row?.LastAction || "").trim())
+      ? pnoProviderTime(row?.LastActionTime) : "",
+    pnoProviderTime(acceptedAnchorAt)].filter(Boolean);
+  return known.length > 0 &&
+    historyArrivalTimes(locator, row, events).some((time) => known.includes(time));
 }
 
 export function projectPnoEvidence(record, { asOf } = {}) {
@@ -122,10 +165,11 @@ function invalidPnoView(reasons, identityIssues = []) {
     ...(identityIssues.length ? { identityIssues } : {}) };
 }
 
-function snapshotValidation(locator, row, observedAt) {
+function snapshotValidation(locator, row, observedAt, previous, acceptedArrivalAt) {
   const identityIssues = pnoIdentityDiagnostics(locator, row);
   const identity = sourceIdentity(locator, row);
-  const anchor = pnoProviderTime(row?.real_arrive_time);
+  const accepted = samePnoOccurrence(previous, identity) ? previous.arrivalAnchorAt : "";
+  const anchor = earliestPnoArrival(snapshotArrival(row), accepted, acceptedArrivalAt);
   const eventAt = pnoProviderTime(row?.LastActionTime);
   const action = String(row?.LastAction || "").trim();
   const store = String(row?.store_id || "").trim();
@@ -141,27 +185,29 @@ function snapshotValidation(locator, row, observedAt) {
   return { identity, identityIssues, anchor, eventAt, action, reasons };
 }
 
-function samePnoOccurrence(previous, identity, anchor) {
-  return previous?.arrivalAnchorAt === anchor && identity &&
-    (!previous.occurrence || Object.entries(previous.occurrence)
-      .every(([field, value]) => identity[field] === value));
+function samePnoOccurrence(previous, identity) {
+  return Boolean(previous?.occurrence && identity &&
+    Object.entries(identity).every(([field, value]) => previous.occurrence[field] === value));
 }
 
 // Absence is a gap only for the exact occurrence with complete coverage and
 // downstream evidence. A weak later snapshot cannot erase its accepted positive.
-export function observePnoSnapshot(previous, locator, row, observedAt, { monitoringStartedAt, coverageComplete = false } = {}) {
-  const { identity, identityIssues, anchor, eventAt, action, reasons } = snapshotValidation(locator, row, observedAt);
-  if (previous && identity && anchor && !samePnoOccurrence(previous, identity, anchor))
+export function observePnoSnapshot(previous, locator, row, observedAt,
+    { monitoringStartedAt, coverageComplete = false, acceptedArrivalAt } = {}) {
+  const { identity, identityIssues, anchor, eventAt, action, reasons } =
+    snapshotValidation(locator, row, observedAt, previous, acceptedArrivalAt);
+  if (previous && identity && !samePnoOccurrence(previous, identity))
     return { record: previous, changed: false, invalid: true,
       view: invalidPnoView(["OCCURRENCE_MISMATCH", ...reasons], identityIssues) };
   if (reasons.length) {
     const issue = invalidPnoView(reasons, identityIssues);
-    const positive = samePnoOccurrence(previous, identity, anchor) ? projectPnoEvidence(previous) : null;
+    const positive = samePnoOccurrence(previous, identity) ? projectPnoEvidence(previous) : null;
     return { record: previous || null, changed: false, invalid: true,
       view: positive?.classification === PNO_SCAN_CLASSES.CONFIRMED
         ? { ...positive, observationIssue: issue } : issue };
   }
-  if (previous && previous.latestObservedAction === action && previous.latestObservedActionAt === eventAt)
+  if (previous && previous.arrivalAnchorAt === anchor &&
+      previous.latestObservedAction === action && previous.latestObservedActionAt === eventAt)
     return { record: previous, changed: false, view: projectPnoEvidence(previous) };
   const start = previous?.monitoringStartedAt || monitoringStartedAt || observedAt;
   const anchorMillis = Date.parse(anchor.replace(" ", "T") + "+07:00");
@@ -176,9 +222,9 @@ export function observePnoSnapshot(previous, locator, row, observedAt, { monitor
     latestObservedAction: latestIsNewer ? action : previous.latestObservedAction,
     latestObservedActionAt: latestIsNewer ? eventAt : previous.latestObservedActionAt,
     arrivalStageObserved: previous?.arrivalStageObserved === true ||
-      (action === ARRIVAL && eventAt === anchor),
+      ARRIVAL_ACTIONS.has(action),
     downstreamObserved: previous?.downstreamObserved === true ||
-      (action !== ARRIVAL && action !== SCAN_IN && eventAt > anchor),
+      (!ARRIVAL_ACTIONS.has(action) && action !== SCAN_IN && eventAt > anchor),
     preArrivalStageObserved: previous?.preArrivalStageObserved === true,
     scanInObserved: previous?.scanInObserved === true || action === SCAN_IN,
     scanInAction: previous?.scanInAction || (action === SCAN_IN ? action : null),
@@ -200,21 +246,25 @@ export async function observePnoEvidencePage(storage, locator, rawRows, observed
     return (Array.isArray(rawRows) ? rawRows : []).map(() =>
       ({ classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "SOURCE_UNAVAILABLE" }));
   const keys = await Promise.all(rawRows.map((row) => pnoEvidenceKeys(locator, row)));
-  const requested = [...new Set(keys.flatMap((key) => key ? [key.base, key.occurrence].filter(Boolean) : []))];
   // Different detail tabs may fetch concurrently. The transaction prevents a
   // later downstream snapshot from overwriting a concurrently accepted scan.
   return storage.transaction(async (txn) => {
     const saved = new Map();
-    for (let start = 0; start < requested.length; start += 128) {
-      const batch = await txn.get(requested.slice(start, start + 128));
-      for (const [key, value] of batch) saved.set(key, value);
-    }
+    await readEvidenceKeys(txn, keys.map((key) => key?.base), saved);
+    const previousBases = await Promise.all(keys.map(async (key) => key && {
+      ...saved.get(key.base),
+      legacyOccurrence: await legacyOccurrenceKey(key.identity, saved.get(key.base)?.activeAnchor),
+    }));
+    await readEvidenceKeys(txn, keys.flatMap((key, index) => key
+      ? [key.occurrence, key.legacyOccurrence, previousBases[index].legacyOccurrence] : []), saved);
     const updates = {};
     const views = rawRows.map((row, index) => {
       const key = keys[index];
       if (!key) return invalidPnoView(["IDENTITY_INCOMPLETE"], pnoIdentityDiagnostics(locator, row));
       const previousBase = updates[key.base] || saved.get(key.base) || null;
-      if (!key.anchor) {
+      const previous = updates[key.occurrence] ||
+        acceptedRecord(saved, key, previousBases[index]);
+      if (!key.anchor && !previous && !pnoProviderTime(previousBase?.activeAnchor)) {
         // A successful detail observation before vehicle arrival starts the
         // monitoring window; it cannot be treated as evidence of scan-in.
         const preArrival = !String(row?.real_arrive_time || "").trim() &&
@@ -228,14 +278,14 @@ export async function observePnoEvidencePage(storage, locator, rawRows, observed
           ? { classification: PNO_SCAN_CLASSES.NOT_YET, reason: "ARRIVAL_NOT_YET_RECORDED" }
           : invalidPnoView(snapshotValidation(locator, row, observedAt).reasons);
       }
-      const previous = updates[key.occurrence] || saved.get(key.occurrence) || null;
       const preStart = !previousBase?.activeAnchor ? previousBase?.monitoringStartedAt : null;
       const outcome = observePnoSnapshot(previous, locator, row, observedAt,
-        { monitoringStartedAt: preStart });
-      if (outcome.changed) {
+        { monitoringStartedAt: preStart, acceptedArrivalAt: previousBase?.activeAnchor });
+      if (outcome.changed || (previous && !saved.has(key.occurrence) && !updates[key.occurrence])) {
         updates[key.occurrence] = outcome.record;
-        updates[key.base] = { monitoringStartedAt: outcome.record.monitoringStartedAt,
-          activeAnchor: key.anchor };
+        if (outcome.record) updates[key.base] = {
+          monitoringStartedAt: outcome.record.monitoringStartedAt,
+          activeAnchor: outcome.record.arrivalAnchorAt };
       }
       return outcome.view;
     });
@@ -255,21 +305,23 @@ export async function reconcilePnoCachedPositive(storage, locator, value) {
     return value;
   const candidates = value.parcels.filter((row) =>
     row?.scanEvidence?.classification !== PNO_SCAN_CLASSES.CONFIRMED &&
-    row?.pno && row?.arrivalAnchorAt);
+    row?.pno);
   if (!candidates.length) return value;
   const pairs = await Promise.all(candidates.map(async (row) => ({
     row, key: await pnoEvidenceKeys(locator,
       { pno: row.pno, real_arrive_time: row.arrivalAnchorAt }),
   })));
-  const occurrences = [...new Set(pairs.map(({ key }) => key?.occurrence).filter(Boolean))];
   const saved = new Map();
-  for (let start = 0; start < occurrences.length; start += 128) {
-    const batch = await storage.get(occurrences.slice(start, start + 128));
-    for (const [key, record] of batch) saved.set(key, record);
-  }
-  for (const { row, key } of pairs) {
-    const record = saved.get(key?.occurrence);
-    if (!record || record.arrivalAnchorAt !== key.anchor) continue;
+  await readEvidenceKeys(storage, pairs.map(({ key }) => key?.base), saved);
+  const bases = await Promise.all(pairs.map(async ({ key }) => key && ({
+    legacyOccurrence: await legacyOccurrenceKey(key.identity, saved.get(key.base)?.activeAnchor),
+  })));
+  await readEvidenceKeys(storage, pairs.flatMap(({ key }, index) => key
+    ? [key.occurrence, key.legacyOccurrence, bases[index].legacyOccurrence] : []), saved);
+  for (const [index, { row, key }] of pairs.entries()) {
+    if (!key) continue;
+    const record = acceptedRecord(saved, key, bases[index]);
+    if (!samePnoOccurrence(record, key.identity)) continue;
     const view = projectPnoEvidence(record);
     if (view.classification === PNO_SCAN_CLASSES.CONFIRMED)
       row.scanEvidence = view;
@@ -285,30 +337,36 @@ export async function ingestPnoExactHistory(storage, locator, row, response, obs
   const key = await pnoEvidenceKeys(locator, row);
   const result = response?.data?.result ?? response?.result ?? response;
   const events = result?.parcel_routes;
-  const snapshot = observePnoSnapshot(null, locator, row, observedAt);
-  if (!storage || !key?.occurrence || !snapshot.changed ||
+  if (!storage || !key?.occurrence ||
       String(result?.parcel_info?.pno || "").trim().toUpperCase() !== key.identity.pno ||
-      !Array.isArray(events) || events.length > 500 ||
-      !matchPnoHistoryArrival(locator, row, events)) return unavailable;
-
-  const targetStore = key.identity.targetStoreId;
-  const lastActionAt = pnoProviderTime(row?.LastActionTime);
-  const scanAt = events.map((event) => {
-    if (event?.route_action !== SCAN_IN ||
-        String(event?.store_id || "").trim() !== targetStore) return "";
-    const at = pnoProviderTime(event?.routed_at);
-    return at >= key.anchor && at <= lastActionAt ? at : "";
-  }).filter(Boolean).sort()[0];
-  if (!scanAt || Date.parse(observedAt) < Date.parse(scanAt.replace(" ", "T") + "+07:00"))
-    return unavailable;
+      !Array.isArray(events) || events.length > 500) return unavailable;
 
   return storage.transaction(async (txn) => {
-    const saved = await txn.get([key.occurrence]);
-    const previous = saved.get(key.occurrence) || null;
-    const outcome = observePnoSnapshot(previous, locator, row, observedAt);
+    const saved = new Map();
+    await readEvidenceKeys(txn, [key.base], saved);
+    const base = saved.get(key.base);
+    const baseLegacy = await legacyOccurrenceKey(key.identity, base?.activeAnchor);
+    await readEvidenceKeys(txn, [key.occurrence, key.legacyOccurrence, baseLegacy], saved);
+    const previous = acceptedRecord(saved, key, { legacyOccurrence: baseLegacy });
+    if (!matchPnoHistoryArrival(locator, row, events,
+        samePnoOccurrence(previous, key.identity) ? previous.arrivalAnchorAt : base?.activeAnchor))
+      return unavailable;
+    // Historical routes lack proof/line identity. A matched arrival event
+    // verifies this detail row; other events may belong to another round.
+    const outcome = observePnoSnapshot(previous, locator, row, observedAt,
+      { acceptedArrivalAt: base?.activeAnchor });
     if (outcome.invalid === true) return unavailable;
     if (!outcome.record) return unavailable;
-    const before = JSON.stringify(previous);
+    const targetStore = key.identity.targetStoreId;
+    const lastActionAt = pnoProviderTime(row?.LastActionTime);
+    const scanAt = events.map((event) => {
+      if (event?.route_action !== SCAN_IN ||
+          String(event?.store_id || "").trim() !== targetStore) return "";
+      const at = pnoProviderTime(event?.routed_at);
+      return at >= outcome.record.arrivalAnchorAt && at <= lastActionAt ? at : "";
+    }).filter(Boolean).sort()[0];
+    if (!scanAt || Date.parse(observedAt) < Date.parse(scanAt.replace(" ", "T") + "+07:00"))
+      return unavailable;
     const record = { ...outcome.record };
     if (record.scanInObserved !== true) {
       record.scanInObserved = true;
@@ -317,8 +375,14 @@ export async function ingestPnoExactHistory(storage, locator, row, response, obs
       record.scanInObservedAt = observedAt;
       record.scanInSource = "EXPLICIT_WAYBILL_HISTORY";
     }
-    if (before !== JSON.stringify(record))
-      await txn.put({ [key.occurrence]: record });
+    const nextBase = { monitoringStartedAt: record.monitoringStartedAt,
+      activeAnchor: record.arrivalAnchorAt };
+    const updates = {};
+    if (JSON.stringify(saved.get(key.occurrence)) !== JSON.stringify(record))
+      updates[key.occurrence] = record;
+    if (JSON.stringify(base) !== JSON.stringify(nextBase))
+      updates[key.base] = nextBase;
+    if (Object.keys(updates).length) await txn.put(updates);
     return projectPnoEvidence(record);
   });
 }

@@ -145,33 +145,69 @@ function pnoV18RenderFilters() {
   };
 }
 
+function pnoV18UnionFailure(reasonCode, details, message) {
+  const error = new Error(message);
+  error.pnoUnionDiagnostic = { reasonCode, ...details };
+  return error;
+}
+
+function pnoV18RenderUnionDiagnostic(error) {
+  if (pnoV18State.selection !== "union") return;
+  const diagnostic = error?.pnoUnionDiagnostic;
+  if (!["PNO_UNION_EMPTY_PNO", "PNO_UNION_DUPLICATE_PNO",
+    "PNO_UNION_SEGMENT_COUNT_MISMATCH", "PNO_UNION_SOURCE_INVALID"].includes(diagnostic?.reasonCode)) return;
+  const safe = { reasonCode: diagnostic.reasonCode };
+  for (const field of ["segmentOrdinal", "page", "firstSegmentOrdinal", "firstPage",
+    "expectedCount", "receivedCount"]) {
+    if (Number.isSafeInteger(diagnostic[field]) && diagnostic[field] >= 0)
+      safe[field] = diagnostic[field];
+  }
+  if (typeof diagnostic.sourceValid === "boolean") safe.sourceValid = diagnostic.sourceValid;
+  const node = document.createElement("output");
+  node.id = "pno-union-dev-diagnostic";
+  node.dataset.reasonCode = safe.reasonCode;
+  node.textContent = JSON.stringify(safe);
+  el("pending-parcels-loading").append(node);
+}
+
 async function pnoV18UnionPage(sourceRow, type, page, force) {
   const segments = pnoV18ExactSegments(sourceRow);
-  if (!segments) throw new Error("ข้อมูลอ้างอิงแต่ละจุดส่งไม่ครบ");
+  if (!segments) throw pnoV18UnionFailure("PNO_UNION_SOURCE_INVALID", {}, "ข้อมูลอ้างอิงแต่ละจุดส่งไม่ครบ");
   const signature = JSON.stringify(segments);
   if (signature !== pnoV18State.segmentSignature)
-    throw new Error("ข้อมูลจุดส่งเปลี่ยนระหว่างเปิดรายละเอียด");
+    throw pnoV18UnionFailure("PNO_UNION_SOURCE_INVALID", {}, "ข้อมูลจุดส่งเปลี่ยนระหว่างเปิดรายละเอียด");
   const key = pnoV18LocatorKey(sourceRow) + "|union|" + type;
   let full = force ? null : pnoV18CacheGet(pnoV18ViewCache, key);
   if (!full) {
-    const all = [], seen = new Set();
+    const all = [], seen = new Set(), firstSeen = new Map();
     let total = 0;
     // Explicit whole-truck selection only. Sequential exact segment pages; no aggregate locator.
     for (const segment of segments) {
+      const segmentOrdinal = segments.indexOf(segment) + 1;
       const count = pnoCountForType(segment, type);
-      if (!Number.isSafeInteger(count) || count < 0) throw new Error("จำนวนพัสดุจุดส่งไม่ครบ");
+      if (!Number.isSafeInteger(count) || count < 0)
+        throw pnoV18UnionFailure("PNO_UNION_SEGMENT_COUNT_MISMATCH", { segmentOrdinal }, "จำนวนพัสดุจุดส่งไม่ครบ");
       const pages = Math.max(1, Math.ceil(count / 200));
       for (let index = 1; index <= pages; index++) {
         const result = await browserPnoPage({ ...sourceRow, ...segment, id: "" }, type, index, force);
-        if (result?.sourceValid !== true || result?.sourceCountMismatch === true ||
-            result?.page !== index || result?.total !== count ||
+        if (result?.sourceValid !== true)
+          throw pnoV18UnionFailure("PNO_UNION_SOURCE_INVALID",
+            { segmentOrdinal, page: index, sourceValid: false }, "ข้อมูลพัสดุจุดส่งหรือหน้าข้อมูลไม่ครบ");
+        if (result?.sourceCountMismatch === true || result?.page !== index || result?.total !== count ||
             !Array.isArray(result.parcels) ||
             result.parcels.length !== Math.min(200, Math.max(0, count - (index - 1) * 200)))
-          throw new Error("ข้อมูลพัสดุจุดส่งหรือหน้าข้อมูลไม่ครบ");
+          throw pnoV18UnionFailure("PNO_UNION_SEGMENT_COUNT_MISMATCH",
+            { segmentOrdinal, page: index, expectedCount: count, receivedCount: result?.total },
+            "ข้อมูลพัสดุจุดส่งหรือหน้าข้อมูลไม่ครบ");
         for (const item of result.parcels) {
           const pno = String(item?.pno || "").trim().toUpperCase();
-          if (!pno || seen.has(pno)) throw new Error("พบ PNO ซ้ำหรือไม่ครบข้ามจุดส่ง");
+          if (!pno) throw pnoV18UnionFailure("PNO_UNION_EMPTY_PNO",
+            { segmentOrdinal, page: index }, "พบ PNO ซ้ำหรือไม่ครบข้ามจุดส่ง");
+          if (seen.has(pno)) throw pnoV18UnionFailure("PNO_UNION_DUPLICATE_PNO",
+            { segmentOrdinal, page: index, firstSegmentOrdinal: firstSeen.get(pno).segmentOrdinal,
+              firstPage: firstSeen.get(pno).page }, "พบ PNO ซ้ำหรือไม่ครบข้ามจุดส่ง");
           seen.add(pno);
+          firstSeen.set(pno, { segmentOrdinal, page: index });
           all.push({ ...item, pnoSegmentIndex: segments.indexOf(segment),
             pnoSegmentLabel: segment.pnoNextStoreName || segment.pnoNextStoreId });
         }
@@ -182,11 +218,13 @@ async function pnoV18UnionPage(sourceRow, type, page, force) {
     if (all.length !== total || (type === "total" && total !== sourceRow.expectedParcels) ||
         (type === "already" && total !== sourceRow.enteredParcels) ||
         (type === "no_entry" && total !== sourceRow.pendingParcels))
-      throw new Error("ข้อมูลรวมหลายจุดส่งไม่ตรงกับยอด PreEntry");
+      throw pnoV18UnionFailure("PNO_UNION_SEGMENT_COUNT_MISMATCH",
+        { expectedCount: total, receivedCount: all.length }, "ข้อมูลรวมหลายจุดส่งไม่ตรงกับยอด PreEntry");
     full = pnoV18CacheSet(pnoV18ViewCache, key, { parcels: all, total }, 120);
   }
   const pages = Math.max(1, Math.ceil(full.total / 200));
-  if (page > pages) throw new Error("หน้าข้อมูลเกินจำนวนที่ยืนยันได้");
+  if (page > pages) throw pnoV18UnionFailure("PNO_UNION_SEGMENT_COUNT_MISMATCH",
+    { page, expectedCount: pages }, "หน้าข้อมูลเกินจำนวนที่ยืนยันได้");
   return { parcels: full.parcels.slice((page - 1) * 200, page * 200), total: full.total,
     page, proofId: sourceRow.proofId, routeName: sourceRow.routeName, sourceValid: true };
 }
@@ -304,11 +342,19 @@ export function patchPnoSegmentDestinationFrontend(source) {
   if (output.includes(MARKER)) return output;
   if (!output.includes("PNO_SCAN_EVIDENCE_TRUTH_UX_V2")) throw new Error(`${MARKER}: staged prerequisites missing`);
   output = one(output, "function pnoV18ResolveOpenArgs(",
-    `// ${MARKER}: read-only segment choices and raw destination identity.\n${pnoV18DisplayBranch.toString()}\n${pnoV18ExactSegments.toString()}\n${pnoV18UnionPage.toString()}\n${pnoV18OpenMulti.toString()}\nfunction pnoV18ResolveOpenArgs(`,
+    `// ${MARKER}: read-only segment choices and raw destination identity.\n${pnoV18DisplayBranch.toString()}\n${pnoV18ExactSegments.toString()}\n${pnoV18UnionFailure.toString()}\n${pnoV18RenderUnionDiagnostic.toString()}\n${pnoV18UnionPage.toString()}\n${pnoV18OpenMulti.toString()}\nfunction pnoV18ResolveOpenArgs(`,
     "frontend helpers");
   for (const fn of [pnoReadOnlyDetailEligibility, pnoReadOnlyUnavailableMessage,
     pnoV18ParcelFilterActive, pnoV18FilteredParcelEntries, pnoV18FilterSummaryText,
     pnoV18RenderFilters, pnoV18Fetch]) output = replaceFunction(output, fn.name, fn);
+  const loadAt = output.indexOf("async function pnoV18Load(type, page) {");
+  const loadEnd = output.indexOf("\n}\n", loadAt) + 2;
+  if (loadAt < 0 || loadEnd < 2) throw new Error(`${MARKER}: modal loader missing`);
+  const loader = one(output.slice(loadAt, loadEnd),
+    `    el("pending-parcels-loading").innerHTML = '<strong>' + esc(error.message) + '</strong><span>ตรวจสอบเซสชันพัสดุเข้าคลังแล้วลองใหม่</span>';`,
+    `    el("pending-parcels-loading").innerHTML = '<strong>' + esc(error.message) + '</strong><span>ตรวจสอบเซสชันพัสดุเข้าคลังแล้วลองใหม่</span>';\n    pnoV18RenderUnionDiagnostic(error);`,
+    "DEV-only closed union diagnostic surface");
+  output = output.slice(0, loadAt) + loader + output.slice(loadEnd);
   output = one(output, '    branch: "",\n  },\n};\n\nconst PNO_V18_VIEW_CACHE_MS',
     '    branch: "",\n    hub: "",\n  },\n  selection: null,\n  segmentSignature: "",\n};\n\nconst PNO_V18_VIEW_CACHE_MS', "modal state");
   // Every tab resets the cascade with the other filters.

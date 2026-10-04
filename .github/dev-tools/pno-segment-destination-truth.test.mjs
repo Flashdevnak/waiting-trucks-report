@@ -126,7 +126,7 @@ test("whole-truck click unions exact pages lazily and fails closed on partial so
         parcels: list.slice((page - 1) * 200, page * 200) };
     },
   });
-  vm.runInContext(["pnoCountForType", "pnoV18ExactSegments", "pnoV18UnionPage"]
+  vm.runInContext(["pnoCountForType", "pnoV18ExactSegments", "pnoV18UnionFailure", "pnoV18UnionPage"]
     .map(functionBlock).join("\n") + ";globalThis.union=pnoV18UnionPage", context);
   assert.equal(calls.length, 0, "rendering a chooser made no detail request");
   const first = await context.union(multi, "total", 1, false);
@@ -144,6 +144,110 @@ test("whole-truck click unions exact pages lazily and fails closed on partial so
   await assert.rejects(context.union(multi, "total", 1, true), /ไม่ครบ/);
   assert.equal(cache.get("TRIP|union|union|total").total, 203,
     "failed refresh never replaces the prior complete view");
+});
+
+test("DEV union diagnostic distinguishes blank and duplicate PNO without changing fail-closed truth", async () => {
+  const segments = [segment(1, 2, 0), segment(2, 1, 0)];
+  const row = { ...multi, expectedParcels: 3, enteredParcels: 0, pendingParcels: 3,
+    pnoSegments: segments };
+  async function observe(pages, override = null) {
+    const calls = [];
+    const context = vm.createContext({
+      pnoV18State: { segmentSignature: JSON.stringify(segments) },
+      pnoV18LocatorKey: () => "EXACT-TRIP|segments",
+      pnoV18ViewCache: new Map(), pnoV18CacheGet: () => null,
+      pnoV18CacheSet: (_, __, value) => value,
+      pnoPendingPropagatePositive: () => {},
+      fetch: () => { throw Error("diagnostic must not fetch"); },
+      apiGet: () => { throw Error("diagnostic must not call API"); },
+      apiPost: () => { throw Error("diagnostic must not post"); },
+      browserPnoPage: async (locator, type, page) => {
+        calls.push([locator.pnoLineId, locator.pnoStoreId, locator.pnoNextStoreId, type, page]);
+        const ordinal = locator.pnoLineId === "LINE-1" ? 0 : 1;
+        return override?.(ordinal) || { sourceValid: true, sourceCountMismatch: false,
+          page, total: pages[ordinal].length, parcels: pages[ordinal] };
+      },
+    });
+    vm.runInContext(["pnoCountForType", "pnoV18ExactSegments", "pnoV18UnionFailure", "pnoV18UnionPage"]
+      .map(functionBlock).join("\n") + ";globalThis.union=pnoV18UnionPage", context);
+    try { return { result: await context.union(row, "total", 1, false), calls }; }
+    catch (error) { return { error, calls }; }
+  }
+
+  const empty = await observe([[{ pno: "   " }, { pno: "B" }], [{ pno: "C" }]]);
+  assert.equal(empty.error?.message, "พบ PNO ซ้ำหรือไม่ครบข้ามจุดส่ง");
+  assert.equal(empty.error?.pnoUnionDiagnostic?.reasonCode, "PNO_UNION_EMPTY_PNO");
+  assert.equal(empty.error?.pnoUnionDiagnostic?.segmentOrdinal, 1);
+  assert.equal(empty.error?.pnoUnionDiagnostic?.page, 1);
+  assert.equal(empty.calls.length, 1, "fail closed before fetching the next segment");
+
+  const same = await observe([[{ pno: "parcel" }, { pno: " PARCEL " }], [{ pno: "C" }]]);
+  assert.equal(same.error?.message, empty.error.message);
+  assert.equal(same.error?.pnoUnionDiagnostic?.reasonCode, "PNO_UNION_DUPLICATE_PNO");
+  assert.equal(same.error?.pnoUnionDiagnostic?.segmentOrdinal, 1);
+  assert.equal(same.error?.pnoUnionDiagnostic?.firstSegmentOrdinal, 1);
+  assert.equal(same.calls.length, 1);
+
+  const cross = await observe([[{ pno: "parcel" }, { pno: "B" }], [{ pno: " PARCEL " }]]);
+  assert.equal(cross.error?.message, empty.error.message);
+  assert.equal(cross.error?.pnoUnionDiagnostic?.reasonCode, "PNO_UNION_DUPLICATE_PNO");
+  assert.equal(cross.error?.pnoUnionDiagnostic?.firstSegmentOrdinal, 1);
+  assert.equal(cross.error?.pnoUnionDiagnostic?.segmentOrdinal, 2);
+  assert.equal(cross.error?.pnoUnionDiagnostic?.firstPage, 1);
+  assert.equal(cross.error?.pnoUnionDiagnostic?.page, 1);
+  assert.equal(cross.calls.length, 2);
+  assert.equal(JSON.stringify(cross.error.pnoUnionDiagnostic).includes("PARCEL"), false);
+
+  const valid = await observe([[{ pno: "A" }, { pno: "B" }], [{ pno: "C" }]]);
+  assert.equal(valid.error, undefined);
+  assert.deepEqual(Array.from(valid.result.parcels, (item) => [item.pno, item.pnoSegmentIndex]),
+    [["A", 0], ["B", 0], ["C", 1]]);
+  assert.equal(valid.result.total, 3);
+  assert.equal(valid.calls.length, 2);
+
+  const invalidSource = await observe([[{ pno: "A" }, { pno: "B" }], [{ pno: "C" }]],
+    (ordinal) => ordinal === 0 ? { sourceValid: false, page: 1, total: 2, parcels: [] } : null);
+  assert.equal(invalidSource.error?.pnoUnionDiagnostic?.reasonCode, "PNO_UNION_SOURCE_INVALID");
+  const mismatch = await observe([[{ pno: "A" }, { pno: "B" }], [{ pno: "C" }]],
+    (ordinal) => ordinal === 0 ? { sourceValid: true, page: 1, total: 3,
+      parcels: [{ pno: "A" }, { pno: "B" }] } : null);
+  assert.equal(mismatch.error?.pnoUnionDiagnostic?.reasonCode, "PNO_UNION_SEGMENT_COUNT_MISMATCH");
+  assert.equal(mismatch.error?.pnoUnionDiagnostic?.expectedCount, 2);
+  assert.equal(mismatch.error?.pnoUnionDiagnostic?.receivedCount, 3);
+});
+
+test("DEV DOM exposes only closed union metadata with no extra acquisition", () => {
+  const outputs = [];
+  const node = { append(value) { outputs.push(value); } };
+  const state = { selection: "union" };
+  const context = vm.createContext({
+    pnoV18State: state, el: () => node,
+    document: { createElement(tag) { assert.equal(tag, "output"); return { dataset: {} }; } },
+    fetch: () => { throw Error("diagnostic network request"); },
+    apiGet: () => { throw Error("diagnostic API read"); },
+    apiPost: () => { throw Error("diagnostic API write"); },
+  });
+  vm.runInContext(functionBlock("pnoV18RenderUnionDiagnostic") +
+    ";globalThis.renderDiagnostic=pnoV18RenderUnionDiagnostic", context);
+  context.renderDiagnostic({ pnoUnionDiagnostic: { reasonCode: "PNO_UNION_DUPLICATE_PNO",
+    firstSegmentOrdinal: 1, firstPage: 1, segmentOrdinal: 2, page: 1,
+    pno: "SECRET_PARCEL", token: "SECRET_TOKEN", payload: { customer: "SECRET_PERSON" } } });
+  assert.equal(outputs.length, 1);
+  assert.equal(outputs[0].id, "pno-union-dev-diagnostic");
+  assert.equal(outputs[0].dataset.reasonCode, "PNO_UNION_DUPLICATE_PNO");
+  assert.deepEqual(JSON.parse(outputs[0].textContent), {
+    reasonCode: "PNO_UNION_DUPLICATE_PNO", segmentOrdinal: 2, page: 1,
+    firstSegmentOrdinal: 1, firstPage: 1,
+  });
+  state.selection = null;
+  context.renderDiagnostic({ pnoUnionDiagnostic: { reasonCode: "PNO_UNION_EMPTY_PNO" } });
+  assert.equal(outputs.length, 1, "non-union failures have no diagnostic surface");
+  assert.match(functionBlock("pnoV18Load"), /pnoV18RenderUnionDiagnostic\(error\)/);
+  for (const name of ["pnoV18UnionFailure", "pnoV18RenderUnionDiagnostic"])
+    assert.doesNotMatch(functionBlock(name), /\b(?:fetch|apiGet|apiPost|setInterval|WebSocket|EventSource)\s*\(/);
+  for (const path of ["../../ms.js", "../../worker/src/index.js"])
+    assert.doesNotMatch(readFileSync(new URL(path, import.meta.url), "utf8"), /PNO_UNION_EMPTY_PNO/);
+  assert.equal(stageFrontend(staged), staged, "DEV staging remains idempotent");
 });
 
 test("per-drop fetch uses only the selected exact segment and does not request siblings", async () => {

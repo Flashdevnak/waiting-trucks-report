@@ -6,6 +6,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import test from 'node:test';
 import { parseMsHar } from './patch-ms-resilience-v1.mjs';
+import { patchMsSourceReauthGuidance } from './patch-ms-source-reauth-guidance.mjs';
 import { TursoD1Database } from '../../worker/src/turso-d1.js';
 import { appendOriginManifestFrontend } from '../../worker/src/origin-manifest-v1.js';
 
@@ -200,6 +201,219 @@ const liveSql = {
   connection_status_write: "UPDATE ms_connections SET last_success_at=?,last_error='' WHERE hub=?",
 };
 const execute = (sql, args = []) => [{ type: 'execute', stmt: { sql, args } }, { type: 'close' }];
+
+test('one fast transient snapshot read retries once inside the original live deadline', async () => {
+  const h = liveHarness();
+  let calls = 0, writes = 0, timeoutMs = 0;
+  h.context.setTimeout = (fn, ms) => { timeoutMs = ms; return setTimeout(fn, ms); };
+  h.context.clearTimeout = clearTimeout;
+  const database = { _pipeline: async (requests) => {
+    calls++;
+    if (!/^\s*SELECT\b/.test(requests[0].stmt.sql)) writes++;
+    if (calls === 1) throw Object.assign(new Error('temporary network'), { code: 'TURSO_NETWORK_ERROR' });
+    return { results: [{ rows: [{ id: 'accepted' }] }] };
+  } };
+  const env = h.context.msLiveDatabaseEnv({ DB: database });
+  const value = await env.DB._pipeline(execute(liveSql.live_cache_read));
+  assert.equal(value.results[0].rows[0].id, 'accepted');
+  assert.equal(calls, 2); assert.equal(writes, 0);
+  assert.equal(timeoutMs, 2800);
+  assert.equal(database._pipeline !== env.DB._pipeline, true);
+});
+
+test('persistent snapshot DB failure surfaces after one bounded recovery, while writes and unrelated reads never retry', async () => {
+  const h = liveHarness(); let reads = 0, writes = 0, other = 0;
+  const failure = () => Object.assign(new Error('temporary network'), { code: 'TURSO_NETWORK_ERROR' });
+  const database = { _pipeline: async (requests) => {
+    const sql = requests[0].stmt.sql;
+    if (/ms_live_cache/.test(sql)) reads++;
+    else if (/UPDATE/.test(sql)) writes++;
+    else other++;
+    throw failure();
+  } };
+  await assert.rejects(h.context.msLiveDatabaseEnv({ DB: database }).DB._pipeline(execute(liveSql.live_cache_read)),
+    { code: 'TURSO_NETWORK_ERROR' });
+  assert.equal(reads, 2);
+  await assert.rejects(h.context.msLiveDatabaseEnv({ DB: database }).DB._pipeline(execute(liveSql.connection_status_write)),
+    { code: 'TURSO_NETWORK_ERROR' });
+  await assert.rejects(h.context.msLiveDatabaseEnv({ DB: database }).DB._pipeline(execute('SELECT * FROM audit_log')),
+    { code: 'TURSO_NETWORK_ERROR' });
+  assert.equal(writes, 1); assert.equal(other, 1);
+});
+
+test('an exhausted snapshot deadline cannot start a second database read', async () => {
+  const h = liveHarness(); let expire, calls = 0;
+  h.context.setTimeout = (fn) => { expire = fn; return 1; };
+  h.context.clearTimeout = () => {};
+  const database = { _pipeline: () => { calls++; return new Promise(() => {}); } };
+  const task = h.context.msLiveDatabaseEnv({ DB: database }).DB._pipeline(execute(liveSql.live_cache_read));
+  expire();
+  await assert.rejects(task, { code: 'TURSO_LIVE_TIMEOUT' });
+  assert.equal(calls, 1);
+});
+
+test('snapshot delivery separates database health from Route truth and restores normal state after recovery', async () => {
+  const h = liveHarness();
+  let reads = 0, writes = 0, providerCalls = 0, failCount = 1;
+  const prior = { rows: [h.prior], syncedAt: '2026-10-05T12:00:00.000Z', status: 'synced', completedToday: 1 };
+  h.owner.lastResult = prior;
+  h.owner.lastSnapshotPayload = { type: 'snapshot', rows: [h.prior], standards: [{ type: 'truck', minutes: 120 }],
+    lastSync: prior.syncedAt, msStatus: 'synced', syncError: '', completedToday: 1 };
+  h.owner.lastSnapshotBranch = 'NE1';
+  h.owner.refresh = async () => { providerCalls++; return prior; };
+  const db = { _pipeline: async (requests) => {
+    reads++;
+    if (!/^\s*SELECT\b/.test(requests[0].stmt.sql)) writes++;
+    if (failCount-- > 0) throw Object.assign(new Error('temporary network'), { code: 'TURSO_NETWORK_ERROR' });
+    return { results: [] };
+  } };
+  h.owner.env = { DB: db };
+  h.context.readSettings = async (env) => {
+    await env.DB._pipeline(execute('SELECT * FROM hub_settings WHERE branch=?'));
+    return { msVehicleLimits: [{ type: 'truck', minutes: 120 }] };
+  };
+  const normal = await h.owner.streamPayload('NE1');
+  assert.equal(reads, 2); assert.equal(normal.msStatus, 'synced');
+  assert.equal(normal.syncError, ''); assert.equal(normal.lastSync, prior.syncedAt);
+  assert.equal(normal.rows[0].id, h.prior.id);
+
+  failCount = 2;
+  const degraded = await h.owner.streamPayload('NE1');
+  assert.equal(reads, 4); assert.equal(degraded.msStatus, 'degraded');
+  assert.equal(degraded.errorCode, 'TURSO_NETWORK_ERROR');
+  assert.equal(degraded.lastSync, prior.syncedAt);
+  assert.equal(degraded.rows[0].id, h.prior.id);
+  assert.equal(degraded.standards[0].minutes, 120);
+  assert.match(degraded.syncError, /ฐานข้อมูลตอบช้า/);
+
+  const recovered = await h.owner.streamPayload('NE1');
+  assert.equal(recovered.msStatus, 'synced'); assert.equal(recovered.errorCode, '');
+  assert.equal(recovered.lastSync, prior.syncedAt);
+  assert.equal(writes, 0); assert.equal(providerCalls, 3);
+  assert.equal(h.stats().routeCalls, 0, 'snapshot recovery never calls the upstream Route provider');
+});
+
+test('persistent DB outage keeps accepted rows and source time, but never claims green or a dead socket', async () => {
+  const h = liveHarness(); let reads = 0;
+  const prior = { type: 'snapshot', rows: [h.prior], lastSync: '2026-10-05T12:00:00.000Z',
+    standards: [], msStatus: 'synced', completedToday: 1 };
+  h.owner.lastSnapshotPayload = prior; h.owner.lastSnapshotBranch = 'NE1';
+  h.owner.refresh = async () => ({ status: 'error', errorCode: 'TURSO_LIVE_TIMEOUT',
+    error: 'ฐานข้อมูลตอบช้าชั่วคราว ยังไม่สามารถอ่าน snapshot ล่าสุดได้' });
+  h.owner.env = { DB: { _pipeline: async () => { reads++; throw Object.assign(new Error('db down'),
+    { code: 'TURSO_NETWORK_ERROR' }); } } };
+  h.context.readSettings = async (env) => {
+    await env.DB._pipeline(execute('SELECT * FROM hub_settings WHERE branch=?'));
+  };
+  for (let i = 0; i < 2; i++) {
+    const payload = await h.owner.streamPayload('NE1');
+    assert.equal(payload.msStatus, 'degraded');
+    assert.equal(payload.rows[0].id, h.prior.id);
+    assert.equal(payload.lastSync, prior.lastSync);
+    assert.match(payload.syncError, /ฐานข้อมูลตอบช้า/);
+    assert.equal(payload.errorCode, 'TURSO_NETWORK_ERROR');
+  }
+  assert.equal(reads, 4, 'one initial read and one retry per ordinary delivery cycle');
+});
+
+test('frontend treats a DB read message as degraded data while the WebSocket and accepted rows remain', () => {
+  const handler = between(frontend, 'function handleRealtimeMessage(raw) {', '\nfunction armRealtimeFollowerWatchdog(');
+  const helper = between(frontend, 'function msDatabaseSnapshotFailure(value) {', '\nfunction showMsDatabaseReadStatus(');
+  const display = frontend.match(/function showMsDatabaseReadStatus\(\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(display);
+  const badge = { textContent: 'ออนไลน์', className: 'badge badge-online' };
+  const lastRefresh = { textContent: '' };
+  const rows = [{ id: 'accepted' }];
+  let renders = 0;
+  const context = { JSON, String, Date, Number, Object, Array, Set, Math,
+    state: { currentRows: rows, lastSync: 'genuine-old', msStatus: 'synced', syncError: '',
+      branch: 'NE1', cancelledRouteIds: new Set(), completedToday: 1, auth: { token: 'mock' } },
+    fastSnapshotRestoreInProgress: false, cancelledTodayHydratedKey: 'same', cancelledTodayLoadPromise: null,
+    completedTodayZeroProbedKey: 'same', dtf: { format: () => 'now' },
+    el: (id) => id === 'last-refresh' ? lastRefresh : badge,
+    render: () => { renders++; }, renderFreshness() {},
+    resetLowerDailyViewOnBangkokDayChange() {}, markPnoBrowserCacheStaleFromRows() {},
+    fillFilters() {}, completedTodayDatasetKey: () => 'same', shouldHydrateCompletedTodayRows: () => false,
+  };
+  vm.createContext(context);
+  const apply = between(frontend, 'function applyLiveResult(result, fromStream = false) {', '\nfunction resetArchiveState()');
+  const connection = between(frontend, 'function connection(ok) {', '\nfunction empty(');
+  vm.runInContext(helper + '\n' + display + '\n' + connection + '\n' + apply + '\n' + handler, context);
+  context.handleRealtimeMessage(JSON.stringify({ type: 'error', code: 'TURSO_LIVE_TIMEOUT',
+    message: 'ฐานข้อมูลตอบช้าชั่วคราว' }));
+  assert.equal(context.state.currentRows, rows);
+  assert.equal(context.state.lastSync, 'genuine-old');
+  assert.equal(context.state.msStatus, 'degraded');
+  assert.equal(context.state.msSnapshotDatabaseDegraded, true);
+  assert.equal(badge.textContent, 'ฐานข้อมูลตอบชั่วคราว');
+  assert.notEqual(badge.textContent, 'เชื่อมต่อไม่ได้');
+  context.applyLiveResult({ type: 'snapshot', rows: null, msStatus: 'degraded',
+    syncError: 'database unavailable', errorCode: 'TURSO_LIVE_TIMEOUT', lastSync: 'genuine-old',
+    completedToday: 1 }, true);
+  assert.equal(context.state.currentRows, rows); assert.equal(context.state.lastSync, 'genuine-old');
+  assert.equal(badge.textContent, 'ฐานข้อมูลตอบชั่วคราว');
+  assert.match(lastRefresh.textContent, /ฐานข้อมูลตอบชั่วคราว/);
+  assert.doesNotMatch(lastRefresh.textContent, /Route ยังไม่อัปเดต/);
+  assert.equal(renders, 1);
+  context.applyLiveResult({ rows, msStatus: 'synced', syncError: '', errorCode: '',
+    lastSync: 'genuine-old', completedToday: 1 }, true);
+  assert.equal(badge.textContent, 'ออนไลน์'); assert.equal(context.state.lastSync, 'genuine-old');
+  assert.equal(context.state.msSnapshotDatabaseDegraded, false);
+  context.applyLiveResult({ rows, msStatus: 'degraded', syncError: 'Route unavailable',
+    errorCode: 'MS_ROUTE_ERROR', lastSync: 'genuine-old', completedToday: 1 }, true);
+  assert.match(lastRefresh.textContent, /Route ยังไม่อัปเดต/);
+  assert.equal(context.state.msSnapshotDatabaseDegraded, false);
+  context.applyLiveResult({ rows: null, msStatus: 'error', syncError: 'transport lost',
+    errorCode: 'MS_STREAM_ERROR', completedToday: 1 }, true);
+  assert.equal(badge.textContent, 'เชื่อมต่อไม่ได้');
+  const load = between(frontend, 'async function loadData(silent = false) {', '\nfunction applyLiveResult(');
+  assert.match(load, /msDatabaseSnapshotFailure\(error\)/);
+  assert.match(load, /!Array\.isArray\(state\.currentRows\) \|\| state\.currentRows\.length === 0/);
+  assert.match(load, /else \{\s*state\.msSnapshotDatabaseDegraded = false;\s*connection\(Boolean\(recentlyHealthy\)\)/);
+  assert.match(worker, /syncError: result\.error \|\| "", errorCode: result\.errorCode \|\| ""/,
+    'accepted broadcast clears stale DB error on a genuine success');
+  assert.match(frontend, /pollMs: 4000/);
+});
+
+test('final DEV source status keeps a healthy Route separate from database-only degradation', () => {
+  const composed = patchMsSourceReauthGuidance(frontend);
+  const predicate = composed.match(/const routeDegraded = key === "routes" && \([\s\S]*?\n      \);/)?.[0];
+  assert.ok(predicate);
+  const check = (state, routeRepair = {}) => vm.runInNewContext(
+    `(() => { const key = "routes", hub = "NE1"; ${predicate} return routeDegraded; })()`,
+    { state, routeRepair });
+  assert.equal(check({ branch: 'NE1', msStatus: 'degraded', msSnapshotDatabaseDegraded: true }), false);
+  assert.equal(check({ branch: 'NE1', msStatus: 'degraded', msSnapshotDatabaseDegraded: false }), true);
+  assert.equal(check({ branch: 'NE1', msStatus: 'degraded', msSnapshotDatabaseDegraded: true },
+    { state: 'retry_wait' }), true, 'a real Route repair problem remains visible');
+});
+
+test('background revalidation preserves accepted rows on a transient DB failure, then recovers automatically', async () => {
+  const helper = between(frontend, 'function msDatabaseSnapshotFailure(value) {', '\nfunction showMsDatabaseReadStatus(');
+  const display = frontend.match(/function showMsDatabaseReadStatus\(\) \{[\s\S]*?\n\}/)?.[0];
+  const load = between(frontend, 'async function loadData(silent = false) {', '\nfunction applyLiveResult(');
+  const connection = between(frontend, 'function connection(ok) {', '\nfunction empty(');
+  const badge = { textContent: 'ออนไลน์', className: 'badge badge-online' };
+  const accepted = [{ id: 'accepted' }]; let clears = 0, calls = 0;
+  const context = { JSON, String, Number, Date, Math, state: { auth: { token: 'mock' }, branch: 'NE1',
+    currentRows: accepted, loading: false, transportLastOkAt: 0, msStatus: 'synced',
+    syncError: '', lastSync: 'genuine-old' }, CONFIG: { staleMs: 15000 },
+    el: () => badge, connection: undefined, renderFreshness() {},
+    empty() { clears++; }, toast() {}, ensureRealtimeTransport() {}, saveFastRefreshSnapshot() {},
+    applyAcceptedLiveResult(result) { context.state.msStatus = result.status;
+      context.state.syncError = ''; context.connection(true); return true; },
+    apiGet: async () => { calls++; if (calls === 1) throw Object.assign(new Error('database unavailable'),
+      { code: 'TURSO_LIVE_TIMEOUT' }); return { status: 'synced', rows: accepted, lastSync: 'genuine-old' }; },
+  };
+  vm.createContext(context);
+  vm.runInContext(helper + '\n' + display + '\n' + connection + '\n' + load, context);
+  await context.loadData(true);
+  assert.equal(context.state.currentRows, accepted); assert.equal(context.state.lastSync, 'genuine-old');
+  assert.equal(badge.textContent, 'ฐานข้อมูลตอบชั่วคราว'); assert.equal(clears, 0);
+  await context.loadData(true);
+  assert.equal(badge.textContent, 'ออนไลน์'); assert.equal(calls, 2);
+  assert.equal(clears, 0);
+});
 
 for (const [stage, sql] of Object.entries(liveSql)) {
   test('live DB timeout trace identifies ' + stage + ' from SQL without values', async () => {

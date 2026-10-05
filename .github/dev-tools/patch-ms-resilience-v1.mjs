@@ -30,7 +30,65 @@ export function patchMsResilienceFrontend(source) {
   source = source.replace('function incrementalRenderer(rows)', 'function renderRowsProgressively(rows)');
   source = unique(source, '  el("filter-summary").innerHTML = `', '  const summaryHtml = `');
   source = unique(source, '  el("filter-summary")\n    .querySelectorAll("[data-summary-status]")', '  if (updateMsSummary(el("filter-summary"), summaryHtml)) return;\n  el("filter-summary")\n    .querySelectorAll("[data-summary-status]")');
-  return source + '\n// MS_INCREMENTAL_RENDER_V1\n' + parseMsHar.toString() + '\n' + updateMsSummary.toString() + '\n';
+  // A database read error is a snapshot-health event, not a dead WebSocket.
+  source = unique(source, `  if (payload?.type === "error") {
+    state.syncError = payload.message || "Realtime stream ขัดข้องชั่วคราว";
+    state.msStatus = "degraded";
+    renderFreshness();
+    return;
+  }`, `  if (payload?.type === "error") {
+    state.syncError = payload.message || "Realtime stream ขัดข้องชั่วคราว";
+    state.msStatus = "degraded";
+    state.msSnapshotDatabaseDegraded = msDatabaseSnapshotFailure(payload);
+    if (state.msSnapshotDatabaseDegraded) showMsDatabaseReadStatus();
+    renderFreshness();
+    return;
+  }`);
+  source = unique(source,
+    '  if (result?.syncError !== undefined) state.syncError = result.syncError || "";',
+    '  if (result?.syncError !== undefined) state.syncError = result.syncError || "";\n  state.msSnapshotDatabaseDegraded = msDatabaseSnapshotFailure(result);');
+  source = unique(source,
+    '  connection(state.msStatus !== "error" && state.msStatus !== "not_configured");',
+    '  if (msDatabaseSnapshotFailure(result)) showMsDatabaseReadStatus();\n  else connection(state.msStatus !== "error" && state.msStatus !== "not_configured");');
+  source = unique(source,
+    '    state.msStatus === "degraded"\n      ? "Route ยังไม่อัปเดต · แสดงข้อมูลล่าสุด · กำลังตรวจสถานะทุก 4 วินาที"',
+    '    msDatabaseSnapshotFailure(result)\n      ? "ฐานข้อมูลตอบชั่วคราว · แสดงข้อมูลล่าสุด · กำลังตรวจสถานะทุก 4 วินาที"\n      : state.msStatus === "degraded"\n        ? "Route ยังไม่อัปเดต · แสดงข้อมูลล่าสุด · กำลังตรวจสถานะทุก 4 วินาที"');
+  source = unique(source, `    connection(Boolean(recentlyHealthy));
+    if (!silent) {
+      if (recentlyHealthy)
+        toast(\`เครือข่ายสะดุดชั่วคราว · ใช้ข้อมูลล่าสุดและกำลังลองใหม่: \${error.message}\`, true);
+      else empty(\`โหลดข้อมูลไม่สำเร็จ: \${error.message}\`);
+    }`, `    if (msDatabaseSnapshotFailure(error)) {
+      state.msStatus = "degraded";
+      state.syncError = "ฐานข้อมูลตอบชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด";
+      state.msSnapshotDatabaseDegraded = true;
+      showMsDatabaseReadStatus();
+      renderFreshness();
+      if (!silent && (!Array.isArray(state.currentRows) || state.currentRows.length === 0))
+        empty(\`โหลดข้อมูลไม่สำเร็จ: \${error.message}\`);
+    } else {
+      state.msSnapshotDatabaseDegraded = false;
+      connection(Boolean(recentlyHealthy));
+      if (!silent) {
+        if (recentlyHealthy)
+          toast(\`เครือข่ายสะดุดชั่วคราว · ใช้ข้อมูลล่าสุดและกำลังลองใหม่: \${error.message}\`, true);
+        else empty(\`โหลดข้อมูลไม่สำเร็จ: \${error.message}\`);
+      }
+    }`);
+  return source + '\n// MS_INCREMENTAL_RENDER_V1\n' + parseMsHar.toString() + '\n' + updateMsSummary.toString() + '\n' +
+    msDatabaseSnapshotFailure.toString() + '\n' + showMsDatabaseReadStatus.toString() + '\n';
+}
+
+function msDatabaseSnapshotFailure(value) {
+  const code = String(value?.errorCode || value?.code || "");
+  return code === "DB_SNAPSHOT_READ_ERROR" || code.startsWith("TURSO_");
+}
+
+function showMsDatabaseReadStatus() {
+  const badge = el("connection-badge");
+  if (!badge) return;
+  badge.textContent = "ฐานข้อมูลตอบชั่วคราว";
+  badge.className = "badge badge-neutral";
 }
 
 export function parseMsHar(raw) {
@@ -229,6 +287,56 @@ export function patchMsResilienceWorker(source) {
     '          ...remembered,\n          status: "degraded",\n          dbTrace,');
   source = unique(source, '      status: "error",\n      errorCode: errorCode || "MS_SYNC_FAILED",',
     '      status: "error",\n      errorCode: errorCode || "MS_SYNC_FAILED",\n      dbTrace,');
+  source = unique(source, `  async streamPayload(branch) {
+    const live = await this.refresh(branch, false, false);
+    const settings = await readSettings(this.env, branch);
+    const payload = {
+      type: "snapshot",
+      rows: Array.isArray(live?.rows) ? live.rows : null,
+      completedToday: Number(live?.completedToday) || 0,
+      standards: settings.msVehicleLimits,
+      lastSync: live?.syncedAt || "",
+      msStatus: live?.status || "",
+      syncError: live?.error || "",
+      pollMs: 4000,
+    };
+    this.lastSnapshotPayload = payload;
+    this.lastSnapshotBranch = branch;
+    return payload;
+  }`, `  async streamPayload(branch) {
+    const live = await this.refresh(branch, false, false);
+    let settings, readError;
+    try {
+      // Only this idempotent snapshot settings read gets the live DB deadline.
+      // The adapter below can retry one quick availability failure within it.
+      settings = await readSettings(msLiveDatabaseEnv(this.env), branch);
+    } catch (error) { readError = error; }
+    const remembered = this.lastSnapshotBranch === branch ? this.lastSnapshotPayload : null;
+    const databaseUnavailable = Boolean(readError) ||
+      String(live?.errorCode || "").startsWith("TURSO_");
+    const rows = Array.isArray(live?.rows) ? live.rows :
+      databaseUnavailable && Array.isArray(remembered?.rows) ? remembered.rows : null;
+    const payload = {
+      type: "snapshot",
+      rows,
+      completedToday: Number(live?.completedToday ?? remembered?.completedToday) || 0,
+      standards: settings?.msVehicleLimits ?? remembered?.standards ?? null,
+      lastSync: live?.syncedAt || (databaseUnavailable ? remembered?.lastSync : "") || "",
+      msStatus: databaseUnavailable ? "degraded" : live?.status || "",
+      syncError: readError
+        ? "ฐานข้อมูลตอบช้าชั่วคราว ระบบยังแสดงข้อมูลล่าสุดตามเวลาที่รับสำเร็จล่าสุด"
+        : live?.error || "",
+      errorCode: readError?.code || (databaseUnavailable ? live?.errorCode : "") ||
+        (readError ? "DB_SNAPSHOT_READ_ERROR" : ""),
+      pollMs: 4000,
+    };
+    this.lastSnapshotPayload = payload;
+    this.lastSnapshotBranch = branch;
+    return payload;
+  }`);
+  source = unique(source,
+    '      syncError: result.error || "" };',
+    '      syncError: result.error || "", errorCode: result.errorCode || "" };');
   return source + '\n' + workerHelpers;
 }
 
@@ -347,6 +455,11 @@ function msLiveDatabaseEnv(env) {
       !/^\s*(?:BEGIN|COMMIT|ROLLBACK)\b/i.test(String(request?.stmt?.sql || ""))).length;
     statementCountTotal += statementCount;
     const transaction = requests.some((request) => /^BEGIN\b/i.test(request.stmt?.sql || ""));
+    const statements = requests.filter((request) => request?.type === "execute");
+    const snapshotRead = !transaction && statements.length === 1 &&
+      /^\s*SELECT\b/i.test(String(statements[0]?.stmt?.sql || "")) &&
+      /\b(?:FROM|JOIN)\s+(?:ms_connections|ms_live_cache|ms_routes|hub_settings)\b/i.test(
+        String(statements[0]?.stmt?.sql || ""));
     if (transaction) transactionStage = stage;
     const record = (timedOut, submitted = true) => {
       const elapsedMs = Math.max(0, Date.now() - started);
@@ -379,10 +492,18 @@ function msLiveDatabaseEnv(env) {
     }, () => {});
     let caught;
     try {
-      return await Promise.race([
-        pending,
-        new Promise((_, reject) => { timer = setTimeout(() => { expired = true; reject(timeoutError()); }, remaining); }),
-      ]);
+      // The same timer covers both attempts. A slow timeout never starts a
+      // second query, and transaction/write pipelines never retry.
+      const deadline = new Promise((_, reject) => {
+        timer = setTimeout(() => { expired = true; reject(timeoutError()); }, remaining);
+      });
+      try {
+        return await Promise.race([pending, deadline]);
+      } catch (firstError) {
+        if (!snapshotRead || !msTursoAvailability(firstError) || expired ||
+            remaining - (Date.now() - started) < 200) throw firstError;
+        return await Promise.race([database._pipeline(...args), deadline]);
+      }
     } catch (error) {
       caught = error;
       if (msTursoAvailability(error)) unavailable = error;

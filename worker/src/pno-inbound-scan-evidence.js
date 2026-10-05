@@ -14,6 +14,8 @@ const ACTIONS = new Set([
 ]);
 const ARRIVAL_ACTIONS = new Set(["ARRIVAL_GOODS_VAN_CHECK_SCAN", "DRIVER_SIGN"]);
 const SCAN_IN = "ARRIVAL_WAREHOUSE_SCAN";
+const TRUSTED_SCAN_SOURCE = "EXPLICIT_WAYBILL_HISTORY";
+const UNRESOLVED_SCAN_LOCATION = "LOCATION_OR_OCCURRENCE_UNRESOLVED";
 const KEY_PREFIX = "pno-inbound-evidence-v1:";
 
 export function pnoProviderTime(value) {
@@ -132,13 +134,31 @@ export function projectPnoEvidence(record, { asOf } = {}) {
     return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "NO_OBSERVATION" };
   if (Date.parse(record.monitoringStartedAt || "") > cutoff)
     return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "NOT_YET_OBSERVED" };
-  const positiveKnown = record.scanInObserved === true &&
+  // Old exact-history writes checked the event's store against this exact
+  // occurrence before recording their source. Snapshot store_id has no proven
+  // LastAction-location semantics, so neither it nor an unknown source is a
+  // trusted positive. New history writes also retain the checked event store.
+  const trustedPositive = record.scanInObserved === true &&
+    record.scanInSource === TRUSTED_SCAN_SOURCE &&
+    record.scanInAction === SCAN_IN && Boolean(pnoProviderTime(record.scanInEventAt)) &&
+    Boolean(String(record.occurrence?.targetStoreId || "").trim()) &&
+    (record.scanInStoreId == null ||
+      String(record.scanInStoreId).trim() === record.occurrence.targetStoreId);
+  const positiveKnown = trustedPositive &&
     Date.parse(record.scanInObservedAt || "") <= cutoff;
   if (positiveKnown) return {
     classification: PNO_SCAN_CLASSES.CONFIRMED, reason: "POSITIVE_CURRENT_OCCURRENCE_SCAN",
     scanInAction: record.scanInAction, scanInEventAt: record.scanInEventAt,
     scanInObservedAt: record.scanInObservedAt, scanInSource: record.scanInSource,
   };
+  const untrustedObservedAt = Date.parse(record.scanInObservedAt || "");
+  if ((record.scanInObserved === true && !trustedPositive &&
+        (cutoff === Infinity || !Number.isFinite(untrustedObservedAt) ||
+          untrustedObservedAt <= cutoff)) ||
+      (record.scanInLocationUnresolvedAt &&
+        Date.parse(record.scanInLocationUnresolvedAt) <= cutoff))
+    return { classification: PNO_SCAN_CLASSES.INSUFFICIENT,
+      reason: UNRESOLVED_SCAN_LOCATION };
   const latestKnown = Date.parse(record.lastObservedAt || "") <= cutoff;
   if (!latestKnown) return { classification: PNO_SCAN_CLASSES.INSUFFICIENT, reason: "NOT_YET_OBSERVED" };
   if (record.preArrivalStageObserved === true && record.arrivalStageObserved !== true &&
@@ -226,11 +246,16 @@ export function observePnoSnapshot(previous, locator, row, observedAt,
     downstreamObserved: previous?.downstreamObserved === true ||
       (!ARRIVAL_ACTIONS.has(action) && action !== SCAN_IN && eventAt > anchor),
     preArrivalStageObserved: previous?.preArrivalStageObserved === true,
-    scanInObserved: previous?.scanInObserved === true || action === SCAN_IN,
-    scanInAction: previous?.scanInAction || (action === SCAN_IN ? action : null),
-    scanInEventAt: previous?.scanInEventAt || (action === SCAN_IN ? eventAt : null),
-    scanInObservedAt: previous?.scanInObservedAt || (action === SCAN_IN ? observedAt : null),
-    scanInSource: previous?.scanInSource || (action === SCAN_IN ? "FOLLOWSTART_LIST_SNAPSHOT" : null),
+    // Keep legacy fields untouched for compatibility, but never promote an
+    // ordinary LastAction snapshot into a new current-HUB positive.
+    scanInObserved: previous?.scanInObserved === true,
+    scanInAction: previous?.scanInAction || null,
+    scanInEventAt: previous?.scanInEventAt || null,
+    scanInObservedAt: previous?.scanInObservedAt || null,
+    scanInSource: previous?.scanInSource || null,
+    ...(previous?.scanInStoreId ? { scanInStoreId: previous.scanInStoreId } : {}),
+    ...(previous?.scanInLocationUnresolvedAt || action === SCAN_IN
+      ? { scanInLocationUnresolvedAt: previous?.scanInLocationUnresolvedAt || observedAt } : {}),
     // Any unverified interval clears a prior continuity attestation. A later
     // detail snapshot cannot retroactively fill a missed observation window.
     coverageState: !monitoringBeforeArrival ? "LATE_START" :
@@ -303,9 +328,7 @@ export async function observePnoEvidencePage(storage, locator, rawRows, observed
 export async function reconcilePnoCachedPositive(storage, locator, value) {
   if (!storage?.get || value?.sourceValid !== true || !Array.isArray(value.parcels))
     return value;
-  const candidates = value.parcels.filter((row) =>
-    row?.scanEvidence?.classification !== PNO_SCAN_CLASSES.CONFIRMED &&
-    row?.pno);
+  const candidates = value.parcels.filter((row) => row?.pno);
   if (!candidates.length) return value;
   const pairs = await Promise.all(candidates.map(async (row) => ({
     row, key: await pnoEvidenceKeys(locator,
@@ -321,9 +344,15 @@ export async function reconcilePnoCachedPositive(storage, locator, value) {
   for (const [index, { row, key }] of pairs.entries()) {
     if (!key) continue;
     const record = acceptedRecord(saved, key, bases[index]);
-    if (!samePnoOccurrence(record, key.identity)) continue;
+    if (!samePnoOccurrence(record, key.identity)) {
+      if (row.scanEvidence?.classification === PNO_SCAN_CLASSES.CONFIRMED)
+        row.scanEvidence = { classification: PNO_SCAN_CLASSES.INSUFFICIENT,
+          reason: UNRESOLVED_SCAN_LOCATION };
+      continue;
+    }
     const view = projectPnoEvidence(record);
-    if (view.classification === PNO_SCAN_CLASSES.CONFIRMED)
+    if (view.classification === PNO_SCAN_CLASSES.CONFIRMED ||
+        row.scanEvidence?.classification === PNO_SCAN_CLASSES.CONFIRMED)
       row.scanEvidence = view;
   }
   return value;
@@ -368,12 +397,13 @@ export async function ingestPnoExactHistory(storage, locator, row, response, obs
     if (!scanAt || Date.parse(observedAt) < Date.parse(scanAt.replace(" ", "T") + "+07:00"))
       return unavailable;
     const record = { ...outcome.record };
-    if (record.scanInObserved !== true) {
+    if (projectPnoEvidence(record).classification !== PNO_SCAN_CLASSES.CONFIRMED) {
       record.scanInObserved = true;
       record.scanInAction = SCAN_IN;
       record.scanInEventAt = scanAt;
       record.scanInObservedAt = observedAt;
-      record.scanInSource = "EXPLICIT_WAYBILL_HISTORY";
+      record.scanInSource = TRUSTED_SCAN_SOURCE;
+      record.scanInStoreId = targetStore;
     }
     const nextBase = { monitoringStartedAt: record.monitoringStartedAt,
       activeAnchor: record.arrivalAnchorAt };

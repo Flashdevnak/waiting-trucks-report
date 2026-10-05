@@ -5,7 +5,7 @@ import {
   PNO_PASSIVE_LIMITS, pnoPassiveLocator, pnoPassiveLocators, registerPnoPassiveRoutes,
   runPnoPassiveCycle,
 } from "../../worker/src/pno-passive-coverage.js";
-import { observePnoEvidencePage, projectPnoEvidence } from "../../worker/src/pno-inbound-scan-evidence.js";
+import { observePnoEvidencePage, projectPnoEvidence, ingestPnoExactHistory } from "../../worker/src/pno-inbound-scan-evidence.js";
 
 const root = new URL("../../", import.meta.url);
 const stage = readFileSync(new URL("worker/.dev-runtime/src/index.js", root), "utf8");
@@ -158,9 +158,13 @@ test("observed exact positive remains sticky; another day is not gap proof", asy
   const parcel = (anchor, action, time) => ({ pno: "PARCEL",
     real_arrive_time: anchor, store_id: "TARGET", LastAction: action, LastActionTime: time });
   const anchor = "2026-09-30 10:00:00";
-  const positive = await observePnoEvidencePage(st, locator,
-    [parcel(anchor, "ARRIVAL_WAREHOUSE_SCAN", "2026-09-30 10:01:00")], "2026-09-30T03:01:01Z");
-  assert.equal(positive[0].classification, "CONFIRMED_SCAN_IN");
+  const current = parcel(anchor, "SHIPMENT_WAREHOUSE_SCAN", "2026-09-30 10:02:00");
+  const positive = await ingestPnoExactHistory(st, locator, current, { parcel_info: { pno: "PARCEL" },
+    parcel_routes: [
+      { route_action: "ARRIVAL_GOODS_VAN_CHECK_SCAN", store_id: "TARGET", routed_at: anchor },
+      { route_action: "ARRIVAL_WAREHOUSE_SCAN", store_id: "TARGET", routed_at: "2026-09-30 10:01:00" },
+    ] }, "2026-09-30T03:02:01Z");
+  assert.equal(positive.classification, "CONFIRMED_SCAN_IN");
   const downstream = await observePnoEvidencePage(st, locator,
     [parcel(anchor, "SHIPMENT_WAREHOUSE_SCAN", "2026-09-30 10:02:00")], "2026-09-30T03:02:01Z");
   assert.equal(downstream[0].classification, "CONFIRMED_SCAN_IN");
@@ -180,12 +184,16 @@ test("multi-drop positive scan evidence cannot cross exact segment identity", as
   const parcel = { pno: "SAME-PNO", real_arrive_time: "2026-09-30 10:00:00",
     store_id: "TARGET", LastAction: "ARRIVAL_WAREHOUSE_SCAN",
     LastActionTime: "2026-09-30 10:01:00" };
-  const a = await observePnoEvidencePage(st, { ...base, lineId: "LINE-A" },
-    [parcel], "2026-09-30T03:01:01Z");
+  const a = await ingestPnoExactHistory(st, { ...base, lineId: "LINE-A" },
+    { ...parcel, LastAction: "SHIPMENT_WAREHOUSE_SCAN", LastActionTime: "2026-09-30 10:02:00" },
+    { parcel_info: { pno: "SAME-PNO" }, parcel_routes: [
+      { route_action: "ARRIVAL_GOODS_VAN_CHECK_SCAN", store_id: "TARGET", routed_at: "2026-09-30 10:00:00" },
+      { route_action: "ARRIVAL_WAREHOUSE_SCAN", store_id: "TARGET", routed_at: "2026-09-30 10:01:00" },
+    ] }, "2026-09-30T03:02:01Z");
   const b = await observePnoEvidencePage(st, { ...base, lineId: "LINE-B" },
     [{ ...parcel, LastAction: "SHIPMENT_WAREHOUSE_SCAN", LastActionTime: "2026-09-30 10:02:00" }],
     "2026-09-30T03:02:01Z");
-  assert.equal(a[0].classification, "CONFIRMED_SCAN_IN");
+  assert.equal(a.classification, "CONFIRMED_SCAN_IN");
   assert.equal(b[0].classification, "INSUFFICIENT_HISTORY");
 });
 

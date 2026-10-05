@@ -32,6 +32,11 @@ function history(pno = "TEST_PNO_A", events = [
   return { data: { result: { parcel_info: { pno }, parcel_routes: events.map(
     ([route_action, routed_at, store_id]) => ({ route_action, routed_at, store_id })) } } };
 }
+function legacyHistoryPositive(record) {
+  return { ...record, scanInObserved: true, scanInAction: "ARRIVAL_WAREHOUSE_SCAN",
+    scanInEventAt: scan, scanInObservedAt: scannedAt,
+    scanInSource: "EXPLICIT_WAYBILL_HISTORY" };
+}
 
 class MemoryStorage {
   constructor() { this.values = new Map(); this.writes = 0; this.queue = Promise.resolve(); }
@@ -112,7 +117,8 @@ test("stable occurrence migrates an accepted legacy scan when earlier PNO arriva
   const storage = new MemoryStorage();
   const positive = row("ARRIVAL_WAREHOUSE_SCAN", scan);
   const key = await pnoEvidenceKeys(locator, positive);
-  const legacyRecord = observePnoSnapshot(null, locator, positive, scannedAt).record;
+  const legacyRecord = legacyHistoryPositive(
+    observePnoSnapshot(null, locator, positive, scannedAt).record);
   storage.values.set(key.legacyOccurrence, structuredClone(legacyRecord));
   storage.values.set(key.base, { monitoringStartedAt: scannedAt, activeAnchor: arrival });
   const earlier = "2026-09-24 02:52:00";
@@ -292,7 +298,7 @@ test("malformed later history cannot erase a prior positive or reveal it before 
   assert.deepEqual(storage.values.get(key.occurrence), original);
 });
 
-test("vehicle arrival is not parcel scan-in, while the matched scan is positive", () => {
+test("vehicle arrival is not parcel scan-in and a snapshot scan has unresolved location", () => {
   const first = observePnoSnapshot(null, locator, row("ARRIVAL_GOODS_VAN_CHECK_SCAN", arrival),
     arrivedAt, { monitoringStartedAt: before, coverageComplete: true });
   assert.equal(first.record.arrivalStageObserved, true);
@@ -300,13 +306,126 @@ test("vehicle arrival is not parcel scan-in, while the matched scan is positive"
   assert.notEqual(first.view.classification, PNO_SCAN_CLASSES.CONFIRMED);
   const positive = observePnoSnapshot(first.record, locator, row("ARRIVAL_WAREHOUSE_SCAN", scan),
     scannedAt, { coverageComplete: true });
-  assert.equal(positive.view.classification, PNO_SCAN_CLASSES.CONFIRMED);
-  assert.equal(positive.record.scanInEventAt, scan);
-  assert.equal(positive.record.scanInSource, "FOLLOWSTART_LIST_SNAPSHOT");
+  assert.deepEqual(positive.view, { classification: PNO_SCAN_CLASSES.INSUFFICIENT,
+    reason: "LOCATION_OR_OCCURRENCE_UNRESOLVED" });
+  assert.equal(positive.record.scanInObserved, false);
+  assert.equal(positive.record.scanInLocationUnresolvedAt, scannedAt);
+  assert.equal(positive.record.latestObservedAction, "ARRIVAL_WAREHOUSE_SCAN");
 });
 
-test("scan-in survives later outbound and multiple subsequent snapshots", () => {
-  let state = observePnoSnapshot(null, locator, row("ARRIVAL_WAREHOUSE_SCAN", scan), scannedAt).record;
+test("ambiguous snapshot cannot become a gap from location uncertainty or later sorting", () => {
+  const first = observePnoSnapshot(null, locator, row("DRIVER_SIGN", arrival), arrivedAt,
+    { monitoringStartedAt: before, coverageComplete: true });
+  const ambiguous = observePnoSnapshot(first.record, locator,
+    row("ARRIVAL_WAREHOUSE_SCAN", scan), scannedAt, { coverageComplete: true });
+  assert.equal(ambiguous.view.reason, "LOCATION_OR_OCCURRENCE_UNRESOLVED");
+  assert.equal(ambiguous.record.scanInObserved, false);
+  const later = observePnoSnapshot(ambiguous.record, locator,
+    row("SHIPMENT_WAREHOUSE_SCAN", downstream), departedAt, { coverageComplete: true });
+  assert.equal(later.view.reason, "LOCATION_OR_OCCURRENCE_UNRESOLVED");
+  const sorting = observePnoSnapshot(later.record, locator,
+    row("SORTING", "2026-09-24 03:20:00"), "2026-09-23T20:20:01Z");
+  assert.notEqual(sorting.view.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  assert.equal(sorting.record.scanInObserved, false);
+});
+
+test("legacy snapshot and unknown positives are readable but cannot confirm or leak", async () => {
+  const storage = new MemoryStorage();
+  const legacy = legacyHistoryPositive(observePnoSnapshot(null, locator,
+    row("ARRIVAL_WAREHOUSE_SCAN", scan), scannedAt).record);
+  for (const source of ["FOLLOWSTART_LIST_SNAPSHOT", "UNKNOWN", null]) {
+    const key = await pnoEvidenceKeys(locator, row("ARRIVAL_WAREHOUSE_SCAN", scan));
+    const unsafe = { ...legacy, scanInSource: source };
+    storage.values.set(key.legacyOccurrence, structuredClone(unsafe));
+    const [view] = await observePnoEvidencePage(storage, locator,
+      [row("SHIPMENT_WAREHOUSE_SCAN", downstream)], departedAt);
+    assert.deepEqual(view, { classification: PNO_SCAN_CLASSES.INSUFFICIENT,
+      reason: "LOCATION_OR_OCCURRENCE_UNRESOLVED" });
+    assert.deepEqual(storage.values.get(key.legacyOccurrence), unsafe,
+      "legacy record is not deleted or rewritten");
+    const cached = { sourceValid: true, parcels: [{ pno: "TEST_PNO_A",
+      arrivalAnchorAt: arrival, scanEvidence: { classification: PNO_SCAN_CLASSES.INSUFFICIENT } }] };
+    await reconcilePnoCachedPositive(storage, locator, cached);
+    assert.equal(cached.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+    cached.parcels[0].scanEvidence = { classification: PNO_SCAN_CLASSES.CONFIRMED };
+    await reconcilePnoCachedPositive(storage, locator, cached);
+    assert.equal(cached.parcels[0].scanEvidence.reason, "LOCATION_OR_OCCURRENCE_UNRESOLVED",
+      "an older cached positive must not bypass the legacy provenance guard");
+    storage.values.delete(key.occurrence);
+  }
+  const missingObservedAt = { ...legacyHistoryPositive(observePnoSnapshot(null, locator,
+    row("SHIPMENT_WAREHOUSE_SCAN", downstream), departedAt).record),
+    scanInSource: null, scanInObservedAt: null,
+    monitoringBeforeArrival: true, coverageState: "COMPLETE_LOCAL" };
+  assert.equal(projectPnoEvidence(missingObservedAt).reason,
+    "LOCATION_OR_OCCURRENCE_UNRESOLVED");
+});
+
+test("trusted event location upgrades an ambiguous snapshot and retains exact sticky provenance", async () => {
+  const storage = new MemoryStorage();
+  const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
+  const key = await pnoEvidenceKeys(locator, current);
+  const [ambiguous] = await observePnoEvidencePage(storage, locator,
+    [row("ARRIVAL_WAREHOUSE_SCAN", scan)], scannedAt);
+  assert.equal(ambiguous.reason, "LOCATION_OR_OCCURRENCE_UNRESOLVED");
+  const accepted = await ingestPnoExactHistory(storage, locator, current, history(), departedAt);
+  assert.equal(accepted.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  const saved = storage.values.get(key.occurrence);
+  assert.equal(saved.scanInStoreId, locator.nextStoreId);
+  assert.equal(saved.scanInSource, "EXPLICIT_WAYBILL_HISTORY");
+  assert.equal(saved.scanInAction, "ARRIVAL_WAREHOUSE_SCAN");
+  assert.equal(saved.scanInEventAt, scan);
+  assert.deepEqual(Object.keys(saved.occurrence),
+    ["hub", "proofId", "day", "lineId", "sourceStoreId", "targetStoreId", "pno"]);
+  assert.equal(projectPnoEvidence({ ...saved, scanInStoreId: "OTHER_STORE" }).reason,
+    "LOCATION_OR_OCCURRENCE_UNRESOLVED");
+  const later = observePnoSnapshot(saved, locator,
+    row("ARRIVAL_WAREHOUSE_SCAN", "2026-09-24 03:20:00"),
+    "2026-09-23T20:20:01Z");
+  assert.equal(later.view.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  assert.equal(later.record.scanInEventAt, scan);
+  const sorting = observePnoSnapshot(later.record, locator,
+    row("SORTING", "2026-09-24 03:21:00"), "2026-09-23T20:21:01Z");
+  assert.equal(sorting.view.classification, PNO_SCAN_CLASSES.CONFIRMED);
+});
+
+test("untrusted legacy positive upgrades only after matched event-level history", async () => {
+  const storage = new MemoryStorage();
+  const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
+  const key = await pnoEvidenceKeys(locator, current);
+  storage.values.set(key.occurrence, { ...legacyHistoryPositive(
+    observePnoSnapshot(null, locator, current, departedAt).record),
+    scanInSource: "FOLLOWSTART_LIST_SNAPSHOT" });
+  assert.equal(projectPnoEvidence(storage.values.get(key.occurrence)).reason,
+    "LOCATION_OR_OCCURRENCE_UNRESOLVED");
+  const denied = await ingestPnoExactHistory(storage, locator, current,
+    history("TEST_PNO_A", [
+      ["ARRIVAL_GOODS_VAN_CHECK_SCAN", arrival, "STORE_CURRENT"],
+      ["ARRIVAL_WAREHOUSE_SCAN", scan, "DOWNSTREAM_HUB"],
+    ]), departedAt);
+  assert.notEqual(denied.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  const noLocation = await ingestPnoExactHistory(storage, locator, current,
+    history("TEST_PNO_A", [
+      ["ARRIVAL_GOODS_VAN_CHECK_SCAN", arrival, "STORE_CURRENT"],
+      ["ARRIVAL_WAREHOUSE_SCAN", scan, ""],
+    ]), departedAt);
+  assert.notEqual(noLocation.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  assert.equal(storage.values.get(key.occurrence).scanInSource, "FOLLOWSTART_LIST_SNAPSHOT");
+  const accepted = await ingestPnoExactHistory(storage, locator, current, history(), departedAt);
+  assert.equal(accepted.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  assert.equal(storage.values.get(key.occurrence).scanInStoreId, "STORE_CURRENT");
+});
+
+test("classification and cached reconciliation contain no network or history acquisition", () => {
+  const source = readFileSync(new URL("../../worker/src/pno-inbound-scan-evidence.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /\bfetch\s*\(|\bapiGet\s*\(|curl_pno|setInterval|WebSocket|EventSource/);
+  assert.match(source, /scanInStoreId = targetStore/);
+  assert.match(source, /LOCATION_OR_OCCURRENCE_UNRESOLVED/);
+});
+
+test("trusted scan-in survives later outbound and multiple subsequent snapshots", () => {
+  let state = legacyHistoryPositive(
+    observePnoSnapshot(null, locator, row("ARRIVAL_WAREHOUSE_SCAN", scan), scannedAt).record);
   for (const [action, time, acquired] of [
     ["SHIPMENT_WAREHOUSE_SCAN", downstream, departedAt],
     ["SEAL", "2026-09-24 03:20:00", "2026-09-23T20:20:01.000Z"],
@@ -320,12 +439,13 @@ test("scan-in survives later outbound and multiple subsequent snapshots", () => 
   }
 });
 
-test("older positive arrival evidence does not regress the latest downstream action", () => {
+test("older ambiguous scan does not regress the latest downstream action", () => {
   const later = observePnoSnapshot(null, locator,
     row("SHIPMENT_WAREHOUSE_SCAN", downstream), departedAt).record;
   const positive = observePnoSnapshot(later, locator,
     row("ARRIVAL_WAREHOUSE_SCAN", scan), "2026-09-23T20:19:00.000Z");
-  assert.equal(positive.view.classification, PNO_SCAN_CLASSES.CONFIRMED);
+  assert.equal(positive.view.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+  assert.equal(positive.view.reason, "LOCATION_OR_OCCURRENCE_UNRESOLVED");
   assert.equal(positive.record.latestObservedAction, "SHIPMENT_WAREHOUSE_SCAN");
   assert.equal(positive.record.latestObservedActionAt, downstream);
 });
@@ -434,8 +554,9 @@ test("arrival refinement keeps one key; a distinct day or HUB keeps isolated key
   assert.notEqual(a.occurrence, nextDay.occurrence);
   assert.notEqual(a.occurrence, c.occurrence);
   const storage = new MemoryStorage();
-  assert.equal((await observePnoEvidencePage(storage, locator,
-    [row("ARRIVAL_WAREHOUSE_SCAN", scan)], scannedAt))[0].classification, PNO_SCAN_CLASSES.CONFIRMED);
+  const current = row("SHIPMENT_WAREHOUSE_SCAN", downstream);
+  assert.equal((await ingestPnoExactHistory(storage, locator, current, history(),
+    departedAt)).classification, PNO_SCAN_CLASSES.CONFIRMED);
   assert.equal((await observePnoEvidencePage(storage, { ...locator, day: "2026-09-25" },
     [row("SHIPMENT_WAREHOUSE_SCAN", "2026-09-25 03:17:54",
       { real_arrive_time: "2026-09-25 02:58:37" })], "2026-09-24T20:18:00.000Z"))[0]
@@ -447,7 +568,8 @@ test("arrival refinement keeps one key; a distinct day or HUB keeps isolated key
 
 test("every exact identity component isolates remembered positive scan state", async () => {
   const storage = new MemoryStorage();
-  await observePnoEvidencePage(storage, locator, [row("ARRIVAL_WAREHOUSE_SCAN", scan)], scannedAt);
+  await ingestPnoExactHistory(storage, locator,
+    row("SHIPMENT_WAREHOUSE_SCAN", downstream), history(), departedAt);
   const variants = [
     [{ ...locator, hub: "NE2" }, row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
     [{ ...locator, proofId: "PROOF_B" }, row("SHIPMENT_WAREHOUSE_SCAN", downstream)],
@@ -467,11 +589,13 @@ test("every exact identity component isolates remembered positive scan state", a
 test("invalid store, unknown action, malformed timestamps and duplicates do not overwrite facts", async () => {
   const storage = new MemoryStorage();
   const positive = row("ARRIVAL_WAREHOUSE_SCAN", scan);
-  await observePnoEvidencePage(storage, locator, [positive], scannedAt);
-  const count = storage.writes;
+  await ingestPnoExactHistory(storage, locator,
+    row("SHIPMENT_WAREHOUSE_SCAN", downstream), history(), departedAt);
   const duplicate = await observePnoEvidencePage(storage, locator, [positive], scannedAt);
   assert.equal(duplicate[0].classification, PNO_SCAN_CLASSES.CONFIRMED);
-  assert.equal(storage.writes, count);
+  const count = storage.writes;
+  const acceptedKey = await pnoEvidenceKeys(locator, positive);
+  assert.equal(storage.values.get(acceptedKey.occurrence).scanInSource, "EXPLICIT_WAYBILL_HISTORY");
   for (const invalid of [
     row("ARRIVAL_WAREHOUSE_SCAN", scan, { store_id: "STORE_OTHER" }),
     row("UNKNOWN_ACTION", downstream),
@@ -514,15 +638,15 @@ test("storage failure yields technical unknown rather than a fabricated scan gap
 });
 
 test("as-of reads do not reveal scan-in before evidence acquisition", () => {
-  const accepted = observePnoSnapshot(null, locator,
-    row("ARRIVAL_WAREHOUSE_SCAN", scan), scannedAt, { monitoringStartedAt: before }).record;
+  const accepted = legacyHistoryPositive(observePnoSnapshot(null, locator,
+    row("ARRIVAL_WAREHOUSE_SCAN", scan), scannedAt, { monitoringStartedAt: before }).record);
   assert.notEqual(projectPnoEvidence(accepted, { asOf: "2026-09-23T20:12:19Z" }).classification,
     PNO_SCAN_CLASSES.CONFIRMED);
   assert.equal(projectPnoEvidence(accepted, { asOf: scannedAt }).classification,
     PNO_SCAN_CLASSES.CONFIRMED);
 });
 
-test("one, ten and one hundred viewers share a single route detail request", async () => {
+test("one, ten and one hundred viewers share a single ambiguous detail request", async () => {
   for (const viewers of [1, 10, 100]) {
     const owner = { ctx: { storage: new MemoryStorage() } };
     let calls = 0;
@@ -532,7 +656,8 @@ test("one, ten and one hundred viewers share a single route detail request", asy
     const pages = await Promise.all(Array.from({ length: viewers }, () =>
       readSharedPnoPage(owner, {}, locator, deps)));
     assert.equal(calls, 1);
-    assert.ok(pages.every((page) => page.parcels[0].scanEvidence.classification === PNO_SCAN_CLASSES.CONFIRMED));
+    assert.ok(pages.every((page) => page.parcels[0].scanEvidence.reason ===
+      "LOCATION_OR_OCCURRENCE_UNRESOLVED"));
   }
 });
 
@@ -544,6 +669,8 @@ test("a positive fact refreshes another tab's cached negative projection", async
     total: 1, sourceValid: true }) };
   const negative = await readSharedPnoPage(owner, {}, { ...locator, type: "no_entry" }, deps);
   assert.equal(negative.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.INSUFFICIENT);
+  await ingestPnoExactHistory(owner.ctx.storage, locator,
+    row("SHIPMENT_WAREHOUSE_SCAN", downstream), history(), departedAt);
   const positive = await readSharedPnoPage(owner, {}, locator, deps);
   assert.equal(positive.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.CONFIRMED);
   const cached = await readSharedPnoPage(owner, {}, { ...locator, type: "no_entry" }, deps);
@@ -569,10 +696,17 @@ test("late-start downstream, then an accepted exact scan-in, remains confirmed a
   const unknown = await readSharedPnoPage(staleOwner, {}, lateLocator, deps);
   assert.deepEqual(unknown.parcels[0].scanEvidence, { classification: PNO_SCAN_CLASSES.INSUFFICIENT,
     reason: "LATE_START_SCAN_STATE_UNKNOWN" });
-  // Another accepted ordinary detail snapshot supplies a positive event. The
-  // reducer keeps the later downstream action while remembering scan-in.
-  const [positive] = await observePnoEvidencePage(storage, lateLocator,
+  // A snapshot cannot identify the scan location; the already supplied
+  // event-level history can, without a new provider request in this reducer.
+  const [ambiguous] = await observePnoEvidencePage(storage, lateLocator,
     [source("ARRIVAL_WAREHOUSE_SCAN", scanAt)], observedAt);
+  assert.equal(ambiguous.reason, "LOCATION_OR_OCCURRENCE_UNRESOLVED");
+  const positive = await ingestPnoExactHistory(storage, lateLocator,
+    source("SHIPMENT_WAREHOUSE_SCAN", downstreamAt), history("TEST_PNO_A", [
+      ["ARRIVAL_GOODS_VAN_CHECK_SCAN", anchor, "STORE_CURRENT"],
+      ["ARRIVAL_WAREHOUSE_SCAN", scanAt, "STORE_CURRENT"],
+      ["SHIPMENT_WAREHOUSE_SCAN", downstreamAt, "STORE_CURRENT"],
+    ]), observedAt);
   assert.equal(positive.classification, PNO_SCAN_CLASSES.CONFIRMED);
   const [later] = await observePnoEvidencePage(storage, lateLocator,
     [source("SHIPMENT_WAREHOUSE_SCAN", downstreamAt)], observedAt);
@@ -603,6 +737,8 @@ test("cached positive projection cannot cross a route segment", async () => {
   const other = { ...locator, lineId: "OTHER_LINE" };
   assert.equal((await readSharedPnoPage(owner, {}, other, deps)).parcels[0].scanEvidence.classification,
     PNO_SCAN_CLASSES.INSUFFICIENT);
+  await ingestPnoExactHistory(owner.ctx.storage, locator,
+    row("SHIPMENT_WAREHOUSE_SCAN", downstream), history(), departedAt);
   assert.equal((await readSharedPnoPage(owner, {}, locator, deps)).parcels[0].scanEvidence.classification,
     PNO_SCAN_CLASSES.CONFIRMED);
   assert.equal((await readSharedPnoPage(owner, {}, other, deps)).parcels[0].scanEvidence.classification,
@@ -619,6 +755,8 @@ test("concurrent detail tabs cannot erase a positive event", async () => {
     readSharedPnoPage(owner, {}, { ...locator, type: "no_entry" }, deps),
     readSharedPnoPage(owner, {}, locator, deps),
   ]);
+  await ingestPnoExactHistory(owner.ctx.storage, locator,
+    row("SHIPMENT_WAREHOUSE_SCAN", downstream), history(), departedAt);
   const after = await readSharedPnoPage(owner, {}, { ...locator, type: "no_entry" }, deps);
   assert.equal(after.parcels[0].scanEvidence.classification, PNO_SCAN_CLASSES.CONFIRMED);
   const key = await pnoEvidenceKeys(locator, row("ARRIVAL_WAREHOUSE_SCAN", scan));

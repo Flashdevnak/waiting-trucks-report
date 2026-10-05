@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
-import { observePnoSnapshot, observePnoEvidencePage, pnoIdentityDiagnostics } from '../../worker/src/pno-inbound-scan-evidence.js';
+import { observePnoSnapshot, observePnoEvidencePage, ingestPnoExactHistory, pnoEvidenceKeys, pnoIdentityDiagnostics } from '../../worker/src/pno-inbound-scan-evidence.js';
 import { readSharedPnoPage, readCanonicalPnoPage } from '../../worker/.dev-runtime/src/index.js';
 
 const root = new URL('../../', import.meta.url);
@@ -84,7 +84,15 @@ test('invalid identity date and invalid observedAt stay specific; multiple failu
   assert.equal(st.writes, 0);
 });
 test('exact positive is sticky on weaker later data; another occurrence cannot borrow it', async () => {
-  const positive = observePnoSnapshot(null, locator, row({ LastAction: 'ARRIVAL_WAREHOUSE_SCAN' }), at);
+  const st = new Storage();
+  const accepted = await ingestPnoExactHistory(st, locator, row(), {
+    parcel_info: { pno: 'FIXTURE-PNO' }, parcel_routes: [
+      { route_action: 'DRIVER_SIGN', routed_at: '2026-10-02 10:00:00', store_id: 'TARGET' },
+      { route_action: 'ARRIVAL_WAREHOUSE_SCAN', routed_at: '2026-10-02 10:10:00', store_id: 'TARGET' },
+    ],
+  }, at);
+  const key = await pnoEvidenceKeys(locator, row());
+  const positive = { view: accepted, record: st.data.get(key.occurrence) };
   assert.equal(positive.view.classification, 'CONFIRMED_SCAN_IN');
   for (const [, changes] of validations.filter(([, c]) => !('real_arrive_time' in c))) {
     const weak = observePnoSnapshot(positive.record, locator, row(changes), at);
@@ -100,8 +108,6 @@ test('exact positive is sticky on weaker later data; another occurrence cannot b
     assert.equal(out.view.reason, 'OCCURRENCE_MISMATCH');
     assert.equal(out.changed, false);
   }
-  const st = new Storage();
-  await observePnoEvidencePage(st, locator, [row({LastAction:'ARRIVAL_WAREHOUSE_SCAN'})], at);
   const writes = st.writes;
   const [weak] = await observePnoEvidencePage(st, locator, [row({LastAction:''})], at);
   assert.equal(weak.classification, 'CONFIRMED_SCAN_IN');

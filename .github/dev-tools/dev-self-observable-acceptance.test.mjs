@@ -42,7 +42,9 @@ test('PNO current-page classifications are counted without promoting unknown cov
   const unknown = projectPnoEvidence(record);
   assert.equal(unknown.classification, 'INSUFFICIENT_HISTORY');
   const positive = projectPnoEvidence({ ...record, scanInObserved: true,
-    scanInObservedAt: when(-2), scanInAction: 'ARRIVAL_WAREHOUSE_SCAN' });
+    scanInObservedAt: when(-2), scanInAction: 'ARRIVAL_WAREHOUSE_SCAN',
+    scanInEventAt: '2026-09-24 03:12:14', scanInSource: 'EXPLICIT_WAYBILL_HISTORY',
+    occurrence: { targetStoreId: 'CURRENT_STORE' }, scanInStoreId: 'CURRENT_STORE' });
   assert.equal(positive.classification, 'CONFIRMED_SCAN_IN');
   const result = summarizePnoPages([{ sourceValid: true, parcels: [
     { scanEvidence: unknown, pno: 'RAW_PNO' },

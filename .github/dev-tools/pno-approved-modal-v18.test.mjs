@@ -386,8 +386,16 @@ test("V22 explicit modal open resolves corrected truth before rendering any tab"
 test("V22 operational resolver refuses origin without new timers or DB work", () => {
   const resolver = staged.slice(staged.indexOf("async function pnoOperationalResolve"), staged.indexOf("function pnoOperationalPaginate"));
   assert.match(resolver, /!pnoOperationalInboundEligible\(row\)/);
-  const section = staged.slice(staged.indexOf("PNO_INBOUND_SCOPE_AND_EAGER_TRUTH_V22"));
-  assert.doesNotMatch(section, /setInterval\s*\(|setTimeout\s*\(|apiPost\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i);
+  const runtimeStart = staged.indexOf("const PNO_OPERATIONAL_TRUTH_CACHE_MS");
+  const runtimeEnd = staged.indexOf("function expectedParcelsBadge", runtimeStart);
+  assert.ok(runtimeStart >= 0 && runtimeEnd > runtimeStart);
+  const section = staged.slice(runtimeStart, runtimeEnd);
+  assert.match(section, /async function pnoOperationalResolve/);
+  const forbidden = /setInterval\s*\(|setTimeout\s*\(|apiPost\s*\(|DB\.prepare|Turso|INSERT\s|UPDATE\s|DELETE\s/i;
+  assert.doesNotMatch(section, forbidden);
+  for (const operation of ["setInterval(", "setTimeout(", "apiPost(", "DB.prepare", "Turso", "INSERT ", "UPDATE ", "DELETE "]) {
+    assert.match(`${section}\n${operation}`, forbidden);
+  }
 });
 
 

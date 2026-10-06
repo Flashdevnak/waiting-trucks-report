@@ -355,10 +355,25 @@ test('frontend treats a DB read message as degraded data while the WebSocket and
   assert.match(lastRefresh.textContent, /ฐานข้อมูลตอบชั่วคราว/);
   assert.doesNotMatch(lastRefresh.textContent, /Route ยังไม่อัปเดต/);
   assert.equal(renders, 1);
+  context.handleRealtimeMessage(JSON.stringify({ type: 'error', code: 'MS_STREAM_ERROR',
+    message: 'temporary source transport error' }));
+  assert.equal(context.state.msSnapshotDatabaseDegraded, false);
+  assert.notEqual(badge.textContent, 'ฐานข้อมูลตอบชั่วคราว',
+    'a non-database error must clear the previous database badge without a page reload');
   context.applyLiveResult({ rows, msStatus: 'synced', syncError: '', errorCode: '',
     lastSync: 'genuine-old', completedToday: 1 }, true);
   assert.equal(badge.textContent, 'ออนไลน์'); assert.equal(context.state.lastSync, 'genuine-old');
   assert.equal(context.state.msSnapshotDatabaseDegraded, false);
+  for (const branch of ['EA2', 'FUTURE_A']) {
+    context.state.branch = branch;
+    context.applyLiveResult({ rows, msStatus: 'degraded', syncError: 'database unavailable',
+      errorCode: 'TURSO_LIVE_TIMEOUT', lastSync: 'genuine-old' }, true);
+    assert.equal(badge.textContent, 'ฐานข้อมูลตอบชั่วคราว');
+    context.handleRealtimeMessage(JSON.stringify({ type: 'error', code: 'MS_STREAM_ERROR',
+      message: 'source transport unavailable' }));
+    assert.equal(badge.textContent, 'ออนไลน์');
+    assert.equal(context.state.lastSync, 'genuine-old');
+  }
   context.applyLiveResult({ rows, msStatus: 'degraded', syncError: 'Route unavailable',
     errorCode: 'MS_ROUTE_ERROR', lastSync: 'genuine-old', completedToday: 1 }, true);
   assert.match(lastRefresh.textContent, /Route ยังไม่อัปเดต/);

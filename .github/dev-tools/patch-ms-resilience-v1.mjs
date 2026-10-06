@@ -41,6 +41,7 @@ export function patchMsResilienceFrontend(source) {
     state.msStatus = "degraded";
     state.msSnapshotDatabaseDegraded = msDatabaseSnapshotFailure(payload);
     if (state.msSnapshotDatabaseDegraded) showMsDatabaseReadStatus();
+    else connection(true);
     renderFreshness();
     return;
   }`);

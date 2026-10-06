@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { stageFrontend } from "./stage-dev-runtime.mjs";
+import { ingestPnoExactHistory } from "../../worker/src/pno-inbound-scan-evidence.js";
 import { readSharedPnoPage } from "../../worker/.dev-runtime/src/index.js";
 
 const staged = stageFrontend(readFileSync(new URL("../../ms.js", import.meta.url), "utf8"));
@@ -173,6 +174,16 @@ test("shared no_entry page recognizes its own scan and retains it after SEAL and
     storeId: "PREVIOUS", nextStoreId: "CURRENT", type: "no_entry", page: 1,
     count: 37, canReport: false, force: true };
   const base = { pno: "P1", store_id: "CURRENT", real_arrive_time: "2026-09-24 02:00:00" };
+  // The accepted safe-unresolved baseline cannot promote snapshot-only positives.
+  // Seed trustworthy event-level evidence to test exact-occurrence sticky retention.
+  const trusted = await ingestPnoExactHistory(owner.ctx.storage, locator, { ...base,
+    LastAction: "ARRIVAL_WAREHOUSE_SCAN", LastActionTime: "2026-09-24 02:10:00" }, {
+    parcel_info: { pno: "P1" }, parcel_routes: [
+      { route_action: "DRIVER_SIGN", routed_at: "2026-09-24 02:00:00", store_id: "CURRENT" },
+      { route_action: "ARRIVAL_WAREHOUSE_SCAN", routed_at: "2026-09-24 02:10:00", store_id: "CURRENT" },
+    ],
+  }, "2026-09-23T20:00:00Z");
+  assert.equal(trusted.classification, "CONFIRMED_SCAN_IN");
   let action = "ARRIVAL_WAREHOUSE_SCAN";
   let calls = 0;
   const deps = { readCredential: async () => ({}), now: () => Date.parse("2026-09-23T20:00:00Z"),

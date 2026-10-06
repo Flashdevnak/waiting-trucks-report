@@ -56,7 +56,7 @@ test("approved UI adds no background timer, SQL persistence, or realtime poll", 
   assert.doesNotMatch(patchSource, /\b(?:INSERT|UPDATE|DELETE|CREATE\s+TABLE)\b/i);
   const fetchSection = staged.slice(staged.indexOf("async function pnoV18Fetch"), staged.indexOf("function pnoV18ActionClass"));
   assert.match(fetchSection, /browserPnoPage\(locator, type, page, force\)/);
-  assert.match(fetchSection, /pnoV18UnionPage\(sourceRow, type, page, force\)/);
+  assert.match(fetchSection, /pnoV18UnionPage\(sourceRow, type, page, force, owner\)/);
   assert.doesNotMatch(fetchSection, /apiGet\("pendingParcels"/);
   assert.equal(patchPnoApprovedModalV18(staged), staged);
 });
@@ -186,7 +186,7 @@ test("V27/V28 table UX keeps display detail while copy uses latest-only and one 
   assert.ok(staged.includes("#pending-parcels-dialog{width:min(1120px,calc(100vw - 24px));max-width:1120px;max-height:calc(100dvh - 20px);overflow-y:auto"));
   assert.match(staged, /function pnoV18WriteClipboard/);
   assert.match(staged, /พร้อมวางใน Excel\/Sheets/);
-  const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
+  const copy = staged.slice(staged.indexOf("async function pnoV18CopyOwned(owner)"), staged.indexOf("function pnoV18LineCell"));
   assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา", \.\.\.\(pnoV18State\.selection === "union" \? \["จุดส่ง"\] : \[\]\)\]/);
   assert.match(copy, /pnoV18ParcelStatus\(row\)/);
   assert.match(copy, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
@@ -205,7 +205,7 @@ test("V27 LINE copy uses loaded filtered data, sorts HUB-status-bag, and shows e
   assert.match(staged, /คัดลอกสำหรับ LINE/);
   const lineCopy = staged.slice(staged.indexOf("async function pnoV18CopyLine"), staged.indexOf("async function pnoV18Export"));
   assert.doesNotMatch(lineCopy, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
-  assert.doesNotMatch(lineCopy, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.doesNotMatch(lineCopy, /await pnoV18EnsureParcelFilterRows\(owner\)/);
   assert.match(lineCopy, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(lineCopy, /pnoV18FilteredBagGroups\(\)/);
   assert.match(lineCopy, /a\.summary\.hub\.localeCompare/);
@@ -230,14 +230,14 @@ test("V19 filter data prepares after page one and copy uses filtered rows", () =
   assert.match(staged, /สาขาปลายทาง/);
   assert.match(staged, /จำนวนถุงแบ็กกิ้ง/);
   assert.match(staged, /จำนวนชิ้นในถุง/);
-  assert.match(staged, /function pnoV18PrepareCurrentFilters\(\)/);
+  assert.match(staged, /function pnoV18PrepareCurrentFilters\(owner = pnoLifecycleToken\(\)\)/);
   assert.match(staged, /select\.onchange = \(\) =>/);
   assert.doesNotMatch(staged, /เลือกเพื่อรวมข้อมูลทุกหน้า/);
   assert.match(staged, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(staged, /pnoV18FilteredBagGroups\(\)/);
   const filterCode = staged.slice(staged.indexOf("function pnoV18FilteredParcelEntries"), staged.indexOf("function pnoV18RenderRows"));
   assert.doesNotMatch(filterCode, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
-  const copyCode = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18Export"));
+  const copyCode = staged.slice(staged.indexOf("async function pnoV18CopyOwned(owner)"), staged.indexOf("function pnoV18Export"));
   assert.doesNotMatch(copyCode, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
 });
 
@@ -264,10 +264,10 @@ test("V18 bag summary cards stay compact with values anchored at the right edge"
 test("V18 Export reuses explicit bounded page loading and the same filtered dataset as Copy", () => {
   assert.match(staged, /async function pnoV18Export\(\)/);
   assert.match(staged, /Math\.ceil\(total \/ 200\)/);
-  assert.match(staged, /await pnoV18Fetch\(sourceType, page\)/);
+  assert.match(staged, /await pnoV18Fetch\(sourceType, page, owner\)/);
   assert.match(staged, /all\.slice\(0, total\)/);
   const exportCode = staged.slice(staged.indexOf("async function pnoV18Export"), staged.indexOf("openPendingParcels = async function"));
-  assert.match(exportCode, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(exportCode, /await pnoV18EnsureParcelFilterRows\(owner\)/);
   assert.match(exportCode, /pnoV18FilteredParcelEntries\(pnoV18State\.filterRows\)/);
   assert.match(staged, /PNO_V18_CARD_RIGHT_EXPORT_ALL_V1/);
 });
@@ -293,14 +293,14 @@ test("V18 Backing table derives Latest from the newest loaded parcel action", ()
 
 test("global parcel filters prepare on page one and reuse bounded loading for Export", () => {
   assert.match(staged, /PNO_GLOBAL_FILTER_V19/);
-  assert.match(staged, /async function pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(staged, /async function pnoV18EnsureParcelFilterRows\(owner = pnoLifecycleToken\(\)\)/);
   assert.match(staged, /for \(let page = 1; page <= pages; page \+= 1\)/);
-  assert.match(staged, /await pnoV18Fetch\(sourceType, page\)/);
-  assert.match(staged, /pnoV18PrepareCurrentFilters\(\)/);
+  assert.match(staged, /await pnoV18Fetch\(sourceType, page, owner\)/);
+  assert.match(staged, /pnoV18PrepareCurrentFilters\(owner\)/);
   assert.match(staged, /select\.onchange = \(\) =>/);
   const renderFilters = staged.slice(staged.indexOf("function pnoV18RenderFilters"), staged.indexOf("function pnoV18RenderRows"));
   assert.doesNotMatch(renderFilters, /onfocus|onpointerdown|pnoV18EnsureParcelFilterRows/);
-  assert.match(staged, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(staged, /await pnoV18EnsureParcelFilterRows\(owner\)/);
   assert.match(staged, /function pnoV18VisibleParcelEntries\(\)/);
   assert.match(staged, /entries\.slice\(start, start \+ 200\)/);
   assert.match(staged, /ผลกรอง หน้า/);
@@ -309,11 +309,11 @@ test("global parcel filters prepare on page one and reuse bounded loading for Ex
 });
 
 test("V19 normal tab resets filters and prepares only the selected view", () => {
-  const load = staged.slice(staged.indexOf("async function pnoV18Load(type, page)"), staged.indexOf("function pnoV18BagGroups"));
-  assert.match(load, /const result = await pnoV18Fetch\(type, pnoV18State\.page\)/);
+  const load = staged.slice(staged.indexOf("async function pnoV18LoadOwned(type, page, owner)"), staged.indexOf("function pnoV18BagGroups"));
+  assert.match(load, /const result = await pnoV18Fetch\(type, pnoV18State\.page, owner\)/);
   assert.match(load, /pnoV18State\.filters\.branch = ""/);
-  assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(\)/);
-  assert.match(load, /pnoV18ApplyPageResult\(type, result\);\s*pnoV18PrepareCurrentFilters\(\)/);
+  assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(owner\)/);
+  assert.match(load, /pnoV18ApplyPageResult\(type, result\);\s*await pnoV18PrepareCurrentFilters\(owner\)/);
 });
 
 
@@ -345,14 +345,14 @@ test("Backing latest-action filter shares common state and remains a local group
 });
 
 test("copy and LINE share latest-action presentation without a duplicate status column", () => {
-  const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
+  const copy = staged.slice(staged.indexOf("async function pnoV18CopyOwned(owner)"), staged.indexOf("function pnoV18LineCell"));
   assert.match(copy, /pnoV18ParcelAction\(row\)/);
   assert.match(copy, /summary\.latest/);
   assert.doesNotMatch(copy, /"สถานะ"/);
-  const line = staged.slice(staged.indexOf("async function pnoV18CopyLine()"), staged.indexOf("async function pnoV18Export()"));
+  const line = staged.slice(staged.indexOf("async function pnoV18CopyLineOwned(owner)"), staged.indexOf("async function pnoV18ExportOwned(owner)"));
   assert.match(line, /pnoV18LineCell\(pnoV18ParcelAction\(row\)\)/);
   assert.match(line, /group\.summary\.status/);
-  const exp = staged.slice(staged.indexOf("async function pnoV18Export()"), staged.indexOf("openPendingParcels = async function"));
+  const exp = staged.slice(staged.indexOf("async function pnoV18ExportOwned(owner)"), staged.indexOf("openPendingParcels = async function"));
   assert.match(exp, /"การดำเนินการล่าสุด": pnoV18ParcelAction\(row\)/);
 });
 

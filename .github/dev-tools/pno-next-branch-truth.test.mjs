@@ -74,8 +74,8 @@ test("staged parcel and bag labels keep next-store distinct from destination HUB
 
 test("all PNO detail modes, copying, filtering and exporting use the shared projection", () => {
   assert.match(worker, /type: locator\.type/);
-  assert.match(frontend, /pnoV18Fetch\("total", 1\)/);
-  assert.match(frontend, /pnoV18Fetch\(type, page\)/);
+  assert.match(frontend, /pnoV18Fetch\("total", 1, owner\)/);
+  assert.match(frontend, /pnoV18Fetch\(type, page, owner = pnoLifecycleToken\(\)\)/);
   assert.match(frontend, /item\.targetBranch/);
   assert.match(frontend, /row\.targetBranch/);
   assert.match(frontend, /summary\.branch/);

@@ -17,6 +17,8 @@ const functions = [
   "pnoV18TsvCell", "pnoV18LineCell", "pnoV18AppendLineLimited",
   "pnoV18ActionClass", "pnoV18StatusClass",
   "pnoV18Load", "pnoV18LoadBags",
+  "pnoV18LoadOwned", "pnoV18LoadBagsOwned", "pnoInboundLoadOwned",
+  "pnoV18CopyOwned", "pnoV18CopyLineOwned", "pnoV18ExportOwned",
 ];
 function extract(name) {
   const prefix = staged.includes(`async function ${name}(`) ? `async function ${name}(` : `function ${name}(`;
@@ -52,7 +54,7 @@ function harness({ type = "total", all = rows, current = rows, total = all.lengt
     filters: { status: "", action: "", hub: "", branch: "" }, selection: null, busy: false,
   };
   const context = vm.createContext({
-    pnoV18State: state, state: { branch: "CURRENT-HUB" },
+    pnoV18State: state, state: { branch: "CURRENT-HUB" }, openPendingParcels() {}, pnoReadOnlyExplicitNoPrefetch: false,
     Date: class extends Date { static now() { return clock.now; } },
     PNO_V18_VIEW_CACHE_MS: 60 * 1000,
     nf: new Intl.NumberFormat("en-US"),
@@ -87,6 +89,8 @@ function harness({ type = "total", all = rows, current = rows, total = all.lengt
     setTimeout, console,
   });
   vm.runInContext(functions.map(extract).join("\n"), context);
+  const runtimeEnd = staged.indexOf(extract("pnoLifecycleBindHandlers")) + extract("pnoLifecycleBindHandlers").length;
+  vm.runInContext(staged.slice(staged.indexOf("const pnoLifecycle ="), runtimeEnd) + "\npnoLifecycleInvalidate(true);", context);
   return { state, observed, nodes, advance: (ms) => { clock.now += ms; },
     call: (expression) => vm.runInContext(expression, context),
     installActualRender: () => vm.runInContext(extract("pnoV18RenderRows"), context),
@@ -131,7 +135,8 @@ test("opening one 2466-row view automatically prepares 13 pages with passive pro
     return { page, total: all.length, parcels: all.slice((page - 1) * 200, page * 200) };
   } });
   h.installActualRender();
-  await h.call('pnoV18Load("total", 1)');
+  const loading = h.call('pnoV18Load("total", 1)');
+  await new Promise(setImmediate);
   assert.equal((h.nodes.get("pending-parcels-list").innerHTML.match(/<tr>/g) || []).length, 201,
     "first page is available while later pages prepare");
   assert.ok(h.state.filterPromise, "preparation started without interacting with any selector");
@@ -148,6 +153,7 @@ test("opening one 2466-row view automatically prepares 13 pages with passive pro
   assert.equal(h.state.filterPromise, active, "one active preparation for the same authority");
   assert.match(h.nodes.get("pno-v18-filter-result").textContent, /2\/13 หน้า/, "rerender preserves progress");
   releasePage2();
+  await loading;
   await h.waitPrepared();
   assert.match(h.nodes.get("pno-v18-filter-result").textContent, /ทั้งหมด 2,466/);
   assert.deepEqual(h.observed.fetch.map(([, page]) => page), [1, ...Array.from({ length: 13 }, (_, i) => i + 1)]);
@@ -270,7 +276,8 @@ test("desktop table and responsive cards preserve the visible page while selecto
     return { page, total: all.length, parcels: all.slice((page - 1) * 200, page * 200) };
   } });
   h.installActualRender();
-  await h.call('pnoV18Load("total", 1)');
+  const loading = h.call('pnoV18Load("total", 1)');
+  await new Promise(setImmediate);
   const list = h.nodes.get("pending-parcels-list").innerHTML;
   assert.equal((list.match(/<tr>/g) || []).length, 201);
   assert.equal((list.match(/class="pno-v18-mobile-card /g) || []).length, 200);
@@ -279,6 +286,7 @@ test("desktop table and responsive cards preserve the visible page while selecto
   assert.ok(h.nodes.get("pno-v18-filterbar").selects.every((item) => item.disabled));
   assert.match(staged, /pno-v18-filterbar\{[^}]*flex-wrap:wrap/);
   release();
+  await loading;
   await h.waitPrepared();
   assert.ok(h.nodes.get("pno-v18-filterbar").selects.every((item) => !item.disabled));
 });
@@ -506,9 +514,9 @@ test("LINE copy reads filtered rows and grouped bag summary", async () => {
 });
 
 test("view lifecycle prepares filters; selector events never acquire pages", () => {
-  const load = staged.slice(staged.indexOf("async function pnoV18Load(type, page)"), staged.indexOf("function pnoV18BagGroups"));
+  const load = extract("pnoV18LoadOwned");
   assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(\)/);
-  assert.match(load, /pnoV18PrepareCurrentFilters\(\)/);
+  assert.match(load, /await pnoV18PrepareCurrentFilters\(owner\)/);
   assert.doesNotMatch(extract("pnoV18RenderFilters"), /onfocus|onpointerdown|pnoV18EnsureParcelFilterRows/);
 });
 
@@ -641,7 +649,7 @@ test("traffic: bag opening keeps the existing full-page budget, Copy and Export 
 test("no automatic curl_pno, background timer or provider acquisition added by patch", () => {
   const patch = readFileSync(new URL("./patch-pno-cross-view-filter-parity.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(patch, /curl_pno|setInterval\(|new WebSocket\(|EventSource\(/);
-  assert.match(extract("pnoV18EnsureParcelFilterRows"), /await pnoV18Fetch\(sourceType, page\)/);
+  assert.match(extract("pnoV18EnsureParcelFilterRows"), /await pnoV18Fetch\(sourceType, page, owner\)/);
   assert.doesNotMatch(extract("pnoV18RenderFilters"), /pnoV18Fetch\(/);
 });
 

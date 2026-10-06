@@ -103,6 +103,7 @@ import { patchMsRouteReadBudgetIsolationV1 } from "./patch-ms-route-read-budget-
 import { patchPnoScanEvidenceUx } from "./patch-pno-scan-evidence-ux.mjs";
 import { patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destination-truth.mjs";
 import { patchPnoSegmentDestinationFrontend } from "./patch-pno-segment-destination-frontend.mjs";
+import { patchPnoModalLifecycleStabilityV1 } from "./patch-pno-modal-lifecycle-stability-v1.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -482,6 +483,7 @@ export function stageFrontend(source) {
   output = patchMsResilienceFrontend(output);
   output = patchPnoScanEvidenceUx(output);
   output = patchPnoSegmentDestinationFrontend(output);
+  output = patchPnoModalLifecycleStabilityV1(output);
   output = patchMsRedegradeTraceFrontendFinal(output);
   output = patchMsTursoTimeoutProducerFrontend(output);
   return output;

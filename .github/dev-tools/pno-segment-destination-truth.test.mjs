@@ -22,7 +22,12 @@ function functionBlock(name) {
   const prefix = staged.includes(`async function ${name}(`) ? `async function ${name}(` : `function ${name}(`;
   const start = staged.indexOf(prefix), end = staged.indexOf("\n}\n", start) + 2;
   assert.ok(start >= 0 && end > start, `missing ${name}`);
-  return staged.slice(start, end);
+  const block = staged.slice(start, end);
+  if (["pnoV18UnionPage", "pnoV18Fetch"].includes(name)) {
+    const helpers = ["pnoLifecycleToken", "pnoLifecycleOpenCurrent", "pnoLifecycleCurrent", "pnoLifecycleAssert"].map(functionBlock).join("\n");
+    return 'var pnoLifecycle = {open:1,load:1,active:true};\n' + helpers + '\n' + block;
+  }
+  return block;
 }
 
 test("worker projects raw N/Q/R independently and retains only complete exact multi-drop segments", () => {
@@ -242,7 +247,7 @@ test("DEV DOM exposes only closed union metadata with no extra acquisition", () 
   state.selection = null;
   context.renderDiagnostic({ pnoUnionDiagnostic: { reasonCode: "PNO_UNION_EMPTY_PNO" } });
   assert.equal(outputs.length, 1, "non-union failures have no diagnostic surface");
-  assert.match(functionBlock("pnoV18Load"), /pnoV18RenderUnionDiagnostic\(error\)/);
+  assert.match(functionBlock("pnoV18LoadOwned"), /pnoV18RenderUnionDiagnostic\(error\)/);
   for (const name of ["pnoV18UnionFailure", "pnoV18RenderUnionDiagnostic"])
     assert.doesNotMatch(functionBlock(name), /\b(?:fetch|apiGet|apiPost|setInterval|WebSocket|EventSource)\s*\(/);
   for (const path of ["../../ms.js", "../../worker/src/index.js"])

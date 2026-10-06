@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 // Keep the diagnostic gate in the existing workflow's staging suite; no workflow change.
 import "./ms-turso-timeout-producer-v1.test.mjs";
+import "./pno-modal-lifecycle-stability-v1.test.mjs";
 import { runInNewContext } from "node:vm";
 import {
   frontendHasIntegratedDevRuntime,

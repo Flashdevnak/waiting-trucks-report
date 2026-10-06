@@ -46,7 +46,7 @@ test("V27 bag copy keeps latest action while parcel copy names current evidence 
   assert.match(front, /const truth = pnoOperationalRawSummary\(row\)/);
   assert.match(front, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
   assert.match(front, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา", \.\.\.\(pnoV18State\.selection === "union" \? \["จุดส่ง"\] : \[\]\)\]/);
-  const copyStart = front.indexOf("async function pnoV18Copy()");
+  const copyStart = front.indexOf("async function pnoV18CopyOwned(owner)");
   const copyEnd = front.indexOf("function pnoV18LineCell", copyStart);
   const copy = front.slice(copyStart, copyEnd);
   assert.match(copy, /pnoV18ParcelStatus\(row\)/);
@@ -65,7 +65,7 @@ test("Backing HUB aggregates parcel destination independently of route next_stor
 
 test("V27 LINE bag copy sorts HUB -> status -> bag and shows every bag without 30-row cap", () => {
   const front = stageFrontend(frontendSource);
-  const start = front.indexOf("async function pnoV18CopyLine()");
+  const start = front.indexOf("async function pnoV18CopyLineOwned(owner)");
   const end = front.indexOf("async function pnoV18Export", start);
   const block = front.slice(start, end);
   assert.match(block, /a\.summary\.hub\.localeCompare/);

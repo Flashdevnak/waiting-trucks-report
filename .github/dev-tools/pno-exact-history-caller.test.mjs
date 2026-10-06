@@ -25,7 +25,7 @@ test("5,000 eligible gap rows render with zero history or provider requests", ()
   const actionStart = front.indexOf("function pnoV18ParcelAction(");
   const actionEnd = front.indexOf("\n}\n", actionStart) + 2;
   const renderer = front.slice(actionStart, actionEnd) + "\n" + front.slice(front.indexOf("function pnoInboundRender(rows) {"),
-    front.indexOf("async function pnoInboundLoad(page) {"));
+    front.indexOf("async function pnoInboundLoadOwned(page, owner) {"));
   assert.doesNotMatch(renderer, /apiGet|fetch\(|curl_pno|pnoExactHistory/);
   const list = { innerHTML: "" };
   const render = new Function("el", "esc", `${renderer}; return pnoInboundRender;`)(
@@ -43,9 +43,9 @@ test("5,000 eligible gap rows render with zero history or provider requests", ()
 test("modal, gap load, reload and ordinary controls cannot route to exact history", () => {
   const front = frontend();
   const worker = stagedWorker();
-  const gapLoad = front.slice(front.indexOf("async function pnoInboundLoad(page) {"),
+  const gapLoad = front.slice(front.indexOf("async function pnoInboundLoadOwned(page, owner) {"),
     front.indexOf("function pnoV18SetActive(type)"));
-  assert.match(gapLoad, /pnoV18Fetch\("total", pnoV18State\.page\)/);
+  assert.match(gapLoad, /pnoV18Fetch\("total", pnoV18State\.page, owner\)/);
   assert.doesNotMatch(gapLoad, /pendingPnoHistory|pnoExactHistory|curl_pno/);
   for (const operation of ["modal open", "scan-gap open", "filter", "copy", "LINE copy",
     "export", "reload", "modal reopen"]) {

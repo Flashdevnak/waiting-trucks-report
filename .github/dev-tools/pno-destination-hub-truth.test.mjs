@@ -233,7 +233,7 @@ test("bag HUB retains one, two and three full destinations in provider order", (
 test("bag table, Copy, LINE and Export share the complete summary without acquisition", async () => {
   const names = ["pnoV18ParcelAction", "pnoV18DisplayBranch", "pnoV18BagGroups", "pnoV18BagValue", "pnoV18BagLatest", "pnoV18BagSummary",
     "pnoV18FilteredBagGroups", "pnoV18RenderBags", "pnoV18TsvCell", "pnoV18LineCell",
-    "pnoV18AppendLineLimited", "pnoV18Copy", "pnoV18CopyLine", "pnoV18Export"];
+    "pnoV18AppendLineLimited", "pnoV18CopyOwned", "pnoV18CopyLineOwned", "pnoV18ExportOwned"];
   const blocks = names.map((name) => {
     const prefix = frontend.includes(`async function ${name}(`) ? `async function ${name}(` : `function ${name}(`;
     const start = frontend.indexOf(prefix), end = frontend.indexOf("\n}\n", start);
@@ -249,6 +249,7 @@ test("bag table, Copy, LINE and Export share the complete summary without acquis
   const context = { pnoV18State: { type: "bag", bagRows: items, expandedBag: "",
       filters: { status: "", action: "", branch: "" } },
     el: () => list, esc: (value) => String(value), nf: new Intl.NumberFormat("en-US"),
+    pnoLifecycleAssert() {}, pnoLifecycleBindHandlers() {},
     pnoV18RenderBagSummary() {}, pnoV18UpdateFilterResult() {},
     pnoV18LineHeader: () => ["SYNTHETIC HEADER"], pnoV18FilterSummaryText: () => "",
     pnoV18WriteClipboard: async (value) => { observed.copies.push(value); return true; },
@@ -258,7 +259,7 @@ test("bag table, Copy, LINE and Export share the complete summary without acquis
     Date,
   };
   vm.runInNewContext(blocks.join("\n") +
-    "this.render=pnoV18RenderBags;this.copy=pnoV18Copy;this.line=pnoV18CopyLine;this.export=pnoV18Export;", context);
+    "this.render=pnoV18RenderBags;this.copy=pnoV18CopyOwned;this.line=pnoV18CopyLineOwned;this.export=pnoV18ExportOwned;", context);
   const expected = hubs.join(" · ");
   context.render(items);
   assert.equal(list.innerHTML.split(expected).length - 1, 2, "desktop and mobile table show every name");

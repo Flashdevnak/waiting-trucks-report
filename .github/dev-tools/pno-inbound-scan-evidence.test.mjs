@@ -767,13 +767,13 @@ test("scan-gap tab shows gaps and technical unknowns without history controls", 
   const staged = stageFrontend(readFileSync(new URL("../../ms.js", import.meta.url), "utf8"));
   assert.match(staged, /data-pno-v18-type="bag">แบ็กกิ้ง<\/button>' \+\s*'<button type="button" data-pno-v18-type="scan_gap">หลักฐานสแกนเข้า/);
   assert.match(staged, /else if \(type === "scan_gap"\) void pnoInboundLoad\(1\)/);
-  assert.match(staged, /const result = await pnoV18Fetch\("total", pnoV18State\.page\)/);
-  const load = staged.slice(staged.indexOf("async function pnoInboundLoad(page) {"), staged.indexOf("function pnoV18SetActive(type)"));
+  assert.match(staged, /const result = await pnoV18Fetch\("total", pnoV18State\.page, owner\)/);
+  const load = staged.slice(staged.indexOf("async function pnoInboundLoadOwned(page, owner) {"), staged.indexOf("function pnoV18SetActive(type)"));
   assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(load, /pnoV18RenderFilters\(\)/);
   assert.doesNotMatch(load, /pnoInboundToggleActions\(true\)|pno-v18-filterbar"\)\.classList\.add\("hidden"\)/);
   const start = staged.indexOf("function pnoInboundRender(rows) {");
-  const end = staged.indexOf("async function pnoInboundLoad(page) {", start);
+  const end = staged.indexOf("async function pnoInboundLoadOwned(page, owner) {", start);
   const actionStart = staged.indexOf("function pnoV18ParcelAction(");
   const actionEnd = staged.indexOf("\n}\n", actionStart) + 2;
   const renderSource = staged.slice(actionStart, actionEnd) + "\n" + staged.slice(start, end);

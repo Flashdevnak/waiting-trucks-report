@@ -165,6 +165,7 @@ test("one explicit load issues one bounded detail request", async () => {
   let requests = 0;
   let projections = 0;
   const context = {
+    pnoLifecycleToken: () => ({open:1,load:1}), pnoLifecycleAssert() {},
     pnoV18SourceRow: () => completedDestination(),
     pnoV18State: { proofId: "", day: "", force: false },
     pnoV18PageCacheKey: () => "key",

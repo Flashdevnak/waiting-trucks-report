@@ -7,6 +7,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createMsTursoProducerTrace, msTursoProducerOperation, patchMsTursoTimeoutProducerWorker, patchMsTursoTimeoutProducerFrontend } from './patch-ms-turso-timeout-producer-v1.mjs';
 import { stageFrontend } from './stage-dev-runtime.mjs';
+import { patchMsRouteReadBudgetIsolationV1 } from './patch-ms-route-read-budget-isolation-v1.mjs';
 const root = path.resolve(import.meta.dirname, '../..');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-producer-test-'));
 for (const file of fs.readdirSync(root).filter(file => /\.(html|css)$/.test(file) || file === 'ms.js')) fs.copyFileSync(path.join(root, file), path.join(dir, file));
@@ -44,6 +45,73 @@ function harness(dev = true) {
     trace: hub => JSON.parse(JSON.stringify(ctx.msProducerTraceEnvelope(env, hub).msTursoTimeoutProducerTrace || { events: [] })) };
 }
 const prior = { rows: [{ id: 'PRIVATE_ROW' }], syncedAt: '2026-10-06T16:59:53.560Z', status: 'synced' };
+test('route budget isolation is staged, exact and idempotent', () => {
+  assert.match(worker, /const routeScoped = stage === "route_state_read" \|\| stage === "route_batch_write"/);
+  assert.match(worker, /if \(routeScoped\) routePersistenceBudget -=/);
+  assert.equal(patchMsRouteReadBudgetIsolationV1(worker), worker);
+  assert.throws(() => patchMsRouteReadBudgetIsolationV1('unrecognized source'), /anchor mismatch/);
+});
+
+test('proven incident: route read preserves general budget and healthy accepted push', async () => {
+  const h = harness(), submitted = [], deadlines = [];
+  const plan = [
+    ['SELECT * FROM ms_live_cache', 497, 2800], ['SELECT * FROM arbitrary', 74, 2303],
+    ['SELECT * FROM ms_live_cache', 23, 2229], ['SELECT * FROM arbitrary', 46, 2206],
+    ['SELECT * FROM ms_routes', 2187, 2800],
+    ['BEGIN; INSERT INTO ms_routes VALUES(?)', 66, 2800], ['COMMIT', 37, 2800],
+    ['INSERT INTO audit_log VALUES(?)', 10, 2160],
+    ['UPDATE ms_live_cache SET rows_json=?', 10, 2150],
+    ['UPDATE ms_sync_claims SET status=?', 10, 2140],
+  ];
+  h.env.DB._pipeline = async req => { submitted.push(req[0].stmt.sql); h.clock(plan[submitted.length - 1][1]); return {}; };
+  const result = await h.ctx.msProducerRefresh(h.env, 'NE1', async env => {
+    const live = h.ctx.msLiveDatabaseEnv(env);
+    for (const [sql] of plan) {
+      const pending = live.DB._pipeline(requests(sql));
+      deadlines.push([...h.timers.values()].at(-1).ms);
+      await pending;
+    }
+    return { ...prior, errorCode: '' };
+  });
+  assert.deepEqual(deadlines, plan.map(row => row[2]));
+  assert.deepEqual(submitted, plan.map(row => row[0]));
+  h.owner.branch = 'NE1'; h.owner.lastResult = result;
+  h.owner.sendAcceptedSnapshot('NE1', 'MAIN_REFRESH_COMPLETION');
+  assert.equal(h.messages.at(-1).msStatus, 'synced');
+  assert.equal(h.messages.at(-1).errorCode, '');
+  assert.equal(h.trace('NE1').events.some(e => e.eventType === 'TURSO_TIMEOUT_PRODUCED'), false);
+  assert.equal(h.trace('NE1').events.at(-1).errorOrigin, 'NO_DB_ERROR');
+});
+
+test('route read deadline remains 2800 and producer remains truthful', async () => {
+  const h = harness(); h.env.DB._pipeline = () => new Promise(() => {});
+  const task = h.ctx.msProducerRefresh(h.env, 'NE1', async env => {
+    try { await h.ctx.msLiveDatabaseEnv(env).DB._pipeline(requests('SELECT * FROM ms_routes')); }
+    catch(error) { return h.ctx.msProducerCaughtResult(env, { ...prior, status: 'degraded', errorCode: error.code }, error); }
+  });
+  await flush(); h.expire(); const result = await task;
+  assert.equal(result.errorCode, 'TURSO_LIVE_TIMEOUT');
+  const trace = h.trace('NE1'), p = trace.events.find(e => e.eventType === 'TURSO_TIMEOUT_PRODUCED');
+  assert.equal(p.operationClass, 'ROUTE_STATE_READ'); assert.equal(p.readOrWrite, 'READ');
+  assert.equal(p.deadlineMs, 2800); assert.equal(p.submitted, true); assert.equal(p.timedOut, true);
+  assert.equal(p.producerKind, 'SUBMITTED_DEADLINE_EXPIRED');
+  assert.equal(trace.events.at(-1).errorOrigin, 'CURRENT_OPERATION_FAILURE');
+});
+
+test('route read and batch share bounded 60000 pool while general pool stays available', async () => {
+  const h = harness(); h.env.DB._pipeline = async () => { h.clock(2000); return {}; };
+  await h.ctx.msProducerRefresh(h.env, 'NE1', async env => {
+    const live = h.ctx.msLiveDatabaseEnv(env);
+    for (let i = 0; i < 30; i++) await live.DB._pipeline(requests(i % 2 ? 'INSERT INTO ms_routes VALUES(?)' : 'SELECT * FROM ms_routes'));
+    // General work still submits after the route pool alone reaches zero.
+    await live.DB._pipeline(requests('INSERT INTO audit_log VALUES(?)'));
+    await assert.rejects(live.DB._pipeline(requests('SELECT * FROM ms_routes')), error => error.code === 'TURSO_LIVE_TIMEOUT');
+    return { ...prior };
+  });
+  const p = h.trace('NE1').events.find(e => e.eventType === 'TURSO_TIMEOUT_PRODUCED');
+  assert.equal(p.operationClass, 'ROUTE_STATE_READ'); assert.equal(p.submitted, false);
+  assert.equal(p.producerKind, 'BUDGET_EXHAUSTED_BEFORE_SUBMIT'); assert.equal(p.deadlineMs, 0);
+});
 async function failedRefresh(h, hub = 'NE1', mode = 'deadline') {
   h.owner.branch = hub;
   const task = h.ctx.msProducerRefresh(h.env, hub, async env => {

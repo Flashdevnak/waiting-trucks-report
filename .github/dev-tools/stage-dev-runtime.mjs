@@ -99,6 +99,7 @@ import { patchMsResilienceFrontend, patchMsResilienceWorker } from "./patch-ms-r
 import { patchMsRedegradeTraceFrontendFinal, patchMsRedegradeTraceWorker } from "./patch-ms-redegrade-trace-v1.mjs";
 import { patchMsTursoTimeoutProducerFrontend, patchMsTursoTimeoutProducerWorker } from "./patch-ms-turso-timeout-producer-v1.mjs";
 import { patchMsRoutePersistenceV1 } from "./patch-ms-route-persistence-v1.mjs";
+import { patchMsRouteReadBudgetIsolationV1 } from "./patch-ms-route-read-budget-isolation-v1.mjs";
 import { patchPnoScanEvidenceUx } from "./patch-pno-scan-evidence-ux.mjs";
 import { patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destination-truth.mjs";
 import { patchPnoSegmentDestinationFrontend } from "./patch-pno-segment-destination-frontend.mjs";
@@ -593,7 +594,7 @@ if (invokedPath) {
   // Last: instrument the exact final DEV composition, after all TBR/PNO patches.
   await stageTbrProvenanceDev(workerTarget, frontendTarget);
   await writeFile(workerTarget,
-    patchMsTursoTimeoutProducerWorker(patchMsRedegradeTraceWorker(patchMsRoutePersistenceV1(patchMsResilienceWorker(await readFile(workerTarget, "utf8"))))),
+    patchMsTursoTimeoutProducerWorker(patchMsRedegradeTraceWorker(patchMsRouteReadBudgetIsolationV1(patchMsRoutePersistenceV1(patchMsResilienceWorker(await readFile(workerTarget, "utf8")))))),
     "utf8");
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);

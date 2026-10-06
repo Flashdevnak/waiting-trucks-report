@@ -401,3 +401,6 @@ test("DEV Proof status uses only shared Session presence and bypasses Route heal
     assert.equal(unknown.nodes.get("proof").textContent, "สถานะ Proof ยังไม่ยืนยัน");
   }
 });
+
+// Diagnostic-only regression suite runs in the existing DEV staging gate.
+await import('./ms-redegrade-trace-v1.test.mjs');

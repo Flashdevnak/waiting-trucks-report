@@ -135,15 +135,15 @@ export function patchOriginManifestSessionReplay(source) {
 
     output = replaceUnique(
       output,
-      `        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(','), ...(completeness ? { completeness: '1' } : {}) });\n        const rows = Array.isArray(result?.rows) ? result.rows : [];`,
-      `        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(','), ...(completeness ? { completeness: '1' } : {}) });\n        if (manifestNeedsReconnect(result?.errorCode, result?.error)) {\n          showManifestReconnect(result?.error);\n          return;\n        }\n        const rows = Array.isArray(result?.rows) ? result.rows : [];`,
+      `        const result = await apiGet('msOriginManifestLive', {\n          branch: hub,\n          days: days.join(','),\n          ...(completeness ? { completeness: '1' } : {}),\n        });\n        const rows = Array.isArray(result?.rows) ? result.rows : [];`,
+      `        const result = await apiGet('msOriginManifestLive', {\n          branch: hub,\n          days: days.join(','),\n          ...(completeness ? { completeness: '1' } : {}),\n        });\n        if (manifestNeedsReconnect(result?.errorCode, result?.error)) {\n          showManifestReconnect(result?.error);\n          return;\n        }\n        const rows = Array.isArray(result?.rows) ? result.rows : [];`,
       "return background expired session to MS upload UI",
     );
 
     output = replaceUnique(
       output,
-      `      } catch (error) {\n        console.warn(marker, error?.message || error);\n      } finally {`,
-      `      } catch (error) {\n        if (manifestNeedsReconnect(error?.code, error?.message)) showManifestReconnect(error?.message);\n        console.warn(marker, error?.message || error);\n      } finally {`,
+      `      } catch (error) {\n        errorBackoffUntil.set(hub, Date.now() + manifestErrorBackoffMs);\n        applyCachedManifest();\n        if (typeof render === 'function') render();\n        console.warn(marker, error?.message || error);\n      } finally {`,
+      `      } catch (error) {\n        if (manifestNeedsReconnect(error?.code, error?.message)) showManifestReconnect(error?.message);\n        errorBackoffUntil.set(hub, Date.now() + manifestErrorBackoffMs);\n        applyCachedManifest();\n        if (typeof render === 'function') render();\n        console.warn(marker, error?.message || error);\n      } finally {`,
       "handle thrown manifest expiry in background",
     );
   }

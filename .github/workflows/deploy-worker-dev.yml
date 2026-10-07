@@ -20,7 +20,7 @@ jobs:
       - name: Authorize DEV source ref
         working-directory: .
         run: |
-          if [[ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" || ( "${GITHUB_REF:-}" != "refs/heads/codex/dev-recovery-contract-v2" && "${GITHUB_REF:-}" != "refs/heads/codex/dev-ms-late-settle-provenance-v1" ) ]]; then
+          if [[ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" || ( "${GITHUB_REF:-}" != "refs/heads/codex/dev-recovery-contract-v2" && "${GITHUB_REF:-}" != "refs/heads/codex/dev-ms-late-settle-provenance-v1" && "${GITHUB_REF:-}" != "refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1" ) ]]; then
             printf 'DEV deployment refused: unauthorized source ref %s\n' "${GITHUB_REF:-<empty>}" >&2
             exit 1
           fi
@@ -145,7 +145,8 @@ jobs:
           if(!front.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('compact HAR action marker missing');
           if(!originManifest.includes('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2')) throw new Error('origin manifest session replay marker missing');
           if(!originManifest.includes('requestHeaders.Cookie = credentials.cookie')||!originManifest.includes('requestHeaders.Authorization = credentials.authorization')) throw new Error('origin manifest exact HAR session replay missing');
-          if(!originManifest.includes('MANIFEST_REFRESH_MS = 5 * 60 * 1000')||!originManifest.includes('dataPersistenceWrites: 0')||!originManifest.includes('extraMsPolling: 0')) throw new Error('origin manifest quota contract changed');
+          for(const marker of ['MANIFEST_REFRESH_MIN_MS = 2 * 60 * 1000','MANIFEST_REFRESH_STEADY_MS = 3 * 60 * 1000','MANIFEST_REFRESH_IDLE_MS = 5 * 60 * 1000','MANIFEST_ERROR_BACKOFF_MS = 5 * 60 * 1000','adaptiveRefresh: true','dataPersistenceWrites: 0','extraMsPolling: 0','function manifestOccurrenceKey(row)','function activeOriginOccurrencesLocal()','acceptedAtByOccurrence'])
+            if(!originManifest.includes(marker)) throw new Error(`staged origin manifest contract missing ${marker}`);
 
           for(const marker of ['/api/proof/routes','/api/proof/profile','/api/proof/print','pollMs: 30_000'])
             if(!proofFront.includes(marker)) throw new Error(`proof frontend missing ${marker}`);
@@ -203,7 +204,7 @@ jobs:
           NODE
 
       - name: Deploy DEV Worker on Turso
-        if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1' || github.ref == 'refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1') }}
         run: npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
 
       - name: Verify active Worker has zero D1 bindings

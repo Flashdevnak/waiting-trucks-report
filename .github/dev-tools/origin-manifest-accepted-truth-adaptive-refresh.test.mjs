@@ -143,6 +143,7 @@ ${anchor}`,
   return {
     h,
     state,
+    localStorage,
     reset,
     advance(ms) { now += ms; },
     setQueue(...items) { queue = items; },
@@ -236,6 +237,19 @@ test("accepted truth is occurrence-scoped and never crosses a reused proofId", a
   runtime.reset("occ-B");
   runtime.h.applyCachedManifest();
   assert.deepEqual(metrics(runtime), [undefined, undefined]);
+});
+
+test("legacy proof-only cache cannot lend accepted truth to a new occurrence", () => {
+  const runtime = makeRuntime();
+  runtime.localStorage.setItem("ms_origin_manifest_v1_BKK", JSON.stringify({
+    rows: [ACCEPTED],
+    savedAt: NativeDate.parse("2026-10-08T00:00:00.000Z"),
+    acceptedAtByProof: { "LH-PROOF-001": NativeDate.parse("2026-10-08T00:00:00.000Z") },
+  }));
+  runtime.reset("occ-B");
+  runtime.h.applyCachedManifest();
+  assert.deepEqual(metrics(runtime), [undefined, undefined]);
+  assert.equal(runtime.h.loadBrowserCache("BKK").rows.length, 0);
 });
 
 test("fast refresh is due after two minutes while accepted truth remains visible in-flight", async () => {

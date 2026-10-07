@@ -5,7 +5,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const workflow = readFileSync(new URL("../workflows/deploy-worker-dev.yml", import.meta.url), "utf8");
-const allowedRef = "refs/heads/codex/dev-recovery-contract-v2";
+const allowedRefs = ["refs/heads/codex/dev-recovery-contract-v2", "refs/heads/codex/dev-ms-late-settle-provenance-v1"];
+const [allowedRef, isolatedRef] = allowedRefs;
 const eventBlock = workflow.slice(workflow.indexOf("on:\n"), workflow.indexOf("permissions:\n"));
 
 function step(name) {
@@ -40,6 +41,26 @@ function runGuard({ event = "workflow_dispatch", ref, refName = "", sha = "a".re
   });
 }
 
+const deployExpression = deploy.text.match(/if: \$\{\{ (.*?) \}\}/)?.[1];
+assert.ok(deployExpression, "deploy condition missing");
+// Evaluate only this closed boolean grammar; no Actions functions or loose ref matching.
+assert.match(deployExpression, /^github\.event_name == 'workflow_dispatch' && \(github\.ref == 'refs\/heads\/codex\/dev-recovery-contract-v2' \|\| github\.ref == 'refs\/heads\/codex\/dev-ms-late-settle-provenance-v1'\)$/);
+const evaluateDeploy = new Function("github", `return (${deployExpression});`);
+function deployAllowed({ event = "workflow_dispatch", ref, refName = "", sha = "a".repeat(40) }) {
+  return evaluateDeploy({ event_name: event, ref, ref_name: refName, sha });
+}
+
+test("shell guard and deploy gate authorize exactly the same two full refs", () => {
+  const refs = text => [...new Set([...text.matchAll(/refs\/heads\/codex\/[a-z0-9-]+/g)].map(match => match[0]))].sort();
+  assert.deepEqual(refs(guardScript), [...allowedRefs].sort());
+  assert.deepEqual(refs(deployExpression), [...allowedRefs].sort());
+  assert.doesNotMatch(guardScript + deployExpression, /contains\(|startsWith\(|codex\/\*|GITHUB_REF_NAME/);
+  for (const ref of allowedRefs) for (const sha of ["0".repeat(40), "f".repeat(40)]) {
+    assert.equal(runGuard({ ref, sha }).status, 0);
+    assert.equal(deployAllowed({ ref, sha }), true);
+  }
+});
+
 test("only manual dispatch can start the DEV workflow", () => {
   assert.match(eventBlock, /^on:\n  workflow_dispatch:\s*$/m);
   assert.doesNotMatch(eventBlock, /^  (?:push|pull_request|workflow_run|schedule):/m);
@@ -56,7 +77,7 @@ test("the real workflow guards before checkout and gates its DEV mutation", () =
   assert.ok(guard.start < deploy.start);
   assert.ok(workflow.includes("      - name: Verify DEV ref guard contract\n        run: node --test ../.github/dev-tools/dev-deploy-ref-guard.test.mjs"));
   assert.ok(workflow.indexOf("      - name: Verify DEV ref guard contract") < deploy.start);
-  assert.ok(deploy.text.includes("        if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/dev-recovery-contract-v2' }}"));
+  assert.ok(deploy.text.includes("        if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1') }}"));
   assert.match(deploy.text, /run: npx wrangler deploy \.dev-runtime\/src\/turso-index\.js --config wrangler\.dev\.jsonc/);
   assert.equal((workflow.match(/wrangler deploy /g) || []).length, 1);
   assert.doesNotMatch(workflow.slice(0, deploy.start), /\bwrangler\s+(?:deploy|secret\s+(?:put|delete))\b|cloudflare\/wrangler-action@/i);
@@ -67,18 +88,31 @@ for (const [name, scenario, allowed] of [
   ["main push", { event: "push", ref: "refs/heads/main", refName: "main" }, false],
   ["ref_name cannot bypass full-ref validation", { ref: "refs/heads/main", refName: "codex/dev-recovery-contract-v2" }, false],
   ["authorized recovery dispatch", { ref: allowedRef, refName: "codex/dev-recovery-contract-v2" }, true],
+  ["authorized isolated MS dispatch", { ref: isolatedRef }, true],
+  ["unreviewed codex branch", { ref: "refs/heads/codex/unreviewed" }, false],
+  ["isolated ref_name cannot spoof main", { ref: "refs/heads/main", refName: "codex/dev-ms-late-settle-provenance-v1" }, false],
+  ["isolated ref_name cannot spoof empty ref", { ref: "", refName: "codex/dev-ms-late-settle-provenance-v1" }, false],
+  ["authorized ref prefix is rejected", { ref: isolatedRef + "-other" }, false],
+  ["authorized ref trailing slash is rejected", { ref: isolatedRef + "/extra" }, false],
+  ["authorized ref newline is rejected", { ref: isolatedRef + "\n" }, false],
   ["unexpected feature branch", { ref: "refs/heads/feature/unreviewed" }, false],
   ["tag", { ref: "refs/tags/example" }, false],
   ["PR merge ref", { ref: "refs/pull/123/merge" }, false],
   ["empty ref", { ref: "" }, false],
   ["malformed ref", { ref: "main" }, false],
-  ["unknown event on authorized ref", { event: "push", ref: allowedRef }, false],
+  ["push on recovery", { event: "push", ref: allowedRef }, false],
+  ["push on isolated MS", { event: "push", ref: isolatedRef }, false],
+  ["unknown event on recovery", { event: "unknown", ref: allowedRef }, false],
+  ["unknown event on isolated MS", { event: "unknown", ref: isolatedRef }, false],
+  ["empty event on isolated MS", { event: "", ref: isolatedRef }, false],
   ["future recovery SHA", { ref: allowedRef, sha: "f".repeat(40) }, true],
+  ["future isolated MS SHA", { ref: isolatedRef, sha: "f".repeat(40) }, true],
 ]) {
   test(name, () => {
     const result = runGuard(scenario);
     assert.equal(result.status === 0, allowed, result.stderr);
     if (!allowed) assert.match(result.stderr, /DEV deployment refused: unauthorized source ref/);
+    assert.equal(deployAllowed(scenario), allowed, "deploy condition must match shell authorization");
   });
 }
 

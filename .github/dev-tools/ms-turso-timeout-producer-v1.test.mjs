@@ -27,7 +27,7 @@ const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve()
 function harness(dev = true) {
   let clock = 100, calls = 0, nextTimer = 0;
   const timers = new Map(), messages = [];
-  const ctx = { Date: class extends Date { static now() { return clock; } }, console: { warn() {}, error() {} },
+  const ctx = { AbortController, Date: class extends Date { static now() { return clock; } }, console: { warn() {}, error() {} },
     setTimeout(fn, ms) { const id = ++nextTimer; timers.set(id, { fn, ms }); return id; }, clearTimeout(id) { timers.delete(id); },
     recentMsSync: new Map(), msOptionalData: () => new Map(), markAuxiliaryOccurrenceAmbiguity() {},
     normalizeProofId: value => value, normalizeMsAttendance: value => value, enrichMsRow: row => row,
@@ -313,7 +313,7 @@ test('actual staged runMsRefresh credential catch retains exact operation proven
   assert.equal(refresh.errorOrigin,'CURRENT_OPERATION_FAILURE'); assert.equal(refresh.resultInstanceId,1);
 });
 
-test('actual staged runMsRefresh main catch correlates two successful cache reads and current WRITE timeout', async () => {
+test('actual staged runMsRefresh main catch correlates one successful cache read and current WRITE timeout', async () => {
   const h=harness(); let reads=0;
   h.ctx.recentMsSync.set('NE1',{result:{...prior}});
   Object.assign(h.ctx,{
@@ -326,12 +326,12 @@ test('actual staged runMsRefresh main catch correlates two successful cache read
     acquireMsSyncClaim:async()=>({acquired:true}),finishMsSyncClaim:async()=>{},
     syncMs:async(body,actor,env)=>env.DB._pipeline(requests('UPDATE ms_routes SET source_updated_at=? WHERE hub=?')),
   });
-  let actual=0; h.env.DB._pipeline=()=>{actual++;return actual<=2?Promise.resolve({}):new Promise(()=>{});};
+  let actual=0; h.env.DB._pipeline=()=>{actual++;return actual===1?Promise.resolve({}):new Promise(()=>{});};
   vm.runInContext('async '+fn('runMsRefresh'),h.ctx);
   const task=h.ctx.runMsRefresh(h.env,'NE1');await flush();h.expire();const result=await task;
-  assert.equal(reads,2);assert.equal(actual,3);assert.equal(result.status,'degraded');assert.equal(result.syncedAt,prior.syncedAt);
+  assert.equal(reads,1);assert.equal(actual,2);assert.equal(result.status,'degraded');assert.equal(result.syncedAt,prior.syncedAt);
   const trace=h.trace('NE1'),producer=trace.events.filter(e=>e.eventType==='TURSO_TIMEOUT_PRODUCED').at(-1),refresh=trace.events.at(-1);
-  assert.equal(producer.operationClass,'ROUTE_BATCH_WRITE');assert.equal(producer.readOrWrite,'WRITE');assert.equal(producer.dbOperationId,3);
+  assert.equal(producer.operationClass,'ROUTE_BATCH_WRITE');assert.equal(producer.readOrWrite,'WRITE');assert.equal(producer.dbOperationId,2);
   assert.equal(refresh.producerSequence,producer.sequence);assert.equal(refresh.errorOrigin,'CURRENT_OPERATION_FAILURE');
   h.owner.branch='NE1';h.owner.lastResult=h.ctx.mergeMsOptionalResult('NE1',result);h.owner.sendAcceptedSnapshot('NE1','MAIN_REFRESH_COMPLETION');
   assert.equal(h.trace('NE1').events.at(-1).timeoutProducerSequence,producer.sequence);

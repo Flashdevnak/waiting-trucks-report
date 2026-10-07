@@ -22,7 +22,7 @@ function fn(name) { const start = worker.indexOf('function ' + name + '('), rest
 function harness(dev = true, background = true) {
   let clock = 0, id = 0, calls = 0, rollbacks = 0;
   const timers = new Map(), tasks = [], pending = deferred(), rollback = deferred();
-  const ctx = { Date: class extends Date { static now() { return clock; } }, console: { warn() {} },
+  const ctx = { AbortController, Date: class extends Date { static now() { return clock; } }, console: { warn() {} },
     setTimeout(fn, ms) { const key = ++id; timers.set(key, { fn, at: clock + ms, ms }); return key; }, clearTimeout(key) { timers.delete(key); } };
   vm.createContext(ctx);
   vm.runInContext(worker.slice(worker.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_WORKER')) + '\n' + fn('msLiveDbStage') + '\n' + fn('msTursoAvailability') + '\n' + fn('msLiveDatabaseEnv'), ctx);

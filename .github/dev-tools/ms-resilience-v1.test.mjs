@@ -28,14 +28,15 @@ const helpers = worker.slice(worker.indexOf('const msOptionalAccepted = new Map(
 const refresh = between(worker, 'async function runMsRefresh(', '\nasync function ');
 const coordinator = between(worker, 'export class MsRefreshCoordinator', '\n// MS_CRON_LIVE_REFRESH_V1').replace('export class', 'class');
 const deferred = () => { let resolve; const promise = new Promise((yes) => { resolve = yes; }); return { promise, resolve }; };
-const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
+const flush = async () => { for (let i = 0; i < 100; i++) await Promise.resolve(); };
 
 function liveHarness() {
   let routeCalls = 0, dbReads = 0, statusWrites = 0;
   const bus = deferred(), pre = deferred(), route = deferred(), background = [], messages = [];
   const prior = { id: 'r1', proofId: 'p1', attendanceType: 'ปลายทาง', unloadingState: 1, scheduleTbrArrivalAt: '', expectedParcels: 5 };
   const context = {
-    Map, Set, Promise, Date, Error, TypeError, Proxy, Object, Array, Number, String,
+    AbortController, Map, Set, Promise, Date, Error, TypeError, Proxy, Object, Array, Number, String,
+    hubSettingsCache: new Map(), HUB_SETTINGS_CACHE_MS: 60_000,
     setTimeout, clearTimeout, console: { error() {}, warn() {} },
     MS_SYNC_TTL: 3000, MS_LIVE_CACHE_VERSION: 'completion-v2', MS_REPAIR_POLICY_VERSION: 6,
     MS_REALTIME_SOURCE_MIN_MS: 3000, MS_CRON_ACTIVE_SKIP_MS: 45000,
@@ -257,7 +258,7 @@ test('snapshot delivery separates database health from Route truth and restores 
   let reads = 0, writes = 0, providerCalls = 0, failCount = 1;
   const prior = { rows: [h.prior], syncedAt: '2026-10-05T12:00:00.000Z', status: 'synced', completedToday: 1 };
   h.owner.lastResult = prior;
-  h.owner.lastSnapshotPayload = { type: 'snapshot', rows: [h.prior], standards: [{ type: 'truck', minutes: 120 }],
+  h.owner.lastSnapshotPayload = { type: 'snapshot', rows: [h.prior], standards: null,
     lastSync: prior.syncedAt, msStatus: 'synced', syncError: '', completedToday: 1 };
   h.owner.lastSnapshotBranch = 'NE1';
   h.owner.refresh = async () => { providerCalls++; return prior; };
@@ -278,13 +279,14 @@ test('snapshot delivery separates database health from Route truth and restores 
   assert.equal(normal.rows[0].id, h.prior.id);
 
   failCount = 2;
-  const degraded = await h.owner.streamPayload('NE1');
-  assert.equal(reads, 4); assert.equal(degraded.msStatus, 'degraded');
-  assert.equal(degraded.errorCode, 'TURSO_NETWORK_ERROR');
-  assert.equal(degraded.lastSync, prior.syncedAt);
-  assert.equal(degraded.rows[0].id, h.prior.id);
-  assert.equal(degraded.standards[0].minutes, 120);
-  assert.match(degraded.syncError, /ฐานข้อมูลตอบช้า/);
+  const warm = await h.owner.streamPayload('NE1');
+  await flush();
+  assert.equal(reads, 4); assert.equal(warm.msStatus, 'synced');
+  assert.equal(warm.errorCode, '');
+  assert.equal(warm.lastSync, prior.syncedAt);
+  assert.equal(warm.rows[0].id, h.prior.id);
+  assert.equal(warm.standards[0].minutes, 120);
+  assert.equal(warm.syncError, '');
 
   const recovered = await h.owner.streamPayload('NE1');
   assert.equal(recovered.msStatus, 'synced'); assert.equal(recovered.errorCode, '');
@@ -311,9 +313,10 @@ test('persistent DB outage keeps accepted rows and source time, but never claims
     assert.equal(payload.rows[0].id, h.prior.id);
     assert.equal(payload.lastSync, prior.lastSync);
     assert.match(payload.syncError, /ฐานข้อมูลตอบช้า/);
-    assert.equal(payload.errorCode, 'TURSO_NETWORK_ERROR');
+    assert.equal(payload.errorCode, 'TURSO_LIVE_TIMEOUT');
+    await flush();
   }
-  assert.equal(reads, 4, 'one initial read and one retry per ordinary delivery cycle');
+  assert.equal(reads, 2, 'settings background refresh coalesces; genuine live failure stays degraded');
 });
 
 test('frontend treats a DB read message as degraded data while the WebSocket and accepted rows remain', () => {

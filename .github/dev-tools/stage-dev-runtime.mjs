@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   patchDevMsArchive,
@@ -97,6 +97,7 @@ import { patchSupervisorAccessGuard } from "./patch-supervisor-access-guard.mjs"
 import { patchSupervisorSharedSnapshot } from "./patch-supervisor-shared-snapshot.mjs";
 import { patchMsResilienceFrontend, patchMsResilienceWorker } from "./patch-ms-resilience-v1.mjs";
 import { patchMsRedegradeTraceFrontendFinal, patchMsRedegradeTraceWorker } from "./patch-ms-redegrade-trace-v1.mjs";
+import { patchMsTursoStallContainmentV1, patchMsTursoStallAdapterV1 } from "./patch-ms-turso-stall-containment-v1.mjs";
 import { patchMsTursoLateSettleFrontend, patchMsTursoLateSettleWorker } from "./patch-ms-turso-late-settle-v1.mjs";
 import { patchMsTursoTimeoutProducerFrontend, patchMsTursoTimeoutProducerWorker } from "./patch-ms-turso-timeout-producer-v1.mjs";
 import { patchMsRoutePersistenceV1 } from "./patch-ms-route-persistence-v1.mjs";
@@ -597,6 +598,19 @@ if (invokedPath) {
   await writeFile(workerTarget,
     patchMsTursoLateSettleWorker(patchMsTursoTimeoutProducerWorker(patchMsRedegradeTraceWorker(patchMsRouteReadBudgetIsolationV1(patchMsRoutePersistenceV1(patchMsResilienceWorker(await readFile(workerTarget, "utf8"))))))),
     "utf8");
+  // Final DEV product patch: no later composer can overwrite these guards.
+  const adapterTarget = join(dirname(workerTarget), "turso-d1.js");
+  const canonicalAdapter = new URL("../../worker/src/turso-d1.js", import.meta.url);
+  if (resolve(adapterTarget) === fileURLToPath(canonicalAdapter))
+    throw new Error("DEV staged adapter must not be canonical adapter");
+  let adapter;
+  try { adapter = await readFile(adapterTarget, "utf8"); }
+  catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    adapter = await readFile(canonicalAdapter, "utf8");
+  }
+  await writeFile(adapterTarget, patchMsTursoStallAdapterV1(adapter), "utf8");
+  await writeFile(workerTarget, patchMsTursoStallContainmentV1(await readFile(workerTarget, "utf8")), "utf8");
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");

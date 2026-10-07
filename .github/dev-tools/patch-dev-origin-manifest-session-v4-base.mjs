@@ -108,7 +108,7 @@ export function patchOriginManifestSessionReplay(source) {
     output = replaceUnique(
       output,
       `  const credentials = sanitizeCredentials(inputCredentials);\n  const test = await readManifestPage(credentials, thaiDay(), 1);`,
-      `  const credentials = sanitizeCredentials(inputCredentials);\n  // One lightweight probe happens only when the owner uploads/tests a HAR; normal 5-minute shared refresh adds no probe polling.\n  await probeManifestSession(credentials);\n  let test;\n  try {\n    test = await readManifestPage(credentials, thaiDay(), 1);\n  } catch (error) {\n    if (error?.code === "MANIFEST_SESSION_EXPIRED" && credentials.captureVerified)\n      fail("HAR ยืนยันว่า HBI Login สำเร็จ แต่ route_outhouse ปฏิเสธ Session replay จาก Worker · ระบบไม่ตีความเป็น Login ผิดหรือ Session หมดอายุ", "MANIFEST_ROUTE_REPLAY_REJECTED", 502);\n    throw error;\n  }`,
+      `  const credentials = sanitizeCredentials(inputCredentials);\n  // One lightweight probe happens only when the owner uploads/tests a HAR; normal adaptive 2–5 minute shared refresh adds no probe polling.\n  await probeManifestSession(credentials);\n  let test;\n  try {\n    test = await readManifestPage(credentials, thaiDay(), 1);\n  } catch (error) {\n    if (error?.code === "MANIFEST_SESSION_EXPIRED" && credentials.captureVerified)\n      fail("HAR ยืนยันว่า HBI Login สำเร็จ แต่ route_outhouse ปฏิเสธ Session replay จาก Worker · ระบบไม่ตีความเป็น Login ผิดหรือ Session หมดอายุ", "MANIFEST_ROUTE_REPLAY_REJECTED", 502);\n    throw error;\n  }`,
       "probe session once on manual HAR save",
     );
 
@@ -200,7 +200,10 @@ async function selfTest() {
   assert.ok(patchedOrigin.includes("errorCode: live?.errorCode || \"\""));
   assert.ok(patchedOrigin.includes("manifestReconnectShown"));
   assert.ok(patchedOrigin.includes("Session หมดอายุ · อัปโหลด HAR ใหม่ที่ข้อ 6"));
-  assert.ok(patchedOrigin.includes("MANIFEST_REFRESH_MS = 5 * 60 * 1000"));
+  assert.ok(patchedOrigin.includes("MANIFEST_REFRESH_MIN_MS = 2 * 60 * 1000"));
+  assert.ok(patchedOrigin.includes("MANIFEST_REFRESH_STEADY_MS = 3 * 60 * 1000"));
+  assert.ok(patchedOrigin.includes("MANIFEST_REFRESH_IDLE_MS = 5 * 60 * 1000"));
+  assert.ok(patchedOrigin.includes("adaptiveRefresh: true"));
   assert.ok(patchedOrigin.includes("dataPersistenceWrites: 0"));
   assert.ok(patchedOrigin.includes("extraMsPolling: 0"));
   assert.equal(patchOriginManifestSessionReplay(patchedOrigin), patchedOrigin);
@@ -219,7 +222,10 @@ async function selfTest() {
   console.log("DEV_ORIGIN_MANIFEST_RECOVERY_V3=PASS");
   console.log("DEV_HAR_COMPACT_ACTIONS_V3=PASS");
   console.log("DEV_HAR_INLINE_ACTIONS_V4=PASS");
-  console.log("MANIFEST_REFRESH_MS=300000");
+  console.log("MANIFEST_REFRESH_MIN_MS=120000");
+  console.log("MANIFEST_REFRESH_STEADY_MS=180000");
+  console.log("MANIFEST_REFRESH_IDLE_MS=300000");
+  console.log("MANIFEST_ERROR_BACKOFF_MS=300000");
   console.log("MANIFEST_EXTRA_MS_POLLING=0");
   console.log("MANIFEST_DATA_PERSISTENCE_WRITES=0");
   console.log("MANIFEST_UPLOAD_ONLY_PROBE=1");

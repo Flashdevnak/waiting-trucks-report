@@ -1,4 +1,10 @@
-const MANIFEST_REFRESH_MS = 5 * 60 * 1000;
+const MANIFEST_REFRESH_MIN_MS = 2 * 60 * 1000;
+const MANIFEST_REFRESH_STEADY_MS = 3 * 60 * 1000;
+const MANIFEST_REFRESH_IDLE_MS = 5 * 60 * 1000;
+const MANIFEST_ERROR_BACKOFF_MS = 5 * 60 * 1000;
+// The shared coordinator enforces the fastest allowed upstream cadence.
+// Browsers adapt between 2, 3 and 5 minutes without coupling accepted-truth lifetime to fetch freshness.
+const MANIFEST_REFRESH_MS = MANIFEST_REFRESH_MIN_MS;
 const MANIFEST_COMPLETENESS_MIN_MS = 30 * 1000;
 const MANIFEST_STALE_MAX_MS = 30 * 60 * 1000;
 const MANIFEST_PAGE_SIZE = 100;
@@ -8,6 +14,11 @@ const MANIFEST_KEY_PREFIX = "__LH_MANIFEST__:";
 export const ORIGIN_MANIFEST_POLICY = Object.freeze({
   marker: "MS_ORIGIN_LH_MANIFEST_V1",
   refreshMs: MANIFEST_REFRESH_MS,
+  adaptiveRefresh: true,
+  refreshMinMs: MANIFEST_REFRESH_MIN_MS,
+  refreshSteadyMs: MANIFEST_REFRESH_STEADY_MS,
+  refreshIdleMs: MANIFEST_REFRESH_IDLE_MS,
+  errorBackoffMs: MANIFEST_ERROR_BACKOFF_MS,
   completenessMinMs: MANIFEST_COMPLETENESS_MIN_MS,
   sharedPerHub: true,
   originOnly: true,
@@ -591,7 +602,7 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     if (!hasParcels && !hasWeight) return '';
     const parcelText = hasParcels ? nf.format(parcels) + ' ชิ้น' : '-';
     const weightText = hasWeight ? kgf.format(weight) + ' Kg' : '-';
-    return '<div class="origin-manifest-badge" title="LH Manifest · อัปเดตทุก 5 นาที"><span>พัสดุออกจริง <strong>' + esc(parcelText) + '</strong></span><span>น้ำหนัก <strong>' + esc(weightText) + '</strong></span></div>';
+    return '<div class="origin-manifest-badge" title="LH Manifest · อัปเดตทุก 2–5 นาที"><span>พัสดุออกจริง <strong>' + esc(parcelText) + '</strong></span><span>น้ำหนัก <strong>' + esc(weightText) + '</strong></span></div>';
   }
 
   function wrapRenderers() {
@@ -742,34 +753,68 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
   const manifestCache = new Map();
   const lastAttemptAt = new Map();
   const lastWakeUpAt = new Map();
+  const errorBackoffUntil = new Map();
+  const manifestRefreshFastMs = 2 * 60 * 1000;
+  const manifestRefreshSteadyMs = 3 * 60 * 1000;
+  const manifestRefreshIdleMs = 5 * 60 * 1000;
+  const manifestErrorBackoffMs = 5 * 60 * 1000;
+  // Completeness is independent from normal 2–5 minute freshness.
   // After the first completeness wake-up, retry at 30, 60 and 120 seconds.
-  // Four wake-ups total per proof, then only the normal five-minute refresh.
   const missingRetryDelays = [0, 30_000, 60_000, 120_000];
   let syncInFlight = null;
 
   function cacheKey(hub) { return 'ms_origin_manifest_v1_' + String(hub || '').toUpperCase(); }
 
+  function clampManifestRefreshMs(value) {
+    const ms = Number(value);
+    if (!Number.isFinite(ms) || ms <= manifestRefreshFastMs) return manifestRefreshFastMs;
+    if (ms <= manifestRefreshSteadyMs) return manifestRefreshSteadyMs;
+    return manifestRefreshIdleMs;
+  }
+
   function loadBrowserCache(hub) {
     try {
       const cached = JSON.parse(localStorage.getItem(cacheKey(hub)) || 'null');
       if (!cached || !Array.isArray(cached.rows)) return null;
-      if (Date.now() - Number(cached.savedAt || 0) >= 5 * 60 * 1000) return null;
-      return { ...cached, rows: freshAcceptedRows(cached) };
+      return {
+        ...cached,
+        refreshMs: clampManifestRefreshMs(cached.refreshMs),
+        rows: freshAcceptedRows(cached),
+      };
     } catch { return null; }
   }
 
+  function manifestOccurrenceKey(row) {
+    const acceptedKey = String(row?.manifestOccurrenceKey || '').trim();
+    if (acceptedKey) return acceptedKey;
+    const routeId = String(row?.id || '').trim();
+    if (routeId) return routeId;
+    const proof = normalizeManifestProof(row?.proofId);
+    const side = String(row?.attendanceType || '').trim();
+    const schedule = String(row?.estimatedDepartureAt || row?.estimatedArrivalAt || '').trim();
+    return proof && (side || schedule) ? [proof, side, schedule].join('|') : '';
+  }
+
   function freshAcceptedRows(cached) {
-    return (cached?.rows || []).filter((row) => {
-      const proof = normalizeManifestProof(row?.proofId);
-      const acceptedAt = Number(cached?.acceptedAtByProof?.[proof] || cached?.savedAt || 0);
-      return proof && hasManifestMetrics(row) && Date.now() - acceptedAt < 5 * 60 * 1000;
-    });
+    return (cached?.rows || []).filter((row) =>
+      manifestOccurrenceKey(row) && hasManifestMetrics(row));
   }
 
   function hasManifestMetrics(row) {
     return ['manifestShippedParcels', 'manifestWeightKg'].some((field) =>
       row?.[field] !== null && row?.[field] !== undefined && row?.[field] !== '' &&
       Number.isFinite(Number(row[field])));
+  }
+
+  function manifestMetricsChanged(prior, row) {
+    for (const field of ['manifestShippedParcels', 'manifestWeightKg']) {
+      const raw = row?.[field];
+      if (raw === null || raw === undefined || raw === '' || !Number.isFinite(Number(raw))) continue;
+      const previous = prior?.[field];
+      if (previous === null || previous === undefined || previous === '' ||
+          !Number.isFinite(Number(previous)) || Number(previous) !== Number(raw)) return true;
+    }
+    return false;
   }
 
   function retryState(cached, activeProofs) {
@@ -792,41 +837,89 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     return retries;
   }
 
-  function saveBrowserCache(hub, rows, refreshedAt, retries, activeProofs, baselineAt) {
+  function saveBrowserCache(hub, rows, refreshedAt, retries, activeOccurrences, baselineAt) {
     const key = String(hub || '').toUpperCase();
     const now = Date.now();
     const stored = loadBrowserCache(hub);
     const memory = manifestCache.get(key);
-    const previous = stored || (memory && now - Number(memory.savedAt || 0) < 5 * 60 * 1000 ? memory : null);
-    const active = new Set(activeProofs);
-    const byProof = new Map();
-    const acceptedAtByProof = Object.create(null);
+    const previous = stored || memory || null;
+
+    const activeByOccurrence = new Map();
+    const occurrencesByProof = new Map();
+    for (const item of activeOccurrences || []) {
+      const proof = normalizeManifestProof(item?.proof);
+      const occurrenceKey = String(item?.occurrenceKey || '').trim();
+      if (!proof || !occurrenceKey) continue;
+      activeByOccurrence.set(occurrenceKey, proof);
+      const list = occurrencesByProof.get(proof) || [];
+      list.push(occurrenceKey);
+      occurrencesByProof.set(proof, list);
+    }
+    const activeProofs = [...new Set([...activeByOccurrence.values()])];
+
+    const byOccurrence = new Map();
+    const acceptedAtByOccurrence = Object.create(null);
     for (const row of previous?.rows || []) {
       const proof = normalizeManifestProof(row?.proofId);
-      const acceptedAt = Number(previous?.acceptedAtByProof?.[proof] || previous?.savedAt || 0);
-      if (active.has(proof) && hasManifestMetrics(row) && now - acceptedAt < 5 * 60 * 1000) {
-        byProof.set(proof, row);
-        acceptedAtByProof[proof] = acceptedAt;
-      }
+      const occurrenceKey = manifestOccurrenceKey(row);
+      if (!occurrenceKey || activeByOccurrence.get(occurrenceKey) !== proof || !hasManifestMetrics(row)) continue;
+      byOccurrence.set(occurrenceKey, row);
+      acceptedAtByOccurrence[occurrenceKey] =
+        Number(previous?.acceptedAtByOccurrence?.[occurrenceKey] || previous?.savedAt || now);
     }
-    for (const row of rows) {
+
+    let authoritativeRows = 0;
+    let changed = false;
+    for (const row of rows || []) {
       const proof = normalizeManifestProof(row?.proofId);
-      if (!active.has(proof) || !hasManifestMetrics(row)) continue;
-      const prior = byProof.get(proof);
-      const merged = { ...prior, ...row };
+      if (!proof || !hasManifestMetrics(row)) continue;
+      const matches = occurrencesByProof.get(proof) || [];
+      // Proof-only LH rows are safe to accept only when exactly one active route occurrence owns that proof.
+      if (matches.length !== 1) continue;
+      const occurrenceKey = matches[0];
+      const prior = byOccurrence.get(occurrenceKey);
+      authoritativeRows += 1;
+      if (manifestMetricsChanged(prior, row)) changed = true;
+      const merged = { ...prior, ...row, manifestOccurrenceKey: occurrenceKey };
       for (const field of ['manifestShippedParcels', 'manifestWeightKg']) {
         if (prior && (row[field] === null || row[field] === undefined || row[field] === ''))
           merged[field] = prior[field];
       }
-      byProof.set(proof, merged);
-      acceptedAtByProof[proof] = now;
+      byOccurrence.set(occurrenceKey, merged);
+      acceptedAtByOccurrence[occurrenceKey] = now;
     }
+
+    const presentProofs = new Set(
+      [...byOccurrence.values()].filter(hasManifestMetrics).map((row) => normalizeManifestProof(row?.proofId)),
+    );
     const missingRetries = Object.create(null);
-    for (const proof of active) if (!byProof.has(proof))
+    for (const proof of activeProofs) if (!presentProofs.has(proof))
       missingRetries[proof] = retries[proof] || { attemptCount: 0, lastAttemptAt: 0 };
+
+    const previousUnchanged = Math.max(0, Number(previous?.unchangedRefreshes) || 0);
+    let unchangedRefreshes = previousUnchanged;
+    let refreshMs = clampManifestRefreshMs(previous?.refreshMs);
+    if (authoritativeRows > 0) {
+      if (changed) {
+        unchangedRefreshes = 0;
+        refreshMs = manifestRefreshFastMs;
+      } else {
+        unchangedRefreshes = Math.min(2, previousUnchanged + 1);
+        refreshMs = unchangedRefreshes === 1 ? manifestRefreshSteadyMs : manifestRefreshIdleMs;
+      }
+    } else if (!previous) {
+      refreshMs = manifestRefreshFastMs;
+    }
+
     const value = {
-      rows: [...byProof.values()], refreshedAt: refreshedAt || '', savedAt: now,
-      baselineAt, acceptedAtByProof, missingRetries,
+      rows: [...byOccurrence.values()],
+      refreshedAt: refreshedAt || '',
+      savedAt: now,
+      baselineAt,
+      acceptedAtByOccurrence,
+      missingRetries,
+      unchangedRefreshes,
+      refreshMs,
     };
     manifestCache.set(key, value);
     try { localStorage.setItem(cacheKey(hub), JSON.stringify(value)); } catch {}
@@ -837,15 +930,25 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
   }
 
-  function activeOriginProofsLocal() {
-    const proofs = new Set();
+  function activeOriginOccurrencesLocal() {
+    const occurrences = [];
+    const seen = new Set();
     for (const row of state?.currentRows || []) {
       if (!isOrigin(row) || row?.actualDepartureAt || row?.queueCancelledAt) continue;
       if (typeof queueInfo === 'function' && !queueInfo(row).active) continue;
       const proof = normalizeManifestProof(row?.proofId);
-      if (proof) proofs.add(proof);
+      const occurrenceKey = manifestOccurrenceKey(row);
+      if (!proof || !occurrenceKey) continue;
+      const key = proof + '|' + occurrenceKey;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      occurrences.push({ proof, occurrenceKey });
     }
-    return [...proofs];
+    return occurrences;
+  }
+
+  function activeOriginProofsLocal() {
+    return [...new Set(activeOriginOccurrencesLocal().map((item) => item.proof))];
   }
 
   function activeOriginDaysLocal() {
@@ -866,21 +969,21 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     const hub = String(state?.branch || '').toUpperCase();
     if (!hub || !Array.isArray(state?.currentRows)) return;
     let cached = manifestCache.get(hub);
-    if (cached && Date.now() - Number(cached.savedAt || 0) >= 5 * 60 * 1000) {
-      manifestCache.delete(hub);
-      cached = null;
-    }
     if (!cached) {
       cached = loadBrowserCache(hub);
       if (cached) manifestCache.set(hub, cached);
     }
     const accepted = freshAcceptedRows(cached);
     if (!accepted.length) return;
-    const byProof = new Map(accepted.map((item) => [normalizeManifestProof(item?.proofId), item]));
+    const byOccurrence = new Map(
+      accepted.map((item) => [manifestOccurrenceKey(item), item]).filter(([key]) => key),
+    );
     const patch = (row) => {
       if (!isOrigin(row)) return row;
-      const item = byProof.get(normalizeManifestProof(row?.proofId));
-      return item ? { ...row, ...item } : row;
+      const occurrenceKey = manifestOccurrenceKey(row);
+      const item = occurrenceKey ? byOccurrence.get(occurrenceKey) : null;
+      if (!item || normalizeManifestProof(item?.proofId) !== normalizeManifestProof(row?.proofId)) return row;
+      return { ...row, ...item };
     };
     const previous = state.currentRows;
     state.currentRows = previous.map(patch);
@@ -905,15 +1008,31 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     if (!days.length) return;
 
     const browserCached = loadBrowserCache(hub);
-    const activeProofs = activeOriginProofsLocal();
+    const activeOccurrences = activeOriginOccurrencesLocal();
+    const activeProofs = [...new Set(activeOccurrences.map((item) => item.proof))];
     const now = Date.now();
+
+    if (!force && now < Number(errorBackoffUntil.get(hub) || 0)) {
+      if (browserCached) {
+        manifestCache.set(hub, browserCached);
+        applyCachedManifest();
+      }
+      return;
+    }
+
+    const refreshMs = clampManifestRefreshMs(browserCached?.refreshMs);
     const baselineAt = Number(browserCached?.baselineAt || browserCached?.savedAt || lastAttemptAt.get(hub) || 0);
-    const normalDue = !browserCached || now - baselineAt >= 5 * 60 * 1000;
+    const normalDue = !browserCached || now - baselineAt >= refreshMs;
     let completeness = false;
     if (!force && browserCached) {
       manifestCache.set(hub, browserCached);
       applyCachedManifest();
-      const present = new Set(browserCached.rows.filter(hasManifestMetrics).map((row) => normalizeManifestProof(row?.proofId)));
+      const activeOccurrenceKeys = new Set(activeOccurrences.map((item) => item.occurrenceKey));
+      const present = new Set(
+        browserCached.rows
+          .filter((row) => activeOccurrenceKeys.has(manifestOccurrenceKey(row)) && hasManifestMetrics(row))
+          .map((row) => normalizeManifestProof(row?.proofId)),
+      );
       const retries = retryState(browserCached, activeProofs);
       const eligible = activeProofs.filter((proof) => {
         if (present.has(proof)) return false;
@@ -938,18 +1057,32 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     }
 
     const last = Number(lastAttemptAt.get(hub) || 0);
-    if (!force && !completeness && now - last < 5 * 60 * 1000) return;
+    if (!force && !completeness && now - last < refreshMs) return;
     if (!completeness) lastAttemptAt.set(hub, now);
     syncInFlight = (async () => {
       try {
-        const result = await apiGet('msOriginManifestLive', { branch: hub, days: days.join(','), ...(completeness ? { completeness: '1' } : {}) });
+        const result = await apiGet('msOriginManifestLive', {
+          branch: hub,
+          days: days.join(','),
+          ...(completeness ? { completeness: '1' } : {}),
+        });
         const rows = Array.isArray(result?.rows) ? result.rows : [];
         const retries = completeness ? retryState(manifestCache.get(hub) || browserCached, activeProofs) : {};
-        saveBrowserCache(hub, rows, result?.refreshedAt || '', retries, activeProofs,
-          completeness ? baselineAt : now);
+        saveBrowserCache(
+          hub,
+          rows,
+          result?.refreshedAt || '',
+          retries,
+          activeOccurrences,
+          completeness ? baselineAt : now,
+        );
+        errorBackoffUntil.delete(hub);
         applyCachedManifest();
         if (typeof render === 'function') render();
       } catch (error) {
+        errorBackoffUntil.set(hub, Date.now() + manifestErrorBackoffMs);
+        applyCachedManifest();
+        if (typeof render === 'function') render();
         console.warn(marker, error?.message || error);
       } finally {
         syncInFlight = null;

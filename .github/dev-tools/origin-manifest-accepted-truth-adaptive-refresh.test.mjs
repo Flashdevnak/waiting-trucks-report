@@ -2,10 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 
-import {
-  ORIGIN_MANIFEST_POLICY,
-  originManifestFrontendSource,
-} from "../../worker/src/origin-manifest-v1.js";
+import { readFile } from "node:fs/promises";
+
+import { ORIGIN_MANIFEST_POLICY } from "../../worker/src/origin-manifest-v1.js";
+import { patchOriginManifestSessionReplay } from "./patch-dev-origin-manifest-session-v2.mjs";
+
+const canonicalOriginSource = await readFile(
+  new URL("../../worker/src/origin-manifest-v1.js", import.meta.url),
+  "utf8",
+);
+const stagedOriginSource = patchOriginManifestSessionReplay(canonicalOriginSource);
+const frontendPrefix = "const ORIGIN_MANIFEST_UI_JS = String.raw\`";
+const frontendStart = stagedOriginSource.indexOf(frontendPrefix) + frontendPrefix.length;
+const frontendEnd = stagedOriginSource.indexOf("\`;\n", frontendStart);
+assert.ok(frontendStart >= frontendPrefix.length && frontendEnd > frontendStart,
+  "must extract LH Manifest frontend from the staged Origin Manifest module");
+const stagedFrontendSource = stagedOriginSource.slice(frontendStart, frontendEnd);
 
 const NativeDate = Date;
 const ACCEPTED = Object.freeze({
@@ -66,7 +78,7 @@ function makeRuntime() {
     return next?.value ?? next;
   };
 
-  const source = originManifestFrontendSource();
+  const source = stagedFrontendSource;
   const anchor = "  function init() {";
   const instrumented = source.replace(
     anchor,

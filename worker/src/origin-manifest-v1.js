@@ -696,7 +696,7 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
       const result = await apiGet('msOriginManifestStatus', { branch: hubInput.value.trim().toUpperCase() });
       node.className = result?.configured ? 'source-ok' : 'source-missing';
       node.textContent = result?.configured
-        ? 'พร้อมใช้งาน · Shared refresh ทุก 5 นาที · 0 data writes'
+        ? 'พร้อมใช้งาน · Shared refresh ทุก 2–5 นาที · 0 data writes'
         : 'ยังไม่ได้อัปโหลด';
     } catch (error) {
       node.className = 'source-error';
@@ -817,21 +817,29 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     return false;
   }
 
-  function retryState(cached, activeProofs) {
-    const active = new Set(activeProofs);
+  function retryState(cached, activeOccurrences) {
+    const active = new Map();
+    for (const item of activeOccurrences) {
+      const keys = active.get(item.proof) || [];
+      keys.push(item.occurrenceKey);
+      active.set(item.proof, keys);
+    }
     const legacy = new Set((cached?.attemptedMissing || []).map(normalizeManifestProof));
     const retries = Object.create(null);
-    for (const proof of active) {
+    for (const [proof, occurrenceKeys] of active) {
       const entry = cached?.missingRetries?.[proof];
-      if (entry && typeof entry === 'object') {
+      if (entry && typeof entry === 'object' &&
+          (!entry.occurrenceKeys || (Array.isArray(entry.occurrenceKeys) &&
+           JSON.stringify([...entry.occurrenceKeys].sort()) === JSON.stringify([...occurrenceKeys].sort())))) {
         retries[proof] = {
           attemptCount: Math.min(missingRetryDelays.length, Math.max(0, Number(entry.attemptCount) || 0)),
           lastAttemptAt: Number(entry.lastAttemptAt) || 0,
+          occurrenceKeys,
         };
       } else if (legacy.has(proof)) {
         // Old caches had a permanent attempted set. Make them retry-eligible
         // without requiring the owner to clear localStorage.
-        retries[proof] = { attemptCount: 1, lastAttemptAt: Number(cached.savedAt) || 0 };
+        retries[proof] = { attemptCount: 1, lastAttemptAt: Number(cached.savedAt) || 0, occurrenceKeys };
       }
     }
     return retries;
@@ -894,7 +902,8 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
     );
     const missingRetries = Object.create(null);
     for (const proof of activeProofs) if (!presentProofs.has(proof))
-      missingRetries[proof] = retries[proof] || { attemptCount: 0, lastAttemptAt: 0 };
+      missingRetries[proof] = { ...(retries[proof] || { attemptCount: 0, lastAttemptAt: 0 }),
+        occurrenceKeys: occurrencesByProof.get(proof) };
 
     const previousUnchanged = Math.max(0, Number(previous?.unchangedRefreshes) || 0);
     let unchangedRefreshes = previousUnchanged;
@@ -1033,7 +1042,7 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
           .filter((row) => activeOccurrenceKeys.has(manifestOccurrenceKey(row)) && hasManifestMetrics(row))
           .map((row) => normalizeManifestProof(row?.proofId)),
       );
-      const retries = retryState(browserCached, activeProofs);
+      const retries = retryState(browserCached, activeOccurrences);
       const eligible = activeProofs.filter((proof) => {
         if (present.has(proof)) return false;
         const retry = retries[proof] || { attemptCount: 0, lastAttemptAt: 0 };
@@ -1047,7 +1056,8 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
         // Mark before I/O; failures must not cause a ten-second retry loop.
         for (const proof of eligible) {
           const retry = retries[proof] || { attemptCount: 0 };
-          retries[proof] = { attemptCount: retry.attemptCount + 1, lastAttemptAt: now };
+          retries[proof] = { ...retry, attemptCount: retry.attemptCount + 1, lastAttemptAt: now,
+            occurrenceKeys: activeOccurrences.filter((item) => item.proof === proof).map((item) => item.occurrenceKey) };
         }
         const marked = { ...browserCached, missingRetries: retries };
         delete marked.attemptedMissing;
@@ -1067,13 +1077,16 @@ const ORIGIN_MANIFEST_UI_JS = String.raw`(() => {
           ...(completeness ? { completeness: '1' } : {}),
         });
         const rows = Array.isArray(result?.rows) ? result.rows : [];
-        const retries = completeness ? retryState(manifestCache.get(hub) || browserCached, activeProofs) : {};
+        // Normal freshness must not reopen an exhausted completeness burst.
+        const currentOccurrences = activeOriginOccurrencesLocal().filter((item) =>
+          activeOccurrences.some((requested) => requested.proof === item.proof && requested.occurrenceKey === item.occurrenceKey));
+        const retries = retryState(manifestCache.get(hub) || browserCached, currentOccurrences);
         saveBrowserCache(
           hub,
           rows,
           result?.refreshedAt || '',
           retries,
-          activeOccurrences,
+          currentOccurrences,
           completeness ? baselineAt : now,
         );
         errorBackoffUntil.delete(hub);

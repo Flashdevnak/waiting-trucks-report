@@ -327,3 +327,39 @@ test("source error backs normal refresh off for five minutes without deleting ac
   await runtime.h.maybeSyncManifest(false);
   assert.equal(runtime.calls, 3, "refresh may resume after five-minute backoff");
 });
+
+
+test("normal two-minute refresh preserves finite completeness history and the final retry", async () => {
+  const r = makeRuntime();
+  r.reset();
+  r.localStorage.setItem("ms_origin_manifest_v1_BKK", JSON.stringify({ rows: [], savedAt: Date.parse("2026-10-08T00:00:00Z") }));
+  const empty = () => r.setQueue({ value: { rows: [] } });
+  const count = () => r.h.loadBrowserCache("BKK").missingRetries["LH-PROOF-001"].attemptCount;
+  empty(); await r.h.maybeSyncManifest(); assert.equal(count(), 1);
+  r.advance(30000); empty(); await r.h.maybeSyncManifest(); assert.equal(count(), 2);
+  r.advance(60000); empty(); await r.h.maybeSyncManifest(); assert.equal(count(), 3);
+  r.advance(30000); empty(); await r.h.maybeSyncManifest();
+  assert.equal(r.calls, 4); assert.equal(count(), 3, "normal refresh must not reset budget");
+  r.advance(90000); empty(); await r.h.maybeSyncManifest();
+  assert.equal(r.calls, 5); assert.equal(count(), 4, "final retry remains due from prior attempt");
+  for (let i = 0; i < 10; i++) {
+    r.advance(120000); empty(); await r.h.maybeSyncManifest();
+    assert.equal(count(), 4, "normal refresh never reopens completeness");
+  }
+  assert.equal(r.calls, 15, "only one normal refresh per two minutes after exhaustion");
+  r.advance(120000); r.setQueue({ value: { rows: [ACCEPTED] } }); await r.h.maybeSyncManifest();
+  assert.equal(r.h.loadBrowserCache("BKK").missingRetries["LH-PROOF-001"], undefined, "present proof leaves retry state");
+});
+
+test("retry history cannot cross a reused proof occurrence or resurrect an inactive occurrence", async () => {
+  const r = makeRuntime(); r.reset("occ-A");
+  r.localStorage.setItem("ms_origin_manifest_v1_BKK", JSON.stringify({ rows: [], savedAt: Date.parse("2026-10-08T00:00:00Z"), missingRetries: {
+    "LH-PROOF-001": { attemptCount: 4, lastAttemptAt: Date.parse("2026-10-08T00:00:00Z"), occurrenceKeys: ["occ-A"] }
+  } }));
+  r.reset("occ-B"); r.setQueue({ type: "pending" });
+  const pending = r.h.maybeSyncManifest();
+  assert.equal(r.h.loadBrowserCache("BKK").missingRetries["LH-PROOF-001"].attemptCount, 1);
+  r.state.currentRows = []; r.state.rows = [];
+  r.pending.resolve({ rows: [] }); await pending;
+  assert.deepEqual(Object.keys(r.h.loadBrowserCache("BKK").missingRetries), []);
+});

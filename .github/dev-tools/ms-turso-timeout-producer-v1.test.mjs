@@ -263,7 +263,7 @@ test('non-DEV Worker is inert, leaves serialization unchanged, canonical source 
 });
 
 test('diagnostic-only helpers have no I/O, timer, storage, provider or acquisition path', () => {
-  const code=helpers+frontend.slice(frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'));
+  const code=helpers.split('// MS_TURSO_LATE_SETTLE_V1_WORKER')[0]+frontend.slice(frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'), frontend.indexOf('// MS_TURSO_LATE_SETTLE_V1_FRONTEND'));
   assert.doesNotMatch(code,/\bfetch\s*\(|new WebSocket\s*\(|setInterval\s*\(|setTimeout\s*\(|\.DB\.prepare\s*\(|\.storage\.(put|delete)\s*\(|localStorage|sessionStorage|apiPost\s*\(|curl_pno|msPno|tbrProvenance/);
   assert.match(worker,/remainingBudget = 2800/); assert.match(worker,/routePersistenceBudget = 60_000/); assert.match(worker,/remaining - \(Date.now\(\) - started\) < 200/);
   assert.match(worker,/env\.MS_OPTIONAL_ACCEPT\?\.\(name\)/); assert.match(worker,/sendAcceptedSnapshot\(branch, "MAIN_REFRESH_COMPLETION"\)/);

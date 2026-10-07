@@ -123,7 +123,7 @@ test('settings and snapshot outcomes, leader replay and live cache boundaries co
 });
 
 test('diagnostic code owns zero network, provider, history, storage writes or timers', () => {
-  const code = frontend.slice(frontend.indexOf('// MS_REDEGRADE_TRACE_V1_FRONTEND')) + worker.slice(worker.indexOf('// MS_REDEGRADE_TRACE_V1_WORKER'));
+  const code = frontend.slice(frontend.indexOf('// MS_REDEGRADE_TRACE_V1_FRONTEND'), frontend.indexOf('// MS_TURSO_LATE_SETTLE_V1_FRONTEND')) + worker.slice(worker.indexOf('// MS_REDEGRADE_TRACE_V1_WORKER'), worker.indexOf('// MS_TURSO_LATE_SETTLE_V1_WORKER'));
   assert.doesNotMatch(code, /\bfetch\s*\(|new WebSocket\s*\(|setInterval\s*\(|setTimeout\s*\(|\.DB\.prepare\s*\(|\.storage\.(put|delete)\s*\(|localStorage|sessionStorage|apiPost\s*\(|curl_pno|msPno|tbrProvenance|INSERT|UPDATE|DELETE FROM/);
 });
 

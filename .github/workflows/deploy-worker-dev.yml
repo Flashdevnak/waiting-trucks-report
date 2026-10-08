@@ -20,7 +20,7 @@ jobs:
       - name: Authorize DEV source ref
         working-directory: .
         run: |
-          if [[ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" || ( "${GITHUB_REF:-}" != "refs/heads/codex/dev-recovery-contract-v2" && "${GITHUB_REF:-}" != "refs/heads/codex/dev-ms-late-settle-provenance-v1" && "${GITHUB_REF:-}" != "refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1" ) ]]; then
+          if [[ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" || ( "${GITHUB_REF:-}" != "refs/heads/codex/dev-recovery-contract-v2" && "${GITHUB_REF:-}" != "refs/heads/codex/dev-ms-late-settle-provenance-v1" && "${GITHUB_REF:-}" != "refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1" && "${GITHUB_REF:-}" != "refs/heads/codex/dev-ms-turso-critical-path-phase-provenance-v1" ) ]]; then
             printf 'DEV deployment refused: unauthorized source ref %s\n' "${GITHUB_REF:-<empty>}" >&2
             exit 1
           fi
@@ -204,7 +204,7 @@ jobs:
           NODE
 
       - name: Deploy DEV Worker on Turso
-        if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1' || github.ref == 'refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1' || github.ref == 'refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1' || github.ref == 'refs/heads/codex/dev-ms-turso-critical-path-phase-provenance-v1') }}
         run: npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
 
       - name: Verify active Worker has zero D1 bindings

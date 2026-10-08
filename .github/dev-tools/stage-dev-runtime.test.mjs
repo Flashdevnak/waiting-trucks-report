@@ -5,6 +5,7 @@ import test from "node:test";
 import "./ms-turso-timeout-producer-v1.test.mjs";
 import "./ms-turso-late-settle-v1.test.mjs";
 import "./ms-turso-stall-containment-v1.test.mjs";
+import "./ms-turso-critical-path-phase-v1.test.mjs";
 import { runInNewContext } from "node:vm";
 import {
   frontendHasIntegratedDevRuntime,

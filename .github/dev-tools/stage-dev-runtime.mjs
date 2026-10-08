@@ -98,6 +98,7 @@ import { patchSupervisorSharedSnapshot } from "./patch-supervisor-shared-snapsho
 import { patchMsResilienceFrontend, patchMsResilienceWorker } from "./patch-ms-resilience-v1.mjs";
 import { patchMsRedegradeTraceFrontendFinal, patchMsRedegradeTraceWorker } from "./patch-ms-redegrade-trace-v1.mjs";
 import { patchMsTursoStallContainmentV1, patchMsTursoStallAdapterV1 } from "./patch-ms-turso-stall-containment-v1.mjs";
+import { patchMsCriticalPathAdapter, patchMsCriticalPathWorker, patchMsCriticalPathFrontend } from "./patch-ms-turso-critical-path-phase-v1.mjs";
 import { patchMsTursoLateSettleFrontend, patchMsTursoLateSettleWorker } from "./patch-ms-turso-late-settle-v1.mjs";
 import { patchMsTursoTimeoutProducerFrontend, patchMsTursoTimeoutProducerWorker } from "./patch-ms-turso-timeout-producer-v1.mjs";
 import { patchMsRoutePersistenceV1 } from "./patch-ms-route-persistence-v1.mjs";
@@ -595,6 +596,7 @@ if (invokedPath) {
     throw new Error("DEV auxiliary-evidence completeness marker missing after staging");
   // Last: instrument the exact final DEV composition, after all TBR/PNO patches.
   await stageTbrProvenanceDev(workerTarget, frontendTarget);
+  await writeFile(frontendTarget, patchMsCriticalPathFrontend(await readFile(frontendTarget, "utf8")), "utf8");
   await writeFile(workerTarget,
     patchMsTursoLateSettleWorker(patchMsTursoTimeoutProducerWorker(patchMsRedegradeTraceWorker(patchMsRouteReadBudgetIsolationV1(patchMsRoutePersistenceV1(patchMsResilienceWorker(await readFile(workerTarget, "utf8"))))))),
     "utf8");
@@ -609,8 +611,8 @@ if (invokedPath) {
     if (error.code !== "ENOENT") throw error;
     adapter = await readFile(canonicalAdapter, "utf8");
   }
-  await writeFile(adapterTarget, patchMsTursoStallAdapterV1(adapter), "utf8");
-  await writeFile(workerTarget, patchMsTursoStallContainmentV1(await readFile(workerTarget, "utf8")), "utf8");
+  await writeFile(adapterTarget, patchMsCriticalPathAdapter(patchMsTursoStallAdapterV1(adapter)), "utf8");
+  await writeFile(workerTarget, patchMsCriticalPathWorker(patchMsTursoStallContainmentV1(await readFile(workerTarget, "utf8"))), "utf8");
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");

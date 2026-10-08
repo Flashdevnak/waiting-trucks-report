@@ -265,11 +265,22 @@ test('actual refresh/sync paths record only executed source, claim, route, audit
 
 test('existing in-band diagnostic copy sanitizes HUBs and preserves Worker-relative times; non-DEV is inert', () => {
   const suffix = current.frontend.slice(current.frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'), current.frontend.indexOf('// MS_TURSO_LATE_SETTLE_V1_FRONTEND')) + '\n' + createMsLateSettleTrace.toString() + '\n' + createMsCriticalPathPhaseTrace.toString();
+  assert.equal((current.frontend.match(/globalThis\.msTursoTimeoutProducerV1 = snapshot/g) || []).length, 1);
+  assert.equal((current.frontend.match(/msTursoProducerFrontend\(\);/g) || []).length, 1);
+  assert.equal((current.frontend.match(/criticalPath: criticalPath\.snapshot\(\)/g) || []).length, 1);
   for (const hostname of ['waiting-trucks-report-api-dev.26nak-testdev.workers.dev', 'production.invalid']) {
     let originalCalls = 0;
     const ctx = { location: { hostname }, performance: { now: () => 999999 }, state: { branch: 'NE1', auth: true }, document: {},
       handleRealtimeMessage() { originalCalls++; }, applyLiveResult() {}, apiGet: async () => ({}), authUi() {} };
     vm.createContext(ctx); vm.runInContext(suffix, ctx);
+    if (hostname !== 'production.invalid') {
+      const initial = JSON.parse(JSON.stringify(ctx.msTursoTimeoutProducerV1()));
+      assert.match(ctx.msTursoTimeoutProducerV1.toString(), /criticalPath: criticalPath\.snapshot\(\)/);
+      assert.equal(initial.criticalPath.name, 'MS_TURSO_CRITICAL_PATH_PHASE_V1');
+      assert.equal(initial.criticalPath.events.length, 0);
+      assert.equal(initial.criticalPath.refreshEvents.length, 0);
+      assert.equal(initial.lateSettle.name, 'MS_TURSO_LATE_SETTLE_V1');
+    }
     ctx.handleRealtimeMessage(JSON.stringify({ msTursoCriticalPathPhaseTrace: { name: 'MS_TURSO_CRITICAL_PATH_PHASE_V1', events: [
       { phase: 'REFRESH_STARTED', hub: 'NE1', refreshInstanceId: 1, observedAtMs: 15, refreshElapsedMs: 0, proofId: 'PRIVATE_PROOF' },
       { phase: 'PIPELINE_SUBMITTED', hub: 'NE1', observedAtMs: 18, refreshElapsedMs: 3, token: 'PRIVATE_TOKEN' },

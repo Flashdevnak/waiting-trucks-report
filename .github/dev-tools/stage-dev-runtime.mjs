@@ -200,10 +200,10 @@ export function patchDevUiShellSource(source, currentPage) {
     `href="${DEV_STYLE_HREF}"`,
   );
   if (currentPage === "ms.html") {
-    // The DEV modal script changed; ensure browsers acquire this version when
-    // an owner later deploys the explicitly approved DEV runtime.
+    // A phase-aware diagnostic needs a distinct URL from the older in-band
+    // producer script when the browser next loads this DEV page.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261003-pno-operational-truth-v1"');
+      'src="ms.js?v=20261009-ms-turso-critical-path-phase-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(

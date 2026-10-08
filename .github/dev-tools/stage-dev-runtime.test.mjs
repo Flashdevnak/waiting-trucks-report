@@ -258,6 +258,21 @@ test("DEV deploy uses the idempotent staging entrypoint and daily-history gate",
   );
 });
 
+test("DEV phase script URL, service worker and deployed-asset smoke share one delivery contract", async () => {
+  const html = patchDevUiShellSource(await readFile(new URL("ms.html", root), "utf8"), "ms.html");
+  const sw = await readFile(new URL("sw.js", root), "utf8");
+  const script = "ms.js?v=20261009-ms-turso-critical-path-phase-v1";
+  assert.ok(html.includes(`src="${script}"`));
+  assert.doesNotMatch(html, /ms\.js\?v=20261003-pno-operational-truth-v1/);
+  assert.match(html, /serviceWorker\.register\('sw\.js',\{updateViaCache:'none'\}\)/);
+  assert.match(sw, /url\.searchParams\.set\("__fresh", VERSION\)/);
+  assert.match(sw, /cache: "no-store"/);
+  assert.ok(workflow.includes(`const msScript='${script}';`));
+  assert.match(workflow, /const msJs=await get\(msScript\)/);
+  assert.match(workflow, /live MS phase snapshot exporter missing/);
+  assert.match(workflow, /criticalPath: criticalPath\.snapshot\(\)/);
+});
+
 
 test("DEV header V5 keeps spacious menu icons and groups status with refresh at the far right", () => {
   const styled = stageStyle(styleSource);

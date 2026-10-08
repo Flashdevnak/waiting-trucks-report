@@ -294,12 +294,15 @@ jobs:
           if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(|setTimeout\s*\(/.test(supervisorView)) throw new Error('Supervisor view introduced runtime transport');
           if((supervisorJs.match(/\bfetch\s*\(/g)||[]).length!==1||!supervisorJs.includes('fetch("/api/supervisor/snapshot"')) throw new Error('Supervisor shared snapshot transport contract missing');
           if(/new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced background transport');
-          const msJs=await get('ms.js');
+          const msScript='ms.js?v=20261009-ms-turso-critical-path-phase-v1';
+          if(!ms.includes(`src="${msScript}"`)) throw new Error('live MS phase script URL missing');
+          const msJs=await get(msScript);
           if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');
           if(!proof.includes('ms.html#connection')) throw new Error('Proof shared connection link missing');
           if(!msJs.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('live compact HAR action marker missing');
           if(!msJs.includes('DEV_ORIGIN_MANIFEST_SESSION_REPLAY_V2')) throw new Error('live origin manifest session replay marker missing');
           if(!msJs.includes('MS_REALTIME_WS_V1')) throw new Error('live WebSocket-first marker missing');
+          if(!msJs.includes('// MS_TURSO_CRITICAL_PATH_PHASE_V1_FRONTEND')||!msJs.includes('criticalPath: criticalPath.snapshot()')) throw new Error('live MS phase snapshot exporter missing');
           if(!msJs.includes('PNO_APPROVED_MODAL_V18')) throw new Error('live approved PNO modal V18 marker missing');
           if(!/pollMs:\s*4000/.test(msJs)||!msJs.includes('setInterval(realtimeTick, CONFIG.pollMs)')) throw new Error('live 4-second visible cadence missing');
           if(msJs.includes('setInterval(() => state.auth && loadData(true), CONFIG.pollMs)')) throw new Error('live direct HTTP 4-second timer restored');

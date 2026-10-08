@@ -99,6 +99,7 @@ import { patchMsResilienceFrontend, patchMsResilienceWorker } from "./patch-ms-r
 import { patchMsRedegradeTraceFrontendFinal, patchMsRedegradeTraceWorker } from "./patch-ms-redegrade-trace-v1.mjs";
 import { patchMsTursoStallContainmentV1, patchMsTursoStallAdapterV1 } from "./patch-ms-turso-stall-containment-v1.mjs";
 import { patchMsCriticalPathAdapter, patchMsCriticalPathWorker, patchMsCriticalPathFrontend } from "./patch-ms-turso-critical-path-phase-v1.mjs";
+import { patchMsRouteSourcePageTimingWorker, patchMsRouteSourcePageTimingFrontend } from "./patch-ms-route-source-page-timing-v1.mjs";
 import { patchMsTursoLateSettleFrontend, patchMsTursoLateSettleWorker } from "./patch-ms-turso-late-settle-v1.mjs";
 import { patchMsTursoTimeoutProducerFrontend, patchMsTursoTimeoutProducerWorker } from "./patch-ms-turso-timeout-producer-v1.mjs";
 import { patchMsRoutePersistenceV1 } from "./patch-ms-route-persistence-v1.mjs";
@@ -200,10 +201,9 @@ export function patchDevUiShellSource(source, currentPage) {
     `href="${DEV_STYLE_HREF}"`,
   );
   if (currentPage === "ms.html") {
-    // A phase-aware diagnostic needs a distinct URL from the older in-band
-    // producer script when the browser next loads this DEV page.
+    // The route source observer needs a distinct DEV URL from the phase-only asset.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261009-ms-turso-critical-path-phase-v1"');
+      'src="ms.js?v=20261009-ms-route-source-page-timing-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -613,6 +613,9 @@ if (invokedPath) {
   }
   await writeFile(adapterTarget, patchMsCriticalPathAdapter(patchMsTursoStallAdapterV1(adapter)), "utf8");
   await writeFile(workerTarget, patchMsCriticalPathWorker(patchMsTursoStallContainmentV1(await readFile(workerTarget, "utf8"))), "utf8");
+  // Observe the final DEV-only Route source path after the existing phase patch.
+  await writeFile(frontendTarget, patchMsRouteSourcePageTimingFrontend(await readFile(frontendTarget, "utf8")), "utf8");
+  await writeFile(workerTarget, patchMsRouteSourcePageTimingWorker(await readFile(workerTarget, "utf8")), "utf8");
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");

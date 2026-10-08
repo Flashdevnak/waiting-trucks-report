@@ -6,6 +6,7 @@ import "./ms-turso-timeout-producer-v1.test.mjs";
 import "./ms-turso-late-settle-v1.test.mjs";
 import "./ms-turso-stall-containment-v1.test.mjs";
 import "./ms-turso-critical-path-phase-v1.test.mjs";
+import "./ms-route-source-page-timing-v1.test.mjs";
 import { runInNewContext } from "node:vm";
 import {
   frontendHasIntegratedDevRuntime,
@@ -23,6 +24,15 @@ const workflow = await readFile(
   new URL(".github/workflows/deploy-worker-dev.yml", root),
   "utf8",
 );
+
+test("Route page observer stages after the final critical-path patch without changing DEV deployment gates", async () => {
+  const composer = await readFile(new URL(".github/dev-tools/stage-dev-runtime.mjs", root), "utf8");
+  const phase = composer.indexOf('patchMsCriticalPathWorker(patchMsTursoStallContainmentV1(');
+  const route = composer.indexOf('patchMsRouteSourcePageTimingWorker(await readFile(workerTarget, "utf8"))');
+  assert.ok(phase >= 0 && route > phase);
+  assert.match(composer, /patchMsRouteSourcePageTimingFrontend\(await readFile\(frontendTarget, "utf8"\)\)/);
+  assert.match(workflow, /MS_ROUTE_SOURCE_PAGE_TIMING_V1_FRONTEND/);
+});
 
 test("DEV staging preserves the integrated daily-history frontend and stays idempotent", () => {
   const first = stageFrontend(frontendSource);
@@ -261,9 +271,10 @@ test("DEV deploy uses the idempotent staging entrypoint and daily-history gate",
 test("DEV phase script URL, service worker and deployed-asset smoke share one delivery contract", async () => {
   const html = patchDevUiShellSource(await readFile(new URL("ms.html", root), "utf8"), "ms.html");
   const sw = await readFile(new URL("sw.js", root), "utf8");
-  const script = "ms.js?v=20261009-ms-turso-critical-path-phase-v1";
+  const script = "ms.js?v=20261009-ms-route-source-page-timing-v1";
   assert.ok(html.includes(`src="${script}"`));
   assert.doesNotMatch(html, /ms\.js\?v=20261003-pno-operational-truth-v1/);
+  assert.doesNotMatch(html, /ms\.js\?v=20261009-ms-turso-critical-path-phase-v1/);
   assert.match(html, /serviceWorker\.register\('sw\.js',\{updateViaCache:'none'\}\)/);
   assert.match(sw, /url\.searchParams\.set\("__fresh", VERSION\)/);
   assert.match(sw, /cache: "no-store"/);
@@ -271,6 +282,8 @@ test("DEV phase script URL, service worker and deployed-asset smoke share one de
   assert.match(workflow, /const msJs=await get\(msScript\)/);
   assert.match(workflow, /live MS phase snapshot exporter missing/);
   assert.match(workflow, /criticalPath: criticalPath\.snapshot\(\)/);
+  assert.match(workflow, /routeSourceTiming: currentMsRouteSourceTiming\(\)/);
+  assert.match(workflow, /MS_ROUTE_SOURCE_PAGE_TIMING_V1_FRONTEND/);
 });
 
 

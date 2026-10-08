@@ -11,14 +11,25 @@ import { createMsLateSettleTrace } from './patch-ms-turso-late-settle-v1.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-phase-'));
+// This suite isolates the phase observer from later DEV-only observers.
+const currentRoot = path.join(dir, 'current');
+fs.mkdirSync(currentRoot);
 // Offline baseline uses the SAME accepted patch stack, omitting only this new
 // final observer. No Git history/network dependency, no tracked input mutation.
 const baselineRoot = path.join(dir, 'baseline');
 fs.mkdirSync(baselineRoot);
-for (const name of ['.github/dev-tools', 'cloudflare-browser-test/scripts', 'worker/scripts', 'worker/src']) fs.cpSync(path.join(root, name), path.join(baselineRoot, name), { recursive: true });
+for (const name of ['.github/dev-tools', 'cloudflare-browser-test/scripts', 'worker/scripts', 'worker/src'])
+  for (const target of [currentRoot, baselineRoot]) fs.cpSync(path.join(root, name), path.join(target, name), { recursive: true });
 for (const file of fs.readdirSync(root).filter(file => /\.(html|css)$/.test(file) || file === 'ms.js')) {
-  fs.copyFileSync(path.join(root, file), path.join(dir, file));
-  fs.copyFileSync(path.join(root, file), path.join(baselineRoot, file));
+  for (const target of [currentRoot, baselineRoot]) fs.copyFileSync(path.join(root, file), path.join(target, file));
+}
+for (const target of [currentRoot, baselineRoot]) {
+  const pathToComposer = path.join(target, '.github/dev-tools/stage-dev-runtime.mjs');
+  let source = fs.readFileSync(pathToComposer, 'utf8');
+  source = source.replace(/import \{ patchMsRouteSourcePageTimingWorker, patchMsRouteSourcePageTimingFrontend \}[^\n]+\n/, '');
+  source = source.replace(/  \/\/ Observe the final DEV-only Route source path after the existing phase patch\.\n  await writeFile\(frontendTarget, patchMsRouteSourcePageTimingFrontend\(await readFile\(frontendTarget, "utf8"\)\), "utf8"\);\n  await writeFile\(workerTarget, patchMsRouteSourcePageTimingWorker\(await readFile\(workerTarget, "utf8"\)\), "utf8"\);\n/, '');
+  assert.doesNotMatch(source, /patchMsRouteSourcePageTiming/);
+  fs.writeFileSync(pathToComposer, source);
 }
 const composerPath = path.join(baselineRoot, '.github/dev-tools/stage-dev-runtime.mjs');
 let composer = fs.readFileSync(composerPath, 'utf8');
@@ -28,11 +39,10 @@ composer = composer.replace('patchMsCriticalPathAdapter(patchMsTursoStallAdapter
 composer = composer.replace('patchMsCriticalPathWorker(patchMsTursoStallContainmentV1(await readFile(workerTarget, "utf8")))', 'patchMsTursoStallContainmentV1(await readFile(workerTarget, "utf8"))');
 assert.doesNotMatch(composer, /patchMsCriticalPath/);
 fs.writeFileSync(composerPath, composer);
-fs.copyFileSync(path.join(root, 'worker/src/index.js'), path.join(dir, 'index.js'));
-fs.copyFileSync(path.join(root, 'worker/src/index.js'), path.join(baselineRoot, 'index.js'));
-for (const [script, target] of [[path.join(root, '.github/dev-tools/stage-dev-runtime.mjs'), dir], [composerPath, baselineRoot]])
+for (const target of [currentRoot, baselineRoot]) fs.copyFileSync(path.join(root, 'worker/src/index.js'), path.join(target, 'index.js'));
+for (const [script, target] of [[path.join(currentRoot, '.github/dev-tools/stage-dev-runtime.mjs'), currentRoot], [composerPath, baselineRoot]])
   execFileSync(process.execPath, [script, path.join(target, 'ms.js'), path.join(target, 'index.js')], { stdio: 'pipe' });
-const current = { worker: fs.readFileSync(path.join(dir, 'index.js'), 'utf8'), adapter: fs.readFileSync(path.join(dir, 'turso-d1.js'), 'utf8'), frontend: fs.readFileSync(path.join(dir, 'ms.js'), 'utf8') };
+const current = { worker: fs.readFileSync(path.join(currentRoot, 'index.js'), 'utf8'), adapter: fs.readFileSync(path.join(currentRoot, 'turso-d1.js'), 'utf8'), frontend: fs.readFileSync(path.join(currentRoot, 'ms.js'), 'utf8') };
 const baseline = { worker: fs.readFileSync(path.join(baselineRoot, 'index.js'), 'utf8'), adapter: fs.readFileSync(path.join(baselineRoot, 'turso-d1.js'), 'utf8'), frontend: fs.readFileSync(path.join(baselineRoot, 'ms.js'), 'utf8') };
 process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
 const flush = async () => { for (let i = 0; i < 100; i++) await Promise.resolve(); };
@@ -86,7 +96,7 @@ test('final staging order, full composition and patch idempotence', () => {
   assert.equal(patchMsCriticalPathWorker(current.worker), current.worker);
   assert.equal(patchMsCriticalPathAdapter(current.adapter), current.adapter);
   assert.equal(patchMsCriticalPathFrontend(current.frontend), current.frontend);
-  for (const name of ['index.js', 'turso-d1.js', 'ms.js']) execFileSync(process.execPath, ['--check', path.join(dir, name)]);
+  for (const name of ['index.js', 'turso-d1.js', 'ms.js']) execFileSync(process.execPath, ['--check', path.join(currentRoot, name)]);
   assert.ok(current.worker.indexOf('// MS_TURSO_CRITICAL_PATH_PHASE_V1_WORKER') > current.worker.indexOf('// MS_TURSO_STALL_CONTAINMENT_V1'));
   assert.match(current.worker, /const routeScoped = stage === "route_state_read" \|\| stage === "route_batch_write"/);
   assert.match(current.worker, /let remainingBudget = 2800;[\s\S]*let routePersistenceBudget = 60_000/);

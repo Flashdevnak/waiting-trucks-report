@@ -79,6 +79,10 @@ test('CLAIM write timeout stays tolerated with healthy accepted push',async()=>{
 function sourceHarness(){
  const h=harness();const stats={cache:0,sync:0,bootstrap:0,claim:0,wait:0,publish:0,finishSuccess:0,finishFailure:0};let cache=null,failSync=false,claim=true;
  Object.assign(h.ctx,{MS_LIVE_CACHE_VERSION:'completion-v2',sha:async value=>value,canonicalMsSource:rows=>rows[0].hash,
+  // This harness extracts only the accepted-cache block; its passive observer
+  // owner is intentionally absent while the original cache contract is tested.
+  routeTiming:null,routeHashStarted:null,msRouteTimingSafe:fn=>fn(),
+  msRouteTimingTrace:{hashEnd(){},match(){}},
   readMsLiveCache:async(env,branch,hash)=>{stats.cache++;return cache?{...cache,sourceMatch:cache.sourceHash===hash}:null;},
   acquireMsSyncClaim:async()=>{stats.claim++;return{acquired:claim};},finishMsSyncClaim:async(env,branch,owner,success)=>{stats[success?'finishSuccess':'finishFailure']++;},waitForMsSourceCache:async()=>{stats.wait++;return null;},
   syncMs:async({rows})=>{stats.sync++;if(failSync)throw new Error('mock sync failed');return{rows,syncedAt:'accepted',changes:1};},

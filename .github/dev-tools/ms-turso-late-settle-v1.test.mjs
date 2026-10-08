@@ -7,6 +7,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createMsTursoProducerTrace } from './patch-ms-turso-timeout-producer-v1.mjs';
 import { createMsLateSettleTrace, observeMsLateSettle, patchMsTursoLateSettleWorker, patchMsTursoLateSettleFrontend } from './patch-ms-turso-late-settle-v1.mjs';
+import { sanitizeMsRouteSourceTimingSnapshot } from './patch-ms-route-source-page-timing-v1.mjs';
 const root = path.resolve(import.meta.dirname, '../..');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-late-settle-'));
 for (const file of fs.readdirSync(root).filter(file => /\.(html|css)$/.test(file) || file === 'ms.js')) fs.copyFileSync(path.join(root, file), path.join(dir, file));
@@ -123,7 +124,7 @@ test('existing DEV diagnostic copy surface exposes late events safely without re
     document:{body:{append:node=>nodes.push(node)},getElementById:id=>nodes.find(n=>n.id===id),createElement:tag=>({tag,style:{},children:[],callbacks:{},append(...children){this.children.push(...children);},setAttribute(){},addEventListener(key,fn){this.callbacks[key]=fn;},querySelector(tag){return this.children.find(n=>n.tag===tag);},select(){}})},
     navigator:{clipboard:{writeText:async()=>{copies++;}}},handleRealtimeMessage:()=>7,applyLiveResult:()=>8,apiGet:async()=>{requests++;return {};},authUi:()=>9};
   const declaration = frontend.slice(frontend.indexOf('function msTursoProducerFrontend()'));
-  vm.createContext(ctx);vm.runInContext(createMsTursoProducerTrace.toString() + '\n' + createMsLateSettleTrace.toString() + '\n' + declaration.slice(0, declaration.indexOf('\n}') + 2) + '\nmsTursoProducerFrontend();',ctx);
+  vm.createContext(ctx);vm.runInContext(createMsTursoProducerTrace.toString() + '\n' + createMsLateSettleTrace.toString() + '\n' + sanitizeMsRouteSourceTimingSnapshot.toString() + '\n' + declaration.slice(0, declaration.indexOf('\n}') + 2) + '\nmsTursoProducerFrontend();',ctx);
   const trace=createMsLateSettleTrace();trace.record('LOCAL_DEADLINE_EXPIRED',{hub:'NE1',dbOperationId:4,producerSequence:8,refreshInstanceId:2,deadlineMs:2800,transaction:false});
   trace.correlate(2,8,true,'CURRENT_OPERATION_FAILURE','MAIN_REFRESH_COMPLETION');trace.record('LATE_SETTLE_SUCCESS',{hub:'NE1',dbOperationId:4,producerSequence:8,refreshInstanceId:2,lateAfterDeadlineMs:200,token:'SECRET'});
   const envelope={msTursoLateSettleTrace:{...trace.snapshot(),lifetime:'AVAILABLE'},msTursoTimeoutProducerTrace:{name:'MS_TURSO_TIMEOUT_PRODUCER_V1',events:[]}};

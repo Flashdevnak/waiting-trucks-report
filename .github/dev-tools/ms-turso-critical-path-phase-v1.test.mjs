@@ -231,7 +231,7 @@ test('refresh phases are at existing awaits; SQL/claim helpers and scheduling re
   for (const phase of ['SOURCE_ACQUISITION_COMPLETED', 'SOURCE_HASH_DECISION', 'CLAIM_DECISION', 'ROUTE_BATCH_WRITE_COMPLETED', 'AUDIT_STAGE_COMPLETED', 'LIVE_CACHE_STAGE_COMPLETED', 'CLAIM_FINISH_COMPLETED', 'STATUS_STAGE_COMPLETED']) assert.match(current.worker, new RegExp('msPhaseEnv\\(env, "' + phase + '"'));
   assert.doesNotMatch(current.adapter, /response\.text\(|getReader\(|\.clone\(/);
   assert.equal((current.adapter.match(/await /g) || []).length, (baseline.adapter.match(/await /g) || []).length);
-  assert.match(current.frontend, /criticalPath: criticalPath.snapshot\(\)/);
+  assert.match(current.frontend, /criticalPath: criticalPath\.snapshot\(\)/);
   assert.match(current.frontend, /if \(event.hub === state.branch\)/);
 });
 
@@ -273,11 +273,13 @@ test('actual refresh/sync paths record only executed source, claim, route, audit
   for (const phase of ['CLAIM_DECISION', 'ROUTE_BATCH_WRITE_COMPLETED', 'AUDIT_STAGE_COMPLETED', 'LIVE_CACHE_STAGE_COMPLETED', 'CLAIM_FINISH_COMPLETED']) assert.ok(!warmEvents.some(event => event.phase === phase), phase + ' did not execute');
 });
 
+const phaseSnapshotCountPattern = /criticalPath: criticalPath\.snapshot\(\)/g;
+
 test('existing in-band diagnostic copy sanitizes HUBs and preserves Worker-relative times; non-DEV is inert', () => {
   const suffix = current.frontend.slice(current.frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'), current.frontend.indexOf('// MS_TURSO_LATE_SETTLE_V1_FRONTEND')) + '\n' + createMsLateSettleTrace.toString() + '\n' + createMsCriticalPathPhaseTrace.toString();
   assert.equal((current.frontend.match(/globalThis\.msTursoTimeoutProducerV1 = snapshot/g) || []).length, 1);
   assert.equal((current.frontend.match(/msTursoProducerFrontend\(\);/g) || []).length, 1);
-  assert.equal((current.frontend.match(/criticalPath: criticalPath\.snapshot\(\)/g) || []).length, 1);
+  assert.equal((current.frontend.match(phaseSnapshotCountPattern) || []).length, 1);
   for (const hostname of ['waiting-trucks-report-api-dev.26nak-testdev.workers.dev', 'production.invalid']) {
     let originalCalls = 0;
     const ctx = { location: { hostname }, performance: { now: () => 999999 }, state: { branch: 'NE1', auth: true }, document: {},
@@ -307,3 +309,352 @@ test('existing in-band diagnostic copy sanitizes HUBs and preserves Worker-relat
     }
   }
 });
+
+// Retained Route reads are tested with a synthetic clock. They do not submit
+// physical requests; transport parity is also exercised by the harness above.
+function routeFixture() {
+  let now = 0;
+  const trace = createMsCriticalPathPhaseTrace(() => now, 773);
+  const emit = (phase, offset, overrides = {}) => {
+    now = offset;
+    return trace.record(phase, { hub: 'NE1', operationClass: 'ROUTE_STATE_READ', readOrWrite: 'READ',
+      refreshInstanceId: 23, dbOperationId: 47, pipelineSequence: 3, attempt: 1,
+      deadlineMs: 2800, physicalAttemptElapsedMs: offset, ...overrides });
+  };
+  return { trace, emit, snapshot: () => trace.snapshot().routeReadSummaries };
+}
+
+test('retained normal Route read preserves each relative phase and a complete success', () => {
+  const f = routeFixture();
+  f.emit('PIPELINE_SUBMITTED', 10, { submitted: true }); f.emit('FETCH_STARTED', 12);
+  f.emit('RESPONSE_HEADERS_RECEIVED', 112, { httpStatus: 200 }); f.emit('RESPONSE_PARSED', 130);
+  f.emit('PIPELINE_SETTLED_SUCCESS', 135, { outcome: 'SUCCESS' });
+  const [r] = f.snapshot();
+  assert.equal(f.snapshot().length, 1); assert.equal(r.runtimeInstanceId, 773);
+  assert.deepEqual([r.submittedAtMs, r.fetchStartedAtMs, r.headersAtMs, r.parsedAtMs, r.settledAtMs], [10, 12, 112, 130, 135]);
+  assert.deepEqual([r.fetchToHeadersMs, r.headersToParsedMs, r.deadlineMs], [100, 18, 2800]);
+  assert.equal(r.completeness, 'COMPLETE'); assert.equal(r.outcome, 'SUCCESS'); assert.equal(r.submitted, true);
+  assert.equal(f.trace.snapshot().events.length, 5);
+});
+
+test('deadline before headers retains local timeout and abort without remote inference', () => {
+  const f = routeFixture(); f.emit('PIPELINE_SUBMITTED', 1); f.emit('FETCH_STARTED', 2);
+  f.emit('LOCAL_DEADLINE_EXPIRED', 2800, { timedOut: true }); f.emit('LOCAL_ABORT_REQUESTED', 2800);
+  const [r] = f.snapshot();
+  assert.equal(r.outcome, 'LOCAL_DEADLINE_EXPIRED'); assert.equal(r.completeness, 'PARTIAL');
+  assert.equal(r.headersAtMs, null); assert.equal(r.parsedAtMs, null); assert.equal(r.transportOutcome, 'UNKNOWN');
+  assert.equal(r.abortRequested, true); assert.equal(r.lateSettlement, 'NONE');
+});
+
+test('headers before timeout are observed while absent parse stays absent', () => {
+  const f = routeFixture(); f.emit('PIPELINE_SUBMITTED', 1); f.emit('FETCH_STARTED', 2);
+  f.emit('RESPONSE_HEADERS_RECEIVED', 50); f.emit('LOCAL_DEADLINE_EXPIRED', 2800);
+  const [r] = f.snapshot();
+  assert.equal(r.headersAtMs, 50); assert.equal(r.fetchToHeadersMs, 48);
+  assert.equal(r.parsedAtMs, null); assert.equal(r.headersToParsedMs, null);
+  assert.equal(r.outcome, 'LOCAL_DEADLINE_EXPIRED');
+});
+
+test('late settlement is a separate observation and cannot erase the timeout', () => {
+  const f = routeFixture(); f.emit('PIPELINE_SUBMITTED', 1); f.emit('FETCH_STARTED', 2);
+  f.emit('LOCAL_DEADLINE_EXPIRED', 2800); f.emit('LOCAL_ABORT_REQUESTED', 2800);
+  f.emit('LATE_SETTLE_SUCCESS', 3100, { lateSettleElapsedMs: 3099, lateAfterDeadlineMs: 300 }); const [r] = f.snapshot();
+  assert.equal(r.outcome, 'LOCAL_DEADLINE_EXPIRED'); assert.equal(r.lateSettlement, 'SUCCESS');
+  assert.equal(r.lateSettledAtMs, 3100); assert.equal(r.transportOutcome, 'UNKNOWN');
+  assert.equal(r.lateSettleElapsedMs, 3099); assert.equal(r.lateAfterDeadlineMs, 300);
+  assert.equal(JSON.stringify(r).includes('COMMIT_ACKNOWLEDGED'), false);
+});
+
+test('independent Route summary survives eviction of more than 64 ordinary raw events', () => {
+  const f = routeFixture(); f.emit('PIPELINE_SUBMITTED', 1); f.emit('FETCH_STARTED', 2);
+  f.emit('LOCAL_DEADLINE_EXPIRED', 2800);
+  for (let i = 0; i < 80; i++) f.emit('FETCH_STARTED', 2801 + i, { operationClass: 'OTHER_LIVE_DB', dbOperationId: 100 + i });
+  assert.equal(f.trace.snapshot().events.length, 64);
+  assert.equal(f.trace.snapshot().events.some(e => e.dbOperationId === 47), false);
+  assert.equal(f.snapshot().length, 1); assert.equal(f.snapshot()[0].outcome, 'LOCAL_DEADLINE_EXPIRED');
+});
+
+test('late event for an evicted Route read cannot displace newer retained reads', () => {
+  const f = routeFixture();
+  for (let id = 0; id < 17; id++) f.emit('PIPELINE_SUBMITTED', id, { dbOperationId: id });
+  f.emit('LATE_SETTLE_SUCCESS', 99, { dbOperationId: 0 });
+  assert.deepEqual(f.snapshot().map(r => r.dbOperationId), Array.from({ length: 16 }, (_, i) => i + 1));
+});
+
+test('overlapping operations and separate attempts never mix timings or outcomes', () => {
+  const f = routeFixture();
+  f.emit('PIPELINE_SUBMITTED', 1, { activePipelines: 1 });
+  f.emit('PIPELINE_SUBMITTED', 3, { dbOperationId: 48, activePipelines: 2, overlap: true });
+  f.emit('FETCH_STARTED', 5, { dbOperationId: 48, activePipelines: 2, overlap: true });
+  f.emit('LOCAL_DEADLINE_EXPIRED', 9, { dbOperationId: 47 });
+  f.emit('PIPELINE_SETTLED_ERROR', 10, { dbOperationId: 48, errorCategory: 'NETWORK' });
+  f.emit('PIPELINE_SUBMITTED', 11, { dbOperationId: 48, attempt: 2, overlap: true });
+  const [a, b, retry] = f.snapshot();
+  assert.deepEqual([a.dbOperationId, b.dbOperationId, retry.dbOperationId], [47, 48, 48]);
+  assert.deepEqual([a.outcome, b.outcome, retry.outcome], ['LOCAL_DEADLINE_EXPIRED', 'ERROR', 'UNKNOWN']);
+  assert.equal(a.overlap, false); assert.equal(b.overlap, true); assert.equal(retry.attempt, 2);
+  assert.equal(a.fetchStartedAtMs, null); assert.equal(b.fetchStartedAtMs, 5);
+});
+
+test('eight HUB buckets with sixteen reads each evict deterministically and filter snapshot by HUB', () => {
+  const f = routeFixture();
+  for (let i = 0; i < 19; i++) f.emit('PIPELINE_SUBMITTED', i, { dbOperationId: i });
+  assert.equal(f.snapshot().length, 16); assert.deepEqual(f.snapshot().map(x => x.dbOperationId), Array.from({ length: 16 }, (_, i) => i + 3));
+  for (let hub = 1; hub <= 8; hub++) f.emit('PIPELINE_SUBMITTED', 20 + hub, { hub: `H${hub}`, dbOperationId: hub });
+  const all = f.trace.snapshot().routeReadSummaries;
+  assert.equal(f.trace.snapshot().maxRouteReadHubs, 8); assert.equal(f.trace.snapshot().maxRouteReadsPerHub, 16);
+  assert.equal(all.some(x => x.hub === 'NE1'), false); assert.equal(all.length, 8);
+  const h2 = all.filter(x => x.hub === 'H2'); assert.equal(h2.length, 1); assert.equal(h2[0].dbOperationId, 2);
+});
+
+test('missing, out-of-order and SQL-error phases cannot be a complete success', () => {
+  const f = routeFixture();
+  f.emit('RESPONSE_PARSED', 3); f.emit('RESPONSE_HEADERS_RECEIVED', 4);
+  f.emit('PIPELINE_SETTLED_SUCCESS', 5, { outcome: 'SUCCESS' });
+  let r = f.snapshot()[0]; assert.equal(r.completeness, 'PARTIAL'); assert.equal(r.outcome, 'UNKNOWN');
+  assert.equal(r.headersToParsedMs, null); assert.equal(r.fetchToHeadersMs, null);
+  f.emit('PIPELINE_SUBMITTED', 6, { dbOperationId: 48 }); f.emit('FETCH_STARTED', 7, { dbOperationId: 48 });
+  f.emit('RESPONSE_HEADERS_RECEIVED', 8, { dbOperationId: 48 }); f.emit('RESPONSE_PARSED', 9, { dbOperationId: 48 });
+  f.emit('PIPELINE_SETTLED_SUCCESS', 10, { dbOperationId: 48, outcome: 'ERROR' });
+  r = f.snapshot()[1]; assert.equal(r.transportOutcome, 'ERROR'); assert.equal(r.outcome, 'ERROR');
+});
+
+test('closed projection drops injected secrets and rejects cross-HUB, cross-runtime or malformed summaries', () => {
+  const f = routeFixture(); f.emit('PIPELINE_SUBMITTED', 1, { sql: 'PRIVATE_SQL', token: 'PRIVATE_TOKEN', proofId: 'PRIVATE_PROOF', customer: 'PRIVATE_CUSTOMER' });
+  const input = f.snapshot()[0]; const browser = createMsCriticalPathPhaseTrace(() => 0, 773);
+  browser.acceptSummaries([{ ...input, sql: 'PRIVATE_SQL', proofId: 'PRIVATE_PROOF', token: 'PRIVATE_TOKEN', customer: 'PRIVATE_CUSTOMER' },
+    { ...input, hub: 'SW1', dbOperationId: 99 }, { ...input, runtimeInstanceId: 774, dbOperationId: 100 },
+    { ...input, dbOperationId: -1 }], 'NE1', 773);
+  assert.equal(browser.snapshot().routeReadSummaries.length, 1);
+  assert.doesNotMatch(JSON.stringify(browser.snapshot()), /PRIVATE_|"proofId"|"customer"|"token"|"sql"/i);
+  const invalid = createMsCriticalPathPhaseTrace(() => 0, 773);
+  invalid.acceptSummaries([{ ...input, outcome: 'SUCCESS' }], 'NE1', 773);
+  assert.equal(invalid.snapshot().routeReadSummaries[0].outcome, 'UNKNOWN');
+  const contradictory = createMsCriticalPathPhaseTrace(() => 0, 773);
+  contradictory.acceptSummaries([{ ...input, submittedAtMs: 10, fetchStartedAtMs: 12, headersAtMs: 30,
+    parsedAtMs: 20, settledAtMs: 40, completeness: 'COMPLETE', transportOutcome: 'SUCCESS', outcome: 'SUCCESS',
+    headersToParsedMs: 100 }], 'NE1', 773);
+  assert.equal(contradictory.snapshot().routeReadSummaries[0].completeness, 'PARTIAL');
+  assert.equal(contradictory.snapshot().routeReadSummaries[0].outcome, 'UNKNOWN');
+  assert.equal(contradictory.snapshot().routeReadSummaries[0].headersToParsedMs, null);
+});
+
+test('diagnostic observer failure cannot replace a successful physical operation', async () => {
+  const h = harness(); h.behavior(() => 'fast');
+  vm.runInContext('msPhaseTrace.record = () => { throw new Error("PRIVATE_DIAGNOSTIC"); }', h.ctx);
+  const result = await h.run(db => db._pipeline(requests('SELECT * FROM ms_routes')));
+  assert.equal(result.status, 'synced'); assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0].signal.aborted, false); assert.deepEqual(h.deadlines, [2800]);
+});
+
+test('staged Worker summary export, latest frontend snapshot and non-DEV guard remain isolated', () => {
+  assert.match(current.worker, /routeReadSummaries: trace\.routeReadSummaries\.filter\(entry => entry\.hub === hub\)/);
+  assert.match(current.frontend, /next\.acceptSummaries\(summaries, state\.branch, runtime\)/);
+  assert.equal((current.frontend.match(/globalThis\.msTursoTimeoutProducerV1 = snapshot/g) || []).length, 1);
+  assert.match(current.frontend, /pollMs:\s*4000/);
+  assert.match(current.frontend, /location\.hostname !== 'waiting-trucks-report-api-dev\.26nak-testdev\.workers\.dev'/);
+});
+
+test('actual in-band frontend retains Worker summary after raw-ring eviction and unrelated payloads, then clears on HUB and runtime change', () => {
+  const f = routeFixture(); f.emit('PIPELINE_SUBMITTED', 10); f.emit('FETCH_STARTED', 12);
+  f.emit('LOCAL_DEADLINE_EXPIRED', 2800);
+  for (let i = 0; i < 80; i++) f.emit('FETCH_STARTED', 2801 + i, { operationClass: 'OTHER_LIVE_DB', dbOperationId: i + 100 });
+  const suffix = current.frontend.slice(current.frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'), current.frontend.indexOf('// MS_TURSO_LATE_SETTLE_V1_FRONTEND')) + '\n' + createMsLateSettleTrace.toString() + '\n' + createMsCriticalPathPhaseTrace.toString();
+  const ctx = { location: { hostname: 'waiting-trucks-report-api-dev.26nak-testdev.workers.dev' },
+    performance: { now: () => 10_000 }, state: { branch: 'NE1', auth: true }, document: {},
+    handleRealtimeMessage() {}, applyLiveResult() {}, apiGet: async () => ({}), authUi() {} };
+  vm.createContext(ctx); vm.runInContext(suffix, ctx);
+  const send = value => ctx.handleRealtimeMessage(JSON.stringify(value));
+  send({ msTursoCriticalPathPhaseTrace: f.trace.snapshot() });
+  const read = () => JSON.parse(JSON.stringify(ctx.msTursoTimeoutProducerV1().criticalPath));
+  assert.equal(read().routeReadSummaries.length, 1); assert.equal(read().routeReadSummaries[0].outcome, 'LOCAL_DEADLINE_EXPIRED');
+  assert.equal(read().events.some(e => e.dbOperationId === 47), false);
+  send({ status: 'synced' });
+  assert.equal(read().routeReadSummaries.length, 1);
+  send({ msTursoCriticalPathPhaseTrace: { name: 'MALFORMED', events: [] } });
+  assert.equal(read().routeReadSummaries.length, 1);
+  ctx.state.branch = 'SW1'; assert.equal(read().routeReadSummaries.length, 0);
+  ctx.state.branch = 'NE1'; assert.equal(read().routeReadSummaries.length, 0);
+  send({ msTursoCriticalPathPhaseTrace: f.trace.snapshot() }); assert.equal(read().routeReadSummaries.length, 1);
+  send({ msTursoCriticalPathPhaseTrace: { ...f.trace.snapshot(), runtimeInstanceId: 774, routeReadSummaries: [] } });
+  assert.equal(read().runtimeInstanceId, 774); assert.equal(read().routeReadSummaries.length, 0);
+});
+
+function frontendSummaryFixture() {
+  const suffix = current.frontend.slice(current.frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'), current.frontend.indexOf('// MS_TURSO_LATE_SETTLE_V1_FRONTEND')) + '\n' + createMsLateSettleTrace.toString() + '\n' + createMsCriticalPathPhaseTrace.toString();
+  const ctx = { location: { hostname: 'waiting-trucks-report-api-dev.26nak-testdev.workers.dev' },
+    performance: { now: () => 10_000 }, state: { branch: 'NE1', auth: true }, document: {},
+    handleRealtimeMessage() {}, applyLiveResult() {}, apiGet: async () => ({}), authUi() {} };
+  vm.createContext(ctx); vm.runInContext(suffix, ctx);
+  return { ctx, send: value => ctx.handleRealtimeMessage(JSON.stringify(value)),
+    read: () => JSON.parse(JSON.stringify(ctx.msTursoTimeoutProducerV1().criticalPath)) };
+}
+
+test('reproduces stale same-runtime snapshot dropping the second retained Route Read', () => {
+  const f = routeFixture(); const ui = frontendSummaryFixture();
+  f.emit('PIPELINE_SUBMITTED', 1); const older = f.trace.snapshot();
+  f.emit('PIPELINE_SUBMITTED', 2, { dbOperationId: 48 }); const newer = f.trace.snapshot();
+  ui.send({ msTursoCriticalPathPhaseTrace: newer });
+  assert.equal(ui.read().routeReadSummaries.length, 2);
+  ui.send({ msTursoCriticalPathPhaseTrace: older });
+  assert.equal(ui.read().routeReadSummaries.length, 2);
+});
+
+test('reproduces missing or malformed summaries erasing accepted evidence', () => {
+  const f = routeFixture(); const ui = frontendSummaryFixture();
+  f.emit('PIPELINE_SUBMITTED', 1); ui.send({ msTursoCriticalPathPhaseTrace: f.trace.snapshot() });
+  f.emit('FETCH_STARTED', 2, { operationClass: 'OTHER_LIVE_DB' });
+  const noSummaries = { ...f.trace.snapshot() }; delete noSummaries.routeReadSummaries;
+  ui.send({ msTursoCriticalPathPhaseTrace: noSummaries });
+  assert.equal(ui.read().routeReadSummaries.length, 1);
+  f.emit('FETCH_STARTED', 3, { operationClass: 'OTHER_LIVE_DB' });
+  ui.send({ msTursoCriticalPathPhaseTrace: { ...f.trace.snapshot(), routeReadSummaries: {} } });
+  assert.equal(ui.read().routeReadSummaries.length, 1);
+});
+
+test('newer snapshot advances once; duplicate, older, and explicit same-runtime empty cannot erase it', () => {
+  const f = routeFixture(), ui = frontendSummaryFixture();
+  f.emit('PIPELINE_SUBMITTED', 1); const first = f.trace.snapshot();
+  ui.send({ msTursoCriticalPathPhaseTrace: first });
+  f.emit('PIPELINE_SUBMITTED', 2, { dbOperationId: 48 }); const second = f.trace.snapshot();
+  ui.send({ msTursoCriticalPathPhaseTrace: second });
+  assert.deepEqual(ui.read().routeReadSummaries.map(x => x.dbOperationId), [47, 48]);
+  ui.send({ msTursoCriticalPathPhaseTrace: second });
+  ui.send({ msTursoCriticalPathPhaseTrace: first });
+  assert.deepEqual(ui.read().routeReadSummaries.map(x => x.dbOperationId), [47, 48]);
+  f.emit('FETCH_STARTED', 3, { operationClass: 'OTHER_LIVE_DB' });
+  ui.send({ msTursoCriticalPathPhaseTrace: { ...f.trace.snapshot(), routeReadSummaries: [] } });
+  assert.deepEqual(ui.read().routeReadSummaries.map(x => x.dbOperationId), [47, 48]);
+  assert.equal(ui.read().snapshotSequence, 3);
+});
+
+test('known new runtime clears old summaries; delayed prior runtime and unknown identity cannot merge or erase', () => {
+  const f = routeFixture(), ui = frontendSummaryFixture();
+  f.emit('PIPELINE_SUBMITTED', 1); const old = f.trace.snapshot();
+  ui.send({ msTursoCriticalPathPhaseTrace: old });
+  ui.send({ msTursoCriticalPathPhaseTrace: { ...old, runtimeInstanceId: 774, routeReadSummaries: [], snapshotSequence: 0 } });
+  assert.equal(ui.read().runtimeInstanceId, 774);
+  assert.equal(ui.read().routeReadSummaries.length, 0);
+  ui.send({ msTursoCriticalPathPhaseTrace: old });
+  ui.send({ msTursoCriticalPathPhaseTrace: { ...old, runtimeInstanceId: null, snapshotSequence: 100 } });
+  assert.equal(ui.read().runtimeInstanceId, 774);
+  assert.equal(ui.read().routeReadSummaries.length, 0);
+  assert.equal(ui.read().snapshotSequence, 0);
+});
+
+test('unknown runtime does not fabricate summary generation or leak a different HUB', () => {
+  const f = routeFixture(), ui = frontendSummaryFixture();
+  f.emit('PIPELINE_SUBMITTED', 1); const old = f.trace.snapshot();
+  ui.send({ msTursoCriticalPathPhaseTrace: { ...old, runtimeInstanceId: null } });
+  assert.equal(ui.read().routeReadSummaries.length, 0);
+  f.emit('FETCH_STARTED', 2, { operationClass: 'OTHER_LIVE_DB' });
+  ui.send({ msTursoCriticalPathPhaseTrace: { ...f.trace.snapshot(), runtimeInstanceId: null } });
+  assert.equal(ui.read().snapshotSequence, 1, 'unknown origin cannot order another unknown origin');
+  ui.send({ msTursoCriticalPathPhaseTrace: old });
+  assert.equal(ui.read().routeReadSummaries.length, 1);
+  ui.ctx.state.branch = 'SW1'; assert.equal(ui.read().routeReadSummaries.length, 0);
+  ui.send({ msTursoCriticalPathPhaseTrace: old });
+  assert.equal(ui.read().routeReadSummaries.length, 0);
+  ui.ctx.state.branch = 'NE1'; assert.equal(ui.read().routeReadSummaries.length, 0);
+});
+
+test('valid newer partial envelope retains old Route Read while refreshing raw phase events', () => {
+  const f = routeFixture(), ui = frontendSummaryFixture();
+  f.emit('PIPELINE_SUBMITTED', 1); ui.send({ msTursoCriticalPathPhaseTrace: f.trace.snapshot() });
+  f.emit('FETCH_STARTED', 2, { operationClass: 'OTHER_LIVE_DB' });
+  const partial = f.trace.snapshot(); delete partial.routeReadSummaries;
+  ui.send({ msTursoCriticalPathPhaseTrace: partial });
+  assert.equal(ui.read().routeReadSummaries.length, 1);
+  assert.equal(ui.read().snapshotSequence, 2);
+  assert.equal(ui.read().events.length, 2);
+  f.emit('FETCH_STARTED', 3, { operationClass: 'OTHER_LIVE_DB' });
+  ui.send({ msTursoCriticalPathPhaseTrace: { ...f.trace.snapshot(), routeReadSummaries: [{ hub: 'NE1', runtimeInstanceId: 773 }] } });
+  assert.equal(ui.read().routeReadSummaries.length, 1);
+});
+
+function populatedHubFixture() {
+  let tick = 0;
+  const trace = createMsCriticalPathPhaseTrace(() => ++tick, 773);
+  const emit = (hub, phase, extra = {}) => trace.record(phase, { hub, operationClass: 'ROUTE_STATE_READ',
+    readOrWrite: 'READ', refreshInstanceId: 23, dbOperationId: 47, pipelineSequence: 3, attempt: 1, ...extra });
+  for (let i = 1; i <= 8; i++) emit(`H${i}`, 'PIPELINE_SUBMITTED');
+  return { trace, emit };
+}
+
+test('unmatched ninth-HUB late event cannot evict eight populated Route Read buckets', () => {
+  const { trace, emit } = populatedHubFixture();
+  const before = trace.snapshot().routeReadSummaries;
+  assert.equal(before.length, 8);
+  emit('H9', 'LATE_SETTLE_ERROR');
+  const after = trace.snapshot();
+  assert.deepEqual(after.routeReadSummaries, before);
+  assert.equal(after.maxRouteReadHubs, 8);
+});
+
+test('both unmatched late outcomes leave all eight populated HUB buckets intact', () => {
+  for (const phase of ['LATE_SETTLE_SUCCESS', 'LATE_SETTLE_ERROR']) {
+    const { trace, emit } = populatedHubFixture();
+    const before = trace.snapshot().routeReadSummaries;
+    emit('H9', phase);
+    assert.deepEqual(trace.snapshot().routeReadSummaries, before, phase);
+    assert.equal(trace.snapshot().events.at(-1).phase, phase, 'ordinary phase observation remains');
+  }
+});
+
+test('matching late event updates only its retained physical attempt without fabricating remote outcome', () => {
+  const { trace, emit } = populatedHubFixture();
+  emit('H3', 'LOCAL_DEADLINE_EXPIRED'); emit('H3', 'LOCAL_ABORT_REQUESTED');
+  const before = trace.snapshot().routeReadSummaries;
+  emit('H3', 'LATE_SETTLE_ERROR');
+  const after = trace.snapshot().routeReadSummaries;
+  assert.equal(after.length, 8);
+  assert.equal(after.find(x => x.hub === 'H3').lateSettlement, 'ERROR');
+  assert.equal(after.find(x => x.hub === 'H3').outcome, 'LOCAL_DEADLINE_EXPIRED');
+  assert.deepEqual(after.filter(x => x.hub !== 'H3'), before.filter(x => x.hub !== 'H3'));
+});
+
+test('same-HUB wrong operation or physical attempt cannot update a retained summary', () => {
+  const { trace, emit } = populatedHubFixture();
+  const before = trace.snapshot().routeReadSummaries;
+  emit('H3', 'LATE_SETTLE_ERROR', { dbOperationId: 48 });
+  emit('H3', 'LATE_SETTLE_SUCCESS', { attempt: 2 });
+  assert.deepEqual(trace.snapshot().routeReadSummaries, before);
+});
+
+test('a valid ninth-HUB Route Read still evicts the oldest HUB deterministically', () => {
+  const { trace, emit } = populatedHubFixture();
+  emit('H9', 'PIPELINE_SUBMITTED');
+  const rows = trace.snapshot().routeReadSummaries;
+  assert.equal(rows.length, 8);
+  assert.deepEqual(rows.map(x => x.hub), ['H2', 'H3', 'H4', 'H5', 'H6', 'H7', 'H8', 'H9']);
+});
+
+test('incomplete late metadata neither guesses a match nor allocates a HUB bucket', () => {
+  const { trace, emit } = populatedHubFixture();
+  const before = trace.snapshot().routeReadSummaries;
+  for (const extra of [{ dbOperationId: -1 }, { pipelineSequence: undefined }, { attempt: undefined }])
+    emit('H9', 'LATE_SETTLE_ERROR', extra);
+  assert.deepEqual(trace.snapshot().routeReadSummaries, before);
+});
+
+test('late observations cannot displace summaries after raw ring eviction', () => {
+  const { trace, emit } = populatedHubFixture();
+  for (let i = 0; i < 80; i++) emit('H8', 'FETCH_STARTED', { operationClass: 'OTHER_LIVE_DB', dbOperationId: 100 + i });
+  const before = trace.snapshot().routeReadSummaries;
+  assert.equal(trace.snapshot().events.length, 64);
+  emit('H9', 'LATE_SETTLE_ERROR');
+  assert.deepEqual(trace.snapshot().routeReadSummaries, before);
+});
+
+test('the two frontend snapshot assertions require a literal dot', () => {
+  assert.equal((current.frontend.match(phaseSnapshotCountPattern) || []).length, 1);
+  assert.equal(('criticalPath: criticalPath.snapshot()'.match(phaseSnapshotCountPattern) || []).length, 1);
+  for (const replacement of ['X', '-', ' ', '0'])
+    assert.equal((`criticalPath: criticalPath${replacement}snapshot()`.match(phaseSnapshotCountPattern) || []).length, 0);
+  assert.equal((ctxSnapshotFunctionSource().match(phaseSnapshotCountPattern) || []).length, 1);
+});
+
+function ctxSnapshotFunctionSource() {
+  const { ctx } = frontendSummaryFixture();
+  return ctx.msTursoTimeoutProducerV1.toString();
+}

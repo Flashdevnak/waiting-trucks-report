@@ -1,6 +1,9 @@
 // Final DEV-only observer. Never consumes a response or starts asynchronous work.
-export function createMsCriticalPathPhaseTrace(clock = () => 0) {
+export function createMsCriticalPathPhaseTrace(clock = () => 0, runtimeInstanceId = null) {
   const events = [], refreshEvents = [], starts = new Map();
+  // Separate from the 64-event rings. Per-isolate memory only, no storage.
+  const routeHubs = new Map(), maxRouteHubs = 8, maxRouteReadsPerHub = 16;
+  const runtime = Number.isSafeInteger(runtimeInstanceId) && runtimeInstanceId >= 0 ? runtimeInstanceId : null;
   let sequence = 0;
   const origin = clock();
   const phases = new Set(('REFRESH_STARTED SOURCE_ACQUISITION_COMPLETED SOURCE_HASH_DECISION CLAIM_DECISION ROUTE_STATE_READ_COMPLETED ROUTE_BATCH_WRITE_COMPLETED AUDIT_STAGE_COMPLETED LIVE_CACHE_STAGE_COMPLETED CLAIM_FINISH_COMPLETED STATUS_STAGE_COMPLETED REFRESH_RESULT_ACCEPTED PUSH_PUBLISHED PIPELINE_SUBMITTED FETCH_STARTED RESPONSE_HEADERS_RECEIVED RESPONSE_PARSED PIPELINE_SETTLED_SUCCESS PIPELINE_SETTLED_ERROR LOCAL_DEADLINE_EXPIRED LOCAL_ABORT_REQUESTED LATE_SETTLE_SUCCESS LATE_SETTLE_ERROR BEGIN_SUBMITTED BEGIN_ACKNOWLEDGED STATEMENTS_SUBMITTED STATEMENTS_ACKNOWLEDGED COMMIT_SUBMITTED COMMIT_ACKNOWLEDGED ROLLBACK_SUBMITTED ROLLBACK_ACKNOWLEDGED TRANSACTION_OUTCOME_UNKNOWN DB_ACCOUNTING').split(' '));
@@ -16,7 +19,103 @@ export function createMsCriticalPathPhaseTrace(clock = () => 0) {
     errorCategory: 'ABORT NETWORK HTTP PROTOCOL CODED UNKNOWN',
   };
   const numbers = 'refreshInstanceId dbOperationId pipelineSequence attempt deadlineMs operationElapsedMs physicalAttemptElapsedMs cumulativeDbElapsedMs dbSpanElapsedMs activePipelines statementCount requestCount httpStatus lateAfterDeadlineMs lateSettleElapsedMs'.split(' ');
-  function record(phase, input = {}) {
+  const routePhases = new Set(('PIPELINE_SUBMITTED FETCH_STARTED RESPONSE_HEADERS_RECEIVED RESPONSE_PARSED PIPELINE_SETTLED_SUCCESS PIPELINE_SETTLED_ERROR LOCAL_DEADLINE_EXPIRED LOCAL_ABORT_REQUESTED LATE_SETTLE_SUCCESS LATE_SETTLE_ERROR DB_ACCOUNTING').split(' '));
+  const routeTimes = { PIPELINE_SUBMITTED: 'submittedAtMs', FETCH_STARTED: 'fetchStartedAtMs', RESPONSE_HEADERS_RECEIVED: 'headersAtMs', RESPONSE_PARSED: 'parsedAtMs', PIPELINE_SETTLED_SUCCESS: 'settledAtMs', PIPELINE_SETTLED_ERROR: 'settledAtMs', LOCAL_DEADLINE_EXPIRED: 'deadlineAtMs', LOCAL_ABORT_REQUESTED: 'abortAtMs', LATE_SETTLE_SUCCESS: 'lateSettledAtMs', LATE_SETTLE_ERROR: 'lateSettledAtMs' };
+  function retainRouteRead(event) {
+    if (event.operationClass !== 'ROUTE_STATE_READ' || !routePhases.has(event.phase) || !event.hub ||
+        !['refreshInstanceId', 'dbOperationId', 'pipelineSequence', 'attempt'].every(key => Number.isSafeInteger(event[key]) && event[key] >= 0)) return;
+    let bucket = routeHubs.get(event.hub);
+    // A late observation can only update an already retained physical attempt.
+    // Reject it before a ninth HUB can evict a populated bucket.
+    if ((event.phase === 'LATE_SETTLE_SUCCESS' || event.phase === 'LATE_SETTLE_ERROR') &&
+        !bucket?.some(item => item.refreshInstanceId === event.refreshInstanceId && item.dbOperationId === event.dbOperationId &&
+          item.pipelineSequence === event.pipelineSequence && item.attempt === event.attempt)) return;
+    if (!bucket) {
+      if (routeHubs.size === maxRouteHubs) routeHubs.delete(routeHubs.keys().next().value);
+      bucket = []; routeHubs.set(event.hub, bucket);
+    }
+    let entry = bucket.find(item => item.refreshInstanceId === event.refreshInstanceId && item.dbOperationId === event.dbOperationId &&
+      item.pipelineSequence === event.pipelineSequence && item.attempt === event.attempt);
+    if (!entry) {
+      // A late observation cannot resurrect an already evicted operation and
+      // displace one of the sixteen more recent reads.
+      if (event.phase === 'LATE_SETTLE_SUCCESS' || event.phase === 'LATE_SETTLE_ERROR') return;
+      entry = { runtimeInstanceId: runtime, hub: event.hub, operationClass: 'ROUTE_STATE_READ', readOrWrite: event.readOrWrite || 'OTHER',
+        refreshInstanceId: event.refreshInstanceId, dbOperationId: event.dbOperationId, pipelineSequence: event.pipelineSequence, attempt: event.attempt,
+        deadlineMs: event.deadlineMs ?? null, submitted: null, firstObservedPhase: event.phase, lastObservedPhase: event.phase,
+        submittedAtMs: null, fetchStartedAtMs: null, headersAtMs: null, parsedAtMs: null, settledAtMs: null,
+        deadlineAtMs: null, abortAtMs: null, lateSettledAtMs: null, fetchToHeadersMs: null, headersToParsedMs: null,
+        physicalElapsedMs: null, lateSettleElapsedMs: null, lateAfterDeadlineMs: null,
+        activePipelines: null, overlap: false, localDeadlineExpired: false, abortRequested: false,
+        transportOutcome: 'UNKNOWN', lateSettlement: 'NONE', errorCategory: null, outcome: 'UNKNOWN', completeness: 'PARTIAL' };
+      bucket.push(entry); if (bucket.length > maxRouteReadsPerHub) bucket.shift();
+    }
+    entry.lastObservedPhase = event.phase;
+    if (event.deadlineMs !== undefined) entry.deadlineMs = event.deadlineMs;
+    if (typeof event.submitted === 'boolean') entry.submitted = event.submitted;
+    if (event.phase === 'PIPELINE_SUBMITTED') entry.submitted = true;
+    if (routeTimes[event.phase] && entry[routeTimes[event.phase]] === null) entry[routeTimes[event.phase]] = event.observedAtMs;
+    if (event.physicalAttemptElapsedMs !== undefined) entry.physicalElapsedMs = event.physicalAttemptElapsedMs;
+    if (event.lateSettleElapsedMs !== undefined) entry.lateSettleElapsedMs = event.lateSettleElapsedMs;
+    if (event.lateAfterDeadlineMs !== undefined) entry.lateAfterDeadlineMs = event.lateAfterDeadlineMs;
+    if (event.activePipelines !== undefined) entry.activePipelines = event.activePipelines;
+    if (event.overlap === true) entry.overlap = true;
+    if (event.errorCategory) entry.errorCategory = event.errorCategory;
+    if (event.phase === 'LOCAL_DEADLINE_EXPIRED') entry.localDeadlineExpired = true;
+    if (event.phase === 'LOCAL_ABORT_REQUESTED') entry.abortRequested = true;
+    if (event.phase === 'PIPELINE_SETTLED_SUCCESS') entry.transportOutcome = event.outcome === 'SUCCESS' ? 'SUCCESS' : event.outcome === 'ERROR' ? 'ERROR' : 'UNKNOWN';
+    if (event.phase === 'PIPELINE_SETTLED_ERROR') entry.transportOutcome = 'ERROR';
+    if (event.phase === 'LATE_SETTLE_SUCCESS') entry.lateSettlement = 'SUCCESS';
+    if (event.phase === 'LATE_SETTLE_ERROR') entry.lateSettlement = 'ERROR';
+    const ordered = entry.submittedAtMs !== null && entry.fetchStartedAtMs !== null && entry.headersAtMs !== null &&
+      entry.parsedAtMs !== null && entry.settledAtMs !== null &&
+      entry.submittedAtMs <= entry.fetchStartedAtMs && entry.fetchStartedAtMs <= entry.headersAtMs &&
+      entry.headersAtMs <= entry.parsedAtMs && entry.parsedAtMs <= entry.settledAtMs;
+    entry.fetchToHeadersMs = entry.fetchStartedAtMs !== null && entry.headersAtMs !== null && entry.fetchStartedAtMs <= entry.headersAtMs
+      ? entry.headersAtMs - entry.fetchStartedAtMs : null;
+    entry.headersToParsedMs = entry.headersAtMs !== null && entry.parsedAtMs !== null && entry.headersAtMs <= entry.parsedAtMs
+      ? entry.parsedAtMs - entry.headersAtMs : null;
+    entry.completeness = ordered && entry.readOrWrite === 'READ' ? 'COMPLETE' : 'PARTIAL';
+    entry.outcome = entry.localDeadlineExpired ? 'LOCAL_DEADLINE_EXPIRED' : entry.abortRequested ? 'ABORT_REQUESTED' :
+      entry.transportOutcome === 'ERROR' ? 'ERROR' : entry.completeness === 'COMPLETE' && entry.transportOutcome === 'SUCCESS' ? 'SUCCESS' :
+      entry.lateSettlement !== 'NONE' ? 'LATE_SETTLED' : 'UNKNOWN';
+  }
+  // Browser input is projected afresh, never copied wholesale. A new Worker snapshot replaces the old one.
+  function acceptSummaries(input, hub, sourceRuntime) {
+    if (!Array.isArray(input) || !/^[A-Z0-9_-]{1,24}$/.test(hub || '') || !Number.isSafeInteger(sourceRuntime) || sourceRuntime < 0) return;
+    routeHubs.clear();
+    const bucket = [];
+    for (const item of input.slice(-maxRouteReadsPerHub)) {
+      if (item?.hub !== hub || item.runtimeInstanceId !== sourceRuntime || item.operationClass !== 'ROUTE_STATE_READ' ||
+          !['refreshInstanceId', 'dbOperationId', 'pipelineSequence', 'attempt'].every(key => Number.isSafeInteger(item[key]) && item[key] >= 0)) continue;
+      const safe = { runtimeInstanceId: sourceRuntime, hub, operationClass: 'ROUTE_STATE_READ', readOrWrite: item.readOrWrite === 'READ' ? 'READ' : 'OTHER',
+        refreshInstanceId: item.refreshInstanceId, dbOperationId: item.dbOperationId, pipelineSequence: item.pipelineSequence, attempt: item.attempt };
+      for (const key of ['deadlineMs', 'submittedAtMs', 'fetchStartedAtMs', 'headersAtMs', 'parsedAtMs', 'settledAtMs', 'deadlineAtMs', 'abortAtMs', 'lateSettledAtMs', 'fetchToHeadersMs', 'headersToParsedMs', 'physicalElapsedMs', 'lateSettleElapsedMs', 'lateAfterDeadlineMs', 'activePipelines'])
+        safe[key] = Number.isFinite(item[key]) && item[key] >= 0 ? Math.min(item[key], 1_000_000_000_000_000) : null;
+      for (const key of ['submitted', 'overlap', 'localDeadlineExpired', 'abortRequested']) safe[key] = typeof item[key] === 'boolean' ? item[key] : null;
+      const choices = { firstObservedPhase: routePhases, lastObservedPhase: routePhases,
+        transportOutcome: new Set(['SUCCESS', 'ERROR', 'UNKNOWN']), lateSettlement: new Set(['NONE', 'SUCCESS', 'ERROR']),
+        errorCategory: new Set(['ABORT', 'NETWORK', 'HTTP', 'PROTOCOL', 'CODED', 'UNKNOWN']),
+        outcome: new Set(['SUCCESS', 'ERROR', 'LOCAL_DEADLINE_EXPIRED', 'ABORT_REQUESTED', 'LATE_SETTLED', 'UNKNOWN']),
+        completeness: new Set(['COMPLETE', 'PARTIAL', 'UNKNOWN']) };
+      for (const [key, values] of Object.entries(choices)) safe[key] = values.has(item[key]) ? item[key] : key === 'completeness' ? 'UNKNOWN' : null;
+      const ordered = safe.submittedAtMs !== null && safe.fetchStartedAtMs !== null && safe.headersAtMs !== null &&
+        safe.parsedAtMs !== null && safe.settledAtMs !== null && safe.submittedAtMs <= safe.fetchStartedAtMs &&
+        safe.fetchStartedAtMs <= safe.headersAtMs && safe.headersAtMs <= safe.parsedAtMs && safe.parsedAtMs <= safe.settledAtMs;
+      safe.fetchToHeadersMs = safe.fetchStartedAtMs !== null && safe.headersAtMs !== null && safe.fetchStartedAtMs <= safe.headersAtMs ? safe.headersAtMs - safe.fetchStartedAtMs : null;
+      safe.headersToParsedMs = safe.headersAtMs !== null && safe.parsedAtMs !== null && safe.headersAtMs <= safe.parsedAtMs ? safe.parsedAtMs - safe.headersAtMs : null;
+      safe.localDeadlineExpired = safe.localDeadlineExpired === true || safe.deadlineAtMs !== null;
+      safe.abortRequested = safe.abortRequested === true || safe.abortAtMs !== null;
+      safe.completeness = ordered && safe.readOrWrite === 'READ' && safe.completeness === 'COMPLETE' ? 'COMPLETE' : 'PARTIAL';
+      safe.outcome = safe.localDeadlineExpired ? 'LOCAL_DEADLINE_EXPIRED' : safe.abortRequested ? 'ABORT_REQUESTED' :
+        safe.transportOutcome === 'ERROR' ? 'ERROR' : safe.completeness === 'COMPLETE' && safe.transportOutcome === 'SUCCESS' && safe.outcome === 'SUCCESS' ? 'SUCCESS' :
+        safe.lateSettlement !== 'NONE' ? 'LATE_SETTLED' : 'UNKNOWN';
+      if (bucket.some(other => ['refreshInstanceId', 'dbOperationId', 'pipelineSequence', 'attempt'].every(key => other[key] === safe[key]))) continue;
+      bucket.push(safe);
+    }
+    if (bucket.length) routeHubs.set(hub, bucket);
+  }
+  function record(phase, input = {}, retain = true) {
     if (!phases.has(phase)) return;
     const observedAtMs = Math.max(0, clock() - origin);
     const event = { phase, sequence: ++sequence, observedAtMs };
@@ -33,12 +132,14 @@ export function createMsCriticalPathPhaseTrace(clock = () => 0) {
     if (starts.has(event.refreshInstanceId)) event.refreshElapsedMs = Math.max(0, observedAtMs - starts.get(event.refreshInstanceId));
     const buffer = refreshPhases.has(phase) ? refreshEvents : events;
     buffer.push(event); if (buffer.length > 64) buffer.shift();
+    if (retain) retainRouteRead(event);
     return event;
   }
-  return { record, snapshot: () => ({ name: 'MS_TURSO_CRITICAL_PATH_PHASE_V1',
+  return { record, acceptSummaries, setSnapshotSequence: value => { if (Number.isSafeInteger(value) && value >= 0) sequence = value; }, snapshot: () => ({ name: 'MS_TURSO_CRITICAL_PATH_PHASE_V1', runtimeInstanceId: runtime, snapshotSequence: sequence,
     unobservable: ['RESPONSE_BODY_CONSUMED', 'NETWORK_CONNECT', 'REQUEST_UPLOAD', 'REMOTE_SQL_EXECUTION'],
     timingContract: 'FETCH_STARTED_TO_HEADERS_INCLUDES_NETWORK_AND_SERVER_WAIT; JSON_COMBINES_BODY_AND_PARSE; CUMULATIVE_DB_IS_SUMMED_PIPELINES; DB_SPAN_INCLUDES_GAPS; REFRESH_ELAPSED_IS_WALL; PUSH_IS_SOCKET_SEND_NOT_CLIENT_ACK',
-    events: events.map(event => ({ ...event })), refreshEvents: refreshEvents.map(event => ({ ...event })) }) };
+    events: events.map(event => ({ ...event })), refreshEvents: refreshEvents.map(event => ({ ...event })),
+    maxRouteReadHubs: maxRouteHubs, maxRouteReadsPerHub, routeReadSummaries: [...routeHubs.values()].flatMap(bucket => bucket.map(entry => ({ ...entry }))) }) };
 }
 
 // The adapter retains only closed phase labels and indices, never SQL/parameters.
@@ -132,13 +233,13 @@ export function patchMsCriticalPathWorker(source) {
 
 const workerRuntime = String.raw`
 function msPhaseNow() { try { return typeof performance !== "undefined" ? performance.now() : Date.now(); } catch { return Date.now(); } }
-const msPhaseTrace = createMsCriticalPathPhaseTrace(msPhaseNow);
+const msPhaseTrace = createMsCriticalPathPhaseTrace(msPhaseNow, msProducerTrace.snapshot().runtimeInstanceId);
 function msPhaseRecord(context, phase, input = {}) {
   if (!context) return;
   try { msPhaseTrace.record(phase, { ...context, ...input }); } catch { /* Observation cannot change product behavior. */ }
 }
 function msPhaseEnv(env, phase, input = {}) { try { msPhaseRecord(msProducerContext(env), phase, { scope: "REFRESH", ...input }); } catch {} }
-function msPhaseSnapshot(hub) { const trace = msPhaseTrace.snapshot(); return { ...trace, events: trace.events.filter(event => event.hub === hub), refreshEvents: trace.refreshEvents.filter(event => event.hub === hub) }; }
+function msPhaseSnapshot(hub) { const trace = msPhaseTrace.snapshot(); return { ...trace, events: trace.events.filter(event => event.hub === hub), refreshEvents: trace.refreshEvents.filter(event => event.hub === hub), routeReadSummaries: trace.routeReadSummaries.filter(entry => entry.hub === hub) }; }
 function msPhaseLate(type, safe) {
   if (type === "LATE_SETTLE_SUCCESS" || type === "LATE_SETTLE_ERROR") msPhaseRecord(safe, type, safe);
   // Promise fulfillment alone is not a Hrana rollback acknowledgement.
@@ -155,7 +256,7 @@ function msPhasePush(env, hub, result, pushReason) {
 
 export function patchMsCriticalPathFrontend(source) {
   if (source.includes('// MS_TURSO_CRITICAL_PATH_PHASE_V1_FRONTEND')) return source;
-  source = once(source, '  function snapshot() { return { ...trace.snapshot(), lateSettle:', createMsCriticalPathPhaseTrace.toString().split('\n').map(line => '  ' + line).join('\n') + '\n  let criticalPath = createMsCriticalPathPhaseTrace(() => performance.now());\n  function snapshot() { return { ...trace.snapshot(), criticalPath: criticalPath.snapshot(), lateSettle:');
-  source = once(source, '  function ingest(payload) {\n    try {\n    const late', '  function ingest(payload) {\n    try {\n      const phases = payload?.msTursoCriticalPathPhaseTrace;\n      if (phases?.name === "MS_TURSO_CRITICAL_PATH_PHASE_V1" && Array.isArray(phases.events)) {\n        criticalPath = createMsCriticalPathPhaseTrace(() => performance.now());\n        const scoped = [...phases.events.slice(-64), ...(Array.isArray(phases.refreshEvents) ? phases.refreshEvents.slice(-64) : [])].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));\n        for (const event of scoped) if (event.hub === state.branch) {\n          const safe = criticalPath.record(event.phase, event);\n          // Preserve Worker-relative timing, never substitute frontend timing.\n          if (safe) for (const key of ["observedAtMs", "refreshElapsedMs"]) {\n            if (Number.isFinite(event[key]) && event[key] >= 0) safe[key] = event[key]; else delete safe[key];\n          }\n        }\n      }\n    } catch {}\n    try {\n    const late');
+  source = once(source, '  function snapshot() { return { ...trace.snapshot(), lateSettle:', createMsCriticalPathPhaseTrace.toString().split('\n').map(line => '  ' + line).join('\n') + '\n  let criticalPath = createMsCriticalPathPhaseTrace(() => performance.now());\n  let criticalPathHub = state.branch;\n  let criticalPathSequence = null;\n  let criticalPathAccepted = false;\n  const seenCriticalPathRuntimes = new Set();\n  function currentCriticalPath() {\n    if (criticalPathHub !== state.branch) { criticalPathHub = state.branch; criticalPath = createMsCriticalPathPhaseTrace(() => performance.now()); criticalPathSequence = null; criticalPathAccepted = false; seenCriticalPathRuntimes.clear(); }\n    return criticalPath;\n  }\n  function snapshot() { currentCriticalPath(); return { ...trace.snapshot(), criticalPath: criticalPath.snapshot(), lateSettle:');
+  source = once(source, '  function ingest(payload) {\n    try {\n    const late', '  function ingest(payload) {\n    try {\n      currentCriticalPath();\n      const phases = payload?.msTursoCriticalPathPhaseTrace;\n      if (phases?.name === "MS_TURSO_CRITICAL_PATH_PHASE_V1" && Array.isArray(phases.events)) {\n        const runtime = Number.isSafeInteger(phases.runtimeInstanceId) && phases.runtimeInstanceId >= 0 ? phases.runtimeInstanceId : null;\n        const sequence = Number.isSafeInteger(phases.snapshotSequence) && phases.snapshotSequence >= 0 ? phases.snapshotSequence : null;\n        const previousRuntime = criticalPath.snapshot().runtimeInstanceId;\n        const newRuntime = runtime !== null && previousRuntime !== runtime;\n        // Unknown identity or generation cannot establish ordering over accepted evidence.\n        if (!(previousRuntime !== null && runtime === null) && !(newRuntime && seenCriticalPathRuntimes.has(runtime)) &&\n            !(!newRuntime && criticalPathAccepted && (runtime === null || criticalPathSequence === null || sequence === null || sequence <= criticalPathSequence))) {\n        const next = createMsCriticalPathPhaseTrace(() => performance.now(), runtime);\n        const scoped = [...phases.events.slice(-64), ...(Array.isArray(phases.refreshEvents) ? phases.refreshEvents.slice(-64) : [])].sort((a, b) => (a.sequence || 0) - (b.sequence || 0));\n        for (const event of scoped) if (event.hub === state.branch) {\n          const safe = next.record(event.phase, event, false);\n          // Preserve Worker-relative timing, never substitute frontend timing.\n          if (safe) for (const key of ["observedAtMs", "refreshElapsedMs"]) {\n            if (Number.isFinite(event[key]) && event[key] >= 0) safe[key] = event[key]; else delete safe[key];\n          }\n        }\n        const summaries = phases.routeReadSummaries;\n        const validSummaries = runtime !== null && Array.isArray(summaries) && summaries.every(item => item?.hub === state.branch && item.runtimeInstanceId === runtime && item.operationClass === "ROUTE_STATE_READ" && ["refreshInstanceId", "dbOperationId", "pipelineSequence", "attempt"].every(key => Number.isSafeInteger(item[key]) && item[key] >= 0));\n        // Same-runtime empty/missing/malformed optional fields are not evidence of deletion.\n        if (!newRuntime && previousRuntime !== null) next.acceptSummaries(criticalPath.snapshot().routeReadSummaries, state.branch, runtime);\n        if (validSummaries && summaries.length) next.acceptSummaries(summaries, state.branch, runtime);\n        if (newRuntime) { if (previousRuntime !== null) seenCriticalPathRuntimes.add(previousRuntime); if (seenCriticalPathRuntimes.size > 8) seenCriticalPathRuntimes.delete(seenCriticalPathRuntimes.values().next().value); }\n        next.setSnapshotSequence(sequence); criticalPath = next; criticalPathSequence = sequence; criticalPathAccepted = true;\n        }\n      }\n    } catch {}\n    try {\n    const late');
   return source + '\n// MS_TURSO_CRITICAL_PATH_PHASE_V1_FRONTEND\n';
 }

@@ -33,7 +33,7 @@ export function validateFleetPageQuery(input) {
   const dayCount = Math.round((Date.parse(end + "T00:00:00Z") - Date.parse(start + "T00:00:00Z")) / 86400000);
   if (dayCount < 0 || dayCount > 13)
     fail("เลือกช่วงได้ไม่เกิน 14 วัน", "FLEET_INVALID_RANGE");
-  const page = Number(input?.page || 1);
+  const page = Number(input?.page ?? 1);
   if (!Number.isSafeInteger(page) || page < 1 || page > 50)
     fail("หมายเลขหน้าไม่ถูกต้อง", "FLEET_INVALID_PAGE");
   const status = String(input?.status || (source === "audit" ? "1" : "9"));

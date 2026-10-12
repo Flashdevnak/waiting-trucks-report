@@ -219,6 +219,40 @@
     <script>if(location.search)history.replaceState(null,'',location.pathname+location.hash);if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
     <script src="ms.js?v=20260919-ops-truth-v26" defer></script>
+
+    <style id="fleet-approval-readonly-style">
+      /* FLEET_APPROVAL_READONLY_DEV_V1 — same charcoal/gold MS style */
+      .ms-page #fleet-approval-dialog { width:min(1060px,96vw);max-width:96vw;max-height:91vh;margin:auto;border:1px solid #c9cbc7;border-radius:8px;background:#fff;color:#202124;padding:0;box-shadow:0 14px 36px #15151545; }
+      .ms-page #fleet-approval-dialog::backdrop {background:rgba(15,18,17,.65);}
+      .ms-page #fleet-approval-dialog .fleet-head {display:flex;justify-content:space-between;align-items:center;gap:12px;padding:15px 20px;background:#202124;color:#fff;border-bottom:4px solid #ffd400}
+      .ms-page #fleet-approval-dialog .fleet-head h2 {color:#fff;margin:0;font-size:19px}
+      .ms-page #fleet-approval-dialog .fleet-head button {background:#fff;border:1px solid #c5c9c5;color:#202124;padding:6px 12px;border-radius:4px;font-weight:800;cursor:pointer}
+      .ms-page #fleet-approval-dialog .fleet-body {overflow:auto;max-height:calc(91vh - 70px);padding:18px}
+      .ms-page #fleet-approval-dialog .fleet-note {font-size:12px;border:1px solid #d2d4ce;border-left:4px solid #e3bf00;background:#fafaf8;padding:10px 12px;margin-bottom:12px;line-height:1.55}
+      .ms-page #fleet-approval-dialog .fleet-fields {display:grid;grid-template-columns:1fr 1.25fr 1fr 1fr 1.3fr auto;gap:10px;align-items:end;margin-bottom:12px}
+      .ms-page #fleet-approval-dialog .fleet-fields label {display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:800;color:#424944;min-width:0}
+      .ms-page #fleet-approval-dialog .fleet-fields select,.ms-page #fleet-approval-dialog .fleet-fields input {width:100%;min-height:38px;border:1px solid #bdc2bd;border-radius:4px;background:white;color:#202124;padding:7px 8px;min-width:0}
+      .ms-page #fleet-approval-dialog .fleet-button {min-height:38px;padding:8px 15px;background:#ffd400;border:1px solid #caa900;border-radius:4px;color:#202124;font-weight:900;cursor:pointer}
+      .ms-page #fleet-approval-dialog .fleet-button:disabled {cursor:default;opacity:.55}
+      .ms-page #fleet-approval-dialog .fleet-status {margin:11px 0;font-size:12px;color:#47504a}
+      .ms-page #fleet-approval-dialog .fleet-scroll {width:100%;overflow-x:auto;border:1px solid #d4d7d1}
+      .ms-page #fleet-approval-dialog table {width:100%;border-collapse:collapse;font-size:12px}
+      .ms-page #fleet-approval-dialog th {text-align:left;white-space:nowrap;background:#f1f2ef;color:#363c37;padding:10px;border-bottom:1px solid #cdd1ca}
+      .ms-page #fleet-approval-dialog td {padding:11px 10px;border-bottom:1px solid #e4e7e1;vertical-align:top}
+      .ms-page #fleet-approval-dialog .fleet-cell-status {font-weight:800;color:#202124}
+      .ms-page #fleet-approval-dialog .fleet-muted {font-size:12px;color:#686f69}
+      .ms-page #fleet-approval-dialog .fleet-pager {display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:10px;font-size:12px}
+      .ms-page #fleet-approval-dialog .fleet-pager button,.ms-page #fleet-approval-dialog .fleet-history-btn {border:1px solid #bdc2bd;background:white;border-radius:4px;color:#202124;padding:6px 10px;font-weight:800;cursor:pointer}
+      .ms-page #fleet-approval-dialog .fleet-pager button:disabled{opacity:.5;cursor:default}
+      .ms-page #fleet-approval-dialog .fleet-detail {margin-top:13px;border:1px solid #c9ccc6;background:#fafbf8;padding:14px}
+      .ms-page #fleet-approval-dialog .fleet-detail h3 {margin:0 0 9px;font-size:16px}
+      .ms-page #fleet-approval-dialog .fleet-info {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+      .ms-page #fleet-approval-dialog .fleet-info div {background:white;border:1px solid #dde0d9;padding:8px}
+      .ms-page #fleet-approval-dialog .fleet-info small {display:block;color:#626b64;margin-bottom:4px}
+      .ms-page #fleet-approval-dialog .fleet-unknown {margin-top:11px;border-left:4px solid #b9bdaf;background:#f1f2ef;padding:11px;font-size:12px}
+      @media(max-width:850px){.ms-page #fleet-approval-dialog .fleet-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.ms-page #fleet-approval-dialog .fleet-fields .fleet-button{grid-column:1/-1}}
+      @media(max-width:560px){.ms-page #fleet-approval-dialog .fleet-fields,.ms-page #fleet-approval-dialog .fleet-info{grid-template-columns:1fr}.ms-page #fleet-approval-dialog .fleet-body{padding:10px}.ms-page #fleet-approval-dialog .fleet-head h2{font-size:16px}}
+    </style>
   </head>
   <body class="ms-page">
     <header class="site-header">
@@ -234,7 +268,7 @@
           <span id="connection-badge" class="badge badge-neutral"
             >กำลังเชื่อมต่อ</span
           >
-          <details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>หน้าติดตาม MS</small></summary><div class="app-nav-menu"><a href="ms.html" class="is-current"><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href="proof.html"><span>🧾</span><b>ปริ้นบาร์โค้ดรถ</b><small>ตรวจ Session แก้ข้อมูล และปริ้น PDF จาก MS</small></a><a href="ms-report.html"><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a></div></details>
+          <details class="app-nav"><summary><span class="nav-grid-icon">▦</span><span>เมนูระบบ</span><small>หน้าติดตาม MS</small></summary><div class="app-nav-menu"><a href="ms.html" class="is-current"><span>🚚</span><b>ติดตามรถ MS</b><small>คิวรถเข้า–ออกและสถานะปัจจุบัน</small></a><a href="proof.html"><span>🧾</span><b>ปริ้นบาร์โค้ดรถ</b><small>ตรวจ Session แก้ข้อมูล และปริ้น PDF จาก MS</small></a><a href="ms-report.html"><span>▥</span><b>สรุปรายวัน</b><small>เปรียบเทียบรถจบงานตามวันและเวลา</small></a><a href="#fleet-approval" id="fleet-approval-open"><span>▤</span><b>ติดตามคำขอรถเสริม</b><small>สถานะอนุมัติและสถานะงานรถจาก MS</small></a></div></details>
           <a
             id="central-settings-btn"
             class="btn btn-header header-link hidden"
@@ -614,6 +648,30 @@
         </div>
         <div id="pending-parcels-loading" class="empty-state">กำลังโหลดรายการจาก MS…</div>
         <div id="pending-parcels-list" class="pending-parcels-list parcel-data-table hidden"></div>
+      </div>
+    </dialog>
+
+
+    <dialog id="fleet-approval-dialog" aria-labelledby="fleet-approval-title">
+      <div class="fleet-head"><h2 id="fleet-approval-title">ติดตามคำขอรถเสริม</h2><button type="button" id="fleet-approval-close">ปิด</button></div>
+      <div class="fleet-body">
+        <div class="fleet-note">อ่านจากระบบ MS ตามสิทธิ์เซสชันที่เชื่อมต่ออยู่เท่านั้น ข้อมูลที่ไม่ปรากฏไม่ได้หมายถึงไม่มีคำขอทั้ง HUB · สถานะอนุมัติกับสถานะงานรถเป็นข้อมูลคนละชุด</div>
+        <div class="fleet-fields">
+          <label>HUB<input type="text" id="fleet-approval-hub" readonly autocomplete="off"></label>
+          <label>หมวดข้อมูล<select id="fleet-approval-source"><option value="audit">รายการอนุมัติ</option><option value="monitor">สถานะงานรถ</option></select></label>
+          <label>ตั้งแต่วันที่<input type="date" id="fleet-approval-start"></label>
+          <label>ถึงวันที่<input type="date" id="fleet-approval-end"></label>
+          <label>สถานะ<select id="fleet-approval-state"><option value="1">รออนุมัติ</option><option value="2">อนุมัติ</option><option value="3">ปฏิเสธ</option><option value="4">ยกเลิกแล้ว</option><option value="10">โมฆะ</option></select></label>
+          <button type="button" class="fleet-button" id="fleet-approval-search" disabled>ค้นหา</button>
+        </div>
+        <div class="fleet-status" id="fleet-approval-status" role="status">กรุณาเข้าสู่ระบบเพื่ออ่านข้อมูล</div>
+        <div class="fleet-scroll">
+          <table><thead><tr><th>เลขคำขอ</th><th>ประเภทเส้นทาง/คำขอ</th><th>ต้นทาง</th><th>ปลายทาง</th><th>สถานะอนุมัติ</th><th>สถานะงานรถ</th><th>ประวัติ</th></tr></thead>
+          <tbody id="fleet-approval-rows"><tr><td colspan="7" class="fleet-muted">ยังไม่ได้ค้นหาข้อมูล</td></tr></tbody></table>
+        </div>
+        <div class="fleet-pager"><button type="button" id="fleet-approval-prev" disabled>ก่อนหน้า</button><span id="fleet-approval-page-label">หน้า 1</span><button type="button" id="fleet-approval-next" disabled>หน้าถัดไป</button></div>
+        <section class="fleet-detail hidden" id="fleet-approval-detail" aria-live="polite"></section>
+        <p class="fleet-muted">รายการแสดงทีละ 20 รายการ โดยจะเรียกข้อมูลเพิ่มเมื่อกดเปลี่ยนหน้าเท่านั้น ไม่มีการดึงซ้ำอัตโนมัติ ไม่มีการสร้างประวัติอนุมัติที่ต้นทางไม่ได้ให้มา</p>
       </div>
     </dialog>
 

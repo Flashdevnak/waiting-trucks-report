@@ -1,4 +1,5 @@
 import { canonicalMsSource, planMsChanges } from "./sync-policy.js";
+import { fleetReadEnabled, readFleetApprovalPage } from "./fleet-approval-readonly.js";
 import {
   MS_CANONICAL_BUSINESS_DAY_SQL,
   canonicalMsBusinessDay,
@@ -219,6 +220,34 @@ async function get(url, env) {
         pickBranch(actor, url.searchParams.get("branch")),
       ),
     );
+  // FLEET_APPROVAL_READONLY_DEV_V1: no background fetch and no DB mutation.
+  if (action === "fleetApprovalStatus") {
+    const hub = pickBranch(actor, url.searchParams.get("branch"));
+    return ok({
+      branch: hub,
+      enabled: fleetReadEnabled(env),
+      mode: "CLICK_ONLY",
+      coverage: "MS_SESSION_VISIBLE_ONLY",
+      approvalTimeline: "NOT_CAPTURED",
+      sources: ["audit", "monitor"],
+    });
+  }
+  if (action === "fleetApprovalPage") {
+    const hub = pickBranch(actor, url.searchParams.get("branch"));
+    if (!fleetReadEnabled(env))
+      fail("DEV ยังไม่เปิดสิทธิ์อ่านคำขอรถเสริมจาก MS", "FLEET_READ_DISABLED", 503);
+    const credentials = await msCredentials(env, hub);
+    if (!credentials)
+      fail("ยังไม่ได้ตั้งค่าเซสชัน MS ของ HUB นี้", "FLEET_MS_NOT_CONFIGURED", 503);
+    const result = await readFleetApprovalPage({
+      source: url.searchParams.get("source"),
+      start: url.searchParams.get("start"),
+      end: url.searchParams.get("end"),
+      status: url.searchParams.get("status"),
+      page: url.searchParams.get("page"),
+    }, credentials, msBrowserRequestHeaders);
+    return ok({ ...result, branch: hub });
+  }
   // MS_FAST_FIRST_PAINT_V1: cache-only first paint. This path never calls upstream MS.
   if (action === "msRoutesSnapshot") {
     const branch = pickBranch(actor, url.searchParams.get("branch"));

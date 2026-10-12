@@ -3449,3 +3449,174 @@ function toast(message, error = false, durationMs = 4000) {
   const duration = Math.max(1000, Number(durationMs) || 4000);
   toastTimer = setTimeout(() => el("toast").classList.add("hidden"), duration);
 }
+
+
+// FLEET_APPROVAL_READONLY_DEV_V1 — deliberate click-only provider access.
+// Uses existing MS operator login and the approved single-attempt apiGetOnce helper.
+const fleetApprovalUi = { ready: false, enabled: false, busy: false, page: 1, result: null };
+const fleetApprovalStatuses = {
+  audit: [["1", "รออนุมัติ"], ["2", "อนุมัติ"], ["3", "ปฏิเสธ"], ["4", "ยกเลิกแล้ว"], ["10", "โมฆะ"]],
+  monitor: [["8", "รอวางกำหนดการ"], ["9", "ระหว่างแข่งขันรับงาน"], ["14", "ยังไม่มีคนรับงาน"]],
+};
+function fleetThaiDay(delta = 0) {
+  return new Date(Date.now() + 7 * 3600000 + delta * 86400000).toISOString().slice(0, 10);
+}
+function fleetSyncStatusChoices() {
+  const select = el("fleet-approval-state");
+  const old = select.value;
+  const choices = fleetApprovalStatuses[el("fleet-approval-source").value] || fleetApprovalStatuses.audit;
+  select.replaceChildren(...choices.map(([code, label]) => {
+    const option = document.createElement("option");
+    option.value = code;
+    option.textContent = label;
+    return option;
+  }));
+  if (choices.some(([code]) => code === old)) select.value = old;
+  else select.value = choices[0][0];
+  fleetResetResults();
+}
+function fleetResetResults() {
+  fleetApprovalUi.result = null;
+  fleetApprovalUi.page = 1;
+  el("fleet-approval-rows").innerHTML = '<tr><td colspan="7" class="fleet-muted">กดค้นหาเพื่ออ่านข้อมูลจาก MS</td></tr>';
+  el("fleet-approval-page-label").textContent = "หน้า 1";
+  el("fleet-approval-next").disabled = true;
+  el("fleet-approval-prev").disabled = true;
+  el("fleet-approval-detail").classList.add("hidden");
+}
+function fleetBusy(busy) {
+  fleetApprovalUi.busy = busy;
+  el("fleet-approval-search").disabled = busy || !fleetApprovalUi.enabled;
+  el("fleet-approval-prev").disabled = busy || fleetApprovalUi.page <= 1 || !fleetApprovalUi.result;
+  el("fleet-approval-next").disabled = busy || !fleetApprovalUi.result ||
+    fleetApprovalUi.result.count < 20 ||
+    (fleetApprovalUi.result.total !== null && fleetApprovalUi.page * 20 >= fleetApprovalUi.result.total);
+}
+async function openFleetApproval() {
+  const dialog = el("fleet-approval-dialog");
+  if (!dialog.open) dialog.showModal();
+  if (!state.auth?.token) {
+    fleetApprovalUi.enabled = false;
+    fleetBusy(false);
+    el("fleet-approval-status").textContent = "กรุณาเข้าสู่ระบบติดตาม MS ก่อน";
+    return;
+  }
+  el("fleet-approval-hub").value = state.branch;
+  if (!el("fleet-approval-end").value) el("fleet-approval-end").value = fleetThaiDay();
+  if (!el("fleet-approval-start").value) el("fleet-approval-start").value = fleetThaiDay(-6);
+  fleetApprovalUi.enabled = false;
+  fleetResetResults();
+  fleetBusy(true);
+  el("fleet-approval-status").textContent = "กำลังตรวจความพร้อมระบบอ่านคำขอรถเสริม…";
+  try {
+    const status = await apiGetOnce("fleetApprovalStatus", { branch: state.branch });
+    if (!dialog.open) return;
+    fleetApprovalUi.enabled = status.enabled === true;
+    el("fleet-approval-status").textContent = fleetApprovalUi.enabled
+      ? "พร้อมค้นหาข้อมูลตามสิทธิ์เซสชัน MS ของ HUB " + status.branch + " · กดค้นหาเพื่ออ่านข้อมูลจริง"
+      : "DEV ยังไม่เปิดสิทธิ์อ่าน API รถเสริม · ยังไม่มีการเรียกข้อมูลจาก Flash Express";
+  } catch (error) {
+    if (dialog.open) el("fleet-approval-status").textContent = "ตรวจความพร้อมไม่สำเร็จ: " + error.message;
+  } finally {
+    fleetBusy(false);
+  }
+}
+async function fleetFetchPage(page) {
+  if (!fleetApprovalUi.enabled || fleetApprovalUi.busy || !state.auth?.token) return;
+  const start = el("fleet-approval-start").value;
+  const end = el("fleet-approval-end").value;
+  if (!start || !end || start > end || (Date.parse(end) - Date.parse(start)) > 13 * 86400000) {
+    el("fleet-approval-status").textContent = "กรุณาเลือกช่วงวันที่ให้ถูกต้อง ไม่เกิน 14 วัน";
+    return;
+  }
+  fleetBusy(true);
+  el("fleet-approval-status").textContent = "กำลังอ่านรายการจาก MS · หน้า " + page + " · ไม่กดซ้ำอัตโนมัติ";
+  try {
+    const result = await apiGetOnce("fleetApprovalPage", {
+      branch: state.branch,
+      source: el("fleet-approval-source").value,
+      status: el("fleet-approval-state").value,
+      start, end, page,
+    });
+    if (!el("fleet-approval-dialog").open) return;
+    if (result.source !== el("fleet-approval-source").value) throw new Error("ข้อมูลตอบกลับไม่ตรงหมวดค้นหา");
+    fleetApprovalUi.result = result;
+    fleetApprovalUi.page = page;
+    fleetRenderRows();
+  } catch (error) {
+    if (el("fleet-approval-dialog").open)
+      el("fleet-approval-status").textContent = "อ่านรายการไม่สำเร็จ: " + error.message + " · ไม่มีการกดซ้ำ";
+  } finally {
+    fleetBusy(false);
+  }
+}
+function fleetRenderRows() {
+  const result = fleetApprovalUi.result;
+  const source = result.source;
+  const approvalNames = Object.fromEntries(fleetApprovalStatuses.audit);
+  const workNames = Object.fromEntries(fleetApprovalStatuses.monitor);
+  const rows = Array.isArray(result.items) ? result.items : [];
+  el("fleet-approval-rows").innerHTML = rows.length ? rows.map((row, index) => {
+    const approval = source === "audit" && row.approvalCode
+      ? (approvalNames[row.approvalCode] || row.approvalText || "รหัส " + row.approvalCode) : "ยังไม่ทราบ";
+    const work = source === "monitor" && row.workCode
+      ? (row.workText || workNames[row.workCode] || "รหัส " + row.workCode) : "ยังไม่ทราบ";
+    const route = row.routeTypeText || "ไม่ระบุเส้นทาง";
+    return '<tr><td><strong>' + esc(row.serialNo || "—") + '</strong></td>' +
+      '<td>' + esc(route) + '<div class="fleet-muted">' + esc(row.requestTypeText || "—") + '</div></td>' +
+      '<td>' + esc(row.startStore || row.applyStore || "—") + '</td>' +
+      '<td>' + esc(row.endStore || "—") + '</td>' +
+      '<td class="fleet-cell-status">' + esc(approval) + '</td>' +
+      '<td class="fleet-cell-status">' + esc(work) + '</td>' +
+      '<td><button type="button" class="fleet-history-btn" data-fleet-detail="' + index + '">ดูประวัติ</button></td></tr>';
+  }).join("") : '<tr><td colspan="7" class="fleet-muted">ไม่พบรายการตามตัวกรองและสิทธิ์ของเซสชันนี้ (ไม่ใช่ยอดรวมทั้ง HUB)</td></tr>';
+  const total = result.total === null ? "ไม่ทราบยอดรวม" : result.total + " รายการตามสิทธิ์";
+  el("fleet-approval-status").textContent = "ข้อมูลจาก MS · " + total + " · พบในหน้านี้ " + rows.length +
+    " รายการ · อ่านเมื่อ " + new Date(result.fetchedAt).toLocaleString("th-TH") + " · ไม่รับประกันครอบคลุมทั้ง HUB";
+  el("fleet-approval-page-label").textContent = "หน้า " + fleetApprovalUi.page;
+  el("fleet-approval-detail").classList.add("hidden");
+}
+function fleetDetail(index) {
+  const result = fleetApprovalUi.result;
+  const row = result?.items?.[index];
+  if (!row) return;
+  const info = [
+    ["เลขคำขอ", row.serialNo || "—"],
+    ["รหัสรายการ", row.auditId || "—"],
+    ["เส้นทาง", row.routeTypeText || "ยังไม่ระบุ"],
+    ["ประเภทคำขอ", row.requestTypeText || "—"],
+    ["สาขาที่ยื่น", row.applyStore || "—"],
+    ["สาขาต้นทาง", row.startStore || "—"],
+    ["สาขาปลายทาง", row.endStore || "—"],
+    ["สถานะอนุมัติ", result.source === "audit" ? (Object.fromEntries(fleetApprovalStatuses.audit)[row.approvalCode] || "ไม่ทราบ") : "ยังไม่มีหลักฐานในข้อมูลชุดนี้"],
+    ["สถานะงานรถ", result.source === "monitor" ? (row.workText || "ไม่ทราบ") : "ยังไม่มีหลักฐานในข้อมูลชุดนี้"],
+    ["เวลาเริ่มงานตามแผน", row.expectedDate || "—"],
+    ["เวลาสิ้นสุดตามแผน", row.planEndTime || "—"],
+    ["บาร์โค้ดรถ", row.proofState || "—"],
+  ];
+  const panel = el("fleet-approval-detail");
+  panel.innerHTML = '<h3>รายละเอียดคำขอ ' + esc(row.serialNo || "—") + '</h3><div class="fleet-info">' +
+    info.map(([name, value]) => '<div><small>' + esc(name) + '</small><strong>' + esc(value) + '</strong></div>').join("") +
+    '</div><div class="fleet-unknown"><strong>ประวัติการอนุมัติ</strong><div>ยังไม่มี API Timeline รายคำขอที่ยืนยันจาก HAR จึงไม่สามารถบอกผู้อนุมัติ ขั้นตอนล่าสุด หรือขั้นตอนถัดไปได้</div></div>';
+  panel.classList.remove("hidden");
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function setupFleetApprovalDialog() {
+  if (fleetApprovalUi.ready || !el("fleet-approval-dialog")) return;
+  fleetApprovalUi.ready = true;
+  el("fleet-approval-open").addEventListener("click", event => { event.preventDefault(); void openFleetApproval(); });
+  el("fleet-approval-close").addEventListener("click", () => el("fleet-approval-dialog").close());
+  el("fleet-approval-source").addEventListener("change", fleetSyncStatusChoices);
+  for (const id of ["fleet-approval-state", "fleet-approval-start", "fleet-approval-end"])
+    el(id).addEventListener("change", fleetResetResults);
+  el("fleet-approval-search").addEventListener("click", () => void fleetFetchPage(1));
+  el("fleet-approval-prev").addEventListener("click", () => void fleetFetchPage(fleetApprovalUi.page - 1));
+  el("fleet-approval-next").addEventListener("click", () => void fleetFetchPage(fleetApprovalUi.page + 1));
+  el("fleet-approval-rows").addEventListener("click", event => {
+    const btn = event.target.closest("[data-fleet-detail]");
+    if (btn) fleetDetail(Number(btn.dataset.fleetDetail));
+  });
+  fleetSyncStatusChoices();
+  if (location.hash === "#fleet-approval") { history.replaceState(null, "", location.pathname); void openFleetApproval(); }
+}
+document.addEventListener("DOMContentLoaded", setupFleetApprovalDialog);

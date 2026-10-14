@@ -111,7 +111,7 @@ import { patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destinatio
 import { patchPnoSegmentDestinationFrontend } from "./patch-pno-segment-destination-frontend.mjs";
 import { patchPnoBranchSearchFrontend } from "./patch-pno-branch-search-v1.mjs";
 import { patchPnoDestinationTablesStability } from "./patch-pno-destination-tables-stability-v1.mjs";
-import { patchPnoMobileModalScope } from "./patch-pno-mobile-modal-scope-v1.mjs";
+import { patchPnoMobileModalScope, PNO_MOBILE_MODAL_STYLE } from "./patch-pno-mobile-modal-scope-v1.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -505,7 +505,7 @@ export function stageStyle(source) {
   // The performance styler now preserves either Classic or Canonical Lower as
   // the sole Lower authority while still staging shared mobile/export fixes.
   const lower = patchMsSummaryPerformanceStyle(base);
-  return patchDevUnifiedHeaderStyle(lower);
+  return patchDevUnifiedHeaderStyle(lower) + "\n/* PNO_MOBILE_CSS_ALWAYS_LOADED_V2 */\n" + PNO_MOBILE_MODAL_STYLE;
 }
 
 export function stageWorker(source) {

@@ -45,7 +45,7 @@ test('incomplete/malformed inputs never fabricate exact zero',()=>{for(const a o
 test('markup has two separate sections, unknown row and exact subtotal accounting',()=>{const html=pnoDestinationMarkup(aggregate(fixtures,'NE11'),'scope');assert.match(html,/สาขาปลายทางใน HUB ของเรา · NE11/);assert.match(html,/ฮับปลายทางอื่น/);assert.match(html,/รวมส่งสาขาภายใน NE11/);assert.match(html,/รวมฮับปลายทางอื่น/);assert.match(html,/ไม่สามารถจำแนกปลายทางได้/);assert.match(html,/8 ชิ้น/);});
 test('safe escaped Thai/HTML display; no provider value executes as markup',()=>{const h=pnoDestinationMarkup(aggregate([row('A','NE11','<img onerror="secret">')],'NE11'),'<script>');assert.doesNotMatch(h,/<img|<script>/);assert.match(h,/&lt;img/);});
 test('composed patch idempotent and existing card/all-page/filter functions intact',()=>{assert.equal(stageFrontend(staged),staged);assert.equal(patchPnoDestinationSummary(staged),staged);const baselineHashes={"pnoV18EnsureParcelFilterRows": "8e3e3d5022c306feae2c9dae72d73b8c03078b423b481b67c80bf9fd366b6e15", "pnoV18FilteredParcelEntries": "0d08868877aa1dc82e9223c6717471d9b2b205e95a87a1e536f2bf9275f23786", "pnoV18RenderSummary": "fe995976ea4713db0ce1cbfcb9e4c2265b1b9baa024aae9280bbd1ffc291b15b"};for(const [n,sha] of Object.entries(baselineHashes))assert.equal(createHash('sha256').update(block(n)).digest('hex'),sha,n);assert.equal(createHash('sha256').update(block('pnoV18RenderFilters')).digest('hex'),'25c7e9e8d8f44cdd11ca1ade39e57409dae66435524f46d233abeff91157f878','PNO branch-search intentional four-selector UI edit; other source invariants still pinned');assert.doesNotThrow(()=>new Function(staged));});
-test('DEV summary release uses an exact distinct version; canonical HTML remains unchanged',()=>{const html=fs.readFileSync(new URL('../../ms.html',import.meta.url),'utf8');assert.match(patchDevUiShellSource(html,'ms.html'),/ms\.js\?v=20261015-pno-destination-ux-v1/);assert.doesNotMatch(html,/pno-destination-summary-rev73/);});
+test('DEV summary release uses an exact distinct version; canonical HTML remains unchanged',()=>{const html=fs.readFileSync(new URL('../../ms.html',import.meta.url),'utf8');assert.match(patchDevUiShellSource(html,'ms.html'),/ms\.js\?v=20261015-pno-mobile-modal-v2/);assert.doesNotMatch(html,/pno-destination-summary-rev73/);});
 test('CSS provides mobile stacking, stable numeric columns and comfortable fonts',()=>{assert.match(PNO_DESTINATION_STYLE,/max-width:640px/);assert.match(PNO_DESTINATION_STYLE,/grid-template-columns:1fr/);assert.match(PNO_DESTINATION_STYLE,/minmax\(0,1fr\) auto/);assert.match(PNO_DESTINATION_STYLE,/tabular-nums/);assert.match(PNO_DESTINATION_STYLE,/font-size:18px/);});
 test('actual runtime: summary directly after count card, denominator stays PreEntry',async()=>{const h=harness();h.context.pnoV18RenderSummary();const card=h.node('pno-v18-summary').innerHTML;await h.complete();assert.equal(h.node('pno-v18-summary').innerHTML,card);assert.deepEqual(h.order.slice(0,2),['pno-v18-summary','pno-destination-summary']);assert.match(h.html(),/ยอดนี้แยกจากยอด PreEntry/);assert.match(h.html(),/8 ชิ้น/);assert.match(card,/10,000/);});
 test('actual original all-page pipeline: 4,205 rows over 22 pages, no acquisition added',async()=>{const all=Array.from({length:4205},(_,i)=>row('P'+i,i%2?'E1':'NE11','สาขาก'));const plainHarness=harness(all,{runtime:false}),h=harness(all);await plainHarness.complete();await h.complete();assert.deepEqual(h.calls,plainHarness.calls);assert.equal(h.calls.length,22);assert.match(h.html(),/4,205 ชิ้น/);assert.equal(h.pno.filterRows.length,4205);});
@@ -68,10 +68,10 @@ test('missing optional source-valid metadata fails closed without changing retur
 
 // REV74: publication preparation verifies the actual DEV delivery checks;
 // all requests below are synthetic VM calls, never live transport.
-const releaseScript='ms.js?v=20261015-pno-destination-ux-v1';
+const releaseScript='ms.js?v=20261015-pno-mobile-modal-v2';
 const legacyWorkflowSource=fs.readFileSync(new URL('../workflows/deploy-worker-dev.yml',import.meta.url),'utf8');
 // Exercise legacy release smoke against the exact new candidate bytes without mutating the locked historical workflow.
-const workflowSource=legacyWorkflowSource.replaceAll('20261014-rev98-pno-only-delivery-v1','20261015-pno-destination-ux-v1').replaceAll('7866a1b31de1f6bce79e24a488a0a0fe1fc25c9efe3eb4ae9f889d37cc351ea4','d80f18801e97e8bab6c3766e4e5dd9f5358e76e80ae96ae095cc3fcd4f84b6f2');
+const workflowSource=legacyWorkflowSource.replaceAll('20261014-rev98-pno-only-delivery-v1','20261015-pno-mobile-modal-v2').replaceAll('7866a1b31de1f6bce79e24a488a0a0fe1fc25c9efe3eb4ae9f889d37cc351ea4','2b637f247aba769d028fb06019a49f2bcb4569365677c8768f3062b34a364b22');
 const serviceWorkerSource=fs.readFileSync(new URL('../../sw.js',import.meta.url),'utf8');
 // REV98: smoke must validate the actual two-stage delivered file, not only stageFrontend().
 function composeDelivery(){
@@ -125,7 +125,7 @@ test('REV74 smoke fails closed on old HTML and missing summary implementation',a
 const deliveryHtml='<script src="'+releaseScript+'"></script>';
 test('REV98 unique version and full actual composed bytes match strict local predeploy/postdeploy digests',()=>{
  const hash=createHash('sha256').update(delivered,'utf8').digest('hex');
- assert.equal(hash,'d80f18801e97e8bab6c3766e4e5dd9f5358e76e80ae96ae095cc3fcd4f84b6f2');
+ assert.equal(hash,'2b637f247aba769d028fb06019a49f2bcb4569365677c8768f3062b34a364b22');
  assert.equal((workflowSource.match(new RegExp(hash,'g'))||[]).length,2);
  assert.match(workflowSource,/staged PNO isolated asset integrity mismatch/);
  assert.match(workflowSource,/live PNO isolated asset integrity mismatch/);
@@ -155,7 +155,7 @@ test('REV74 real service worker preserves release version and no-store request c
  const h=serviceWorkerHarness(),request={url:'https://offline.invalid/'+releaseScript,method:'GET',credentials:'same-origin',headers:{synthetic:'only'}};let pending;
  h.handlers.fetch({request,respondWith:value=>{pending=value;}});await pending;
  assert.equal(h.calls.length,1);const [url,options]=h.calls[0];
- assert.equal(new URL(url).searchParams.get('v'),'20261015-pno-destination-ux-v1');
+ assert.equal(new URL(url).searchParams.get('v'),'20261015-pno-mobile-modal-v2');
  assert.equal(new URL(url).searchParams.get('__fresh'),'20260911-02-mobile-schedule-status');
  assert.equal(options.cache,'no-store');assert.equal(options.credentials,request.credentials);assert.equal(options.headers,request.headers);
 });

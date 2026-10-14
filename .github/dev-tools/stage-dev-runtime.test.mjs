@@ -275,7 +275,7 @@ test("DEV deploy uses the idempotent staging entrypoint and daily-history gate",
 test("DEV phase script URL, service worker and deployed-asset smoke share one delivery contract", async () => {
   const html = patchDevUiShellSource(await readFile(new URL("ms.html", root), "utf8"), "ms.html");
   const sw = await readFile(new URL("sw.js", root), "utf8");
-  const script = "ms.js?v=20261015-pno-destination-ux-v1";
+  const script = "ms.js?v=20261015-pno-mobile-modal-v2";
   assert.ok(html.includes(`src="${script}"`));
   assert.doesNotMatch(html, /ms\.js\?v=20261003-pno-operational-truth-v1/);
   assert.doesNotMatch(html, /ms\.js\?v=20261009-ms-turso-critical-path-phase-v1/);
@@ -283,7 +283,7 @@ test("DEV phase script URL, service worker and deployed-asset smoke share one de
   assert.match(sw, /url\.searchParams\.set\("__fresh", VERSION\)/);
   assert.match(sw, /cache: "no-store"/);
   assert.ok(isolatedWorkflow.includes(script));
-  assert.ok(isolatedWorkflow.includes("d80f18801e97e8bab6c3766e4e5dd9f5358e76e80ae96ae095cc3fcd4f84b6f2"));
+  assert.ok(isolatedWorkflow.includes("2b637f247aba769d028fb06019a49f2bcb4569365677c8768f3062b34a364b22"));
   assert.match(isolatedWorkflow, /PNO.*asset/i);
   assert.match(workflow, /live MS phase snapshot exporter missing/);
   assert.match(workflow, /criticalPath: criticalPath\.snapshot\(\)/);

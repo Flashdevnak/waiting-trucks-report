@@ -59,7 +59,8 @@ jobs:
             ':(exclude).github/dev-tools/pno-destination-summary-rev73.test.mjs' \
             ':(exclude).github/dev-tools/stage-dev-runtime.test.mjs' \
             ':(exclude).github/dev-tools/pno-inbound-scan-evidence.test.mjs' \
-            ':(exclude).github/workflows/pno-only-dev-isolated-release.yml'
+            ':(exclude).github/workflows/pno-only-dev-isolated-release.yml' \
+            ':(exclude).github/pno-only-dev-deploy-approval.txt'
           test "$(git diff --name-only "$parent" "$candidate" | wc -l | tr -d ' ')" = '17'
           echo 'PNO_SOURCE_TREE_AND_SCOPE=PASS'
 

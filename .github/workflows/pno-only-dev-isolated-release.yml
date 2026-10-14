@@ -66,10 +66,6 @@ jobs:
       - name: Install exact locked toolchain
         run: npm ci --no-audit --no-fund
 
-      - name: Verify PNO UX and legacy release contract
-        run: |
-          node --test ../.github/dev-tools/pno-destination-summary-rev73.test.mjs ../.github/dev-tools/pno-branch-search-v1.test.mjs ../.github/dev-tools/pno-destination-tables-stability-v1.test.mjs ../.github/dev-tools/stage-dev-runtime.test.mjs ../.github/dev-tools/pno-inbound-scan-evidence.test.mjs
-
       - name: Stage exact DEV runtime and assets
         shell: bash
         run: |
@@ -94,6 +90,10 @@ jobs:
           NODE
           node --check .dev-runtime/src/turso-index.js
           node --check .dev-assets/ms.js
+
+      - name: Verify PNO UX and legacy release contract
+        run: |
+          node --test ../.github/dev-tools/pno-destination-summary-rev73.test.mjs ../.github/dev-tools/pno-branch-search-v1.test.mjs ../.github/dev-tools/pno-destination-tables-stability-v1.test.mjs ../.github/dev-tools/stage-dev-runtime.test.mjs ../.github/dev-tools/pno-inbound-scan-evidence.test.mjs
 
       - name: Verify DEV-only Wrangler dry run
         run: |

@@ -275,7 +275,7 @@ test("DEV deploy uses the idempotent staging entrypoint and daily-history gate",
 test("DEV phase script URL, service worker and deployed-asset smoke share one delivery contract", async () => {
   const html = patchDevUiShellSource(await readFile(new URL("ms.html", root), "utf8"), "ms.html");
   const sw = await readFile(new URL("sw.js", root), "utf8");
-  const script = "ms.js?v=20261015-pno-mobile-modal-v2";
+  const script = "ms.js?v=20261015-pno-select-only-v3";
   assert.ok(html.includes(`src="${script}"`));
   assert.doesNotMatch(html, /ms\.js\?v=20261003-pno-operational-truth-v1/);
   assert.doesNotMatch(html, /ms\.js\?v=20261009-ms-turso-critical-path-phase-v1/);

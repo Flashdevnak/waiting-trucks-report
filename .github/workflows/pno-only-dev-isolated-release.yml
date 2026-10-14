@@ -86,7 +86,7 @@ jobs:
           const root=fs.readdirSync('.dev-assets',{withFileTypes:true}).filter(x=>x.isFile());
           if(root.length!==28)throw Error('Expected exactly 28 DEV assets; found '+root.length);
           const html=fs.readFileSync('.dev-assets/ms.html','utf8');
-          if(!html.includes('ms.js?v=20261015-pno-mobile-modal-v2'))throw Error('Wrong PNO asset version');
+          if(!html.includes('ms.js?v=20261015-pno-select-only-v3'))throw Error('Wrong PNO asset version');
           const sha=crypto.createHash('sha256').update(fs.readFileSync('.dev-assets/ms.js')).digest('hex');
           if(sha!=='2b637f247aba769d028fb06019a49f2bcb4569365677c8768f3062b34a364b22')throw Error('Wrong staged PNO MS hash: '+sha);
           console.log('PNO_28_ASSETS_AND_SHA=PASS');
@@ -94,7 +94,7 @@ jobs:
           node --check .dev-runtime/src/turso-index.js
           node --check .dev-assets/ms.js
 
-      - name: Verify PNO UX and legacy release contract
+      - name: Verify PNO UX native filters and legacy release contract
         run: |
           node --test ../.github/dev-tools/pno-destination-summary-rev73.test.mjs ../.github/dev-tools/pno-branch-search-v1.test.mjs ../.github/dev-tools/pno-destination-tables-stability-v1.test.mjs ../.github/dev-tools/stage-dev-runtime.test.mjs ../.github/dev-tools/pno-inbound-scan-evidence.test.mjs ../.github/dev-tools/pno-mobile-modal-scope-v1.test.mjs
 
@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
           file='.github/pno-only-dev-deploy-approval.txt'
           if test -f "$file" && git diff-tree --no-commit-id --name-only -r HEAD | grep -Fxq "$file" && \
-             grep -Fxq 'PNO_UI_RELEASE=20261015-pno-mobile-modal-v2' "$file" && \
+             grep -Fxq 'PNO_UI_RELEASE=20261015-pno-select-only-v3' "$file" && \
              grep -Fxq 'ROLLBACK_VERSION=010f5fa5-60ea-4f2a-8e9b-3bac0a5d4bfd' "$file" && \
              grep -Fxq 'ASSET_SHA256=2b637f247aba769d028fb06019a49f2bcb4569365677c8768f3062b34a364b22' "$file" && \
              grep -Fxq 'TARGET=waiting-trucks-report-api-dev' "$file"; then

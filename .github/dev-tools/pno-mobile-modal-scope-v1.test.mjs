@@ -31,10 +31,12 @@ test('staged guard is idempotent and does not alter canonical page, APIs or Work
   new Function(staged);
   assert.doesNotMatch(PNO_MOBILE_MODAL_STYLE,/fetch\(|setInterval|XMLHttpRequest|sql/i);
 });
-test('mobile layout uses one stacked filter column, branch search full width and unbroken buttons',()=>{
+test('mobile layout uses one stacked filter column, full-width selects and unbroken buttons',()=>{
   assert.match(PNO_MOBILE_MODAL_STYLE,/max-width:720px/);
   assert.match(PNO_MOBILE_MODAL_STYLE,/pno-v18-filterbar:not\(\.hidden\).*grid-template-columns:minmax\(0,1fr\)/);
-  assert.match(PNO_MOBILE_MODAL_STYLE,/pno-v18-filter-field:has\(\.pno-v18-branch-search\)/);
+  assert.doesNotMatch(PNO_MOBILE_MODAL_STYLE,/pno-v18-branch-search/);
+  assert.match(PNO_MOBILE_MODAL_STYLE,/min-width:1020px/);
+  assert.match(PNO_MOBILE_MODAL_STYLE,/min-width:721px/);
   assert.match(PNO_MOBILE_MODAL_STYLE,/max-width:none!important/);
   assert.match(PNO_MOBILE_MODAL_STYLE,/pno-v18-filter-reset\{grid-column:1\/-1/);
   assert.match(PNO_MOBILE_MODAL_STYLE,/pno-v18-actions.*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);

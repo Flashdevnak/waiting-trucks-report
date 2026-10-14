@@ -109,7 +109,6 @@ import { patchMsRouteReadBudgetIsolationV1 } from "./patch-ms-route-read-budget-
 import { patchPnoScanEvidenceUx } from "./patch-pno-scan-evidence-ux.mjs";
 import { patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destination-truth.mjs";
 import { patchPnoSegmentDestinationFrontend } from "./patch-pno-segment-destination-frontend.mjs";
-import { patchPnoBranchSearchFrontend } from "./patch-pno-branch-search-v1.mjs";
 import { patchPnoDestinationTablesStability } from "./patch-pno-destination-tables-stability-v1.mjs";
 import { patchPnoMobileModalScope } from "./patch-pno-mobile-modal-scope-v1.mjs";
 
@@ -208,7 +207,7 @@ export function patchDevUiShellSource(source, currentPage) {
   if (currentPage === "ms.html") {
     // Deliver the PNO destination summary under a distinct DEV-only asset version.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261015-pno-mobile-modal-v2"');
+      'src="ms.js?v=20261015-pno-select-only-v3"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -494,7 +493,6 @@ export function stageFrontend(source) {
   output = patchPnoDestinationSummary(output);
   output = patchMsRedegradeTraceFrontendFinal(output);
   output = patchMsTursoLateSettleFrontend(patchMsTursoTimeoutProducerFrontend(output));
-  output = patchPnoBranchSearchFrontend(output);
   output = patchPnoDestinationTablesStability(output);
   output = patchPnoMobileModalScope(output);
   return output;

@@ -71,7 +71,7 @@ test('missing optional source-valid metadata fails closed without changing retur
 const releaseScript='ms.js?v=20261015-pno-select-only-v3';
 const legacyWorkflowSource=fs.readFileSync(new URL('../workflows/deploy-worker-dev.yml',import.meta.url),'utf8');
 // Exercise legacy release smoke against the exact new candidate bytes without mutating the locked historical workflow.
-const workflowSource=legacyWorkflowSource.replaceAll('20261014-rev98-pno-only-delivery-v1','20261015-pno-select-only-v3').replaceAll('7866a1b31de1f6bce79e24a488a0a0fe1fc25c9efe3eb4ae9f889d37cc351ea4','2b637f247aba769d028fb06019a49f2bcb4569365677c8768f3062b34a364b22');
+const workflowSource=legacyWorkflowSource.replaceAll('20261014-rev98-pno-only-delivery-v1','20261015-pno-select-only-v3').replaceAll('7866a1b31de1f6bce79e24a488a0a0fe1fc25c9efe3eb4ae9f889d37cc351ea4','ac810ad38b69a892b312e5e2704fbf696f8891f2834cb0ce38fb60adda51b0e2');
 const serviceWorkerSource=fs.readFileSync(new URL('../../sw.js',import.meta.url),'utf8');
 // REV98: smoke must validate the actual two-stage delivered file, not only stageFrontend().
 function composeDelivery(){
@@ -125,7 +125,7 @@ test('REV74 smoke fails closed on old HTML and missing summary implementation',a
 const deliveryHtml='<script src="'+releaseScript+'"></script>';
 test('REV98 unique version and full actual composed bytes match strict local predeploy/postdeploy digests',()=>{
  const hash=createHash('sha256').update(delivered,'utf8').digest('hex');
- assert.equal(hash,'2b637f247aba769d028fb06019a49f2bcb4569365677c8768f3062b34a364b22');
+ assert.equal(hash,'ac810ad38b69a892b312e5e2704fbf696f8891f2834cb0ce38fb60adda51b0e2');
  assert.equal((workflowSource.match(new RegExp(hash,'g'))||[]).length,2);
  assert.match(workflowSource,/staged PNO isolated asset integrity mismatch/);
  assert.match(workflowSource,/live PNO isolated asset integrity mismatch/);

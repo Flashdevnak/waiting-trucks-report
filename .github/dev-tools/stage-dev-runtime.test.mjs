@@ -283,7 +283,7 @@ test("DEV phase script URL, service worker and deployed-asset smoke share one de
   assert.match(sw, /url\.searchParams\.set\("__fresh", VERSION\)/);
   assert.match(sw, /cache: "no-store"/);
   assert.ok(isolatedWorkflow.includes(script));
-  assert.ok(isolatedWorkflow.includes("2b637f247aba769d028fb06019a49f2bcb4569365677c8768f3062b34a364b22"));
+  assert.ok(isolatedWorkflow.includes("ac810ad38b69a892b312e5e2704fbf696f8891f2834cb0ce38fb60adda51b0e2"));
   assert.match(isolatedWorkflow, /PNO.*asset/i);
   assert.match(workflow, /live MS phase snapshot exporter missing/);
   assert.match(workflow, /criticalPath: criticalPath\.snapshot\(\)/);

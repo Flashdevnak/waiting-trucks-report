@@ -1,16 +1,21 @@
 name: PNO-only DEV Isolated Release
+
 on:
   push:
-    branches: [codex/pno-only-actions-20261015]
+    branches:
+      - codex/pno-only-actions-20261015
     paths:
       - '.github/workflows/pno-only-dev-isolated-release.yml'
       - '.github/dev-tools/**'
       - '.github/pno-only-dev-deploy-approval.txt'
+
 permissions:
   contents: read
+
 concurrency:
   group: pno-only-dev-isolated-release
   cancel-in-progress: false
+
 jobs:
   pno_only:
     if: "${{ github.event.head_commit.message != 'ci(dev): install isolated PNO Actions without deployment' }}"
@@ -23,29 +28,49 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: worker/package-lock.json
-      - name: Verify sealed PNO source and unchanged Worker
+
+      - name: Verify sealed PNO source tree and unchanged Worker
         working-directory: .
         shell: bash
         run: |
           set -euo pipefail
           parent='9e8ce9305289b25a78d3881e0f175515e8e74b10'
           candidate='b4284d6badf0f72d0e955fecac24197b4f77fc04'
+          expected_tree='6ac8faf868c47b9026867b8b83eb3c78218faac4'
           test "$GITHUB_REF" = 'refs/heads/codex/pno-only-actions-20261015'
-          test "$(git rev-parse "$candidate^")" = "$parent"
-          test "$(git rev-parse "$candidate^{tree}")" = '6ac8faf868c47b9026867b8b83eb3c78218faac4'
+          test "$(git rev-parse "${candidate}^")" = "$parent"
+          test "$(git rev-parse "${candidate}^{tree}")" = "$expected_tree"
           git merge-base --is-ancestor "$candidate" HEAD
           git diff --quiet "$parent" "$candidate" -- worker
-          git diff --quiet "$candidate" HEAD -- . ':(exclude).github/workflows/pno-only-dev-isolated-release.yml' ':(exclude).github/pno-only-dev-deploy-approval.txt'
+          git diff --quiet "$candidate" HEAD -- worker
+          # Only these DEV-only UI/test files may differ from the accepted PNO base.
+          git diff --quiet "$candidate" HEAD -- . \
+            ':(exclude).github/dev-tools/patch-pno-branch-search-v1.mjs' \
+            ':(exclude).github/dev-tools/patch-pno-destination-tables-stability-v1.mjs' \
+            ':(exclude).github/dev-tools/pno-branch-search-v1.test.mjs' \
+            ':(exclude).github/dev-tools/pno-destination-tables-stability-v1.test.mjs' \
+            ':(exclude).github/dev-tools/stage-dev-runtime.mjs' \
+            ':(exclude).github/dev-tools/pno-destination-summary-rev73.test.mjs' \
+            ':(exclude).github/dev-tools/stage-dev-runtime.test.mjs' \
+            ':(exclude).github/dev-tools/pno-inbound-scan-evidence.test.mjs' \
+            ':(exclude).github/workflows/pno-only-dev-isolated-release.yml'
           test "$(git diff --name-only "$parent" "$candidate" | wc -l | tr -d ' ')" = '17'
-          echo PNO_SOURCE_TREE_AND_SCOPE=PASS
-      - name: Install pinned Wrangler
+          echo 'PNO_SOURCE_TREE_AND_SCOPE=PASS'
+
+      - name: Install exact locked toolchain
         run: npm ci --no-audit --no-fund
-      - name: Stage and verify exact DEV assets
+
+      - name: Verify PNO UX and legacy release contract
+        run: |
+          node --test ../.github/dev-tools/pno-destination-summary-rev73.test.mjs ../.github/dev-tools/pno-branch-search-v1.test.mjs ../.github/dev-tools/pno-destination-tables-stability-v1.test.mjs ../.github/dev-tools/stage-dev-runtime.test.mjs ../.github/dev-tools/pno-inbound-scan-evidence.test.mjs
+
+      - name: Stage exact DEV runtime and assets
         shell: bash
         run: |
           set -euo pipefail
@@ -58,52 +83,64 @@ jobs:
           node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
           node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js .dev-runtime/src/origin-manifest-v1.js
           node <<'NODE'
-          const fs=require('fs'),crypto=require('crypto');
-          if(fs.readdirSync('.dev-assets').length!==28) throw Error('DEV asset count is not 28');
+          const fs=require('fs');const crypto=require('crypto');
+          const root=fs.readdirSync('.dev-assets',{withFileTypes:true}).filter(x=>x.isFile());
+          if(root.length!==28)throw Error('Expected exactly 28 DEV assets; found '+root.length);
           const html=fs.readFileSync('.dev-assets/ms.html','utf8');
-          if(!html.includes('ms.js?v=20261014-rev98-pno-only-delivery-v1')) throw Error('PNO version mismatch');
-          const h=crypto.createHash('sha256').update(fs.readFileSync('.dev-assets/ms.js')).digest('hex');
-          if(h!=='7866a1b31de1f6bce79e24a488a0a0fe1fc25c9efe3eb4ae9f889d37cc351ea4') throw Error('PNO asset hash mismatch');
-          console.log('PNO_ASSETS_28_AND_SHA=PASS');
+          if(!html.includes('ms.js?v=20261015-pno-destination-ux-v1'))throw Error('Wrong PNO asset version');
+          const sha=crypto.createHash('sha256').update(fs.readFileSync('.dev-assets/ms.js')).digest('hex');
+          if(sha!=='d80f18801e97e8bab6c3766e4e5dd9f5358e76e80ae96ae095cc3fcd4f84b6f2')throw Error('Wrong staged PNO MS hash: '+sha);
+          console.log('PNO_28_ASSETS_AND_SHA=PASS');
           NODE
           node --check .dev-runtime/src/turso-index.js
-      - name: Wrangler DEV dry-run only
+          node --check .dev-assets/ms.js
+
+      - name: Verify DEV-only Wrangler dry run
         run: |
-          if grep -q d1_databases wrangler.dev.jsonc; then echo 'D1 forbidden' >&2; exit 1; fi
+          if grep -q 'd1_databases' wrangler.dev.jsonc; then echo 'D1 forbidden' >&2; exit 1; fi
           npx --no-install wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc --dry-run
-      - name: Check explicit one-shot approval file
+
+      - name: Check one-shot explicit deployment approval
         id: approval
         working-directory: .
         shell: bash
         run: |
           set -euo pipefail
-          f='.github/pno-only-dev-deploy-approval.txt'
-          if test -f "$f" && git diff-tree --no-commit-id --name-only -r HEAD | grep -Fxq "$f" &&
-             grep -Fxq 'PNO_DEV_COMMIT=b4284d6badf0f72d0e955fecac24197b4f77fc04' "$f" &&
-             grep -Fxq 'ROLLBACK_VERSION=320a065e-0a14-4dfb-a749-d65e5b9e7aea' "$f" &&
-             grep -Fxq 'TARGET=waiting-trucks-report-api-dev' "$f"; then
+          file='.github/pno-only-dev-deploy-approval.txt'
+          if test -f "$file" && git diff-tree --no-commit-id --name-only -r HEAD | grep -Fxq "$file" && \
+             grep -Fxq 'PNO_UI_RELEASE=20261015-pno-destination-ux-v1' "$file" && \
+             grep -Fxq 'ROLLBACK_VERSION=2aba2c5e-3fc5-4ad3-b9ef-ed2b0c534d5c' "$file" && \
+             grep -Fxq 'ASSET_SHA256=d80f18801e97e8bab6c3766e4e5dd9f5358e76e80ae96ae095cc3fcd4f84b6f2' "$file" && \
+             grep -Fxq 'TARGET=waiting-trucks-report-api-dev' "$file"; then
             echo 'approved=true' >> "$GITHUB_OUTPUT"
           else
             echo 'approved=false' >> "$GITHUB_OUTPUT"
-            echo 'PREFLIGHT ONLY; no deploy authorized.'
+            echo 'PREDEPLOY_PASS. No explicit authorization file in this exact commit; no upload or deploy.'
           fi
-      - name: Verify existing DEV secrets
+
+      - name: Verify scoped credentials and DEV Worker before deployment
         if: steps.approval.outputs.approved == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
         run: |
           set -euo pipefail
-          test -n "$CLOUDFLARE_API_TOKEN"
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
-          secrets_list="$(npx --no-install wrangler secret list --name waiting-trucks-report-api-dev --config wrangler.dev.jsonc)"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          secret_list="$(npx --no-install wrangler secret list --name waiting-trucks-report-api-dev --config wrangler.dev.jsonc)"
           for key in TURSO_DATABASE_URL TURSO_AUTH_TOKEN AUTH_SECRET PASSWORD_PEPPER; do
-            printf '%s' "$secrets_list" | grep -Fq "$key" || { echo "Missing DEV secret: $key" >&2; exit 1; }
+            printf '%s' "$secret_list" | grep -Fq "\"$key\"" || { echo "Missing DEV secret name: $key" >&2; exit 1; }
           done
-          echo DEV_SECRET_NAMES=PASS
-      - name: Deploy only DEV Worker
+          echo 'EXISTING_DEV_SECRETS=PASS'
+
+      - name: Deploy only DEV Worker (authorized commit)
         if: steps.approval.outputs.approved == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --no-install wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --no-install wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
+          echo 'PNO_ONLY_DEV_DEPLOY_TRIGGERED=1'

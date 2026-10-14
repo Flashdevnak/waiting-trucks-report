@@ -811,5 +811,5 @@ test("scan-gap tab shows gaps and technical unknowns without history controls", 
   assert.match(stagedWorker, /json\.data\.DataList\.length <= PNO_PAGE_SIZE/);
   assert.match(stagedWorker, /json\.data\.DataList\.length <= Number\(json\.data\.Total\)/);
   const html = patchDevUiShellSource(readFileSync(new URL("../../ms.html", import.meta.url), "utf8"), "ms.html");
-  assert.match(html, /ms\.js\?v=20261014-rev98-pno-only-delivery-v1/);
+  assert.match(html, /ms\.js\?v=20261015-pno-destination-ux-v1/);
 });

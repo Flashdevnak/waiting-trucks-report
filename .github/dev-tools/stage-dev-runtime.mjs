@@ -109,6 +109,8 @@ import { patchMsRouteReadBudgetIsolationV1 } from "./patch-ms-route-read-budget-
 import { patchPnoScanEvidenceUx } from "./patch-pno-scan-evidence-ux.mjs";
 import { patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destination-truth.mjs";
 import { patchPnoSegmentDestinationFrontend } from "./patch-pno-segment-destination-frontend.mjs";
+import { patchPnoBranchSearchFrontend } from "./patch-pno-branch-search-v1.mjs";
+import { patchPnoDestinationTablesStability } from "./patch-pno-destination-tables-stability-v1.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -205,7 +207,7 @@ export function patchDevUiShellSource(source, currentPage) {
   if (currentPage === "ms.html") {
     // Deliver the PNO destination summary under a distinct DEV-only asset version.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261014-rev98-pno-only-delivery-v1"');
+      'src="ms.js?v=20261015-pno-destination-ux-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -491,6 +493,8 @@ export function stageFrontend(source) {
   output = patchPnoDestinationSummary(output);
   output = patchMsRedegradeTraceFrontendFinal(output);
   output = patchMsTursoLateSettleFrontend(patchMsTursoTimeoutProducerFrontend(output));
+  output = patchPnoBranchSearchFrontend(output);
+  output = patchPnoDestinationTablesStability(output);
   return output;
 }
 

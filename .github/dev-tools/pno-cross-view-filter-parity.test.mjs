@@ -355,10 +355,11 @@ for (const type of ["total", "already", "no_entry", "bag", "scan_gap"])
     const h = harness({ type }); h.call("pnoV18RenderFilters()");
     const markup = h.nodes.get("pno-v18-filterbar").innerHTML;
     for (const label of ["สถานะ", "การดำเนินการล่าสุด",
-      type === "bag" ? "ชื่อสาขาต่อไป" : "สาขาปลายทาง", ...(type === "bag" ? [] : ["HUB ปลายทาง"])])
+      "สาขาปลายทาง", "HUB ปลายทาง"])
       assert.ok(markup.includes(label), label);
     assert.doesNotMatch(markup, /HUB ถัดไป|HUBปลายทาง/);
-    assert.equal((markup.match(/data-pno-v18-filter=/g) || []).length, type === "bag" ? 3 : 4);
+    assert.deepEqual(h.nodes.get("pno-v18-filterbar").selects.map(x=>x.dataset.pnoV18Filter), ["status","action","hub","branch"]);
+    assert.equal((markup.match(/data-pno-v18-filter=/g) || []).length, 4);
     assert.equal(h.observed.fetch.length, 0, "rendering controls never reads another page");
   });
 
@@ -366,7 +367,8 @@ for (const from of ["total", "already", "no_entry", "bag", "scan_gap"])
   for (const to of ["total", "already", "no_entry", "bag", "scan_gap"].filter((type) => type !== from))
     test(`${from} → ${to}: switching tabs clears filters and prepares only the opened view`, async () => {
       const h = harness({ type: from });
-      Object.assign(h.state.filters, { status: "รอ", action: "รับ", branch: "BRANCH-A" });
+      Object.assign(h.state.filters, { status: "รอ", action: "รับ", hub:"OLD-HUB", branch: "BRANCH-A" });
+      h.state.filterPage = 3;
       h.state.filterRows = rows;
       h.state.filterKey = `SYNTHETIC_OCCURRENCE|${from}`;
       h.state.filterAt = Date.now();
@@ -374,6 +376,7 @@ for (const from of ["total", "already", "no_entry", "bag", "scan_gap"])
         : to === "bag" ? "pnoV18LoadBags()" : `pnoV18Load("${to}", 1)`);
       await h.waitPrepared();
       assert.deepEqual(h.state.filters, { status: "", action: "", hub: "", branch: "" });
+      assert.equal(h.state.filterPage, 1);
       assert.equal(to === "bag" ? h.state.filterRows : h.state.filterRows?.length, to === "bag" ? null : rows.length);
       assert.deepEqual(h.observed.fetch.map(([sourceType, page]) => [sourceType, page]),
         to === "bag" ? [["total", 1]] : [[to === "scan_gap" ? "total" : to, 1], [to === "scan_gap" ? "total" : to, 1]],
@@ -444,14 +447,17 @@ test("scan-gap page navigation follows filtered rows, not provider total", () =>
 });
 
 test("bag copy and export contain the same filtered grouped rows", async () => {
-  const h = harness({ type: "bag" }); h.state.filters.branch = "BRANCH-B";
+  const all = rows.map(row=>({...row,nextStoreName:"NEXT-DISTINCT"}));
+  const h = harness({ type: "bag", all }); h.state.filters.branch = "BRANCH-B";
   await h.call("pnoV18Copy()"); await h.call("pnoV18Export()");
   assert.match(h.observed.clip, /SYNTHETIC-BAG-B/);
   assert.doesNotMatch(h.observed.clip, /SYNTHETIC-BAG-A/);
   assert.equal(h.observed.downloads[0].values.length, 1);
   assert.equal(h.observed.downloads[0].values[0]["เลขถุงแบ็กกิ้ง"], "SYNTHETIC-BAG-B");
   assert.equal(h.observed.downloads[0].values[0]["จำนวนพัสดุ"], 1);
-  assert.equal(h.observed.downloads[0].values[0]["ชื่อสาขาต่อไป"], "BRANCH-B");
+  assert.equal(h.observed.downloads[0].values[0]["ชื่อสาขาต่อไป"], "NEXT-DISTINCT");
+  assert.equal(h.observed.downloads[0].values[0]["สาขาปลายทาง"], "BRANCH-B");
+  assert.match(h.observed.clip, /NEXT-DISTINCT/);
   assert.match(h.observed.clip, /ชื่อสาขาต่อไป/);
   assert.equal(h.observed.fetch.length, 0);
 });

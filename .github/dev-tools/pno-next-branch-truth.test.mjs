@@ -1,3 +1,4 @@
+import { harness as contractHarness, item as contractItem } from "./pno-rev89-contract-harness.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -55,16 +56,23 @@ test("bag summary keeps next-store independent from authoritative parcel HUB", (
   const groups = group(rows);
   assert.equal(groups.length, 1);
   assert.equal(groups[0][0], "BAG_A");
-  assert.equal(summary(groups[0][1]).branch, "NEXT_A");
+  assert.equal(summary(groups[0][1]).branch, "หลายสาขา");
+  assert.equal(summary(groups[0][1]).nextStore, "NEXT_A");
   assert.equal(summary(groups[0][1]).hub, "HUB_A");
-  assert.equal(summary([{ nextStoreName: "NEXT_A" }, { nextStoreName: "NEXT_B" }]).branch, "หลายสาขา");
-  assert.equal(summary([{ nextStoreName: "" }, { nextStoreName: "" }]).branch, "-");
+  assert.equal(summary([{ nextStoreName: "NEXT_A" }, { nextStoreName: "NEXT_B" }]).nextStore, "หลายสาขา");
+  assert.equal(summary([{ nextStoreName: "" }, { nextStoreName: "" }]).nextStore, "-");
+  assert.equal(summary(groups[0][1]).hub, "HUB_A");
 });
 
-test("staged parcel and bag labels keep next-store distinct from destination HUB", () => {
+test("staged parcel and bag labels keep next-store distinct from destination HUB", async () => {
   assert.doesNotMatch(frontend, /สาขาถัดไป|จุดที่ระบุในข้อมูลพัสดุ/);
   assert.match(frontend, /<th>HUB ปลายทาง<\/th><th>สาขาปลายทาง<\/th>/);
-  assert.match(frontend, /<th>HUB ถัดไป<\/th><th>ชื่อสาขาต่อไป<\/th>/);
+  const h=contractHarness([contractItem("FIELDS","B","NE11","DELIVERY-R")]);
+  h.call('pnoV18RenderBags(pnoV18State.bagRows)');
+  const markup=h.node("pending-parcels-list").innerHTML;
+  assert.match(markup,/<th>HUB ปลายทาง<\/th><th>สาขาปลายทาง<\/th><th>ชื่อสาขาต่อไป<\/th>/);
+  for(const command of ['pnoV18Copy()','pnoV18CopyLine()']){await h.call(command);for(const value of ["NE11","DELIVERY-R","NEXT_ONLY"])assert.ok(h.obs.clip.includes(value));}
+  await h.call('pnoV18Export()');assert.equal(h.obs.exports[0]["ชื่อสาขาต่อไป"],"NEXT_ONLY");
   assert.match(frontend, /"HUB ปลายทาง": row\.targetHub/);
   assert.match(frontend, /"สาขาปลายทาง": pnoV18DisplayBranch\(row\.targetBranch\)/);
   assert.match(frontend, /PNO_NEXT_STORE_SEMANTICS_V3/);
@@ -72,9 +80,13 @@ test("staged parcel and bag labels keep next-store distinct from destination HUB
   assert.equal(patchPnoDestinationLabelsFrontend(frontend), frontend, "frontend staging is idempotent");
 });
 
-test("all PNO detail modes, copying, filtering and exporting use the shared projection", () => {
+test("all PNO detail modes, copying, filtering and exporting use the shared projection", async () => {
   assert.match(worker, /type: locator\.type/);
-  assert.match(frontend, /pnoV18Fetch\("total", 1\)/);
+  const all=Array.from({length:4205},(_,i)=>contractItem("PAGE-"+i,"B"+Math.floor(i/10),i%2?"E1":"NE11","R"+i%3));
+  const h=contractHarness(all);await h.call('pnoV18LoadBags()');
+  assert.deepEqual(h.obs.fetch,Array.from({length:22},(_,i)=>i+1));
+  assert.equal(h.state.bagRows.length,4205);assert.equal(h.obs.cache,1);
+  assert.equal(h.call('pnoV18FilteredBagGroups().reduce((n,[,members])=>n+members.length,0)'),4205);
   assert.match(frontend, /pnoV18Fetch\(type, page\)/);
   assert.match(frontend, /item\.targetBranch/);
   assert.match(frontend, /row\.targetBranch/);

@@ -203,6 +203,16 @@ jobs:
           console.log('DEV_AUTH_SECRETS=PASS');
           NODE
 
+      - name: Verify isolated PNO asset integrity
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const front=fs.readFileSync('.dev-assets/ms.js','utf8');
+          const html=fs.readFileSync('.dev-assets/ms.html','utf8');
+          if(!html.includes('src="ms.js?v=20261014-rev98-pno-only-delivery-v1"')) throw new Error('staged PNO script URL missing');
+          if(require('node:crypto').createHash('sha256').update(front,'utf8').digest('hex')!=='7866a1b31de1f6bce79e24a488a0a0fe1fc25c9efe3eb4ae9f889d37cc351ea4') throw new Error('staged PNO isolated asset integrity mismatch');
+          NODE
+
       - name: Deploy DEV Worker on Turso
         if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1' || github.ref == 'refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1' || github.ref == 'refs/heads/codex/dev-ms-turso-critical-path-phase-provenance-v1') }}
         run: npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
@@ -294,9 +304,12 @@ jobs:
           if(/\bfetch\s*\(|new\s+WebSocket|new\s+EventSource|setInterval\s*\(|setTimeout\s*\(/.test(supervisorView)) throw new Error('Supervisor view introduced runtime transport');
           if((supervisorJs.match(/\bfetch\s*\(/g)||[]).length!==1||!supervisorJs.includes('fetch("/api/supervisor/snapshot"')) throw new Error('Supervisor shared snapshot transport contract missing');
           if(/new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced background transport');
-          const msScript='ms.js?v=20261009-ms-route-source-page-timing-v1';
+          const {createHash}=await import('node:crypto');
+          const msScript='ms.js?v=20261014-rev98-pno-only-delivery-v1';
           if(!ms.includes(`src="${msScript}"`)) throw new Error('live MS route timing script URL missing');
           const msJs=await get(msScript);
+          if(!msJs.includes('// PNO_DESTINATION_SUMMARY_REV73:')||!msJs.includes('function pnoDestinationAggregate(')||!msJs.includes("card.insertAdjacentElement('afterend', panel)")) throw new Error('live PNO destination summary implementation missing');
+          if(createHash('sha256').update(msJs,'utf8').digest('hex')!=='7866a1b31de1f6bce79e24a488a0a0fe1fc25c9efe3eb4ae9f889d37cc351ea4') throw new Error('live PNO isolated asset integrity mismatch');
           if(!ms.includes('การเชื่อมต่อ MS (QR/HAR)')) throw new Error('MS QR/HAR entry missing');
           if(!proof.includes('ms.html#connection')) throw new Error('Proof shared connection link missing');
           if(!msJs.includes('DEV_HAR_COMPACT_ACTIONS_V3')) throw new Error('live compact HAR action marker missing');

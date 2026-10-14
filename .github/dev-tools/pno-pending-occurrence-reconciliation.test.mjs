@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { stageFrontend } from "./stage-dev-runtime.mjs";
 import { readSharedPnoPage } from "../../worker/.dev-runtime/src/index.js";
+import { ingestPnoExactHistory, pnoEvidenceKeys } from "../../worker/src/pno-inbound-scan-evidence.js";
 
 const staged = stageFrontend(readFileSync(new URL("../../ms.js", import.meta.url), "utf8"));
 const worker = readFileSync(new URL("../../worker/.dev-runtime/src/index.js", import.meta.url), "utf8");
@@ -167,29 +168,151 @@ class MemoryStorage {
   async put(values) { for (const [key, value] of Object.entries(values)) this.values.set(key, value); }
 }
 
-test("shared no_entry page recognizes its own scan and retains it after SEAL and SHIPMENT", async () => {
-  const owner = { ctx: { storage: new MemoryStorage() } };
+// REV76: separate unresolved snapshots from accepted, event-located scan facts.
+// These are synthetic fixtures. Only actual application ingestion writes the
+// positive; no test seeds scanInObserved or bypasses the trust boundary.
+function sharedNoEntryFixture() {
+  const storage = new MemoryStorage();
+  const owner = { ctx: { storage } };
   const locator = { hub: "NE1", proofId: "PROOF", day: "2026-09-24", lineId: "LINE",
     storeId: "PREVIOUS", nextStoreId: "CURRENT", type: "no_entry", page: 1,
     count: 37, canReport: false, force: true };
   const base = { pno: "P1", store_id: "CURRENT", real_arrive_time: "2026-09-24 02:00:00" };
-  let action = "ARRIVAL_WAREHOUSE_SCAN";
-  let calls = 0;
-  const deps = { readCredential: async () => ({}), now: () => Date.parse("2026-09-23T20:00:00Z"),
+  const observedAt = "2026-09-23T20:00:00.000Z";
+  let action = "ARRIVAL_WAREHOUSE_SCAN", calls = 0, ingestions = 0;
+  const currentRow = () => ({ ...base, LastAction: action,
+    LastActionTime: action === "ARRIVAL_WAREHOUSE_SCAN"
+      ? "2026-09-24 02:10:00" : "2026-09-24 02:20:00" });
+  const history = () => ({ data: { result: { parcel_info: { pno: base.pno },
+    parcel_routes: [
+      { route_action: "ARRIVAL_GOODS_VAN_CHECK_SCAN", store_id: "CURRENT", routed_at: base.real_arrive_time },
+      { route_action: "ARRIVAL_WAREHOUSE_SCAN", store_id: "CURRENT", routed_at: "2026-09-24 02:10:00" },
+    ] } } });
+  const deps = { readCredential: async () => ({}), now: () => Date.parse(observedAt),
     fetchDetailPage: async () => { calls++;
-      return { items: [{ ...base, LastAction: action, LastActionTime: action === "ARRIVAL_WAREHOUSE_SCAN"
-        ? "2026-09-24 02:10:00" : "2026-09-24 02:20:00" }], total: 37, sourceValid: true };
+      return { items: [currentRow()], total: 37, sourceValid: true };
     } };
-  for (const next of ["ARRIVAL_WAREHOUSE_SCAN", "SEAL", "SHIPMENT_WAREHOUSE_SCAN"]) {
-    action = next;
-    const result = await readSharedPnoPage(owner, {}, locator, deps);
-    assert.equal(result.type, "no_entry");
-    assert.equal(result.total, 37);
-    assert.equal(result.sourceValid, true);
-    assert.equal(result.parcels[0].scanEvidence.classification, "CONFIRMED_SCAN_IN");
+  return { owner, storage, locator, base, observedAt, currentRow, history,
+    setAction: (next) => { action = next; },
+    page: (overrides = {}) => readSharedPnoPage(owner, {}, { ...locator, ...overrides }, deps),
+    ingest: (supplied = history(), overrides = {}) => {
+      ingestions++;
+      return ingestPnoExactHistory(storage, { ...locator, ...overrides }, currentRow(), supplied, observedAt);
+    },
+    calls: () => calls, ingestions: () => ingestions };
+}
+
+function assertSharedPage(result, classification) {
+  assert.equal(result.type, "no_entry");
+  assert.equal(result.total, 37, "provider denominator is not rewritten from one inspected fixture row");
+  assert.equal(result.sourceValid, true);
+  assert.equal(result.parcels[0].scanEvidence.classification, classification);
+}
+
+test("shared no_entry snapshot-only scan stays uncertain after SEAL and SHIPMENT", async () => {
+  const fixture = sharedNoEntryFixture();
+  assert.equal(fixture.storage.values.size, 0);
+  const identities = [];
+  for (const action of ["ARRIVAL_WAREHOUSE_SCAN", "SEAL", "SHIPMENT_WAREHOUSE_SCAN"]) {
+    fixture.setAction(action);
+    const key = await pnoEvidenceKeys(fixture.locator, fixture.currentRow());
+    identities.push(key.occurrence);
+    const result = await fixture.page();
+    assertSharedPage(result, "INSUFFICIENT_HISTORY");
+    assert.equal(result.parcels[0].scanEvidence.reason, "LOCATION_OR_OCCURRENCE_UNRESOLVED");
+    const record = fixture.storage.values.get(key.occurrence);
+    assert.equal(record.scanInObserved, false);
+    assert.equal(record.scanInSource, null);
+    assert.equal(record.latestObservedAction, action);
   }
-  assert.equal(calls, 3);
+  assert.equal(new Set(identities).size, 1, "same occurrence throughout; uncertainty is not an identity swap");
+  assert.equal(fixture.calls(), 3);
+  assert.equal(fixture.ingestions(), 0, "snapshots do not acquire or ingest history");
+});
+
+test("shared no_entry accepts matched history then retains CONFIRMED through SEAL and SHIPMENT", async () => {
+  const fixture = sharedNoEntryFixture();
+  const unknown = await fixture.page();
+  assertSharedPage(unknown, "INSUFFICIENT_HISTORY");
+  const key = await pnoEvidenceKeys(fixture.locator, fixture.currentRow());
+  assert.equal(fixture.storage.values.get(key.occurrence).scanInObserved, false);
+  const supplied = fixture.history(), originalBytes = JSON.stringify(supplied);
+  const accepted = await fixture.ingest(supplied);
+  assert.equal(JSON.stringify(supplied), originalBytes, "ingestion preserves supplied timestamp/payload values");
+  assert.equal(fixture.calls(), 1, "local ingestion performs no additional page request");
+  assert.equal(fixture.ingestions(), 1);
+  assert.equal(accepted.classification, "CONFIRMED_SCAN_IN");
+  assert.equal(accepted.scanInSource, "EXPLICIT_WAYBILL_HISTORY");
+  assert.equal(accepted.scanInAction, "ARRIVAL_WAREHOUSE_SCAN");
+  assert.equal(accepted.scanInEventAt, "2026-09-24 02:10:00");
+  assert.equal(accepted.scanInObservedAt, fixture.observedAt);
+  const record = fixture.storage.values.get(key.occurrence);
+  assert.deepEqual(record.occurrence, key.identity);
+  assert.equal(record.scanInStoreId, "CURRENT");
+  assert.equal(record.scanInObserved, true, "positive was persisted by the actual validated ingestion helper");
+  for (const action of ["SEAL", "SHIPMENT_WAREHOUSE_SCAN"]) {
+    fixture.setAction(action);
+    const result = await fixture.page();
+    assertSharedPage(result, "CONFIRMED_SCAN_IN");
+    assert.deepEqual(result.parcels[0].scanEvidence, accepted);
+    assert.equal(fixture.storage.values.get(key.occurrence).latestObservedAction, action);
+    assert.equal(fixture.ingestions(), 1, "later actions do not repeat exact-history ingestion");
+  }
+  assert.equal(fixture.calls(), 3, "same three explicit detail snapshots; no new acquisition path");
+  const cached = await fixture.page({ force: false });
+  assertSharedPage(cached, "CONFIRMED_SCAN_IN");
+  assert.equal(cached.cacheState, "HIT");
+  assert.equal(fixture.calls(), 3, "cached reopen adds no page request or retry");
+  assert.equal(fixture.ingestions(), 1);
   assert.doesNotMatch(worker, /CONFIRMED_MISSED_SCAN/);
   assert.doesNotMatch(section("function pnoPendingEvidenceLabel(", "function pnoV18ParcelAction("),
     /curl_pno|fetch\(|apiGet\(/);
+});
+
+test("shared no_entry rejects wrong location, arrival, parcel identity and scan ordering", async (context) => {
+  const cases = [
+    ["wrong scan store", (h) => { h.data.result.parcel_routes[1].store_id = "OTHER"; }],
+    ["wrong arrival store", (h) => { h.data.result.parcel_routes[0].store_id = "OTHER"; }],
+    ["wrong arrival time", (h) => { h.data.result.parcel_routes[0].routed_at = "2026-09-24 01:59:59"; }],
+    ["wrong PNO", (h) => { h.data.result.parcel_info.pno = "ANOTHER_PARCEL"; }],
+    ["scan before arrival", (h) => { h.data.result.parcel_routes[1].routed_at = "2026-09-24 01:59:59"; }],
+    ["scan after current action", (h) => { h.data.result.parcel_routes[1].routed_at = "2026-09-24 02:10:01"; }],
+    ["malformed scan time", (h) => { h.data.result.parcel_routes[1].routed_at = "invalid"; }],
+    ["different arrival day", (h) => { h.data.result.parcel_routes[0].routed_at = "2026-09-25 02:00:00"; }],
+  ];
+  for (const [name, mutate] of cases) {
+    const fixture = sharedNoEntryFixture();
+    await fixture.page();
+    const supplied = fixture.history(); mutate(supplied);
+    const before = JSON.stringify([...fixture.storage.values]);
+    const denied = await fixture.ingest(supplied);
+    assert.equal(denied.classification, "INSUFFICIENT_HISTORY", name);
+    assert.equal(denied.reason, "HISTORY_OCCURRENCE_UNVERIFIED", name);
+    assert.equal(JSON.stringify([...fixture.storage.values]), before, name + " must not persist a false positive");
+    const cached = await fixture.page({ force: false });
+    assertSharedPage(cached, "INSUFFICIENT_HISTORY");
+    assert.equal(fixture.calls(), 1, name + " must not retry acquisition");
+    assert.equal(fixture.ingestions(), 1);
+    context.diagnostic(name + ": rejected, unchanged memory, cached UNKNOWN, no retry");
+  }
+});
+
+test("shared no_entry accepted scan cannot leak to another same-proof occurrence or HUB", async () => {
+  const fixture = sharedNoEntryFixture();
+  await fixture.page(); await fixture.ingest();
+  const acceptedKey = await pnoEvidenceKeys(fixture.locator, fixture.currentRow());
+  const accepted = structuredClone(fixture.storage.values.get(acceptedKey.occurrence));
+  fixture.setAction("SHIPMENT_WAREHOUSE_SCAN");
+  for (const change of [{ lineId: "ANOTHER_LINE" }, { day: "2026-09-25" },
+    { hub: "E1" }, { proofId: "ANOTHER_PROOF" }, { storeId: "ANOTHER_SOURCE" },
+    { nextStoreId: "ANOTHER_TARGET" }]) {
+    const key = await pnoEvidenceKeys({ ...fixture.locator, ...change }, fixture.currentRow());
+    assert.notEqual(key.occurrence, acceptedKey.occurrence);
+    assertSharedPage(await fixture.page(change), "INSUFFICIENT_HISTORY");
+    assert.deepEqual(fixture.storage.values.get(acceptedKey.occurrence), accepted,
+      "another identity cannot overwrite the original accepted positive");
+  }
+  assertSharedPage(await fixture.page(), "CONFIRMED_SCAN_IN");
+  assert.equal(fixture.ingestions(), 1);
+  assert.equal(fixture.calls(), 8, "initial, six independent identities and original reopen only");
 });

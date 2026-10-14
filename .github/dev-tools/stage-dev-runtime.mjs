@@ -1,3 +1,5 @@
+import { patchPnoBagFilterParityRev86 } from "./patch-pno-bag-filter-parity-rev86.mjs";
+import { patchPnoDestinationSummary } from "./patch-pno-destination-summary-rev73.mjs";
 import { execFileSync } from "node:child_process";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -201,9 +203,9 @@ export function patchDevUiShellSource(source, currentPage) {
     `href="${DEV_STYLE_HREF}"`,
   );
   if (currentPage === "ms.html") {
-    // The route source observer needs a distinct DEV URL from the phase-only asset.
+    // Deliver the PNO destination summary under a distinct DEV-only asset version.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261009-ms-route-source-page-timing-v1"');
+      'src="ms.js?v=20261014-rev98-pno-only-delivery-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -485,6 +487,8 @@ export function stageFrontend(source) {
   output = patchMsResilienceFrontend(output);
   output = patchPnoScanEvidenceUx(output);
   output = patchPnoSegmentDestinationFrontend(output);
+  output = patchPnoBagFilterParityRev86(output);
+  output = patchPnoDestinationSummary(output);
   output = patchMsRedegradeTraceFrontendFinal(output);
   output = patchMsTursoLateSettleFrontend(patchMsTursoTimeoutProducerFrontend(output));
   return output;

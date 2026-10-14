@@ -1,3 +1,4 @@
+import { harness as contractHarness, item as contractItem } from "./pno-rev89-contract-harness.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -202,11 +203,12 @@ test("bag HUB uses unique nonempty parcel destinations, independent of delivery 
     { targetHub: "", targetBranch: "", nextStoreName: "" },
   ];
   assert.equal(bagSummary(parcels).hub, "DEST_HUB");
-  assert.equal(bagSummary(parcels).branch, "NEXT_A");
+  assert.equal(bagSummary(parcels).branch, "หลายสาขา");
+  assert.equal(bagSummary(parcels).nextStore, "NEXT_A");
   assert.equal(bagSummary([{ targetHub: "HUB_A" }, { targetHub: "HUB_B" }]).hub, "HUB_A · HUB_B");
   assert.equal(bagSummary([{ targetHub: "" }, { targetHub: "" }]).hub, "-");
   assert.equal(bagSummary([{ targetHub: "HUB_A", nextStoreName: "NEXT_A" },
-    { targetHub: "HUB_A", nextStoreName: "NEXT_B" }]).branch, "หลายสาขา");
+    { targetHub: "HUB_A", nextStoreName: "NEXT_B" }]).nextStore, "หลายสาขา");
 });
 
 test("bag HUB retains one, two and three full destinations in provider order", () => {
@@ -231,52 +233,37 @@ test("bag HUB retains one, two and three full destinations in provider order", (
 });
 
 test("bag table, Copy, LINE and Export share the complete summary without acquisition", async () => {
-  const names = ["pnoV18ParcelAction", "pnoV18DisplayBranch", "pnoV18BagGroups", "pnoV18BagValue", "pnoV18BagLatest", "pnoV18BagSummary",
-    "pnoV18FilteredBagGroups", "pnoV18RenderBags", "pnoV18TsvCell", "pnoV18LineCell",
-    "pnoV18AppendLineLimited", "pnoV18Copy", "pnoV18CopyLine", "pnoV18Export"];
-  const blocks = names.map((name) => {
-    const prefix = frontend.includes(`async function ${name}(`) ? `async function ${name}(` : `function ${name}(`;
-    const start = frontend.indexOf(prefix), end = frontend.indexOf("\n}\n", start);
-    assert.ok(start >= 0 && end > start, name);
-    return frontend.slice(start, end + 2);
-  });
-  const list = { innerHTML: "", querySelectorAll: () => [] };
-  const observed = { copies: [], exports: [], reads: 0 };
   const hubs = ["16 Central_HUB-วังน้อย", "23 AYU_BHUB-วังน้อย", "65 WNO_BHUB-วังน้อย"];
-  const items = hubs.map((targetHub, i) => ({ backingNo: "SYNTHETIC-BAG", targetHub,
-    nextStoreName: "SYNTHETIC-NEXT", targetBranch: "SYNTHETIC-DELIVERY",
-    lastAction: "SYNTHETIC-ACTION", lastActionAt: String(i) }));
-  const context = { pnoV18State: { type: "bag", bagRows: items, expandedBag: "",
-      filters: { status: "", action: "", branch: "" } },
-    el: () => list, esc: (value) => String(value), nf: new Intl.NumberFormat("en-US"),
-    pnoV18RenderBagSummary() {}, pnoV18UpdateFilterResult() {},
-    pnoV18LineHeader: () => ["SYNTHETIC HEADER"], pnoV18FilterSummaryText: () => "",
-    pnoV18WriteClipboard: async (value) => { observed.copies.push(value); return true; },
-    pnoV18Fetch: () => { observed.reads++; throw new Error("unexpected read"); },
-    toast() {}, XLSX: { utils: { json_to_sheet: (value) => value, book_new: () => ({}),
-      book_append_sheet: (_book, value) => observed.exports.push(value) }, writeFile() {} },
-    Date,
-  };
-  vm.runInNewContext(blocks.join("\n") +
-    "this.render=pnoV18RenderBags;this.copy=pnoV18Copy;this.line=pnoV18CopyLine;this.export=pnoV18Export;", context);
-  const expected = hubs.join(" · ");
-  context.render(items);
-  assert.equal(list.innerHTML.split(expected).length - 1, 2, "desktop and mobile table show every name");
-  await context.copy();
-  await context.line();
-  await context.export();
-  for (const value of observed.copies) assert.ok(value.includes(expected), "clipboard preserves all HUBs");
-  assert.equal(observed.exports[0][0]["HUB ถัดไป"], expected);
-  assert.equal(observed.exports[0][0]["จำนวนพัสดุ"], items.length);
-  assert.equal(observed.reads, 0);
-  assert.doesNotMatch(list.innerHTML + observed.copies.join("\n") + JSON.stringify(observed.exports), /หลาย HUB/);
+  const items = hubs.map((targetHub,i)=>({...contractItem("SYNTH-MEMBER-"+i,"SYNTH-BAG",targetHub,"SYNTH-DELIVERY"),nextStoreName:"SYNTH-NEXT",lastAction:"SEAL"}));
+  const h = contractHarness(items);const expected=hubs.join(" · ");
+  h.call('pnoV18RenderBags(pnoV18State.bagRows)');
+  const markup=h.node("pending-parcels-list").innerHTML;
+  assert.equal(markup.split(expected).length-1,2,"desktop and mobile preserve all destination HUB names");
+  for(const representation of ['pnoV18Copy()','pnoV18CopyLine()']){
+    await h.call(representation);
+    for(const value of [expected,"SYNTH-DELIVERY","SYNTH-NEXT"])assert.ok(h.obs.clip.includes(value),value);
+  }
+  await h.call('pnoV18Export()');
+  assert.equal(h.obs.exports[0]["HUB ปลายทาง"],expected);
+  assert.equal(h.obs.exports[0]["สาขาปลายทาง"],"SYNTH-DELIVERY");
+  assert.equal(h.obs.exports[0]["ชื่อสาขาต่อไป"],"SYNTH-NEXT");
+  assert.equal(h.obs.exports[0]["จำนวนพัสดุ"],3);
+  assert.equal(h.obs.fetch.length,0);
+  const malformed=contractHarness([{...items[0],pno:""}]);
+  assert.throws(()=>malformed.call('pnoV18FilteredBagGroups()'),/PNO/);
 });
 
-test("parcel table, Copy and Export distinguish destination from next store", () => {
+test("parcel table, Copy and Export distinguish destination from next store", async () => {
   assert.ok(frontend.split("HUB ปลายทาง").length > 5);
   assert.doesNotMatch(frontend, /จุดที่ระบุในข้อมูลพัสดุ|HUBปลายทาง/);
   assert.match(frontend, /<th>HUB ปลายทาง<\/th><th>สาขาปลายทาง<\/th>/);
-  assert.match(frontend, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา", \.\.\.\(pnoV18State\.selection === "union" \? \["จุดส่ง"\] : \[\]\)\]/);
+  const parcelFixture = [contractItem("PARCEL-NQR", "B", "NE11", "DELIVERY-R")];
+  const parcelView = contractHarness(parcelFixture);parcelView.state.type="total";
+  parcelView.state.rows=parcelFixture;parcelView.state.filterRows=parcelFixture;
+  await parcelView.call('pnoV18Copy()');
+  assert.deepEqual(parcelView.obs.clip.split("\n")[0].split("\t"),["#","PNO","สถานะหลักฐาน","ล่าสุด","HUB ปลายทาง","สาขาปลายทาง","ชื่อสาขาต่อไป","เวลา"]);
+  assert.deepEqual(parcelView.obs.clip.split("\n")[1].split("\t").slice(4,7),["NE11","DELIVERY-R","NEXT_ONLY"]);
+  assert.equal(parcelView.obs.fetch.length,0);
   assert.match(frontend, /"HUB ปลายทาง": row\.targetHub \|\| ""/);
   assert.match(frontend, /"สาขาปลายทาง": pnoV18DisplayBranch\(row\.targetBranch\)/);
   assert.match(frontend, /pnoV18LineCell\(row\.targetHub\) \+ " > " \+ pnoV18LineCell\(pnoV18DisplayBranch\(row\.targetBranch\)\)/);
@@ -286,7 +273,11 @@ test("parcel table, Copy and Export distinguish destination from next store", ()
 test("scan-gap shares destination projection and HUB parent filter", () => {
   assert.match(frontend, /type === "scan_gap"/);
   assert.match(frontend, /"HUB ปลายทาง": row\.targetHub \|\| ""/);
-  assert.match(frontend, /\["branch", type === "bag" \? "ชื่อสาขาต่อไป" : "สาขาปลายทาง", branches\]/);
+  const h=contractHarness([contractItem("Q-A","B","NE11","RAW-A"),contractItem("Q-B","B","E1","RAW-B")]);
+  h.state.filters.hub="NE11";h.call('pnoV18RenderFilters()');
+  const markup=h.node("pno-v18-filterbar").innerHTML;
+  assert.match(markup,/สาขาปลายทาง/);assert.match(markup,/value="RAW-A"/);assert.doesNotMatch(markup,/value="RAW-B"/);
+  assert.doesNotMatch(markup,/NEXT_ONLY/);
   assert.match(frontend, /\["status", "สถานะ", statuses\]/);
   assert.match(frontend, /\["action", "การดำเนินการล่าสุด", actions\]/);
   const filters = frontend.slice(frontend.indexOf("function pnoV18RenderFilters("), frontend.indexOf("function pnoV18RenderRows("));

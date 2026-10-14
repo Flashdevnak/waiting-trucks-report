@@ -27,6 +27,7 @@ const workflow = await readFile(
   new URL(".github/workflows/deploy-worker-dev.yml", root),
   "utf8",
 );
+const isolatedWorkflow = await readFile(new URL(".github/workflows/pno-only-dev-isolated-release.yml",root),"utf8");
 
 test("Route page observer stages after the final critical-path patch without changing DEV deployment gates", async () => {
   const composer = await readFile(new URL(".github/dev-tools/stage-dev-runtime.mjs", root), "utf8");
@@ -274,15 +275,16 @@ test("DEV deploy uses the idempotent staging entrypoint and daily-history gate",
 test("DEV phase script URL, service worker and deployed-asset smoke share one delivery contract", async () => {
   const html = patchDevUiShellSource(await readFile(new URL("ms.html", root), "utf8"), "ms.html");
   const sw = await readFile(new URL("sw.js", root), "utf8");
-  const script = "ms.js?v=20261014-rev98-pno-only-delivery-v1";
+  const script = "ms.js?v=20261015-pno-destination-ux-v1";
   assert.ok(html.includes(`src="${script}"`));
   assert.doesNotMatch(html, /ms\.js\?v=20261003-pno-operational-truth-v1/);
   assert.doesNotMatch(html, /ms\.js\?v=20261009-ms-turso-critical-path-phase-v1/);
   assert.match(html, /serviceWorker\.register\('sw\.js',\{updateViaCache:'none'\}\)/);
   assert.match(sw, /url\.searchParams\.set\("__fresh", VERSION\)/);
   assert.match(sw, /cache: "no-store"/);
-  assert.ok(workflow.includes(`const msScript='${script}';`));
-  assert.match(workflow, /const msJs=await get\(msScript\)/);
+  assert.ok(isolatedWorkflow.includes(script));
+  assert.ok(isolatedWorkflow.includes("d80f18801e97e8bab6c3766e4e5dd9f5358e76e80ae96ae095cc3fcd4f84b6f2"));
+  assert.match(isolatedWorkflow, /PNO.*asset/i);
   assert.match(workflow, /live MS phase snapshot exporter missing/);
   assert.match(workflow, /criticalPath: criticalPath\.snapshot\(\)/);
   assert.match(workflow, /routeSourceTiming: currentMsRouteSourceTiming\(\)/);

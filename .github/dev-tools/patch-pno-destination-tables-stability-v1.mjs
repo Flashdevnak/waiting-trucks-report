@@ -101,7 +101,7 @@ export function patchPnoDestinationTablesStability(source) {
     const next = retained ? lastAcceptedSummary : summary;
     const note = retained ? '<p class="pno-destination-verified-note" role="status">ข้อมูลล่าสุดที่ยืนยันครบแล้ว · กำลังตรวจข้อมูลรอบใหม่ (ไม่ใช่ยอดสด)</p>' : '';
     const keyChanged = Boolean(lastAcceptedKey) && lastAcceptedKey !== detailKey;
-    const displayStatus = keyChanged && !pnoV18State.filterPromise && !pnoV18State.filterError
+    const displayStatus = keyChanged && type !== 'bag' && !pnoV18State.filterPromise && !pnoV18State.filterError
       ? 'ข้อมูลเที่ยวรถหรือตัวกรองเปลี่ยนแล้ว · เปิดรายการนี้ใหม่เพื่อยืนยันข้อมูลทุกหน้า'
       : status;
     const markup = pnoDestinationMarkup(next, scope, displayStatus) + note;

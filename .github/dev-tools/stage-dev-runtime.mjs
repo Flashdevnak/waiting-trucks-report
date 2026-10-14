@@ -207,7 +207,7 @@ export function patchDevUiShellSource(source, currentPage) {
   if (currentPage === "ms.html") {
     // Deliver the PNO destination summary under a distinct DEV-only asset version.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261014-rev98-pno-only-delivery-v1"');
+      'src="ms.js?v=20261015-pno-destination-ux-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(

@@ -110,6 +110,7 @@ import { patchPnoScanEvidenceUx } from "./patch-pno-scan-evidence-ux.mjs";
 import { patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destination-truth.mjs";
 import { patchPnoSegmentDestinationFrontend } from "./patch-pno-segment-destination-frontend.mjs";
 import { patchPnoBranchSearchFrontend } from "./patch-pno-branch-search-v1.mjs";
+import { patchPnoDestinationTablesStability } from "./patch-pno-destination-tables-stability-v1.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -493,6 +494,7 @@ export function stageFrontend(source) {
   output = patchMsRedegradeTraceFrontendFinal(output);
   output = patchMsTursoLateSettleFrontend(patchMsTursoTimeoutProducerFrontend(output));
   output = patchPnoBranchSearchFrontend(output);
+  output = patchPnoDestinationTablesStability(output);
   return output;
 }
 

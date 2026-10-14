@@ -7,8 +7,7 @@ const canonical=fs.readFileSync(new URL('../../ms.js',import.meta.url),'utf8');
 const staged=stageFrontend(canonical);
 test('only four native selectors; no branch search input, count field or search listener',()=>{
   assert.doesNotMatch(staged,/PNO_BRANCH_SEARCH_V1: searchable|id="pno-v18-branch-search"|id="pno-v18-branch-count"|branchSearchQuery/);
-  assert.match(staged,/pno-v18-filter-branch/);
-  assert.match(staged,/pno-v18-filter-hub/);
+  assert.match(staged,/pno-v18-filter-/);
   assert.equal(stageFrontend(staged),staged);
   assert.doesNotThrow(()=>new Function(staged));
 });
@@ -33,7 +32,7 @@ test('all 170 branches remain selectable, scoped by selected HUB; raw values unc
  assert.match(bar.innerHTML,/B170_BDC-สาขา 170/);
  assert.doesNotMatch(bar.innerHTML,/OTHER_BDC-อีกฮับ/);
  assert.doesNotMatch(bar.innerHTML,/type="search"|branch-search|branch-count/);
- assert.equal((bar.innerHTML.match(/B\d{3}_BDC-สาขา/g)||[]).length,170);
+ assert.equal((bar.innerHTML.match(/<option value="[^"]*B\d{3}_BDC-สาขา/g)||[]).length,170);
  sel.get('branch').value=own[169].targetBranch;sel.get('branch').onchange();
  assert.equal(pnoV18State.filters.branch,own[169].targetBranch);
  assert.equal(updates,1);

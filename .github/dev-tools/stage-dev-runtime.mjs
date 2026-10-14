@@ -505,7 +505,8 @@ export function stageStyle(source) {
   // The performance styler now preserves either Classic or Canonical Lower as
   // the sole Lower authority while still staging shared mobile/export fixes.
   const lower = patchMsSummaryPerformanceStyle(base);
-  const styled = patchDevUnifiedHeaderStyle(lower);\n  return styled.includes("/* PNO_MOBILE_CSS_ALWAYS_LOADED_V2 */") ? styled : styled + "\n/* PNO_MOBILE_CSS_ALWAYS_LOADED_V2 */\n" + PNO_MOBILE_MODAL_STYLE;
+  const styled = patchDevUnifiedHeaderStyle(lower);
+  return styled.includes("/* PNO_MOBILE_CSS_ALWAYS_LOADED_V2 */") ? styled : styled + "\n/* PNO_MOBILE_CSS_ALWAYS_LOADED_V2 */\n" + PNO_MOBILE_MODAL_STYLE;
 }
 
 export function stageWorker(source) {

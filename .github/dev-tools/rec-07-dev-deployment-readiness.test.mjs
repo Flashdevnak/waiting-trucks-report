@@ -9,17 +9,47 @@ import { buildExactDevRuntime } from "./build-exact-dev-runtime.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const rec07Expected = Object.freeze({
+  // Historical REC-07 handoff artifact. These values remain locked as evidence.
   entrypointSha256: "3847b6a26565b3506376a8d1c0a519c7473e36686375b772668435b37136e2db",
   stagedIndexSha256: "fff97c3138c27b56ca8884238e69d6ee75e925e9ff655aa863806055b966b764",
   runtimeTreeSha256: "4ba09bfaeed2e9e79ce2e4c132e76e1b0e165a919d308c0ac233dc811b34545f",
   runtimeFileCount: 23,
 });
-const expected = Object.freeze({
+const currentRuntimeExpected = Object.freeze({
   entrypointSha256: "3847b6a26565b3506376a8d1c0a519c7473e36686375b772668435b37136e2db",
-  stagedIndexSha256: "fa83d2e45ae39fc501020baec89d69a18261ed3ed6de56530d31ae273fd7864a",
-  runtimeTreeSha256: "723a592fc6ddc01969a93560373b3a35a3e62816445911ccabdf39e409cda060",
-  runtimeFileCount: 23,
+  stagedIndexSha256: "f03b4dabd63e6a273728bd788ecb90d2d7a89997812a0a0728ff529c99f15e71",
+  runtimeTreeSha256: "e226e51097f6a0dceff18c7d6b80ed8f232d3a3ce7fb7ed062fa5f7c78acf0f4",
+  runtimeFileCount: 27,
 });
+const currentRuntimePaths = [
+  "bus-time-hot-lane-v14.js",
+  "dev-acceptance-evidence.js",
+  "index.js",
+  "ms-history-pointer-v1.js",
+  "ms-operational-truth-v1.js",
+  "origin-manifest-v1.js",
+  "pno-inbound-scan-evidence.js",
+  "pno-passive-coverage.js",
+  "proof-control.js",
+  "proof-editor.js",
+  "proof-history-v10.js",
+  "proof-live-v2.js",
+  "proof-plate-search-v5.js",
+  "proof-preview.js",
+  "proof-route-meta-v15.js",
+  "proof-route-meta-v16.js",
+  "proof-service-date-dev.js",
+  "proof-ui-v10.js",
+  "proof-ui-v14.js",
+  "proof-ui-v15.js",
+  "proof-ui-v16.js",
+  "proof-ui-v5.js",
+  "proof-v7-deploy-marker.txt",
+  "sync-policy.js",
+  "tbr-provenance-dev.js",
+  "turso-d1.js",
+  "turso-index.js",
+];
 
 function git(...args) {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
@@ -33,7 +63,7 @@ test("REC-07 locks the exact local DEV deployment handoff", async (context) => {
   ]);
   const config = JSON.parse(configSource);
 
-  await context.test("authoritative builder reproduces the post-REC-08 hotfix artifact", async () => {
+  await context.test("authoritative builder reproduces the exact current DEV runtime artifact", async () => {
     const temporaryRoot = await mkdtemp(join(tmpdir(), "rec-07-builder-"));
     const isolatedRepo = resolve(temporaryRoot, "repo");
     try {
@@ -50,7 +80,8 @@ test("REC-07 locks the exact local DEV deployment handoff", async (context) => {
         stagedIndexSha256: result.stagedIndexSha256,
         runtimeTreeSha256: result.runtimeTreeSha256,
         runtimeFileCount: result.runtimeFileCount,
-      }, expected);
+      }, currentRuntimeExpected);
+      assert.deepEqual(result.files.map((file) => file.path), currentRuntimePaths);
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }

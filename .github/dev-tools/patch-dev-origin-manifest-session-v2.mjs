@@ -48,7 +48,7 @@ export function patchOriginManifestSessionReplay(source) {
     output = replaceUnique(
       output,
       `  })) url.searchParams.set(key, value);\n\n  const body = new URLSearchParams({\n    auth: credentials.auth,\n    lang: credentials.lang || "th",\n    fbid: credentials.fbid,\n    time: credentials.time,`,
-      `  })) url.searchParams.set(key, value);\n\n  // ${FRESH_TIME_MARKER}: keep the HAR auth token but refresh only the HBI request time on every shared 5-minute source read.\n  const body = new URLSearchParams({\n    auth: credentials.auth,\n    lang: credentials.lang || "th",\n    fbid: credentials.fbid,\n    time: String(Date.now()),`,
+      `  })) url.searchParams.set(key, value);\n\n  // ${FRESH_TIME_MARKER}: keep the HAR auth token but refresh only the HBI request time on every shared adaptive 2–5 minute source read.\n  const body = new URLSearchParams({\n    auth: credentials.auth,\n    lang: credentials.lang || "th",\n    fbid: credentials.fbid,\n    time: String(Date.now()),`,
       "refresh route_outhouse time instead of replaying captured time",
     );
   }
@@ -84,7 +84,10 @@ async function selfTest() {
   assert.ok(patchedOrigin.includes("MANIFEST_REPLAY_REJECTED"));
   assert.ok(patchedOrigin.includes("MANIFEST_ROUTE_REPLAY_REJECTED"));
   assert.ok(patchedOrigin.includes("probeManifestSession(credentials)"));
-  assert.ok(patchedOrigin.includes("MANIFEST_REFRESH_MS = 5 * 60 * 1000"));
+  assert.ok(patchedOrigin.includes("MANIFEST_REFRESH_MIN_MS = 2 * 60 * 1000"));
+  assert.ok(patchedOrigin.includes("MANIFEST_REFRESH_STEADY_MS = 3 * 60 * 1000"));
+  assert.ok(patchedOrigin.includes("MANIFEST_REFRESH_IDLE_MS = 5 * 60 * 1000"));
+  assert.ok(patchedOrigin.includes("adaptiveRefresh: true"));
   assert.ok(patchedOrigin.includes("dataPersistenceWrites: 0"));
   assert.ok(patchedOrigin.includes("extraMsPolling: 0"));
   assert.ok(patchedOrigin.includes("authorization: manifestRequestHeader(routeEntry, 'authorization') || params.get('auth') || ''"));
@@ -116,7 +119,10 @@ async function selfTest() {
   console.log(`${REPORT_TRUTH_MARKER}=PASS`);
   console.log("DEV_REPORT_STATIC_READY_BADGE=0");
   console.log("DEV_REPORT_BACKGROUND_TRANSPORT=0");
-  console.log("MANIFEST_REFRESH_MS=300000");
+  console.log("MANIFEST_REFRESH_MIN_MS=120000");
+  console.log("MANIFEST_REFRESH_STEADY_MS=180000");
+  console.log("MANIFEST_REFRESH_IDLE_MS=300000");
+  console.log("MANIFEST_ERROR_BACKOFF_MS=300000");
   console.log("MANIFEST_EXTRA_MS_POLLING=0");
   console.log("MANIFEST_DATA_PERSISTENCE_WRITES=0");
   console.log("MANIFEST_UPLOAD_ONLY_PROBE=1");

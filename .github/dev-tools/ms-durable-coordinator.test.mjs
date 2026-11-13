@@ -136,7 +136,12 @@ test("six-source HAR setup stacks every source on its own row across devices wit
 
 test("Origin LH Manifest V1 keeps authority and quota boundaries", () => {
   assert.equal(ORIGIN_MANIFEST_POLICY.marker, "MS_ORIGIN_LH_MANIFEST_V1");
-  assert.equal(ORIGIN_MANIFEST_POLICY.refreshMs, 300000);
+  assert.equal(ORIGIN_MANIFEST_POLICY.refreshMs, 120000);
+  assert.equal(ORIGIN_MANIFEST_POLICY.adaptiveRefresh, true);
+  assert.equal(ORIGIN_MANIFEST_POLICY.refreshMinMs, 120000);
+  assert.equal(ORIGIN_MANIFEST_POLICY.refreshSteadyMs, 180000);
+  assert.equal(ORIGIN_MANIFEST_POLICY.refreshIdleMs, 300000);
+  assert.equal(ORIGIN_MANIFEST_POLICY.errorBackoffMs, 300000);
   assert.equal(ORIGIN_MANIFEST_POLICY.sharedPerHub, true);
   assert.equal(ORIGIN_MANIFEST_POLICY.originOnly, true);
   assert.equal(ORIGIN_MANIFEST_POLICY.matchKey, "proofId");
@@ -176,7 +181,7 @@ test("ten simultaneous origin trucks use one business day source set", () => {
   assert.deepEqual(activeOriginDays(rows), ["2026-09-08"]);
 });
 
-test("shared 5-minute cache coalesces concurrent clients", async () => {
+test("shared two-minute cache coalesces concurrent clients at its exact boundary", async () => {
   let calls = 0;
   let now = Date.parse("2026-09-08T03:00:00.000Z");
   const cache = new ManifestRefreshCache({
@@ -192,7 +197,10 @@ test("shared 5-minute cache coalesces concurrent clients", async () => {
   assert.equal(results.length, 10);
   await cache.get("2026-09-08");
   assert.equal(calls, 1);
-  now += 300001;
+  now += 119999;
+  await cache.get("2026-09-08");
+  assert.equal(calls, 1, "inside the fast shared TTL");
+  now += 1;
   await cache.get("2026-09-08");
   assert.equal(calls, 2);
 });
@@ -240,7 +248,7 @@ test("manifest page reads HUB summary in one 100-row request", async () => {
   assert.equal(result.total, 1);
 });
 
-test("frontend addon shows origin parcels and Kg and polls source only every five minutes", async () => {
+test("frontend addon exposes adaptive refresh and independent error backoff", async () => {
   const source = originManifestFrontendSource();
   for (const marker of [
     "MS_ORIGIN_LH_MANIFEST_V1",
@@ -249,7 +257,11 @@ test("frontend addon shows origin parcels and Kg and polls source only every fiv
     " Kg",
     "msOriginManifestLive",
     "saveMsOriginManifestConnection",
-    "5 * 60 * 1000",
+    "manifestRefreshFastMs = 2 * 60 * 1000",
+    "manifestRefreshSteadyMs = 3 * 60 * 1000",
+    "manifestRefreshIdleMs = 5 * 60 * 1000",
+    "manifestErrorBackoffMs = 5 * 60 * 1000",
+    "Shared refresh ทุก 2–5 นาที",
     "queueInfo(row).active",
     "localStorage",
   ]) assert.ok(source.includes(marker), `frontend missing ${marker}`);
@@ -305,7 +317,7 @@ test("fresh Manifest cache missing a new TBR Origin proof wakes one shared HUB r
   };
   vm.createContext(context);
   vm.runInContext(source.slice(start, end) + "\nglobalThis.manifestTest = { maybeSyncManifest, applyCachedManifest };", context);
-  storage.set("ms_origin_manifest_v1_NE1", JSON.stringify({ rows: sourceRows, savedAt: now, refreshedAt: "" }));
+  storage.set("ms_origin_manifest_v1_NE1", JSON.stringify({ rows: sourceRows.map((row) => ({ ...row, manifestOccurrenceKey: "A|ต้นทาง|2026-09-28T16:00:00Z" })), savedAt: now, refreshedAt: "" }));
   await context.manifestTest.maybeSyncManifest();
   assert.equal(calls.length, 0, "a present proof reuses the fresh cache");
   assert.equal(state.currentRows[0].manifestShippedParcels, 10);
@@ -379,7 +391,7 @@ function manifestBrowserHarness({ proofs = ["A"], cached = null, initialRows = [
   };
 }
 
-test("empty Manifest cache retries the same proof at 30, 60, 120 seconds, then returns to five-minute cadence", async () => {
+test("empty Manifest cache retries the same proof at 30, 60, 120 seconds, while normal adaptive refresh preserves the exhausted budget", async () => {
   const h = manifestBrowserHarness({ cached: { rows: [] } });
   await h.sync();
   assert.equal(h.calls.length, 1, "first missing proof wakes immediately");
@@ -390,15 +402,19 @@ test("empty Manifest cache retries the same proof at 30, 60, 120 seconds, then r
   assert.equal(h.calls.length, 2);
   h.advance(60_001); await h.sync();
   assert.equal(h.calls.length, 3);
-  h.advance(120_001); await h.sync();
-  assert.equal(h.calls.length, 4);
+  h.advance(30_000); await h.sync();
+  assert.equal(h.calls.length, 4, "normal two-minute refresh runs independently");
+  assert.equal(h.calls[3].args.completeness, undefined);
+  assert.equal(h.readCache().missingRetries.A.attemptCount, 3, "normal refresh preserves retry history");
+  h.advance(90_001); await h.sync();
+  assert.equal(h.calls.length, 5);
   assert.equal(h.readCache().missingRetries.A.attemptCount, 4);
   h.advance(30_001); await h.sync();
-  assert.equal(h.calls.length, 4, "finite budget prevents endless 30-second polling");
+  assert.equal(h.calls.length, 6, "only the due normal refresh follows; finite budget prevents endless 30-second polling");
   h.advance(60_000); await h.sync();
-  assert.equal(h.calls.length, 5, "normal refresh at five minutes from baseline, not five minutes from last retry");
-  assert.equal(h.calls[4].args.completeness, undefined);
-  assert.equal(h.readCache().missingRetries.A.attemptCount, 0, "new baseline opens a new bounded burst");
+  assert.equal(h.calls.length, 6, "normal refresh cannot reopen the exhausted burst");
+  assert.equal(h.calls[5].args.completeness, undefined);
+  assert.equal(h.readCache().missingRetries.A.attemptCount, 4);
   assert.equal(h.calls.every(({ action }) => action === "msOriginManifestLive"), true);
 });
 
@@ -412,7 +428,7 @@ test("old attemptedMissing cache self-recovers and 139-second delayed source enr
   h.advance(60_001);
   await h.sync();
   assert.equal(h.calls.length, 2);
-  h.advance(79_299); // 139.3 seconds since the empty cache, still before five minutes.
+  h.advance(79_299); // 139.3 seconds since the empty cache, after the two-minute normal refresh becomes due.
   h.setSource(proofs.slice(0, 18).map((proofId) => ({ proofId, manifestShippedParcels: 1074, manifestWeightKg: 1076.945 })));
   await h.sync();
   assert.equal(h.calls.length, 3);
@@ -421,11 +437,11 @@ test("old attemptedMissing cache self-recovers and 139-second delayed source enr
   assert.equal(h.state.currentRows.filter((row) => row.manifestShippedParcels === undefined).length, 9);
   assert.equal(h.readCache().rows.length, 18);
   assert.equal(Object.keys(h.readCache().missingRetries).length, 9);
-  assert.equal(h.calls.every((call) => call.args.completeness === "1"), true);
+  assert.deepEqual(h.calls.map((call) => call.args.completeness), ["1", "1", undefined]);
 });
 
-test("accepted Manifest metrics survive a transient empty result, update on newer data, and expire without renewal", async () => {
-  const h = manifestBrowserHarness({ proofs: ["A", "B"], cached: { rows: [{ proofId: "A", manifestShippedParcels: 10, manifestWeightKg: 50 }] } });
+test("accepted Manifest metrics survive a transient empty result, update on newer data, and remain beyond fetch TTL only for the same occurrence", async () => {
+  const h = manifestBrowserHarness({ proofs: ["A", "B"], cached: { rows: [{ proofId: "A", manifestOccurrenceKey: "A|ต้นทาง|2026-09-28T16:00:00Z", manifestShippedParcels: 10, manifestWeightKg: 50 }] } });
   await h.sync();
   assert.equal(h.calls.length, 1, "one missing proof wakes while A applies from fresh cache");
   assert.equal(h.state.currentRows[0].manifestShippedParcels, 10);
@@ -441,9 +457,11 @@ test("accepted Manifest metrics survive a transient empty result, update on newe
   h.advance(5 * 60 * 1000 + 1);
   h.setSource([]);
   await h.sync();
-  assert.equal(h.readCache().rows.length, 0, "accepted metric is not kept beyond its own five-minute lifetime");
+  assert.equal(h.readCache().rows[0].manifestShippedParcels, 12, "accepted truth has no fetch TTL");
   h.replace([h.makeRow("A"), h.makeRow("B")]);
-  assert.equal(h.state.currentRows[0].manifestShippedParcels, undefined, "later base snapshot cannot reapply expired metrics");
+  assert.equal(h.state.currentRows[0].manifestShippedParcels, 12);
+  h.replace([h.makeRow("A", { id: "new-occurrence" })]);
+  assert.equal(h.state.currentRows[0].manifestShippedParcels, undefined, "reused proof cannot inherit another occurrence truth");
 });
 
 test("TBR-first row receives Manifest values and Route replacement keeps them without Destination or Drop enrichment", async () => {
@@ -462,7 +480,7 @@ test("TBR-first row receives Manifest values and Route replacement keeps them wi
   assert.equal(h.state.currentRows[2].manifestShippedParcels, undefined);
 });
 
-test("shared Manifest coordinator bypasses the five-minute cache only once per 30-second HUB wake-up", async () => {
+test("shared Manifest coordinator bypasses the shared fast cache only once per 30-second HUB wake-up", async () => {
   let now = Date.parse("2026-09-28T16:00:00Z");
   let calls = 0;
   let rows = [{ proofId: "A", actual_shipment_total: 10, weight: 50 }];

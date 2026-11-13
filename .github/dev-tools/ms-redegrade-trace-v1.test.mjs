@@ -11,7 +11,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const canonical = fs.readFileSync(path.join(root, 'ms.js'), 'utf8');
 const frontend = stageFrontend(canonical);
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-redegrade-test-'));
-for (const file of fs.readdirSync(root).filter(file => /\.(html|css)$/.test(file) || file === 'ms.js'))
+for (const file of fs.readdirSync(root).filter(file => /\.(html|css)$/.test(file) || file === 'ms.js' || file === 'sw.js'))
   fs.copyFileSync(path.join(root, file), path.join(dir, file));
 fs.copyFileSync(path.join(root, 'worker/src/index.js'), path.join(dir, 'index.js'));
 execFileSync(process.execPath, [path.join(root, '.github/dev-tools/stage-dev-runtime.mjs'), path.join(dir, 'ms.js'), path.join(dir, 'index.js')], { timeout: 30000, stdio: 'pipe' });
@@ -29,7 +29,7 @@ function frontHarness(host = 'waiting-trucks-report-api-dev.26nak-testdev.worker
     apiGet: async () => { apiCalls++; return { msStatus: 'synced', syncError: '', errorCode: '' }; }, Error,
   };
   vm.createContext(ctx);
-  vm.runInContext(frontend.slice(frontend.indexOf('// MS_REDEGRADE_TRACE_V1_FRONTEND')), ctx);
+  vm.runInContext(frontend.slice(frontend.indexOf('// MS_REDEGRADE_TRACE_V1_FRONTEND'),frontend.indexOf('// WTR_DEV_TARGET_FAULT_BOUNDARY_V1_BEGIN')), ctx);
   return { ctx, state, renders, counters: () => ({ classifications, apiCalls }) };
 }
 
@@ -123,7 +123,7 @@ test('settings and snapshot outcomes, leader replay and live cache boundaries co
 });
 
 test('diagnostic code owns zero network, provider, history, storage writes or timers', () => {
-  const code = frontend.slice(frontend.indexOf('// MS_REDEGRADE_TRACE_V1_FRONTEND')) + worker.slice(worker.indexOf('// MS_REDEGRADE_TRACE_V1_WORKER'));
+  const code = frontend.slice(frontend.indexOf('// MS_REDEGRADE_TRACE_V1_FRONTEND'), frontend.indexOf('// MS_TURSO_LATE_SETTLE_V1_FRONTEND')) + worker.slice(worker.indexOf('// MS_REDEGRADE_TRACE_V1_WORKER'), worker.indexOf('// MS_TURSO_LATE_SETTLE_V1_WORKER'));
   assert.doesNotMatch(code, /\bfetch\s*\(|new WebSocket\s*\(|setInterval\s*\(|setTimeout\s*\(|\.DB\.prepare\s*\(|\.storage\.(put|delete)\s*\(|localStorage|sessionStorage|apiPost\s*\(|curl_pno|msPno|tbrProvenance|INSERT|UPDATE|DELETE FROM/);
 });
 

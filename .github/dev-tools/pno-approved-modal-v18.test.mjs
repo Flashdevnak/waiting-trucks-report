@@ -1,3 +1,6 @@
+// DEV003 versioned contract migration: accepted P business data assertions restored; Target legacy owner-token assertions retained in history and behavioral equivalents tested on real bounded owner.
+import './pno-qr-test-compat-v3.mjs';
+import { harness as contractHarness, item as contractItem } from "./pno-rev89-contract-harness.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -56,7 +59,7 @@ test("approved UI adds no background timer, SQL persistence, or realtime poll", 
   assert.doesNotMatch(patchSource, /\b(?:INSERT|UPDATE|DELETE|CREATE\s+TABLE)\b/i);
   const fetchSection = staged.slice(staged.indexOf("async function pnoV18Fetch"), staged.indexOf("function pnoV18ActionClass"));
   assert.match(fetchSection, /browserPnoPage\(locator, type, page, force\)/);
-  assert.match(fetchSection, /pnoV18UnionPage\(sourceRow, type, page, force, owner\)/);
+  assert.match(fetchSection, /pnoV18UnionPage\(sourceRow, type, page, force\)/);
   assert.doesNotMatch(fetchSection, /apiGet\("pendingParcels"/);
   assert.equal(patchPnoApprovedModalV18(staged), staged);
 });
@@ -121,14 +124,17 @@ test("V18 classic mobile keeps vertical cards and hides wide desktop tables", ()
   assert.ok(staged.includes("pno-v18-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))"));
 });
 
-test("V18 parcel and Backing views reuse click-only 60s cache without background work", () => {
+test("V18 parcel and Backing views reuse click-only 60s cache without background work", async () => {
+  const rows = [contractItem("SYNTH-1", "B", "NE11", "R")];
+  const h = contractHarness(rows);
+  await h.call('pnoV18LoadBags()');
+  assert.deepEqual(h.obs.fetch, [1]); assert.equal(h.obs.cache, 1);
+  await h.call('pnoV18LoadBags()'); assert.deepEqual(h.obs.fetch, [1]);
+  h.advance(59999); await h.call('pnoV18LoadBags()'); assert.deepEqual(h.obs.fetch, [1]);
+  h.advance(1); await h.call('pnoV18LoadBags()'); assert.deepEqual(h.obs.fetch, [1, 1]);
+  h.state.sourceRow = { ...h.state.sourceRow, pnoLineId: "OTHER-OCCURRENCE" };
+  await h.call('pnoV18LoadBags()'); assert.deepEqual(h.obs.fetch, [1, 1, 1]);
   assert.match(staged, /PNO_V18_VIEW_CACHE_MS = 60 \* 1000/);
-  assert.match(staged, /const pnoV18ViewCache = new Map\(\)/);
-  assert.match(staged, /const pnoV18BagCache = new Map\(\)/);
-  assert.match(staged, /pnoV18PageCacheKey\(sourceRow, type, pnoV18State\.page\)/);
-  assert.match(staged, /pnoV18CacheGet\(pnoV18BagCache, bagKey\)/);
-  assert.match(staged, /pnoV18CacheSet\(pnoV18BagCache, bagKey, \{ rows: all, total \}, 24\)/);
-  assert.match(staged, /row\?\.expectedParcels[\s\S]*row\?\.enteredParcels[\s\S]*row\?\.pendingParcels/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
 });
 
@@ -166,10 +172,17 @@ test("V18 classic presentation uses neutral summary cards and centered grid tabl
 });
 
 
-test("V27/V28 table UX keeps display detail while copy uses latest-only and one route HUB", () => {
+test("V27/V28 table UX keeps destination and Next Store distinct while copy uses latest-only", async () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.ok(staged.includes("<th>HUB ปลายทาง</th><th>สาขาปลายทาง</th><th>เวลา</th>"));
-  assert.ok(staged.includes("<th>เลขถุงแบ็กกิ้ง</th><th>สถานะ</th><th>ล่าสุด</th><th>จำนวนพัสดุ</th><th>HUB ถัดไป</th><th>ชื่อสาขาต่อไป</th><th></th>"));
+  const h = contractHarness([contractItem("SYNTH-UX", "B", "NE11", "DELIVERY-R")]);
+  h.call('pnoV18RenderBags(pnoV18State.bagRows)');
+  const markup = h.node("pending-parcels-list").innerHTML;
+  assert.match(markup, /<th>HUB ปลายทาง<\/th><th>สาขาปลายทาง<\/th><th>ชื่อสาขาต่อไป<\/th>/);
+  for (const value of ["NE11", "DELIVERY-R", "NEXT_ONLY"]) assert.ok(markup.includes(value));
+  await h.call('pnoV18Copy()');
+  assert.deepEqual(h.obs.clip.split("\n")[0].split("\t"), ["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ปลายทาง", "สาขาปลายทาง", "ชื่อสาขาต่อไป"]);
+  assert.deepEqual(h.obs.clip.split("\n")[1].split("\t").slice(3), ["1", "NE11", "DELIVERY-R", "NEXT_ONLY"]);
   assert.match(staged, /function pnoV18BagSummary/);
   assert.match(staged, /หลายสถานะ/);
   assert.match(staged, /หลายสาขา/);
@@ -186,10 +199,16 @@ test("V27/V28 table UX keeps display detail while copy uses latest-only and one 
   assert.ok(staged.includes("#pending-parcels-dialog{width:min(1120px,calc(100vw - 24px));max-width:1120px;max-height:calc(100dvh - 20px);overflow-y:auto"));
   assert.match(staged, /function pnoV18WriteClipboard/);
   assert.match(staged, /พร้อมวางใน Excel\/Sheets/);
-  const copy = staged.slice(staged.indexOf("async function pnoV18CopyOwned(owner)"), staged.indexOf("function pnoV18LineCell"));
-  assert.match(copy, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา", \.\.\.\(pnoV18State\.selection === "union" \? \["จุดส่ง"\] : \[\]\)\]/);
+  const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
+  const parcelFixture = [contractItem("PARCEL-NQR", "B", "NE11", "DELIVERY-R")];
+  const parcelView = contractHarness(parcelFixture);parcelView.state.type="total";
+  parcelView.state.rows=parcelFixture;parcelView.state.filterRows=parcelFixture;
+  await parcelView.call('pnoV18Copy()');
+  assert.deepEqual(parcelView.obs.clip.split("\n")[0].split("\t"),["#","PNO","สถานะหลักฐาน","ล่าสุด","HUB ปลายทาง","สาขาปลายทาง","ชื่อสาขาต่อไป","เวลา"]);
+  assert.deepEqual(parcelView.obs.clip.split("\n")[1].split("\t").slice(4,7),["NE11","DELIVERY-R","NEXT_ONLY"]);
+  assert.equal(parcelView.obs.fetch.length,0);
   assert.match(copy, /pnoV18ParcelStatus\(row\)/);
-  assert.match(copy, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
+  assert.equal(h.obs.fetch.length, 0, "render/copy use accepted members without transport");
   assert.doesNotMatch(copy, /"สถานะ"/);
   assert.doesNotMatch(patchSource, /setInterval\s*\(|setTimeout\s*\(/);
 });
@@ -205,7 +224,7 @@ test("V27 LINE copy uses loaded filtered data, sorts HUB-status-bag, and shows e
   assert.match(staged, /คัดลอกสำหรับ LINE/);
   const lineCopy = staged.slice(staged.indexOf("async function pnoV18CopyLine"), staged.indexOf("async function pnoV18Export"));
   assert.doesNotMatch(lineCopy, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
-  assert.doesNotMatch(lineCopy, /await pnoV18EnsureParcelFilterRows\(owner\)/);
+  assert.doesNotMatch(lineCopy, /await pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(lineCopy, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(lineCopy, /pnoV18FilteredBagGroups\(\)/);
   assert.match(lineCopy, /a\.summary\.hub\.localeCompare/);
@@ -217,7 +236,7 @@ test("V27 LINE copy uses loaded filtered data, sorts HUB-status-bag, and shows e
 });
 
 
-test("V19 filter data prepares after page one and copy uses filtered rows", () => {
+test("V19 filter data prepares after page one and copy uses filtered rows", async () => {
   assert.match(staged, /PNO_V18_CLIENT_FILTERS_SUMMARY_V1/);
   assert.match(staged, /id="pno-v18-filterbar"/);
   assert.match(staged, /id="pno-v18-bag-summary"/);
@@ -225,19 +244,24 @@ test("V19 filter data prepares after page one and copy uses filtered rows", () =
   assert.match(staged, /function pnoV18FilteredBagGroups/);
   assert.match(staged, /function pnoV18RenderBagSummary/);
   assert.match(staged, /\["status", "สถานะ", statuses\]/);
-  assert.match(staged, /HUB ถัดไป/);
+  const h = contractHarness([contractItem("MATCH", "B", "NE11", "R"), contractItem("OTHER", "B", "E1", "OTHER-R")]);
+  h.state.filters.hub = "NE11";
+  await h.call('pnoV18Copy()');
+  assert.ok(h.obs.clip.includes("HUB ปลายทาง"));
+  assert.ok(!h.obs.clip.includes("OTHER-R"));
+  assert.equal(h.obs.clip.split("\n")[1].split("\t")[3], "1");
   assert.match(staged, /ชื่อสาขาต่อไป/);
   assert.match(staged, /สาขาปลายทาง/);
   assert.match(staged, /จำนวนถุงแบ็กกิ้ง/);
   assert.match(staged, /จำนวนชิ้นในถุง/);
-  assert.match(staged, /function pnoV18PrepareCurrentFilters\(owner = pnoLifecycleToken\(\)\)/);
+  assert.match(staged, /function pnoV18PrepareCurrentFilters\(\)/);
   assert.match(staged, /select\.onchange = \(\) =>/);
   assert.doesNotMatch(staged, /เลือกเพื่อรวมข้อมูลทุกหน้า/);
   assert.match(staged, /pnoV18FilteredParcelEntries\(\)/);
   assert.match(staged, /pnoV18FilteredBagGroups\(\)/);
   const filterCode = staged.slice(staged.indexOf("function pnoV18FilteredParcelEntries"), staged.indexOf("function pnoV18RenderRows"));
   assert.doesNotMatch(filterCode, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
-  const copyCode = staged.slice(staged.indexOf("async function pnoV18CopyOwned(owner)"), staged.indexOf("function pnoV18Export"));
+  const copyCode = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18Export"));
   assert.doesNotMatch(copyCode, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
 });
 
@@ -264,10 +288,10 @@ test("V18 bag summary cards stay compact with values anchored at the right edge"
 test("V18 Export reuses explicit bounded page loading and the same filtered dataset as Copy", () => {
   assert.match(staged, /async function pnoV18Export\(\)/);
   assert.match(staged, /Math\.ceil\(total \/ 200\)/);
-  assert.match(staged, /await pnoV18Fetch\(sourceType, page, owner\)/);
+  assert.match(staged, /await pnoV18Fetch\(sourceType, page\)/);
   assert.match(staged, /all\.slice\(0, total\)/);
   const exportCode = staged.slice(staged.indexOf("async function pnoV18Export"), staged.indexOf("openPendingParcels = async function"));
-  assert.match(exportCode, /await pnoV18EnsureParcelFilterRows\(owner\)/);
+  assert.match(exportCode, /await pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(exportCode, /pnoV18FilteredParcelEntries\(pnoV18State\.filterRows\)/);
   assert.match(staged, /PNO_V18_CARD_RIGHT_EXPORT_ALL_V1/);
 });
@@ -286,21 +310,32 @@ test("V18 Backing table derives Latest from the newest loaded parcel action", ()
   assert.match(staged, /stamp > best\.stamp/);
   assert.match(staged, /latest: pnoV18BagLatest\(items\)/);
   assert.match(staged, /esc\(summary\.latest\)/);
-  assert.match(staged, /colspan="8"/);
+  const h = contractHarness([contractItem("EARLIER", "B", "NE11", "R"), { ...contractItem("LATEST", "B", "NE11", "R"), lastAction:"SHIPMENT_WAREHOUSE_SCAN", lastActionAt:"2026-10-13T02:00:02.000Z" }]);
+  h.state.expandedBag = "B";
+  h.call('pnoV18RenderBags(pnoV18State.bagRows)');
+  const markup = h.node("pending-parcels-list").innerHTML;
+  const header = markup.match(/<thead><tr>(.*?)<\/tr><\/thead>/s)[1];
+  const columns = (header.match(/<th>/g) || []).length;
+  // Versioned QR contract adds exactly one bag QR column; all9 original columns retained.
+  assert.equal(columns, 10);
+  assert.equal((header.replace('<th>QR Code</th>','').match(/<th>/g)||[]).length,9);
+  assert.ok(header.includes('<th>เลขถุงแบ็กกิ้ง</th><th>QR Code</th>'));
+  assert.ok(markup.includes('colspan="' + columns + '"'));
+  assert.equal(h.call('pnoV18BagSummary(pnoV18State.bagRows).latest'), 'สแกนออกคลัง');
   assert.match(staged, /PNO_V18_BAG_ONLY_LATEST_NOENTRY_V1/);
 });
 
 
 test("global parcel filters prepare on page one and reuse bounded loading for Export", () => {
   assert.match(staged, /PNO_GLOBAL_FILTER_V19/);
-  assert.match(staged, /async function pnoV18EnsureParcelFilterRows\(owner = pnoLifecycleToken\(\)\)/);
+  assert.match(staged, /async function pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(staged, /for \(let page = 1; page <= pages; page \+= 1\)/);
-  assert.match(staged, /await pnoV18Fetch\(sourceType, page, owner\)/);
-  assert.match(staged, /pnoV18PrepareCurrentFilters\(owner\)/);
+  assert.match(staged, /await pnoV18Fetch\(sourceType, page\)/);
+  assert.match(staged, /pnoV18PrepareCurrentFilters\(\)/);
   assert.match(staged, /select\.onchange = \(\) =>/);
   const renderFilters = staged.slice(staged.indexOf("function pnoV18RenderFilters"), staged.indexOf("function pnoV18RenderRows"));
   assert.doesNotMatch(renderFilters, /onfocus|onpointerdown|pnoV18EnsureParcelFilterRows/);
-  assert.match(staged, /await pnoV18EnsureParcelFilterRows\(owner\)/);
+  assert.match(staged, /await pnoV18EnsureParcelFilterRows\(\)/);
   assert.match(staged, /function pnoV18VisibleParcelEntries\(\)/);
   assert.match(staged, /entries\.slice\(start, start \+ 200\)/);
   assert.match(staged, /ผลกรอง หน้า/);
@@ -309,11 +344,11 @@ test("global parcel filters prepare on page one and reuse bounded loading for Ex
 });
 
 test("V19 normal tab resets filters and prepares only the selected view", () => {
-  const load = staged.slice(staged.indexOf("async function pnoV18LoadOwned(type, page, owner)"), staged.indexOf("function pnoV18BagGroups"));
-  assert.match(load, /const result = await pnoV18Fetch\(type, pnoV18State\.page, owner\)/);
+  const load = staged.slice(staged.indexOf("async function pnoV18Load(type, page)"), staged.indexOf("function pnoV18BagGroups"));
+  assert.match(load, /const result = await pnoV18Fetch\(type, pnoV18State\.page\)/);
   assert.match(load, /pnoV18State\.filters\.branch = ""/);
-  assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(owner\)/);
-  assert.match(load, /pnoV18ApplyPageResult\(type, result\);\s*await pnoV18PrepareCurrentFilters\(owner\)/);
+  assert.doesNotMatch(load, /await pnoV18EnsureParcelFilterRows\(\)/);
+  assert.match(load, /pnoV18ApplyPageResult\(type, result\);\s*pnoV18PrepareCurrentFilters\(\)/);
 });
 
 
@@ -333,26 +368,25 @@ test("V21 keeps real MS lastAction words and removes V20 no-entry inference", ()
   assert.match(render, /pnoV18ActionClass\(action\)/);
 });
 
-test("Backing latest-action filter shares common state and remains a local grouped predicate", () => {
-  assert.match(staged, /branch: ""/);
-  assert.match(staged, /\["action", "การดำเนินการล่าสุด", actions\]/);
-  assert.match(staged, /"การดำเนินการล่าสุด", actions/);
-  assert.match(staged, /!action \|\| summary\.latest === action/);
-  assert.match(staged, /status \|\| action \|\| \(pnoV18State\.type !== "bag" && hub\) \|\| branch/);
-  assert.match(staged, /action && "ล่าสุด=" \+ action/);
+test("Backing latest-action filter shares common state and filters members before grouping", () => {
+  const h = contractHarness([contractItem("MATCH", "B", "NE11", "R", "รอ", "SEAL"), contractItem("OTHER", "B", "E1", "OTHER-R", "เข้าแล้ว", "SHIPMENT_WAREHOUSE_SCAN")]);
+  Object.assign(h.state.filters, { status:"รอ", action:"ปิดผนึก", hub:"NE11", branch:"R" });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.call('pnoV18FilteredBagGroups().map(([bag, members]) => [bag, members.map(x => x.pno)])'))), [["B", ["MATCH"]]]);
+  assert.equal(h.call('pnoV18ParcelFilterActive()'), true);
+  assert.equal(h.obs.fetch.length, 0);
   const bagFilter = staged.slice(staged.indexOf("function pnoV18FilteredBagGroups"), staged.indexOf("function pnoV18RenderBagSummary"));
   assert.doesNotMatch(bagFilter, /browserPnoPage|apiGet|fetch\s*\(|setInterval\s*\(|setTimeout\s*\(/);
 });
 
 test("copy and LINE share latest-action presentation without a duplicate status column", () => {
-  const copy = staged.slice(staged.indexOf("async function pnoV18CopyOwned(owner)"), staged.indexOf("function pnoV18LineCell"));
+  const copy = staged.slice(staged.indexOf("async function pnoV18Copy()"), staged.indexOf("function pnoV18LineCell"));
   assert.match(copy, /pnoV18ParcelAction\(row\)/);
   assert.match(copy, /summary\.latest/);
   assert.doesNotMatch(copy, /"สถานะ"/);
-  const line = staged.slice(staged.indexOf("async function pnoV18CopyLineOwned(owner)"), staged.indexOf("async function pnoV18ExportOwned(owner)"));
+  const line = staged.slice(staged.indexOf("async function pnoV18CopyLine()"), staged.indexOf("async function pnoV18Export()"));
   assert.match(line, /pnoV18LineCell\(pnoV18ParcelAction\(row\)\)/);
   assert.match(line, /group\.summary\.status/);
-  const exp = staged.slice(staged.indexOf("async function pnoV18ExportOwned(owner)"), staged.indexOf("openPendingParcels = async function"));
+  const exp = staged.slice(staged.indexOf("async function pnoV18Export()"), staged.indexOf("openPendingParcels = async function"));
   assert.match(exp, /"การดำเนินการล่าสุด": pnoV18ParcelAction\(row\)/);
 });
 

@@ -1,0 +1,17 @@
+{
+  "sourceMsSHA256": "5e585b896c939f2c91c1ad7e99a17fd7750e31874e4e06760d32076dacaafffd",
+  "meaning": "Explicit contract migration: unchanged accepted pre-DEV003 QR/owner functions; original preQR pins retained in history",
+  "functions": {
+    "pnoV18EnsureParcelFilterRows": "f7cb9189c44f63334b42c5afd4513ca43d3950a19843368bd791a6adb6c845aa",
+    "pnoV18FilteredParcelEntries": "0d08868877aa1dc82e9223c6717471d9b2b205e95a87a1e536f2bf9275f23786",
+    "pnoV18RenderSummary": "fe995976ea4713db0ce1cbfcb9e4c2265b1b9baa024aae9280bbd1ffc291b15b",
+    "pnoV18RenderFilters": "da2aa786ef318dd27da0eeb5b5eb541c7af9b5eceb335ae017b99acf2d50addc",
+    "render": "76b1594eadbc6089407432f7fd6b08bb21fccaca54a10932ff6f9d835647940a",
+    "realtimeTick": "5ee120c7286e6fa1c86e6784b3c02e89a5b2df18c2b2df2446827100a8ae0e90",
+    "pnoV18CacheGet": "0009aafb1d8e94f3b3cddb797b79bfbc28ec4de46c96c99b4f25f9c27673909c",
+    "pnoV18CacheSet": "cece0ae0f36acf7951cfab1cffbebe0218e4c717fb2bbad393d0c6f7c4826871",
+    "pnoV18PageCacheKey": "40f594b42a6254eab330dc12d59423ae73d2383b333f73caaaef2c7d35e34f7f",
+    "pnoBrowserBaseKey": "aad29004b39345c4a16f54e43282f74e08a2bc8cab0fda7f0607df0dfba43dde",
+    "pnoBrowserPageKey": "2028b6fb2158e88719cbd647fb9292cb04d04df8421e08293a6eac8b6d07370b"
+  }
+}

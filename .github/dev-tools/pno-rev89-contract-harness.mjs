@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {stageFrontend} from './stage-dev-runtime.mjs';
+const front=stageFrontend(fs.readFileSync(new URL('../../ms.js',import.meta.url),'utf8'));
+const names=['pnoV18TextValue','pnoV18UniqueValues','pnoV18FilterOption','pnoV18ValidateFilter','pnoV18DisplayBranch','pnoV18TypeLabel','pnoPendingEvidenceLabel','pnoV18ParcelStatus','pnoV18ParcelAction','pnoV18ParcelFilterActive','pnoV18ParcelFilterDataset','pnoV18FilteredParcelEntries','pnoV18BagGroups','pnoV18BagValue','pnoV18BagLatest','pnoV18BagSummary','pnoV18FilteredBagGroups','pnoV18FilterSummaryText','pnoV18RenderFilters','pnoV18RenderBags','pnoV18RenderBagSummary','pnoV18HasActiveFilters','pnoV18LoadBags','pnoV18CacheGet','pnoV18CacheSet','pnoV18LocatorKey','pnoV18PageCacheKey','pnoV18TsvCell','pnoV18LineCell','pnoV18AppendLineLimited','pnoV18Copy','pnoV18CopyLine','pnoV18Export'];
+export function extract(source,name){const p=source.indexOf(`function ${name}(`),a=source.slice(p-6,p)==='async '?p-6:p,b=source.indexOf('\n}\n',p)+2;assert.ok(p>=0&&b>p,name);return source.slice(a,b);}
+export const item=(pno,bag,hub,branch,status='รอ',action='SEAL')=>({pno,backingNo:bag,targetHub:hub,targetBranch:branch,nextStoreName:'NEXT_ONLY',status,lastAction:action,lastActionAt:'2026-10-13T02:00:01.125Z'});
+export const fixture=[item('P1','B1','NE11','(TH1) สาขา ก'),item('P2','B1','E1','สาขา ข','เข้าแล้ว','SHIPMENT_WAREHOUSE_SCAN'),item('P3','B2','E1','สาขา ข'),item('P4','B3','',''),item('P5','','NE11','สาขา ก')];
+export function harness(rows=fixture,source=front){
+ let now=Date.parse('2026-10-13T02:00:00Z');const nodes=new Map(),obs={fetch:[],clip:'',exports:[],cache:0};const node=k=>{if(!nodes.has(k))nodes.set(k,{innerHTML:'',textContent:'',classList:{add(){},remove(){},toggle(){}},querySelectorAll(){return [...this.innerHTML.matchAll(/data-pno-v18-filter="([^"]+)"([^>]*)>/g)].map(m=>({dataset:{pnoV18Filter:m[1]},value:'',disabled:/disabled/.test(m[2])}));}});return nodes.get(k);};
+ const state={selection:null,segmentSignature:'',page:1,filterPage:1,rows,filterRows:null,filterKey:'',type:'bag',filters:{status:'',action:'',hub:'',branch:''},bagRows:rows,total:rows.length,expandedBag:'',sourceRow:{proofId:'SYNTH-P',hub:'NE11',pnoSourceDay:'2026-10-13',pnoLineId:'L1'},force:false,busy:false};
+ const context=vm.createContext({pnoV18State:state,el:node,esc:v=>String(v??''),nf:new Intl.NumberFormat('en-US'),Date:class extends Date{static now(){return now;}},PNO_V18_VIEW_CACHE_MS:60000,state:{branch:'NE11'},console,pendingParcelRows:[],pnoV18SourceRow:()=>state.sourceRow,pnoV18ViewCache:new Map(),pnoV18BagCache:new Map(),pnoInboundToggleActions(){},pnoPendingRenderNote(){},pnoV18SetActive(){},pnoV18RenderCurrentFilteredView(){},pnoV18RenderSummary(){},pnoV18EnsureParcelFilterRows:async()=>state.filterRows,pnoV18UpdateFilterResult(){},pnoV18LineHeader:()=>['HEADER'],pnoV18WriteClipboard:async t=>{obs.clip=t;return true},toast(){},pnoV18Fetch:async(_t,p)=>{obs.fetch.push(p);return {page:p,total:rows.length,sourceValid:true,parcels:rows.slice((p-1)*200,p*200)}},XLSX:{utils:{json_to_sheet:v=>{obs.exports=v;return v},book_new:()=>({}),book_append_sheet(){}},writeFile(){}}});
+ vm.runInContext(names.map(n=>extract(source,n)).join('\n'),context);const actualSet=context.pnoV18CacheSet;context.pnoV18CacheSet=(...args)=>{obs.cache++;return actualSet(...args);};
+ return {state,nodes,obs,context,advance:ms=>{now+=ms;},call:s=>vm.runInContext(s,context),node};
+}
+
+// Extract actual assembled DEV functions, mock transport/DOM only. No live endpoints.

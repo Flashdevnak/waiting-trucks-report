@@ -311,18 +311,272 @@ test("visible completion label uses trusted Schedule E only after Route state 2"
   assert.match(timing, /unloadingCompletedAt/);
 });
 
-test("pending parcel detail trigger is rendered, click-only, and locator-complete", () => {
+// REV95_DETAIL_TRIGGER_CONTRACT: execute the actual composed handler/opener,
+// locator guards, page cache and union reader. DOM/API are synthetic boundaries.
+const rev95DetailFrontend = await readFile(
+  process.env.REV95_DETAIL_SOURCE_FILE || new URL("worker/.dev-assets/ms.js", root), "utf8",
+);
+function rev95Function(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf("\n}\n", start) + 2;
+  assert.ok(start >= 0 && end > start, `actual composed ${name} exists`);
+  return source.slice(source.slice(start - 6, start) === "async " ? start - 6 : start, end);
+}
+function rev95Row(overrides = {}) {
+  return { id: "SYNTH-REV95-ROUTE", hub: "NE11", proofId: "SYNTH-REV95-PROOF",
+    attendanceType: "ปลายทาง", routeName: "SYNTH-LINE", pnoState: "OK", pnoEnabled: true,
+    expectedParcels: 2, enteredParcels: 1, pendingParcels: 1,
+    pnoSegmentCount: 1, pnoDetailAvailable: true, pnoSourceDay: "2026-10-14",
+    pnoLineId: "SYNTH-LINE-ID", pnoStoreId: "SYNTH-CURRENT", pnoNextStoreId: "SYNTH-NEXT",
+    ...overrides };
+}
+function rev95Multi(overrides = {}) {
+  const segment = (n) => ({ proofId: "SYNTH-REV95-PROOF", pnoSourceDay: "2026-10-14",
+    pnoLineId: `SYNTH-LINE-${n}`, pnoStoreId: "SYNTH-CURRENT",
+    pnoNextStoreId: `SYNTH-NEXT-${n}`, pnoNextStoreName: `จุดส่ง ${n}`,
+    expectedParcels: 2, enteredParcels: 1, pendingParcels: 1 });
+  return rev95Row({ pnoSegmentCount: 2, expectedParcels: 4, enteredParcels: 2,
+    pendingParcels: 2, pnoSegments: [segment(1), segment(2)], ...overrides });
+}
+function rev95DetailHarness(row = rev95Row(), { response, source = rev95DetailFrontend } = {}) {
+  const observed = { opens: [], api: [], toast: [], modal: 0, history: 0, timers: 0 };
+  const nodes = new Map(), listeners = [], pending = [];
+  const node = (id) => {
+    if (!nodes.has(id)) {
+      const classes = new Set();
+      nodes.set(id, { innerHTML: "", textContent: "", open: false, dataset: {},
+        classList: { add: (...v) => v.forEach(x => classes.add(x)), remove: (...v) => v.forEach(x => classes.delete(x)) },
+        querySelector: () => node(id + "-toolbar"),
+        querySelectorAll(selector) {
+          if (selector !== "[data-pno-union],[data-pno-segment]") return [];
+          this.buttons = [...this.innerHTML.matchAll(/data-pno-(union|segment)="([^"]+)"/g)]
+            .map(m => ({ dataset: { [m[1] === "union" ? "pnoUnion" : "pnoSegment"]: m[2] } }));
+          return this.buttons;
+        },
+        showModal() { this.open = true; observed.modal++; },
+      });
+    }
+    return nodes.get(id);
+  };
+  const modal = { sourceRow: null, proofId: "", filters: { status: "", action: "", hub: "", branch: "" },
+    type: "total", page: 1, rows: [], busy: false, total: 0, selection: null,
+    filterPromise: null, filterForce: false, filterAt: 0, filterKey: "", filterRows: null };
+  const context = vm.createContext({
+    state: { branch: "NE11", currentRows: [row], rows: [], archiveRows: [] },
+    pnoV18State: modal, pnoV18ViewCache: new Map(), pnoBrowserCache: new Map(),
+    pnoOperationalTruthCache: new Map(), PNO_V18_VIEW_CACHE_MS: 60000, PNO_BROWSER_CACHE_MS: 60000,
+    Date, console, nf: new Intl.NumberFormat("en-US"), esc: v => String(v ?? ""), el: node,
+    pnoReadOnlyExplicitNoPrefetch: false,
+    document: { addEventListener(type, fn, capture = false) { listeners.push({ type, fn, capture }); } },
+    isDestination: r => r?.attendanceType === "ปลายทาง", isDrop: r => r?.attendanceType === "จุดดรอป",
+    pnoV18EnsureUi() {}, pnoInboundToggleActions() {}, pnoV18SetActive() {},
+    pnoV18RenderSummary() {}, pnoV18RenderFilters() {}, pnoV18RenderCurrentFilteredView() {},
+    pnoV18RenderUnionDiagnostic(error) { observed.unionError = error.pnoUnionDiagnostic; },
+    pnoV18ApplyPageResult(type, result) { modal.rows = result.parcels || []; modal.total = result.total; modal.sourceValid = result.sourceValid; },
+    pnoPendingPropagatePositive() {},
+    pnoOperationalLoadAllRaw() { throw new Error("unexpected prefetch"); },
+    toast(message, error) { observed.toast.push({ message, error }); },
+    setTimeout() { observed.timers++; throw new Error("unexpected timer"); },
+    setInterval() { observed.timers++; throw new Error("unexpected polling"); },
+    async apiGet(action, params) {
+      if (action !== "pendingParcels") { observed.history++; throw new Error("unexpected history/non-detail action"); }
+      observed.api.push({ action, ...params });
+      if (response) return response(params, observed.api.length);
+      return { sourceValid: true, page: params.page, total: params.count,
+        proofId: params.proofId, parcels: Array.from({ length: params.count }, (_, i) =>
+          ({ pno: `${params.nextStoreId}-${params.type}-${i}`, targetHub: "NE11", targetBranch: "สาขาทดสอบ" })) };
+    },
+  });
+  const names = ["pnoCountForType", "pnoOperationalInboundEligible", "pnoOperationalRawSummary",
+    "pnoOperationalCanonicalHub", "pnoOperationalCurrentHub", "pnoOperationalKey", "pnoOperationalTruthEntry",
+    "pnoOperationalResolve", "pnoReadOnlyDetailEligibility", "pnoV18ExactSegments", "pnoV18ResolveOpenArgs",
+    "pnoReadOnlyUnavailableMessage", "pnoProgressClass", "pnoProgressStatus", "pnoDisplayPercent", "expectedParcelsBadge",
+    "findPnoRowById", "pnoBrowserBaseKey", "pnoBrowserPageKey", "browserPnoPage",
+    "pnoV18SourceRow", "pnoV18LocatorKey", "pnoV18PageCacheKey", "pnoV18CacheGet", "pnoV18CacheSet",
+    "pnoV18UnionFailure", "pnoV18UnionPage", "pnoV18OpenMulti", "pnoV18Fetch", "pnoV18Load",
+    "pnoV18EnsureParcelFilterRows", "pnoV18PrepareCurrentFilters"];
+  vm.runInContext(names.map(n => rev95Function(source, n)).join("\n"), context);
+  vm.runInContext(between(source, "openPendingParcels = async function pnoV18OpenPendingParcels",
+    "// LIVE_EVIDENCE_FRONTEND_V29"), context);
+  const actualOpen = context.openPendingParcels;
+  context.openPendingParcels = (...args) => {
+    observed.opens.push(args);
+    const promise = actualOpen(...args); pending.push(promise); return promise;
+  };
+  vm.runInContext(between(source, "function pnoV29DetailTarget", 'document.addEventListener("DOMContentLoaded", pnoV18EnsureUi)'), context);
+  // Actual legacy bubble listener must be stopped by the actual V29 capture handler.
+  const legacyBody = source.indexOf('const pnoButton = event.target.closest("[data-pno-row]");');
+  const legacyStart = source.lastIndexOf('document.addEventListener("click", (event) => {', legacyBody);
+  const legacyEnd = source.indexOf("\n  });", legacyBody) + "\n  });".length;
+  assert.ok(legacyStart >= 0 && legacyEnd > legacyStart);
+  vm.runInContext(source.slice(legacyStart, legacyEnd), context);
+  function event(kind, { type = "no_entry", mode = "", key, id = row.id } = {}) {
+    const direct = { dataset: { pnoRow: id, pnoType: type, pnoMode: mode } };
+    const card = { dataset: { pnoDetailCard: id } };
+    return { key, prevented: false, stopped: false,
+      target: { closest(selector) {
+        if (selector === "[data-pno-row]") return kind === "button" ? direct : null;
+        if (selector === "[data-pno-detail-card]") return kind === "card" || kind === "button" ? card : null;
+        return null;
+      } }, preventDefault() { this.prevented = true; }, stopImmediatePropagation() { this.stopped = true; } };
+  }
+  function dispatch(type, e) {
+    for (const entry of listeners.filter(x => x.type === type).sort((a, b) => Number(b.capture) - Number(a.capture))) {
+      if (e.stopped) break; entry.fn(e);
+    }
+  }
+  async function flush() {
+    await Promise.allSettled(pending.splice(0));
+    if (modal.filterPromise) await modal.filterPromise.catch(() => {});
+    await Promise.resolve();
+    assert.equal(observed.history, 0); assert.equal(observed.timers, 0);
+  }
+  return { context, row, observed, modal, node, event, dispatch, flush, listeners };
+}
+
+test("pending parcel detail triggers are accessible and explicitly delegated", () => {
   const badge = between(stagedFrontend, "function expectedParcelsBadge", "function findPnoRowById");
   const opener = between(stagedFrontend, "openPendingParcels = async function pnoV18OpenPendingParcels", "document.addEventListener(\"DOMContentLoaded\", pnoV18EnsureUi)");
   assert.match(badge, /data-pno-row=/);
   assert.match(badge, /data-pno-detail-card=/);
+  assert.match(badge, /role=\\?"button\\?"/);
+  assert.match(badge, /tabindex=\\?"0\\?"/);
   assert.match(opener, /document\.addEventListener\("click", pnoV29OpenDetail, true\)/);
-  assert.match(opener, /openPendingParcels\(row, target\.type, 1\)/);
-  assert.match(opener, /pnoLineId \|\| args\.row\.pnoVanLineId/);
-  assert.match(opener, /pnoStoreId/);
-  assert.match(opener, /pnoNextStoreId/);
+  assert.match(opener, /document\.addEventListener\("keydown", pnoV29OpenDetailByKeyboard, true\)/);
+  assert.match(opener, /locator\.pnoLineId \|\| locator\.pnoVanLineId/);
+  assert.match(opener, /pnoStoreId/); assert.match(opener, /pnoNextStoreId/);
   assert.doesNotMatch(badge, /apiPost\(|openPendingParcels\(/);
-  assert.equal((opener.match(/openPendingParcels\(row, target\.type, 1\)/g) || []).length, 1);
+});
+
+test("REV95 direct nested-button click passes exact locator/type and opens once", async () => {
+  const h = rev95DetailHarness(); const e = h.event("button"); h.dispatch("click", e); await h.flush();
+  assert.equal(h.observed.opens.length, 1); assert.equal(h.observed.api.length, 1);
+  assert.equal(h.observed.opens[0][0], h.row); assert.equal(h.observed.opens[0][1], "no_entry");
+  assert.equal(h.observed.opens[0][2], 1); assert.equal(h.observed.opens[0][3].selection, null);
+  const req = h.observed.api[0];
+  for (const [field, expected] of Object.entries({ branch: "NE11", proofId: h.row.proofId,
+    day: h.row.pnoSourceDay, lineId: h.row.pnoLineId, storeId: h.row.pnoStoreId,
+    nextStoreId: h.row.pnoNextStoreId, type: "no_entry", page: 1, count: 1, force: "" })) assert.equal(req[field], expected, field);
+  assert.equal(e.prevented, true); assert.equal(e.stopped, true); assert.equal(h.observed.modal, 1);
+});
+
+test("REV95 card click opens total; successful cache reopen adds zero requests", async () => {
+  const h = rev95DetailHarness(); h.dispatch("click", h.event("card")); await h.flush();
+  assert.equal(h.observed.api.length, 1); assert.equal(h.observed.api[0].type, "total");
+  h.dispatch("click", h.event("card")); await h.flush(); assert.equal(h.observed.api.length, 1);
+});
+
+test("REV95 actual rendered controls supply the correct detail type and union mode", async () => {
+  const h = rev95DetailHarness();
+  const html = h.context.expectedParcelsBadge(h.row);
+  const buttons = [...html.matchAll(/<button([^>]*)>/g)].map(match => ({
+    id: match[1].match(/data-pno-row="([^"]+)"/)?.[1],
+    type: match[1].match(/data-pno-type="([^"]+)"/)?.[1],
+  }));
+  assert.deepEqual(buttons.map(x => x.type), ["already", "no_entry"]);
+  for (const button of buttons) {
+    assert.equal(button.id, h.row.id);
+    const count = h.observed.api.length;
+    h.dispatch("click", h.event("button", button)); await h.flush();
+    assert.equal(h.observed.api.length, count + 1);
+    assert.equal(h.observed.api.at(-1).type, button.type);
+  }
+  const m = rev95DetailHarness(rev95Multi());
+  const multiHtml = m.context.expectedParcelsBadge(m.row);
+  assert.match(multiHtml, /data-pno-mode="union"/);
+  assert.match(multiHtml, /data-pno-mode="choose"/);
+  assert.doesNotMatch(multiHtml, /data-pno-detail-card=/);
+  const denied = h.context.expectedParcelsBadge(rev95Row({ pnoStoreId: "" }));
+  assert.doesNotMatch(denied, /data-pno-row=|data-pno-detail-card=/);
+});
+
+for (const key of ["Enter", " "]) test(`REV95 card keyboard ${JSON.stringify(key)} opens once`, async () => {
+  const h = rev95DetailHarness(); const e = h.event("card", { key }); h.dispatch("keydown", e); await h.flush();
+  assert.equal(h.observed.opens.length, 1); assert.equal(h.observed.api.length, 1); assert.equal(e.prevented, true);
+});
+
+test("REV95 unrelated keys/targets are inert; native button keyboard uses one later click", async () => {
+  const h = rev95DetailHarness(); h.dispatch("keydown", h.event("card", { key: "Escape" }));
+  h.dispatch("click", h.event("unrelated")); h.dispatch("keydown", h.event("button", { key: "Enter" }));
+  await h.flush(); assert.equal(h.observed.opens.length, 0); assert.equal(h.observed.api.length, 0);
+  h.dispatch("click", h.event("button")); await h.flush(); assert.equal(h.observed.opens.length, 1); assert.equal(h.observed.api.length, 1);
+});
+
+test("REV95 multi-segment choose is lazy; exact selected segment controls request", async () => {
+  const h = rev95DetailHarness(rev95Multi()); h.dispatch("click", h.event("button", { mode: "choose", type: "total" })); await h.flush();
+  assert.equal(h.observed.api.length, 0); assert.equal(h.observed.opens[0][3].selection, null);
+  const buttons = h.node("pending-parcels-loading").buttons; assert.equal(buttons.length, 3);
+  buttons.find(x => x.dataset.pnoSegment === "1").onclick(); await h.flush();
+  assert.equal(h.modal.selection, 1); assert.equal(h.observed.api.length, 1);
+  assert.equal(h.observed.api[0].nextStoreId, "SYNTH-NEXT-2"); assert.equal(h.observed.api[0].lineId, "SYNTH-LINE-2");
+});
+
+test("REV95 explicit union reads each exact segment once and preserves all members", async () => {
+  const h = rev95DetailHarness(rev95Multi()); h.dispatch("click", h.event("button", { mode: "union", type: "total" })); await h.flush();
+  assert.equal(h.observed.opens.length, 1); assert.equal(h.observed.opens[0][3].selection, "union");
+  assert.equal(h.modal.selection, "union"); assert.equal(h.observed.api.length, 2);
+  assert.deepEqual(h.observed.api.map(x => x.nextStoreId), ["SYNTH-NEXT-1", "SYNTH-NEXT-2"]);
+  assert.equal(h.modal.total, 4); assert.equal(h.modal.rows.length, 4);
+  assert.equal(new Set(h.modal.rows.map(x => x.pno)).size, 4); assert.equal(h.modal.filterRows.length, 4);
+});
+
+for (const field of ["proofId", "pnoSourceDay", "pnoLineId", "pnoStoreId", "pnoNextStoreId"])
+  test(`REV95 incomplete ${field} denies opening without a request`, async () => {
+    const h = rev95DetailHarness(rev95Row({ [field]: "" })); h.dispatch("click", h.event("button")); await h.flush();
+    assert.equal(h.observed.api.length, 0); assert.equal(h.observed.modal, 0); assert.equal(h.observed.toast.length, 1);
+  });
+
+test("REV95 vanLineId alternative is a valid locator", async () => {
+  const h = rev95DetailHarness(rev95Row({ pnoLineId: "", pnoVanLineId: "SYNTH-VAN" }));
+  h.dispatch("click", h.event("button")); await h.flush(); assert.equal(h.observed.api.length, 1); assert.equal(h.observed.api[0].vanLineId, "SYNTH-VAN");
+});
+
+test("REV95 current-row locator change during open denies acquisition", async () => {
+  const h = rev95DetailHarness();
+  h.dispatch("click", h.event("button"));
+  h.context.state.currentRows = [{ ...h.row, pnoNextStoreId: "SYNTH-OTHER-DESTINATION" }];
+  await h.flush();
+  assert.equal(h.observed.api.length, 0);
+  assert.equal(h.modal.rows.length, 0);
+  assert.match(h.node("pending-parcels-loading").innerHTML, /ไม่พบข้อมูลรถ/);
+});
+
+test("REV95 mismatched counts, disabled detail, origin and unknown row are denied", async () => {
+  for (const r of [rev95Row({ pendingParcels: 9 }), rev95Row({ pnoDetailAvailable: false }), rev95Row({ attendanceType: "ต้นทาง" })]) {
+    const h = rev95DetailHarness(r); h.dispatch("click", h.event("button")); await h.flush(); assert.equal(h.observed.api.length, 0); assert.equal(h.observed.modal, 0);
+  }
+  const h = rev95DetailHarness(); h.dispatch("click", h.event("button", { id: "SYNTH-OTHER-OCCURRENCE" })); await h.flush(); assert.equal(h.observed.opens.length, 0);
+});
+
+test("REV95 malformed or mismatched segment identity and invalid selection fail closed", async () => {
+  for (const modify of [r => r.pnoSegments.pop(), r => { r.pnoSegments[1].proofId = "SYNTH-WRONG"; },
+    r => { r.pnoSegments[1].pnoNextStoreId = ""; }, r => { r.pnoSegments[1].pendingParcels = 5; },
+    r => { r.pnoSegments[1] = { ...r.pnoSegments[0] }; }]) {
+    const r = rev95Multi(); modify(r); const h = rev95DetailHarness(r);
+    h.dispatch("click", h.event("button", { mode: "union" })); await h.flush(); assert.equal(h.observed.api.length, 0);
+  }
+  const h = rev95DetailHarness(rev95Multi()); await h.context.openPendingParcels(h.row, "total", 1, { selection: 99 }); await h.flush(); assert.equal(h.observed.api.length, 0);
+});
+
+test("REV95 partial union source denies complete result without retry/history", async () => {
+  const h = rev95DetailHarness(rev95Multi(), { response: async params => ({ sourceValid: false, total: params.count, page: params.page, parcels: [] }) });
+  h.dispatch("click", h.event("button", { mode: "union", type: "total" })); await h.flush();
+  assert.equal(h.observed.api.length, 1); assert.equal(h.modal.rows.length, 0); assert.equal(h.modal.total, 0);
+  assert.equal(h.observed.unionError.reasonCode, "PNO_UNION_SOURCE_INVALID"); assert.match(h.node("pending-parcels-loading").innerHTML, /ไม่ครบ/);
+});
+
+test("REV95 failed detail request is not retried automatically", async () => {
+  const h = rev95DetailHarness(rev95Row(), { response: async () => { throw new Error("SYNTH-OFFLINE-FAILURE"); } });
+  h.dispatch("click", h.event("button")); await h.flush();
+  assert.equal(h.observed.api.length, 1); assert.equal(h.modal.busy, false); assert.match(h.node("pending-parcels-loading").innerHTML, /SYNTH-OFFLINE-FAILURE/);
+});
+
+test("REV95 overlapping duplicate activations do not duplicate an in-flight page request", async () => {
+  let release; const held = new Promise(resolve => { release = resolve; });
+  const h = rev95DetailHarness(rev95Row(), { response: async params => { await held; return { sourceValid: true, total: params.count, page: params.page, parcels: [{ pno: "SYNTH-ONE" }] }; } });
+  h.dispatch("click", h.event("button")); h.dispatch("click", h.event("button"));
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(h.observed.api.length, 1); release(); await h.flush(); assert.equal(h.observed.api.length, 1);
 });
 
 test("pending detail retains empty, error, copy, and export paths without background polling", () => {

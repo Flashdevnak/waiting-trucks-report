@@ -1,0 +1,2235 @@
+{
+  "version": "WTR009_DEV002_IDENTITY_V1",
+  "status": "LOCAL_SOURCE_REVIEW_ONLY_NOT_RELEASE_APPROVAL",
+  "worker": "waiting-trucks-report-api-dev",
+  "branch": "codex/dev-recovery-contract-v2",
+  "baseTarget": "50acacb84b29c00c646cefae35c6e04423e94817",
+  "approvedHistoricalP": "f9c81b7ed3ddd9f1e5aedf5cf4db7cd3fb97523b",
+  "manifestPath": ".github/dev-tools/wtr009-dev-identity.json",
+  "sourceIgnored": [
+    ".git",
+    "worker/node_modules",
+    "worker/.dev-assets",
+    "worker/.dev-runtime",
+    ".github/dev-tools/wtr009-dev-identity.json"
+  ],
+  "source": {
+    ".github/bus-hot-lane-v14/bus-time-hot-lane-v14-runtime.mjs": {
+      "sha256": "6a824358bded86e6c4979b359acccdf96e059f74d23df4269179a8fb71735e00",
+      "size": 21320
+    },
+    ".github/bus-hot-lane-v14/bus-time-hot-lane-v14.test.mjs": {
+      "sha256": "0dd9d0b0133ff2c86532e41055e402ce5b31993e51f48a25a9a710e80b999189",
+      "size": 13964
+    },
+    ".github/bus-hot-lane-v14/install.mjs": {
+      "sha256": "9d072fcf18e375ad52b67f6a83cff26c7857fa513cd01984212c4bdf9878088f",
+      "size": 2588
+    },
+    ".github/bus-hot-lane-v14/patch-bus-time-hot-lane-v14.mjs": {
+      "sha256": "90d57e1da0ea60cdf62a4d8f9d85745373c5b0e6061873eb96dcfdbdfb2372ff",
+      "size": 5148
+    },
+    ".github/cutover-execute-trigger.txt": {
+      "sha256": "d6663f927023a3d0c7acfcd0142001e3b1b04d018b8ddf4b2f4e36f51cf829d9",
+      "size": 163
+    },
+    ".github/cutover-tools/prepare-cutover.mjs": {
+      "sha256": "3d0e696ed6520bdd79cda971e5b7a1d559edbc6c9631e55f48a6da1e64b48ffe",
+      "size": 8416
+    },
+    ".github/dev-tools/HUB_CATALOG_V5_DEV_TRIGGER.md": {
+      "sha256": "9984bf82d2b9608d95ff9b1f1b0e30d74c39d1ba58a568082a26935d40b211f6",
+      "size": 481
+    },
+    ".github/dev-tools/MS_CONNECTION_OUTER_SCROLL_DEV_TRIGGER.md": {
+      "sha256": "7afa818f638871566a70800faf488dc77e26b86b793b3bb8288a29bbd2ecdfb5",
+      "size": 492
+    },
+    ".github/dev-tools/MS_LOWER_CARD_TRUTH_V1_TRIGGER.md": {
+      "sha256": "17dfafa2e094b5ae7a52e9185a00a2acb654bac4f7090b43b106c5972667ed09",
+      "size": 109
+    },
+    ".github/dev-tools/PNO_SCAN_EVIDENCE_TRUTH_UX_V2.md": {
+      "sha256": "80412f6c006f69eb2aec813943366d9660e6c25b9c00570d4c3a6fcc9ecb0b57",
+      "size": 5978
+    },
+    ".github/dev-tools/SELF_HEAL_V2_DEV_TRIGGER.md": {
+      "sha256": "ac503f60a0ee2b29a4d14f5cfda5342eba33d97e664c0bc3befe76227b79eb24",
+      "size": 650
+    },
+    ".github/dev-tools/apply-ms-archive-completeness-v2.mjs": {
+      "sha256": "782d21e2a5b683428561ebaf4d69d6591e0e71779a8ca9b34f24d93c2d0a6871",
+      "size": 1823
+    },
+    ".github/dev-tools/apply-ms-archive-completeness.mjs": {
+      "sha256": "fb9a974523839cb48a6500c0d6d2ff8e056d7cd65fab76bba3ed58a913100e65",
+      "size": 12259
+    },
+    ".github/dev-tools/apply-ms-daily-history.mjs": {
+      "sha256": "3c1015b474871495410e773e14d76b676da5950212a9687d59009daba6f647fb",
+      "size": 18390
+    },
+    ".github/dev-tools/build-exact-dev-runtime.mjs": {
+      "sha256": "275f960519ac6c26b4173dc4fe46f4a0ddae48695ce5263ecb9e3eca0f961c82",
+      "size": 5279
+    },
+    ".github/dev-tools/bus-time-hot-lane-v14-deploy.md": {
+      "sha256": "96bc248e8435b55351f7901161b642f7a00d5bcc4e595baf1e6566828b9c95d9",
+      "size": 823
+    },
+    ".github/dev-tools/bus-time-hot-lane-v14-runtime.mjs": {
+      "sha256": "0c3c1ae29c8ea9adbf75a5774f2772e4bfd95533202b3f6d9bd24b890db04d45",
+      "size": 85169
+    },
+    ".github/dev-tools/bus-time-hot-lane-v14.test.mjs": {
+      "sha256": "b04d0cc96a46d221c2ca5df80a1c19b39f67b8fab19ae45666c5f4a15109b586",
+      "size": 38015
+    },
+    ".github/dev-tools/cancellation-ci-trigger.txt": {
+      "sha256": "e554ba2d15c10cabba034fff9de070d076ebc22fefc375c9a27daa5dd37389ee",
+      "size": 36
+    },
+    ".github/dev-tools/collect-dev-acceptance-tail.mjs": {
+      "sha256": "1459d64e9f98a392e82e4043b4f980bac14a29370b407fe2a6ef3c21f5b9f6fc",
+      "size": 5219
+    },
+    ".github/dev-tools/daily-history.test.mjs": {
+      "sha256": "917d948fcea456d4bc8705f90240546427fea88918e7dfaa2df79b47730d69f7",
+      "size": 4236
+    },
+    ".github/dev-tools/deploy-v13-final.marker": {
+      "sha256": "3110a84a74647b0198dea7b45bd8dcd07ae17e1bc457a25dc64543ebdf232fc4",
+      "size": 169
+    },
+    ".github/dev-tools/dev-auxiliary-evidence-completeness.test.mjs": {
+      "sha256": "3b573b3a42b8e8e356556ab045909fe6990be81e47dc3f90a6d21da4bdd12177",
+      "size": 35615
+    },
+    ".github/dev-tools/dev-css-asset-contract.test.mjs": {
+      "sha256": "b06b4784f9544875b263bb654f33a71a99e293174e4fd5c311344aff9aadf5c8",
+      "size": 1439
+    },
+    ".github/dev-tools/dev-deploy-ref-guard.test.mjs": {
+      "sha256": "87cc4e82bccba587e4bd94d83961c1e25a798ea95fbaa32d51825429a26736d4",
+      "size": 10082
+    },
+    ".github/dev-tools/dev-live-route-recovery-hotfix.test.mjs": {
+      "sha256": "5cb8adbc80aacbc4d462cf11a325f1ab18569448b08a97bdda12fa9da49d5312",
+      "size": 8029
+    },
+    ".github/dev-tools/dev-self-observable-acceptance.test.mjs": {
+      "sha256": "3d98d16582442d2fd5ecd13d69b2edba0c9c037a1c2c4ac49eb5f454af819e22",
+      "size": 17100
+    },
+    ".github/dev-tools/fix-lower-completed-current-day-v1.mjs": {
+      "sha256": "63d67ee46c6e606f80dca66995dbcd8a48bb76fb0425ad7accf62835a009e235",
+      "size": 6030
+    },
+    ".github/dev-tools/fix-lower-numeric-zero-staging-v1.mjs": {
+      "sha256": "bfb22d5f2da309cce61b69f09169bee305233706839535f5eac60440c8871db4",
+      "size": 1743
+    },
+    ".github/dev-tools/fix-stage-lower-current-day-assertion-v1.mjs": {
+      "sha256": "750585221162375664d8bde4d4453b34cd6f61359b9bcc34787ff807aabe6903",
+      "size": 928
+    },
+    ".github/dev-tools/fix-worker-lower-current-day-test-v1.mjs": {
+      "sha256": "4b8ede9f7ab691d39e55190142e75b3eb03f3a2f3f3fdf6a7f382b00583aba56",
+      "size": 2738
+    },
+    ".github/dev-tools/hub-runtime-readonly.mjs": {
+      "sha256": "e2975ce9d035b6574d3e7e643a7aefd2f4ac25ddc0d531c8055f375148d78e48",
+      "size": 6231
+    },
+    ".github/dev-tools/live-evidence-v29.test.mjs": {
+      "sha256": "b3dd47c44a80a1ce8177dd139f72b4fc689c5829699e13abe7de33ebffa7c6ce",
+      "size": 5261
+    },
+    ".github/dev-tools/ms-archive-completeness.test.mjs": {
+      "sha256": "903766b5e9df9e028ba0e23e3839c34c236d766725017f64b3c147b2cb1c59b7",
+      "size": 4948
+    },
+    ".github/dev-tools/ms-central-near-expiry.test.mjs": {
+      "sha256": "72d828c2cb9753d9412f2c656bb1bee78a4b6ef695919c8cae4da0f69b347b35",
+      "size": 10187
+    },
+    ".github/dev-tools/ms-completion-burst-truth.test.mjs": {
+      "sha256": "060eabad02bb1c99c7ea2ecb2eed58e60617428d30d246f97b99ec0e992ec747",
+      "size": 2366
+    },
+    ".github/dev-tools/ms-connector-adoption.test.mjs": {
+      "sha256": "17ff885f6817dc92923f4cdf39a200b7a56732ee738cae3636626c7c6297939f",
+      "size": 2660
+    },
+    ".github/dev-tools/ms-drop-lifecycle.test.mjs": {
+      "sha256": "abda84bcc05c6cc72f512c161686e7bf997909e1945684eeead72294266ecec7",
+      "size": 7474
+    },
+    ".github/dev-tools/ms-durable-coordinator.test.mjs": {
+      "sha256": "af72d7df72883a7b6dc927f7b4cfdbe0efbb736af0826aec0ab5049458a25664",
+      "size": 28366
+    },
+    ".github/dev-tools/ms-foreground-immediate-refresh.test.mjs": {
+      "sha256": "39b9ddf1d9128b23238ef27721dc8ffbbb51e85353ed9de1bc5358533486ac58",
+      "size": 5307
+    },
+    ".github/dev-tools/ms-har-upload-recovery-v1.test.mjs": {
+      "sha256": "eda7ba7ec8f2d02ff934a54a247faf2b7a09c6b99df17c5f2d8a9c8afc1d9faf",
+      "size": 2738
+    },
+    ".github/dev-tools/ms-live-resilience.test.mjs": {
+      "sha256": "3d3ebd5dffa4d7838dabd554cd8273b3b6c924b7ee8d81785bac1649098bac23",
+      "size": 3158
+    },
+    ".github/dev-tools/ms-lower-card-truth-v1.test.mjs": {
+      "sha256": "380344f12c2c95a9cc5418dcb4126e6d1117d2a5e6dd32c735a77129c56fd92e",
+      "size": 4753
+    },
+    ".github/dev-tools/ms-mobile-shell-live-smoke.mjs": {
+      "sha256": "b62c3f596b4858806a6724f713229726c863545764b44aade749e645db37b0e6",
+      "size": 29344
+    },
+    ".github/dev-tools/ms-mobile-shell-v7.test.mjs": {
+      "sha256": "146e755d42f42c76bee8b5e2ce4e797ef4921820c6f4413455c0a3128144b889",
+      "size": 3803
+    },
+    ".github/dev-tools/ms-multiclient-dedupe.test.mjs": {
+      "sha256": "3766040483f82c15e2aea07d996f9a60c437801f013e4753877956b2bcb5f6d9",
+      "size": 3019
+    },
+    ".github/dev-tools/ms-near-expiry-warning-visual.test.mjs": {
+      "sha256": "bbe01c856ed3826dea28509d8ab6e1228422531e1f8a96ec1ed2440ad88df552",
+      "size": 7163
+    },
+    ".github/dev-tools/ms-origin-tbr-queue.test.mjs": {
+      "sha256": "e3e4e295d5f4597fe7cfe84a6bb4363d29094e82c6382e0c42c8fa54d168b365",
+      "size": 13132
+    },
+    ".github/dev-tools/ms-proof-ui-v16.test.mjs": {
+      "sha256": "a018f5bd7b22a57823eadb1d5cb6e131e42a228995b1112788a02ad5c500dfaf",
+      "size": 5044
+    },
+    ".github/dev-tools/ms-quota-safe-live.test.mjs": {
+      "sha256": "544453a006931df425172b9e0f0b30da886d5d008a12d0b6fdff965476a32b81",
+      "size": 3131
+    },
+    ".github/dev-tools/ms-realtime-failover-v3.test.mjs": {
+      "sha256": "dca3a6e68a7dc0468279f4aa27fc16baf0af81ffba10c2f4db5a0296237bd30a",
+      "size": 10791
+    },
+    ".github/dev-tools/ms-realtime-recovery.test.mjs": {
+      "sha256": "299350c09b36117ae6ecf9861c4a664037a4a95a2be87263dc6418d0a3d9172a",
+      "size": 8532
+    },
+    ".github/dev-tools/ms-redegrade-trace-v1.test.mjs": {
+      "sha256": "50b9cf5979e890e0f3f3a502dfd44ae99d8ea239cc9a68f81ae9511047ee07db",
+      "size": 14501
+    },
+    ".github/dev-tools/ms-resilience-v1.test.mjs": {
+      "sha256": "fed8af6d724d55a4b49300a30f92da8c9f3f9b30db553f81073a8109d638f2ff",
+      "size": 50713
+    },
+    ".github/dev-tools/ms-route-cancellation.test.mjs": {
+      "sha256": "cd189594f20617808e0374ead5f61cf58e5ae7a1fa15346bb5b153fd23e2430b",
+      "size": 4740
+    },
+    ".github/dev-tools/ms-route-persistence-v1.test.mjs": {
+      "sha256": "7287d598dda2539143023f6aa23193020020d4ea3b82b6918663e85ffb54f290",
+      "size": 11485
+    },
+    ".github/dev-tools/ms-route-source-page-timing-v1.test.mjs": {
+      "sha256": "cfa47e280c211a604cde61b0b99988426b6241cc4e0431a98c1d39327c414a13",
+      "size": 13668
+    },
+    ".github/dev-tools/ms-schedule-completion-v4.test.mjs": {
+      "sha256": "9afdf8dde5e896c7e449ad9a4deeb76374ea6e11e2a3a1d100c1249047a118d4",
+      "size": 865
+    },
+    ".github/dev-tools/ms-self-healing-supervisor.test.mjs": {
+      "sha256": "7be56523ab0e563d77845932ce8e5d3c7979f54b70b2b5622add0d898449be60",
+      "size": 5829
+    },
+    ".github/dev-tools/ms-source-realtime-v1.test.mjs": {
+      "sha256": "151d901bffcc03b2b4ad2f1efcd914287443d94d0cb908ca321bd5e31dcb267d",
+      "size": 3368
+    },
+    ".github/dev-tools/ms-summary-filter-base.test.mjs": {
+      "sha256": "a8ca9de81b1b8a28af0a5df28c4201589f4c811febf20b9204568f04842cef77",
+      "size": 10038
+    },
+    ".github/dev-tools/ms-summary-filter.test.mjs": {
+      "sha256": "f97447f1eeabf3d9fa8337fe8607a6cddbf0002492604c272de4aa6d1187236f",
+      "size": 6327
+    },
+    ".github/dev-tools/ms-turso-critical-path-phase-v1.test.mjs": {
+      "sha256": "fd07981d21d46961de811cd1cce14bac10cb981f8a1a1664c59fe372804fc434",
+      "size": 51238
+    },
+    ".github/dev-tools/ms-turso-late-settle-v1.test.mjs": {
+      "sha256": "3c8e129ecbc5e0f1c6a3b9ae56f81685ca6a9eb4c33bd0e629facb0b1309c402",
+      "size": 15298
+    },
+    ".github/dev-tools/ms-turso-stall-containment-v1.test.mjs": {
+      "sha256": "6d0cbcee5bf96725119a24d7b4638c1aae788db3b071664744e1ad03ebaaab98",
+      "size": 24063
+    },
+    ".github/dev-tools/ms-turso-timeout-producer-v1.test.mjs": {
+      "sha256": "cd195a60697e7af3d809570f66373e030a8738e02e2cea5b9379acc104a5a3a6",
+      "size": 30263
+    },
+    ".github/dev-tools/ms-unload-completion-ui.test.mjs": {
+      "sha256": "1ead88bb96c3c06dbf56f49696e0ae079de1ed47c1bc99207d743164c2856e4f",
+      "size": 20774
+    },
+    ".github/dev-tools/ms-unloading-start-truth-v2.test.mjs": {
+      "sha256": "988bf7cddd21008c1fff58a3f7187eba5412444048ceb72a2cb87b87ac02bab1",
+      "size": 8520
+    },
+    ".github/dev-tools/origin-manifest-accepted-truth-adaptive-refresh.test.mjs": {
+      "sha256": "759ceacdc9f23585f45e096f50dc2caf3b3af64c254a4cb47a2d19bfad8484c2",
+      "size": 12856
+    },
+    ".github/dev-tools/patch-browser-authoritative-hub-catalog-v5.py": {
+      "sha256": "280bc1b57761b40a6ae3868b34324614273d9817fdcbb686b956c5361b34c766",
+      "size": 6233
+    },
+    ".github/dev-tools/patch-bus-time-hot-lane-v14.mjs": {
+      "sha256": "5b981f1bb4660937c57de2a26828e0ae41c0a21d7d58d00ca146842151eab7e7",
+      "size": 17854
+    },
+    ".github/dev-tools/patch-dev-auxiliary-evidence-completeness.mjs": {
+      "sha256": "ac0fdd1ef025c6e364156d61d5f837d6619d0916b7e1863bc36ea899f402ed88",
+      "size": 12030
+    },
+    ".github/dev-tools/patch-dev-live-route-recovery-hotfix.mjs": {
+      "sha256": "211a91df366c6cfeaccbf00a3b7419c3bd4c625bf98d2fe3d606dae7c2d27ce1",
+      "size": 4066
+    },
+    ".github/dev-tools/patch-dev-origin-manifest-session-v2.mjs": {
+      "sha256": "3290b9f674ee25c4c9b99792d92694a50afa2ca51d6ba03ce3138e61184c23bb",
+      "size": 9294
+    },
+    ".github/dev-tools/patch-dev-origin-manifest-session-v4-base.mjs": {
+      "sha256": "22b9e2f717125bfa508bc7e8bc56ea8c6fdafed06ef3fb9f57335bf4179f876c",
+      "size": 25058
+    },
+    ".github/dev-tools/patch-dev-report-truth-state.mjs": {
+      "sha256": "75ac88cb695d28579b881fee96e8093a7cd053792fd34b18b2cbb3344d0ced43",
+      "size": 5097
+    },
+    ".github/dev-tools/patch-intelligence-v3-compat.py": {
+      "sha256": "5f0cb88bd35f62c77584df7eb675bbc284784669a1f8140337c575c4d70980e8",
+      "size": 512
+    },
+    ".github/dev-tools/patch-live-evidence-v29.mjs": {
+      "sha256": "057f38ef073c88e3528814ca23bcaab13c1d4e7bd60662d46e0dd24dc7cf8203",
+      "size": 10492
+    },
+    ".github/dev-tools/patch-ms-401-expiry-hint.py": {
+      "sha256": "38ecd72af774dd776751790b2027f76d0f0573a62a3c5f599329129ff7158bb6",
+      "size": 7878
+    },
+    ".github/dev-tools/patch-ms-cancel-nondestination.mjs": {
+      "sha256": "26dada0300712ba20259dfccf093debbd39af8c766beeca238a73e64ac9fcfb2",
+      "size": 2734
+    },
+    ".github/dev-tools/patch-ms-central-near-expiry.mjs": {
+      "sha256": "aaced8d1a47047fe0b0ce3c5d874d5f3244ea22df16e1c1eb50ef1dc31c9d820",
+      "size": 1237
+    },
+    ".github/dev-tools/patch-ms-completed-view-stability.mjs": {
+      "sha256": "40817f0862bf5a0faa1c487b30f1ebd905fdd9b38dfb23f4cdb0c7d5c33e1779",
+      "size": 21802
+    },
+    ".github/dev-tools/patch-ms-completion-burst-v3.mjs": {
+      "sha256": "0b3f603036cddc3e5862dfe867274e394672a1f8faec90f623cd1f18a0c4e068",
+      "size": 3367
+    },
+    ".github/dev-tools/patch-ms-connection-401-alert-v1.py": {
+      "sha256": "877aa89bf0dfd1b5d8147a3e1df8b493206c3e75e9cad7f4e24b98aa836a04b6",
+      "size": 6393
+    },
+    ".github/dev-tools/patch-ms-connection-error-kv.mjs": {
+      "sha256": "a6866d33501e68f0c5fa6996ecef9e37ed571d11a9934798040ae79dc98ba4cf",
+      "size": 17503
+    },
+    ".github/dev-tools/patch-ms-connection-layout-v2.py": {
+      "sha256": "bd9d84a2844dfe5f2901ed12df237f08acf4aa0f56e264dd94e3bfbc822a7b3d",
+      "size": 5377
+    },
+    ".github/dev-tools/patch-ms-connection-outer-scroll.py": {
+      "sha256": "d6c56d6f4b966c1d2dcda02c9763bfe7c74d1e30f51a2b785de35102ca053729",
+      "size": 2268
+    },
+    ".github/dev-tools/patch-ms-connector-adoption.mjs": {
+      "sha256": "3cb176be6ad8457bf71ce72e473afd6a4867bee14b433abe44b2122fad3d891e",
+      "size": 4540
+    },
+    ".github/dev-tools/patch-ms-daily-completion-observation.mjs": {
+      "sha256": "fa0a0e1753ee206196c882c9fd5acf63c5f3db48a640721908062a29672d7ed5",
+      "size": 12416
+    },
+    ".github/dev-tools/patch-ms-drop-release-pair-v1.mjs": {
+      "sha256": "2c06b48e1b32b9de090cedf69159fbfccff5bdea784cf5afb63b4d8a553ded18",
+      "size": 2349
+    },
+    ".github/dev-tools/patch-ms-durable-coordinator.mjs": {
+      "sha256": "b348c7439d57deb811f1bec60c966543dcb882b68ece7f7ef831075001815fd7",
+      "size": 15324
+    },
+    ".github/dev-tools/patch-ms-fast-all-cancelled-card.mjs": {
+      "sha256": "dd8d8882b508e243541bd40bf86797b8f7fd50e5ca5f975a87b53e4f88bdf455",
+      "size": 7760
+    },
+    ".github/dev-tools/patch-ms-history-point-in-time-v1.mjs": {
+      "sha256": "7affe4675f054f8d1b4222b1089d77046659b4b68a2a03fc17027e47f0d703df",
+      "size": 2476
+    },
+    ".github/dev-tools/patch-ms-live-resilience.mjs": {
+      "sha256": "16f5e89ac1a3e43d7a14103309d580f1087aab30bc6c70c7af1bc5774289ff10",
+      "size": 15872
+    },
+    ".github/dev-tools/patch-ms-lower-card-truth-v1.mjs": {
+      "sha256": "c1090a3bb3b70fc48205fb8ffbcd80dcb81ee4a9d9793a0a106dd06ed5dfac93",
+      "size": 8685
+    },
+    ".github/dev-tools/patch-ms-multiclient-dedupe.mjs": {
+      "sha256": "b393e0108cd4b6770758db752267896713f43d29926c13b880db926317e6e518",
+      "size": 7169
+    },
+    ".github/dev-tools/patch-ms-operating-day.mjs": {
+      "sha256": "4b84a9d5939c8bddf6c4d5c5b65148c8aa6280dc4e1bcabb2cd68299260496a5",
+      "size": 4700
+    },
+    ".github/dev-tools/patch-ms-operational-expiry-anchor-v2.mjs": {
+      "sha256": "2fd15ed1fa02d1ac240cc2b6eaab10abda527a094378b65e79cbcb9873b0a615",
+      "size": 10970
+    },
+    ".github/dev-tools/patch-ms-origin-arrival-sources-v1.mjs": {
+      "sha256": "6d5385bc0e02c501524293f3458a02e2a1b4a9ff5c254ce03312798055adb681",
+      "size": 3119
+    },
+    ".github/dev-tools/patch-ms-origin-tbr-queue.mjs": {
+      "sha256": "d99532808faab30813fc78d77fdfaa4d1c80723e352e8bb2ddf584623086511d",
+      "size": 8611
+    },
+    ".github/dev-tools/patch-ms-quota-safe-live.mjs": {
+      "sha256": "d507deb2a4736fcd5bd178a14a5622465a617d7aa149d967bf1f64ca39db1e45",
+      "size": 7782
+    },
+    ".github/dev-tools/patch-ms-realtime-recovery.mjs": {
+      "sha256": "03158cd7b9207542a5fee4a8a2ed747705093fd5eea890397c2e2984cd0e7fac",
+      "size": 13183
+    },
+    ".github/dev-tools/patch-ms-rec04-history-freshness.mjs": {
+      "sha256": "2334c8da2639547a7f9df8de130592d7e686663353e1b5912112b1eb1544d58f",
+      "size": 8311
+    },
+    ".github/dev-tools/patch-ms-redegrade-trace-v1.mjs": {
+      "sha256": "081e1b6b1f9f98f233041df1e0844ebb17c1a4350b6cf13cf4638dfb3cd26cda",
+      "size": 21989
+    },
+    ".github/dev-tools/patch-ms-resilience-v1.mjs": {
+      "sha256": "86461ed01960e849bed5e7fc01be35d3d029e62d5224d4d39102890cc0113854",
+      "size": 31085
+    },
+    ".github/dev-tools/patch-ms-route-cancellation-compat.mjs": {
+      "sha256": "b38e550920d85d5ccc7426e7e8c650d78de6db0e466eeb1b165aa362e8f581fa",
+      "size": 14089
+    },
+    ".github/dev-tools/patch-ms-route-cancellation.mjs": {
+      "sha256": "8948f4bb7119d0cc688c2db0f19e75b1d11930e3213f321340e93046bd15a3a4",
+      "size": 25668
+    },
+    ".github/dev-tools/patch-ms-route-persistence-v1.mjs": {
+      "sha256": "00b5ba1b789d41df33a4094b62a750b6d81475852c3e69d49b6af5d7a5543446",
+      "size": 9061
+    },
+    ".github/dev-tools/patch-ms-route-read-budget-isolation-v1.mjs": {
+      "sha256": "a05b42f2f7045b2e287db07784e99ba11feef81ae7958dddcc2676530431131c",
+      "size": 922
+    },
+    ".github/dev-tools/patch-ms-route-source-page-timing-v1.mjs": {
+      "sha256": "8fc4020f87b0dc5b6054be4df37b4700ba40547a7450ceaf194a769d8a270618",
+      "size": 16040
+    },
+    ".github/dev-tools/patch-ms-schedule-completion-v4.mjs": {
+      "sha256": "3b9224a28e018a24d1a8226db8bfc115e0830c4b66465ad416c1370d0c54bb52",
+      "size": 9363
+    },
+    ".github/dev-tools/patch-ms-self-healing-supervisor.mjs": {
+      "sha256": "92adbadaae824936ae774a3b40de58037b0e2832f69aaa801aaec56df27b6f94",
+      "size": 21783
+    },
+    ".github/dev-tools/patch-ms-source-reauth-guidance.mjs": {
+      "sha256": "ca1cc379ea78f26618ee7c47e335dfd27e6515f0263c057ed5805806dfad74df",
+      "size": 9456
+    },
+    ".github/dev-tools/patch-ms-summary-filter.mjs": {
+      "sha256": "6c610e73eee5e462674c6f8c3940fd3d3ac498ec69147cd9f9bd40d3aa05e9fc",
+      "size": 4481
+    },
+    ".github/dev-tools/patch-ms-summary-performance.mjs": {
+      "sha256": "f55f017e8bb1c1c6654c22c8a7516b8b517b3fb84e0a0da6ef31d243ba64712a",
+      "size": 8993
+    },
+    ".github/dev-tools/patch-ms-tbr-shadow-feed.mjs": {
+      "sha256": "c7ee28bd371400388f66606f6287ab9b7320aef05e7fad38a40067d0df51c39b",
+      "size": 16262
+    },
+    ".github/dev-tools/patch-ms-transient-empty-guard.mjs": {
+      "sha256": "39ab6c597114228144282ef4acbe7f20f9906049894e57fcc8f64c4c0e536c3c",
+      "size": 3363
+    },
+    ".github/dev-tools/patch-ms-turso-critical-path-phase-v1.mjs": {
+      "sha256": "1e2886d1d202cd0cc5d15eca444d7c1249778b14d37fbc7e21f1be13aafa4f24",
+      "size": 33352
+    },
+    ".github/dev-tools/patch-ms-turso-late-settle-v1.mjs": {
+      "sha256": "2022fefea0447eb7180ff64ac22fed5fe148ab056fcb03866fac3b11194a0fc5",
+      "size": 10641
+    },
+    ".github/dev-tools/patch-ms-turso-stall-containment-v1.mjs": {
+      "sha256": "036c5db312e1ae313329f9910a94a266c29454bd9ecd3ed7be57c59df73f43e6",
+      "size": 7782
+    },
+    ".github/dev-tools/patch-ms-turso-timeout-producer-v1.mjs": {
+      "sha256": "658fbeef620bb42a7d3bc9b234d11a1e1c681006dc4bb16b0ddf15947a2b62ff",
+      "size": 26923
+    },
+    ".github/dev-tools/patch-ms-unloading-start-truth-v2-base.mjs": {
+      "sha256": "e23e47c48fa195182034fafccd7e79bac86f9a2dce697b5e7b11ad751d85ff94",
+      "size": 24230
+    },
+    ".github/dev-tools/patch-ms-unloading-start-truth-v2.mjs": {
+      "sha256": "a398e71073b386b1349edcaddf48de7106e90a6997d8d193bb34b4cc21b2504a",
+      "size": 1210
+    },
+    ".github/dev-tools/patch-pno-all-page-filter-truth.mjs": {
+      "sha256": "3cf9b44d5a993cef36198434b2a6614afcae2702189965a0246dd4914cb22595",
+      "size": 16775
+    },
+    ".github/dev-tools/patch-pno-approved-modal-v18.mjs": {
+      "sha256": "165e3c73378ad9fdbd08727c3e5a6a6e6d82f658c05d87f50a29a7535e1daaf2",
+      "size": 51824
+    },
+    ".github/dev-tools/patch-pno-async-lifecycle-v1.mjs": {
+      "sha256": "defd80142df62085a86a00c1d15af3785300dcde1ae8ab783db309098e6d8b29",
+      "size": 14546
+    },
+    ".github/dev-tools/patch-pno-bag-filter-parity-rev86.mjs": {
+      "sha256": "1ca01c2e42040333b57830afc40c2d7fa65356e1f2f792c1507caecf87adfcb8",
+      "size": 13245
+    },
+    ".github/dev-tools/patch-pno-branch-search-v1.mjs": {
+      "sha256": "6a9a067111dcbb9ea796ec998c62357e5d7e4e2c77b3a3ea8588df8629a182cb",
+      "size": 7509
+    },
+    ".github/dev-tools/patch-pno-cross-open-bounded-v1.mjs": {
+      "sha256": "5c9ef040cf43172a29340a99225320fd521f9a2de89fdab885a4d8ee6761439e",
+      "size": 3578
+    },
+    ".github/dev-tools/patch-pno-cross-view-filter-parity.mjs": {
+      "sha256": "716b14ba545d3b727c5f30404f0a00ad09cfadc468dc9857c9f2db5d8dd96a3b",
+      "size": 18816
+    },
+    ".github/dev-tools/patch-pno-destination-hub-truth.mjs": {
+      "sha256": "fda1591b79cd849f595eb42b7ad5bccfc6f1f8f1f37a0cf16b90c0d5200346e6",
+      "size": 3511
+    },
+    ".github/dev-tools/patch-pno-destination-summary-rev73.mjs": {
+      "sha256": "422f2c4bdf7c9940f9b11649645253e5ccdf1495e7a5f25d8f0a2fa212383da3",
+      "size": 14102
+    },
+    ".github/dev-tools/patch-pno-destination-tables-stability-v1.mjs": {
+      "sha256": "bfbfcf643f1cd2ed26f44b551f9f1e9d90ae732a08cdf698f9d1b7c09ed30522",
+      "size": 9913
+    },
+    ".github/dev-tools/patch-pno-detail-affordance-recovery.mjs": {
+      "sha256": "1799c9b0d435a9b391f7cd75bd855f3d05e4765c16b96bca24cd33837c4f5999",
+      "size": 10940
+    },
+    ".github/dev-tools/patch-pno-detail-availability-diagnostic.mjs": {
+      "sha256": "55faa1305f4ea17fbb2e22c6456cb566a968b9c3d7780f940ae58188de918dc7",
+      "size": 5887
+    },
+    ".github/dev-tools/patch-pno-detail-truth-v1.mjs": {
+      "sha256": "1c6dd6d762a459afefd08dbdd1268affcdf084d0eb5bbc29b948be109805ce57",
+      "size": 5571
+    },
+    ".github/dev-tools/patch-pno-exact-history-caller.mjs": {
+      "sha256": "5b64e82066cab4c18d1e69fba12c31d7d0cf9917c7176ab2ace25edaee2a64db",
+      "size": 18007
+    },
+    ".github/dev-tools/patch-pno-frontend-diff-v1.mjs": {
+      "sha256": "98406e62f3ee272d012b8ce781b6c267a46894676e25e8466e1682254b7e2061",
+      "size": 8918
+    },
+    ".github/dev-tools/patch-pno-frontend-v1.mjs": {
+      "sha256": "17827d3b59a7873d3efe8419072e36b7039dff6bef14c0de81a5799f94a12bd1",
+      "size": 8285
+    },
+    ".github/dev-tools/patch-pno-global-filter-v19.mjs": {
+      "sha256": "475b3eb39fadd1c415d3e2d2ae759f499f389f499e367121f74cdef8841cfcd6",
+      "size": 13514
+    },
+    ".github/dev-tools/patch-pno-inbound-scan-evidence.mjs": {
+      "sha256": "ded5c6b655dd36cf0979f76701b067a72adca0434c967a9370ec29750a6d960f",
+      "size": 27780
+    },
+    ".github/dev-tools/patch-pno-inbound-scope-eager-truth-v22.mjs": {
+      "sha256": "15d3d9b0d727f854b48af003884965bfa051d2eebb581b738884105298db3422",
+      "size": 3790
+    },
+    ".github/dev-tools/patch-pno-integrated-target-boundary-v1.mjs": {
+      "sha256": "92fc6a24dc9999d01223248995aac2f61280a0a8a69eb1117528f9bc3e62041d",
+      "size": 3768
+    },
+    ".github/dev-tools/patch-pno-mobile-modal-scope-v1.mjs": {
+      "sha256": "7d71edd68d4eefc3a0f97e154f75e84285ada7cb1b2538317ff985b35a192af4",
+      "size": 8558
+    },
+    ".github/dev-tools/patch-pno-modal-lifecycle-stability-v1.mjs": {
+      "sha256": "99b388a3f39b580e31a904c194f07065167b69bdc80c874162b54bf2dc3a1626",
+      "size": 12613
+    },
+    ".github/dev-tools/patch-pno-next-branch-truth.mjs": {
+      "sha256": "ddf0681ef45f80709df0a48c137e126097c6168655017bbdd87b361c188bf588",
+      "size": 2758
+    },
+    ".github/dev-tools/patch-pno-noentry-bag-action-v20.mjs": {
+      "sha256": "6c035a8347dac2aa3c60251983a12b3eb31766851bfa303771bcac535dc36718",
+      "size": 7798
+    },
+    ".github/dev-tools/patch-pno-operational-receipt-truth-v21.mjs": {
+      "sha256": "c873f3a65108103db3749e64e1b3f139ab436e3650c80936ba1cbddb3e7b88a8",
+      "size": 15487
+    },
+    ".github/dev-tools/patch-pno-ownhub-single-truth-v24.mjs": {
+      "sha256": "faa33b6ca6df4cd67c856f63249266afc0b843a6719e24bce40f847f8d286bf8",
+      "size": 12318
+    },
+    ".github/dev-tools/patch-pno-passive-coverage.mjs": {
+      "sha256": "31f710468c0dce72b29f987463678d87fc66e9eb16cc99682130eac018f8f09c",
+      "size": 3667
+    },
+    ".github/dev-tools/patch-pno-qr-closure-v1.mjs": {
+      "sha256": "20247bf79d16209ece3498d475610a783315bb914186f996a4de709fd1f8e128",
+      "size": 8409
+    },
+    ".github/dev-tools/patch-pno-qr-excel-local-v1.mjs": {
+      "sha256": "4aba1ee8135397353f74df67d8a70b9788c1751691830e0a6ae7d8cc5a62d21f",
+      "size": 5257
+    },
+    ".github/dev-tools/patch-pno-qr-release-local-v1.mjs": {
+      "sha256": "9cae7e7096ee73aefc561040b5cc334aca2d0747b88494811c551461e1f28589",
+      "size": 795
+    },
+    ".github/dev-tools/patch-pno-round2-v1.mjs": {
+      "sha256": "27fa8b90cc4fe001be3411f3b80269ee902b8d23ed7c3939d454c073f73d4990",
+      "size": 7347
+    },
+    ".github/dev-tools/patch-pno-scan-evidence-ux.mjs": {
+      "sha256": "8ddc54caecb139aaa7e71a9c7a1362942e76bf80c37e4d5b667eed06a72c2208",
+      "size": 2470
+    },
+    ".github/dev-tools/patch-pno-segment-destination-frontend.mjs": {
+      "sha256": "dc4d21191364e3cdbcf3e7f5ad78d51bbfa1093a033c76985bdcdd4774c1567a",
+      "size": 32717
+    },
+    ".github/dev-tools/patch-pno-segment-destination-truth.mjs": {
+      "sha256": "92f30c5b8e9281cf6c3102e85a079aef8faddfaaa1b3bf301e8dc93d9b0d4141",
+      "size": 5217
+    },
+    ".github/dev-tools/patch-pno-source-contract-v23.mjs": {
+      "sha256": "5c0dd56dd69c7a2e438bbfe2bfda9e56afb194d410fb2ce9ae25fc0754e399f6",
+      "size": 7208
+    },
+    ".github/dev-tools/patch-pno-truck-qr-header-v1.mjs": {
+      "sha256": "65c3d73c834916f68388e92d05090760ea92e96c664b7a4aace62ea7dad77a98",
+      "size": 3795
+    },
+    ".github/dev-tools/patch-pno-truck-qr-owner-integration-v1.mjs": {
+      "sha256": "dbf561322a84acb6a203d979a6b17b951a461c21f98dbe8ef82a6737a143a7f5",
+      "size": 960
+    },
+    ".github/dev-tools/patch-pno-ultra-low-quota-v1.mjs": {
+      "sha256": "8ee8dc45bf251824959271309868324f353865e0290ebe216acd49505849ce0f",
+      "size": 222
+    },
+    ".github/dev-tools/patch-pno-unified-v1.mjs": {
+      "sha256": "4f61f1b1d206e2913600f9866494c059aac32bfc588618ed197412a22c723928",
+      "size": 1530
+    },
+    ".github/dev-tools/patch-pno-v27-multidrop-copy.mjs": {
+      "sha256": "93a585acd1d07c26a9065f673031f79dae0252aa8167add6bddaf3968322cc55",
+      "size": 23935
+    },
+    ".github/dev-tools/patch-pno-worker-v1.mjs": {
+      "sha256": "3f1b4042ef5c8ef9cdaf7a57427079823944aa94b6f5f8415a980d60e27f0588",
+      "size": 12488
+    },
+    ".github/dev-tools/patch-repair-changed-at.py": {
+      "sha256": "d1aaf62cac6d3f52a79a97c7d8411cbbd21a66d8b235dff8fd2fdec00a9ad928",
+      "size": 553
+    },
+    ".github/dev-tools/patch-supervisor-access-guard.mjs": {
+      "sha256": "77dbab3ed82097d19eb5312d56d7c75390a4dd8f4af486b3c066e121858aef2c",
+      "size": 7732
+    },
+    ".github/dev-tools/patch-supervisor-event-console.mjs": {
+      "sha256": "56249d63cf8770a73b8f29a2ab17ee53408cc45c0c02f585c9714b779c8a6647",
+      "size": 8369
+    },
+    ".github/dev-tools/patch-supervisor-queue-lifecycle.mjs": {
+      "sha256": "7d36093c2d3fc947d4dbbbbdf42ee5c47b4f5e8572b9b1eb0b54b970ed16f8e4",
+      "size": 11409
+    },
+    ".github/dev-tools/patch-supervisor-quota-instrumentation.mjs": {
+      "sha256": "db789c101d1a5b9f0767905d591b19803a8953eaae1174a1cbe3f8d3df74d7d2",
+      "size": 12625
+    },
+    ".github/dev-tools/patch-supervisor-rec05-projection.mjs": {
+      "sha256": "ee286c4e1de697d6562fdf20651319fe62fff3d9a1de5742c63513b5f6e01e90",
+      "size": 7939
+    },
+    ".github/dev-tools/patch-supervisor-shared-snapshot-v6-base.mjs": {
+      "sha256": "69fe8d348b74109f6c334c3ccf0db436b623d50e852272a71152a5e392a95896",
+      "size": 19059
+    },
+    ".github/dev-tools/patch-supervisor-shared-snapshot.mjs": {
+      "sha256": "dce2265ddf20276476daa76affe56743cbeacc615e85ef1dfee70694508e0df0",
+      "size": 1718
+    },
+    ".github/dev-tools/patch-tbr-hub-catalog-v4.py": {
+      "sha256": "a63400917d84c54f7d7ae3281db9e3ef2eb9564871d11e2cbd6ef10d49f5c536",
+      "size": 2585
+    },
+    ".github/dev-tools/patch-tbr-provenance-dev.mjs": {
+      "sha256": "f43d5649eef19bcd1b2a2ce23235bf1a29b669d25ec15189ba2e079c587d90eb",
+      "size": 6777
+    },
+    ".github/dev-tools/pno-approved-modal-v18.test.mjs": {
+      "sha256": "00c991d3b601f9d7af94660d99fc04380735ffadf0bdf971dfc271d3ee390da2",
+      "size": 34810
+    },
+    ".github/dev-tools/pno-bag-filter-parity-rev86.test.mjs": {
+      "sha256": "3d1dfbfbda849d40b5c341b85150a0706cfbdc724d74e8c6e6556b01a0abe9cf",
+      "size": 9029
+    },
+    ".github/dev-tools/pno-branch-search-v1.test.mjs": {
+      "sha256": "e28f79160f220062cad6b23f76ff192bc0907ac001b5534ae4a9cb875c4a0255",
+      "size": 3196
+    },
+    ".github/dev-tools/pno-contract-closure-rev89.test.mjs": {
+      "sha256": "decb64134e4a1be1189ffbc2db5f26477eab8fac5f8853480a717f5193ecc14a",
+      "size": 7105
+    },
+    ".github/dev-tools/pno-cross-view-filter-parity.test.mjs": {
+      "sha256": "3140f6753c958af578954283f5af38af13282d2c59950b3fc706b5480d5d6366",
+      "size": 48165
+    },
+    ".github/dev-tools/pno-destination-hub-truth.test.mjs": {
+      "sha256": "3649a423f3056d6fa181a09f116ecd3d5a5c532babb21cb419485373dcb433c2",
+      "size": 19906
+    },
+    ".github/dev-tools/pno-destination-summary-rev73.test.mjs": {
+      "sha256": "dc71232decb53df94ccb4663c2819c8b813fbb4df1f422b1d973a86a95184398",
+      "size": 26660
+    },
+    ".github/dev-tools/pno-destination-tables-stability-v1.test.mjs": {
+      "sha256": "a0f7e71269961219edffa59802895e47fd46014fa3cabcf7faaef451c35c90ab",
+      "size": 7692
+    },
+    ".github/dev-tools/pno-detail-affordance-recovery.test.mjs": {
+      "sha256": "73499966e3ffddb79e70f31dad8aba612acc23d0925e96abd9bdeb5d265b3564",
+      "size": 8951
+    },
+    ".github/dev-tools/pno-detail-availability-diagnostic.test.mjs": {
+      "sha256": "bb870ac5d3b8f295349cad4ee47c744b4535487ea069d1336af76330af495bb8",
+      "size": 9399
+    },
+    ".github/dev-tools/pno-exact-history-caller.test.mjs": {
+      "sha256": "87026bc11f5e49d302b2037abc7d6e7ffcdc7864af8a132ae09e3ec821f8f08a",
+      "size": 3277
+    },
+    ".github/dev-tools/pno-final-contract-artifact-v3.mjs": {
+      "sha256": "f8b05c5cd0f715d932f1b797af318b9939c1d8255d30c120d0294ce2c59c36d8",
+      "size": 1762
+    },
+    ".github/dev-tools/pno-final-contract-harness-v3.mjs": {
+      "sha256": "263e47f184136cf8202d34f57ed541b8a0cbd90d284695ac2c7a1eb04335f3ad",
+      "size": 9976
+    },
+    ".github/dev-tools/pno-inbound-scan-evidence.test.mjs": {
+      "sha256": "ff2c73a1e9c24b85a0aa3490d28c04439e3112b4f813612cc5f232f22be264b9",
+      "size": 48517
+    },
+    ".github/dev-tools/pno-mobile-modal-scope-v1.test.mjs": {
+      "sha256": "bd934fbe1676b13e11a99f7718472eb0324584407f86335e64954ff7004fc9d3",
+      "size": 4904
+    },
+    ".github/dev-tools/pno-modal-lifecycle-behavior-v3.test.mjs": {
+      "sha256": "957c7dbea972bd0eaf2d24ba38646e80337378cb0e8832bbdabcd062805817de",
+      "size": 10236
+    },
+    ".github/dev-tools/pno-modal-lifecycle-stability-v1.test.mjs": {
+      "sha256": "c301d1a57e306bd290e596f0888a513d32c07182a75b1d71f9e41b704346546c",
+      "size": 241
+    },
+    ".github/dev-tools/pno-next-branch-truth.test.mjs": {
+      "sha256": "fa1b36719714ffa1afca8819d729b0d277aeef8f805919d4b1ca5222aa82d450",
+      "size": 5342
+    },
+    ".github/dev-tools/pno-passive-authority.test.mjs": {
+      "sha256": "4b32976c32284907505db592697d50294908f2b6c7f9bacff06bcc698f894c0a",
+      "size": 6008
+    },
+    ".github/dev-tools/pno-passive-coverage.test.mjs": {
+      "sha256": "321b98596d66352ebec46a8d438d56cca645791a78c1c7abf9e8554ad9d168fa",
+      "size": 12298
+    },
+    ".github/dev-tools/pno-pending-occurrence-reconciliation.test.mjs": {
+      "sha256": "39415bb40b82518ee1147a08959c06d5c38ebf6866ef1a3595dfdceec8ea5d6f",
+      "size": 12793
+    },
+    ".github/dev-tools/pno-pre-dev003-function-pins.json": {
+      "sha256": "2f9b13e3d64524e2f1a9981a1918184dfaca44fae669d32d539787ed4bb5c3f6",
+      "size": 1274
+    },
+    ".github/dev-tools/pno-qr-excel-local-v1.js": {
+      "sha256": "de526df755ad15f32f153b409e0ea6867eb8450ad3036dedc445aa47a5005607",
+      "size": 13059
+    },
+    ".github/dev-tools/pno-qr-test-compat-v3.mjs": {
+      "sha256": "43b211c8e131b091e11ce9fe861587634caa6508e6117af33967e0001d802254",
+      "size": 8664
+    },
+    ".github/dev-tools/pno-qr-ui-local-v1.js": {
+      "sha256": "e0a33edfe4ecd2d1fc348975eec756099988807ce684e082b248d10067910cc8",
+      "size": 9695
+    },
+    ".github/dev-tools/pno-rev89-contract-harness.mjs": {
+      "sha256": "7ab7497f7accf55057bb7c01ee382f2c2ffdf6eb375cd63e93f3975ae6cb735e",
+      "size": 3684
+    },
+    ".github/dev-tools/pno-round2-backing.test.mjs": {
+      "sha256": "d8472625d1f099506cb52d035fd004037d33f6ea7ef03c0d707ceecc9d525c6a",
+      "size": 3611
+    },
+    ".github/dev-tools/pno-scan-evidence-truth-ux.test.mjs": {
+      "sha256": "14a262daa92da74c22ba4bbcce8a221c61e1d2ef7ab16f0ea46686279d05045b",
+      "size": 15820
+    },
+    ".github/dev-tools/pno-segment-destination-truth.test.mjs": {
+      "sha256": "72995dc68ea702f7970d4faa7a8753c796648d4865501db153eca24f5b3d1da9",
+      "size": 17202
+    },
+    ".github/dev-tools/pno-source-quota-dev003.test.mjs": {
+      "sha256": "b3d136d254cb6aaf337478a87b2d8f4015b4f404af1f7c5aede67b447659a379",
+      "size": 4202
+    },
+    ".github/dev-tools/pno-ultra-low-quota-stage.test.mjs": {
+      "sha256": "8dc2da45008c034f76811595d2272ba1ccf507085a134b98a57af9f9aa3cfc81",
+      "size": 4532
+    },
+    ".github/dev-tools/pno-v27-multidrop-copy.test.mjs": {
+      "sha256": "33675aab9d2d02b2eb80bfc2ae0615c124ec4a2747454ed80d5907854eaf54c4",
+      "size": 9792
+    },
+    ".github/dev-tools/pno-weak-refresh-false-ambiguity.test.mjs": {
+      "sha256": "265efacb8227d68191e19b4ff4bee640524f4d41e2e3328c5cfaed2051b3e2bb",
+      "size": 13161
+    },
+    ".github/dev-tools/preentry-accepted-state-recovery.test.mjs": {
+      "sha256": "800c72def9c87b81b3af69f8e8f474f78696f02d6d4a3dc3c01836ae048a2d24",
+      "size": 6162
+    },
+    ".github/dev-tools/proof-service-date-live-smoke.mjs": {
+      "sha256": "0159f12d139cec61dcff70ef403edeec1b52e5eb785846b27fc5ea2597d0d543",
+      "size": 7275
+    },
+    ".github/dev-tools/proof-v16-live-responsive-smoke.mjs": {
+      "sha256": "366d6473ff0e447734d7431bfb363680fc80a3fcc1173ee32ba84c19b6ad550c",
+      "size": 15462
+    },
+    ".github/dev-tools/quota-guard-deploy-trigger.txt": {
+      "sha256": "c0fb29e011c9468ee584ce4023a2087dd998afacddd4534997fb1b159bcaafc0",
+      "size": 67
+    },
+    ".github/dev-tools/quota-guard-hotfix-trigger-v2.txt": {
+      "sha256": "2775330a3e7c24fb3ad5ba8883f9161fd132c5f108f093aff8217d41b7737a0d",
+      "size": 80
+    },
+    ".github/dev-tools/quota-guard-hotfix-trigger-v3.txt": {
+      "sha256": "699c332b0e322e8d483d6bee2786d87de08d74e1149c73ab283dd8e5e497255e",
+      "size": 80
+    },
+    ".github/dev-tools/quota-guard-hotfix-trigger-v4.txt": {
+      "sha256": "6d8568fded0ed9b8d6bcadfccb7144b29a516dd687248ff7c3ffd71abeaf8f6b",
+      "size": 41
+    },
+    ".github/dev-tools/quota-guard-hotfix-trigger-v5.txt": {
+      "sha256": "21cf219594b71fba32b44f79633a835a141e3e60997497cf8101a958794c40fc",
+      "size": 49
+    },
+    ".github/dev-tools/quota-guard-hotfix-trigger.txt": {
+      "sha256": "8dd222d519fd6a4414afd97a2bc4ff9ec8723c10e50855a70bd2b11a71b5fdfd",
+      "size": 80
+    },
+    ".github/dev-tools/realtime-quota-hardening.test.mjs": {
+      "sha256": "25d330692d8d1ef3021ea8b2ab8e9dc826968e1b8ba73d401da7c5ad468a2376",
+      "size": 8203
+    },
+    ".github/dev-tools/rec-01-core-operational-truth.test.mjs": {
+      "sha256": "c17cf7c8849e1f988c40e7f1f53967b80331ce9875764a5b4dfcfdbdeb1f5184",
+      "size": 11014
+    },
+    ".github/dev-tools/rec-02-completeness-enrichment.test.mjs": {
+      "sha256": "3c5862ceb0268aa95bbc097c40a56a79e19758bd059184d400a596a2ea7e8067",
+      "size": 11464
+    },
+    ".github/dev-tools/rec-03-bounded-backfill-quota.test.mjs": {
+      "sha256": "9bbb245fab6ed6beb4c2a317fc1750d75cdd798f1eb631eefe62dc0221e62a4d",
+      "size": 25363
+    },
+    ".github/dev-tools/rec-04-history-freshness-truth.test.mjs": {
+      "sha256": "1d9ebdd9591cc66989d7226debfcafa9e17cc948bb65864a256b9d4377fe17d2",
+      "size": 13956
+    },
+    ".github/dev-tools/rec-05-supervisor-intelligence-isolation.test.mjs": {
+      "sha256": "94870cb0e361d746432509a972a2bae1d6c61d5ef2bfec1ef60e6fa57b90be70",
+      "size": 9468
+    },
+    ".github/dev-tools/rec-06-exact-dev-runtime.test.mjs": {
+      "sha256": "487c82d309ab06357618f4f3bdf3db43d78771cd5c4867d3328466e2f385b0e8",
+      "size": 10848
+    },
+    ".github/dev-tools/rec-07-dev-deployment-readiness.test.mjs": {
+      "sha256": "6c6c37e7edf4adba5516b409b4bfb39dc11bfd659bdaefea06759468baac799b",
+      "size": 5871
+    },
+    ".github/dev-tools/safe-parity.html": {
+      "sha256": "354e17a2e3ac883ab83aba64ae36609edef715d46dcb74fd995b64191ef9be33",
+      "size": 9803
+    },
+    ".github/dev-tools/safe-parity.test.mjs": {
+      "sha256": "9c35a7c3bbfe60f231459d75d03e808b9075e254ace5eef7dac008a4a5a44a41",
+      "size": 2010
+    },
+    ".github/dev-tools/source-integration-trigger-20260910.txt": {
+      "sha256": "4dfed8787c130dcc6a3b5817a0d8ad7cc57ab743fa320764737bb0432632f511",
+      "size": 556
+    },
+    ".github/dev-tools/stage-dev-runtime.mjs": {
+      "sha256": "172c7d1cb32087388eedbc6d7e3ed9c8c67ac3a0eec45b17d13ba4fc6caedf49",
+      "size": 50259
+    },
+    ".github/dev-tools/stage-dev-runtime.test.mjs": {
+      "sha256": "d2501223a5757fb3c9bb33a490221eff0bd1aba63dbb71af7b2e4fad0512ca24",
+      "size": 24897
+    },
+    ".github/dev-tools/supervisor-access-guard.test.mjs": {
+      "sha256": "42c59e66e4cc410c17a269158506b23445f92c84fedcd27d9716cfeaa791adc6",
+      "size": 10068
+    },
+    ".github/dev-tools/supervisor-shared-snapshot.test.mjs": {
+      "sha256": "6068ebb9ed8ed781d30980e8e1fade51ddf9f04c7309876c751e5e090a6bc0f7",
+      "size": 6250
+    },
+    ".github/dev-tools/tbr-provenance-dev.mjs": {
+      "sha256": "24976e92a94dfc1d4ba23cae6434a939cb35d5c3b1927c5ac7a56a1467d87dec",
+      "size": 7098
+    },
+    ".github/dev-tools/tbr-provenance-dev.test.mjs": {
+      "sha256": "384314b410414a6258b9232b7ae75810b45577790ef6d113212001ccd57b9a0d",
+      "size": 13877
+    },
+    ".github/dev-tools/turso-tbr-limit-trigger-v2.txt": {
+      "sha256": "b2dfee120b6ecc942839b7ddd9eeab0031fac67c00155ca5bb40654ad589d265",
+      "size": 27
+    },
+    ".github/dev-tools/turso-tbr-limit-trigger.txt": {
+      "sha256": "e1d1b45a2efded902586ff25e0873f69e62308760b9a02364f31ecb72b286fd0",
+      "size": 24
+    },
+    ".github/dev-tools/unify-proof-shell.py": {
+      "sha256": "f286d03710ca9db8955ea3ae01e65d2798a0939929e1157700efd42d8c931563",
+      "size": 7633
+    },
+    ".github/dev-tools/unloading-truth-v2-deploy.checkpoint": {
+      "sha256": "b56fce480672b6fadc7cd1d3c1e64f838d4643f0339c339e1b1817ef6187e896",
+      "size": 71
+    },
+    ".github/dev-tools/verify-wtr009-dev-identity.mjs": {
+      "sha256": "e282264d9ed16180bb648accbf7d7fe5e346bc65e371d87b5e071812154646af",
+      "size": 5076
+    },
+    ".github/dev-tools/wait-mobile-style-release.mjs": {
+      "sha256": "68667b2c8c8b9780e2e0694c04d855473b91592bf9a1ef452ffdabae4906e4d5",
+      "size": 1314
+    },
+    ".github/dev-tools/wtr009-dev-identity.test.mjs": {
+      "sha256": "f40222220cda3ea79593f96d6e79162ebc850fa03fd86e67c6249ad564f1c883",
+      "size": 4050
+    },
+    ".github/diagnostics/completion-v3-trigger.txt": {
+      "sha256": "6f37247a27f044b2de5df0075ed373c1b64ad00c979401adf84ebe1bb1687a77",
+      "size": 127
+    },
+    ".github/quota-fixes/fix-ms-daily-history-quota-v2.mjs": {
+      "sha256": "79af4a3ba9926c591095bb745eec5596fec4359e1647c48f2b65a8652c090685",
+      "size": 4378
+    },
+    ".github/tests/ms-queue-first-source-v1.test.mjs": {
+      "sha256": "cf9ab1a51945dcc55993d87bc802573e2df59922f8a258ac7349e472840bc31a",
+      "size": 12840
+    },
+    ".github/tests/ms-schedule-timing-degraded.test.mjs": {
+      "sha256": "5dc55d4ba315fbc1bcbf0fa9eefb9f086b72636e42aae9279b801b1f065bf780",
+      "size": 4204
+    },
+    ".github/turso-tools/export-d1-control-plane.mjs": {
+      "sha256": "a2849af1eb27bf8eef29adb16200148920f6435520eafdccf29c05d77371917b",
+      "size": 2288
+    },
+    ".github/turso-tools/provision-only.mjs": {
+      "sha256": "67abce0e6ad10f6a80d54f009797d2d01e3cdd1e094957fc5d7a07728c05f40b",
+      "size": 4332
+    },
+    ".github/turso-tools/provision-upload.mjs": {
+      "sha256": "0b1d3bfca0e28bc35c9335747139a9b63c0144bca59cf808d5cee81d7b6167d4",
+      "size": 9343
+    },
+    ".github/workflows/apply-dev-ms-route-latest-pointer-v1.yml": {
+      "sha256": "f01702c868f311bbc8af48864e28a73643e690f040d978e85f4e6fa8ecaf7149",
+      "size": 9439
+    },
+    ".github/workflows/apply-drop-point-ui-v2.yml": {
+      "sha256": "1f9073d605503eadda52608ba0e734485245eb2168ba1935aee009cb0bd3e846",
+      "size": 8354
+    },
+    ".github/workflows/apply-ms-daily-history-quota-v2.yml": {
+      "sha256": "959b89fde0048dd2d02ec57becb1969cc6649f5a52d9734e8d2b0adec14a91e0",
+      "size": 5644
+    },
+    ".github/workflows/apply-ms-daily-history.yml": {
+      "sha256": "7faa42c37826b74e4ee453ef749d28ef252841a1331fc0c8f603dd2b0d875d08",
+      "size": 3100
+    },
+    ".github/workflows/apply-ms-live-resilience.yml": {
+      "sha256": "1b2bbbff378d3f477ff68ebb02230a10460c1b67bc04ec61fc033dc9bc07f8ae",
+      "size": 2639
+    },
+    ".github/workflows/bootstrap-dev-bus-time-hot-lane-v14.yml": {
+      "sha256": "94ac2ddb5a2943f9eb2e18df9784008cdc47ed6863d724b71c3fe56af2fad982",
+      "size": 3578
+    },
+    ".github/workflows/branch-ms-lower-card-truth-v1.yml": {
+      "sha256": "b032d75034d21fb980741ed14e7a212fce9f3d505d73cea01567951ab1b3ee30",
+      "size": 2390
+    },
+    ".github/workflows/browser-connector-readonly.yml": {
+      "sha256": "1a802091d31bcf9ce0273ab3d66fc7bd0e3da020433a5422c0c8d298b67b2745",
+      "size": 2403
+    },
+    ".github/workflows/bump-drop-point-v2-release.yml": {
+      "sha256": "535c1748df8e2ceb1b7006d1e0b71c5a31b7171c1cd6196149f169a23b38a404",
+      "size": 3129
+    },
+    ".github/workflows/coordinated-turso-cutover.yml": {
+      "sha256": "1182e8ab65fcb38a0c787fbf54ef2cacc1d73c9962401945c8cc9403152f6e0d",
+      "size": 13596
+    },
+    ".github/workflows/current-system-acceptance.yml": {
+      "sha256": "33dfa8663cd4e4efb60ce5f7bbd97ac80d25190e210c48ecd2da59d33baec3c0",
+      "size": 19875
+    },
+    ".github/workflows/cutover-dry-run.yml": {
+      "sha256": "c57a439d97e6b39072b29d6d71ab09e3611c19f847ee3aafa330ef50682b47a1",
+      "size": 6327
+    },
+    ".github/workflows/d1-analytics-rootcause-dev.yml": {
+      "sha256": "56930f88cc702605a49dc6ffe9b25c86f2b9f6bc4f7d38076ef4b623e5a10406",
+      "size": 3773
+    },
+    ".github/workflows/deploy-browser-worker.yml": {
+      "sha256": "34d38bb48cd213f9b9e49074cd740e45214f13a2808689af451db09c8a67050b",
+      "size": 12832
+    },
+    ".github/workflows/deploy-worker-dev.yml": {
+      "sha256": "955e03f3fe931d3cbb307506ca2f2536602e39a63bdffc73a31206b7efb49a6c",
+      "size": 30529
+    },
+    ".github/workflows/dev-all-hub-health-audit.yml": {
+      "sha256": "03e377cb0eb6e7a6f96863470b28b69a199282c2f8b914ba9ec876ccc255324f",
+      "size": 7011
+    },
+    ".github/workflows/dev-daily-history-one-shot-rows-read-acceptance.yml": {
+      "sha256": "3e73e256c70be9885a0e03ad83beed5d10cd8dc532deac7c74e1b804dec9b76e",
+      "size": 9289
+    },
+    ".github/workflows/dev-har-upload-recovery-v1.yml": {
+      "sha256": "b70b3dca30a137dba79989e4231c179c821abeaff304b8e8026dc52ddb0c6ed7",
+      "size": 2147
+    },
+    ".github/workflows/dev-queue-first-source-v1.yml": {
+      "sha256": "7af61cd5b42aeaad3da5b09be2b87d24cb7162e2969e6adbf1b4bc6ef1874bd5",
+      "size": 908
+    },
+    ".github/workflows/dev-report-truth-acceptance.yml": {
+      "sha256": "96c9b0131a3fa10f53cecc13c1e299d0b92e59e8cc1eefe8b70dde1f7cef3ea0",
+      "size": 2717
+    },
+    ".github/workflows/diagnose-completion-cache.yml": {
+      "sha256": "b6662f6fde711c798731b30e5b0261327214656a979bd05bee9c6d789e594740",
+      "size": 5492
+    },
+    ".github/workflows/diagnose-completion-collision.yml": {
+      "sha256": "b063d347a8d7d18d01e4bb19bc9bda703449e213ccb00aa5ad15d0215ad4475d",
+      "size": 7198
+    },
+    ".github/workflows/diagnose-completion-current.yml": {
+      "sha256": "1a8aeaf4704a995b38e1b2018d391fd2ee057d0370aa4c13baaf45355152953f",
+      "size": 8080
+    },
+    ".github/workflows/diagnose-staged-completion-frontend.yml": {
+      "sha256": "d21ea521333974b7e43464205c978b7717ccf9826778550e08447d060ce73f1a",
+      "size": 2415
+    },
+    ".github/workflows/drop-point-v2-final-acceptance.yml": {
+      "sha256": "0f73141288c478ef33183fea881500fa7f3fe7c62cdae3e232a17aeb96dbfc92",
+      "size": 11021
+    },
+    ".github/workflows/fix-completion-burst-v3.yml": {
+      "sha256": "46a2565438e68c8034d85e9779cec1658ba5e1040cc1073dd0694f3a147b2b45",
+      "size": 13064
+    },
+    ".github/workflows/fix-date8-v3-gate.yml": {
+      "sha256": "085618be98d8ee4083d9030f671127e2bf8ed41fda1f08b9c2b01e912b759c1f",
+      "size": 1098
+    },
+    ".github/workflows/fix-drop-origin-only-stage-gate.yml": {
+      "sha256": "309263cc1207869c2e8778c8773a4daf98275c307922aa12a7586bf6d84d0e50",
+      "size": 1937
+    },
+    ".github/workflows/fix-drop-point-contract-tests.yml": {
+      "sha256": "6fe194ccd7d352cad1d3f3054a4704e2f5cdb26aee462ea9f8979b397e2f608b",
+      "size": 3409
+    },
+    ".github/workflows/fix-lower-completed-current-day-v1.yml": {
+      "sha256": "3f4f556e7dfecb872efc730c0ac8a6ec139405c25d169effdb297b6e2d23c390",
+      "size": 1874
+    },
+    ".github/workflows/fix-ms-archive-completeness.yml": {
+      "sha256": "95524b157a49681dbf83305df298bb56fe1b0f03e9855dac1d7c7173d679b8ac",
+      "size": 1577
+    },
+    ".github/workflows/fix-proof-ui-template.yml": {
+      "sha256": "eb53ad42b0bfbd9c3e57940fc67d31db0979828489dab20580f47720107b5d2a",
+      "size": 1091
+    },
+    ".github/workflows/go-live-preflight.yml": {
+      "sha256": "a53e3ab63c48a85834e14a67c6aae42245a3f9c33f8bc30cbccb88cb148a27ae",
+      "size": 12522
+    },
+    ".github/workflows/idle-source-diagnostic.yml": {
+      "sha256": "19f2285e377e4cc3f77f38e1ee6cdc7fb1fac1561e26048e7b9e95321ab42d36",
+      "size": 5035
+    },
+    ".github/workflows/idle-zero-traffic-acceptance.yml": {
+      "sha256": "b7d227957357844b5d7518f460c61b7ac45afe81a8a8d025f6197b3f7b8fda5a",
+      "size": 12011
+    },
+    ".github/workflows/integrate-lower-operating-day-source.yml": {
+      "sha256": "e58e3d74cef0d3e0a07ab666ef19dd07e9c09bf755361b081b59af2bf1acd2b0",
+      "size": 9953
+    },
+    ".github/workflows/live-cache-shape-diagnostic.yml": {
+      "sha256": "9ae8c8031141014e7c20c78059ef0ac23ac4df64b25bd25502c9da2018aee4f1",
+      "size": 4365
+    },
+    ".github/workflows/live-queue-state-observation-v2.yml": {
+      "sha256": "f5a08981b5a045047df6c8689029ba410885151628e2bdc5021fa2894af7a3f0",
+      "size": 11513
+    },
+    ".github/workflows/live-traffic-acceptance.yml": {
+      "sha256": "8ecd88519ebcdbfb6219a86c9311a7eaf5c3f790297624eef0db320bdfe380b6",
+      "size": 16424
+    },
+    ".github/workflows/live-transition-observation.yml": {
+      "sha256": "e14e77383ca21e6f4b7e990b50a758a247b26360f678e530b192c3d5d1844d38",
+      "size": 15081
+    },
+    ".github/workflows/mobile-shell-responsive-dev.yml": {
+      "sha256": "63344cbfb0f56fd2af13be0a8e2139b93245ce23cc61ad5c45e237d6815629e1",
+      "size": 1623
+    },
+    ".github/workflows/ms-accumulated-audit.yml": {
+      "sha256": "1e351058007d978676f1b2d1a06f51c91ba0f1cb9bc10a39eac739096f4392c0",
+      "size": 4911
+    },
+    ".github/workflows/one-shot-fix-turso-tbr-limits-v2.yml": {
+      "sha256": "4496790690b803706c09da014791c407582e247bb77aabe58de00711852d5343",
+      "size": 15249
+    },
+    ".github/workflows/one-shot-fix-turso-tbr-limits.yml": {
+      "sha256": "7dd41c81ba996571129ac7e051b79986c9b0a7145e79a5be76eeff3c4364b019",
+      "size": 15538
+    },
+    ".github/workflows/one-shot-quota-guard-hotfix-v2.yml": {
+      "sha256": "e5f6112b1fec5008f7dfa1a637839b2cf00403f2e7348d40f460d78d989868b7",
+      "size": 11017
+    },
+    ".github/workflows/one-shot-quota-guard-hotfix-v3.yml": {
+      "sha256": "132492fcefa0f3ec9bcebf3042e9a77c1177ff287f3b16ff37aa0ea2f79cbc80",
+      "size": 11610
+    },
+    ".github/workflows/one-shot-quota-guard-hotfix-v4.yml": {
+      "sha256": "fc161c300c7ef7b36c49d0c3e6b0bdac1b84462eb7a4e3c066838f4ddbb5b7f7",
+      "size": 6646
+    },
+    ".github/workflows/one-shot-quota-guard-hotfix-v5.yml": {
+      "sha256": "8323ae0b9ed6be21ab70a6573ab921b087f33591175732e8c3f5557b16cc1ecb",
+      "size": 3709
+    },
+    ".github/workflows/one-shot-quota-guard-hotfix.yml": {
+      "sha256": "71105ff8cc8ff12c5c4f04b71fed12a82a28e2ce6a48b1efd182bf4382003935",
+      "size": 12252
+    },
+    ".github/workflows/one-shot-safe-dev-db-probe.yml": {
+      "sha256": "90a90370f36f7b46b0ec66858b77856bfa2f7d655a51a6d3599f086ccb2f24ae",
+      "size": 3539
+    },
+    ".github/workflows/operational-observation.yml": {
+      "sha256": "6c4ce9acbba37458e009c8ecba43ec14c90f47b9fdd37b89a260c6ce42b23b6b",
+      "size": 11834
+    },
+    ".github/workflows/pno-only-dev-isolated-release.yml": {
+      "sha256": "1576c8c545d1263808fad55ee3db299c6ed9f941f9e20023675395e240a660a7",
+      "size": 7710
+    },
+    ".github/workflows/post-cutover-live-acceptance.yml": {
+      "sha256": "ff609820e3307e244a80a7d18141b777ce8f22c1546d758fd8e642699ca99f99",
+      "size": 11319
+    },
+    ".github/workflows/post-cutover-regression.yml": {
+      "sha256": "7bd0aab15facdf24b474d4368ba687ffda22fd2edf611cbd2cc76b2570595353",
+      "size": 1991
+    },
+    ".github/workflows/production-topology-readonly.yml": {
+      "sha256": "1a834d94c2edb1cc178efc9a9bb9baf69e9aaaa497cd31013519344fb0d68960",
+      "size": 6651
+    },
+    ".github/workflows/proof-v16-responsive-dev.yml": {
+      "sha256": "32840b0340f7f678f177aeea9a82fa0ae1db3de73679887dea1356f6f97ce2eb",
+      "size": 4585
+    },
+    ".github/workflows/provision-proof-turso.yml": {
+      "sha256": "cb055c000ea0f85c1da29a55f0429842317fad71b676a8489df1926a715fd306",
+      "size": 1317
+    },
+    ".github/workflows/publish-proof-session-ui.yml": {
+      "sha256": "25fe3f618f3bcce6f45a5fb2c88e1b4c605d668cc9006573e41f9fc8836130fe",
+      "size": 5804
+    },
+    ".github/workflows/queue-exit-classification-v3.yml": {
+      "sha256": "1769e80d7c18f7ab1b8b91affa1671b42e12efbf8f475686597164e26959cdbc",
+      "size": 12008
+    },
+    ".github/workflows/release-04-final-acceptance.yml": {
+      "sha256": "45612399dfac73050ebf751b1fe06b60766dbf6a5d1fcb7b1beefbbae02e770d",
+      "size": 11861
+    },
+    ".github/workflows/repair-browser-connector.yml": {
+      "sha256": "93fa800a84b65d8ae38fbf8fc6119f1181aaa284602834550c215eb981deed61",
+      "size": 8969
+    },
+    ".github/workflows/repair-completion-v3-runner.yml": {
+      "sha256": "96701e2fb9db9ba93b2445c972dea539bb2bde628cd38dc34e863520668b6310",
+      "size": 1306
+    },
+    ".github/workflows/restore-date8-lower-midnight-v2.yml": {
+      "sha256": "bd0ac98a2bf698fc5426289f8e43b67febbab1fa3645f46b5666c7c7f7b2e335",
+      "size": 8848
+    },
+    ".github/workflows/restore-date8-lower-midnight-v3.yml": {
+      "sha256": "0e8d3cb7ab647ae6b66da735fad12d0a5c9d607359eaf39c4ec84e57420249df",
+      "size": 10076
+    },
+    ".github/workflows/restore-date8-lower-midnight-v4.yml": {
+      "sha256": "f449594e582743795753dd6ac4bede52da42ba356d4f611b034f8a8f177815a2",
+      "size": 2614
+    },
+    ".github/workflows/restore-date8-lower-midnight.yml": {
+      "sha256": "19ccc20aa9b8adef37f337f710c02a4f1c0c92457ffb5706dceb939c7074666e",
+      "size": 8047
+    },
+    ".github/workflows/restore-proof-actions.yml": {
+      "sha256": "ab6c831e926dcc6781a01e2c3e2bed0cbcf359a91e49d8f5fe57ed3db91f24d3",
+      "size": 732
+    },
+    ".github/workflows/tbr-intelligence-live-gate.yml": {
+      "sha256": "d979ee25e32e54861ca79c2f93d4cb382e9bf8a5bbe6e6ae21b544247a7f8c27",
+      "size": 3363
+    },
+    ".github/workflows/tbr-test-runtime-regression.yml": {
+      "sha256": "9ffe06a2a870aefc3497cb0a8eb75a32e11fd721fd306e2fe35f68ccdc3820f0",
+      "size": 9261
+    },
+    ".github/workflows/temp-fix-ms-connection-401-alert-v1.yml": {
+      "sha256": "e510b789b5e719873f7d2b1ff17092c66652307392c74a46ca4a97a042d715f3",
+      "size": 2624
+    },
+    ".github/workflows/temp-fix-ms-connection-layout-v2.yml": {
+      "sha256": "31c232ee4e4f7f445e15aa5f71b0fe6d2cb6969924c62bb0bad77be1f4c085d5",
+      "size": 1227
+    },
+    ".github/workflows/tmp-fix-unloading-state-v2.yml": {
+      "sha256": "4e21386bc5f60d86b1ad1099d72cd7dc5947f215ce73a60da3d33c5dc0c1930b",
+      "size": 5012
+    },
+    ".github/workflows/tmp-target-unloading-timing-readonly.yml": {
+      "sha256": "58d018c077b13f8120f9994ae6de2570d1a31747b8747c07c75bf1a0fa6de76d",
+      "size": 4470
+    },
+    ".github/workflows/turso-live-state-readonly.yml": {
+      "sha256": "a9ef1371a44cc1aaa7a852b45b803811eec6df8686fdeaa463f1b65e6411547d",
+      "size": 861
+    },
+    ".github/workflows/unify-proof-shell.yml": {
+      "sha256": "11e493bcb19dd52beb7133fefb6c891cd7722cb9efee602d9b6f2810d65c5fad",
+      "size": 837
+    },
+    ".github/workflows/unloading-timing-readonly-diagnostic.yml": {
+      "sha256": "f4a257ba7f09d341a51abb615015ab7b076682509c05eaeed8707511f53bc020",
+      "size": 9088
+    },
+    "README.md": {
+      "sha256": "9cacd7ebc6b51fd32ba0b8aa08d89e4833dae63b702e561b039acf05454498bc",
+      "size": 7373
+    },
+    "RECOVERY_CHECKPOINT.md": {
+      "sha256": "9f285340d21fab4d92f37a74dfa62b26fdd501ab298322b2b9472e2987e19d5e",
+      "size": 3828
+    },
+    "SUP-06_CHECKPOINT.md": {
+      "sha256": "1c43e56f7d1ee629ec7beee37edb5e4d44faa047934824b9c4f257ccde7bfc52",
+      "size": 4813
+    },
+    "SUP-07_CHECKPOINT.md": {
+      "sha256": "af0f73d0f860547da439d4791e0d75325b66852df8929b8d1829e39386311c7b",
+      "size": 5000
+    },
+    "SUP-08_CHECKPOINT.md": {
+      "sha256": "d00af285b470a0d36ab3a3d81a2fb6caeaa7235aa876cd1921415ce38fba0884",
+      "size": 6660
+    },
+    "SUP-09_CHECKPOINT.md": {
+      "sha256": "2c38ee16306dceeecca12fab1d6cdd19a28b19ee6130bbb9ced64c6a43cacb5e",
+      "size": 7722
+    },
+    "SUP-10_CHECKPOINT.md": {
+      "sha256": "baefb073ddb601c518d965df2aeb451d98f3ab62f9022cb32ff289313a0ee771",
+      "size": 8080
+    },
+    "SUP-11_CHECKPOINT.md": {
+      "sha256": "c05e7f4539378e30bc9d1e130e311bd5f3fce51235635129e3ea5756f4e3bbbc",
+      "size": 9695
+    },
+    "SUP-12_CHECKPOINT.md": {
+      "sha256": "c06c7982fa4d03256e70970a787bed04c9d8c4004e3114c7ce6e68fdd498c842",
+      "size": 2801
+    },
+    "SUP-13_CHECKPOINT.md": {
+      "sha256": "ddae6bc3a8fbd592a347529c2fb66d2fc4bf7a4ceae2cf9fb63f21f3658e5896",
+      "size": 3957
+    },
+    "SUP-14_CHECKPOINT.md": {
+      "sha256": "e11142eb65ea4e15d75086bf8242e3d0c2b232c14242a33344e308b542d143b9",
+      "size": 5214
+    },
+    "SUPERVISOR_CHECKPOINTS.md": {
+      "sha256": "f9f1cff7e63b59a3025ac892dc2bb666e92311b330f8d0625dc7fa15bd9a45cd",
+      "size": 17542
+    },
+    "admin.css": {
+      "sha256": "d5a5089f30c1c9ff7bc8a7a53e74da21c327d16b9efececd2a6263e7c59a1c4e",
+      "size": 7208
+    },
+    "admin.html": {
+      "sha256": "6965e67fc98036c1dfdc843500389be963348f945c4f209fe288d96c37fa4f43",
+      "size": 8219
+    },
+    "admin.js": {
+      "sha256": "539ed599bcf12143efa9a335620f88d7ccbbab967395de823910c82ecf100d55",
+      "size": 23491
+    },
+    "apps-script/Code.gs": {
+      "sha256": "3b2c1ca0a13b67c9202c41fdf78a066c66d243c6435b02f2c7248e0ea9ca4ecc",
+      "size": 54909
+    },
+    "assets/warehouse.html": {
+      "sha256": "ae3592783a10d8a0b7ee20e3d34b09234b56818e390ce2954825c2b2f0eae8fb",
+      "size": 413
+    },
+    "cloudflare-browser-test/README.md": {
+      "sha256": "2aecde743e86180aa930ae10c6873fc60acf67ba8ba677c5ab27cda264bdb012",
+      "size": 3875
+    },
+    "cloudflare-browser-test/package.json": {
+      "sha256": "3dc928aec980f76c4f7c3aaa18cfe63dbbedf1ef427689c543d51653a9808acf",
+      "size": 949
+    },
+    "cloudflare-browser-test/scripts/apply-tbr-intelligence-v2.mjs": {
+      "sha256": "dc967e894a4c3af6822f9f38eb4faee95b4fe0b36b95991d854cda03b1183abe",
+      "size": 6723
+    },
+    "cloudflare-browser-test/scripts/connection-error-intelligence.test.mjs": {
+      "sha256": "0c1e48bcc1dae48e10d22ba321cf2a9d70d22f80f3ff4685919ca08adff94766",
+      "size": 3511
+    },
+    "cloudflare-browser-test/scripts/deploy-v13-final.marker": {
+      "sha256": "c6b47f731ff9ce9a3c6f7e18dd249bf1bf839730a6327f836c114fdf82d11c30",
+      "size": 150
+    },
+    "cloudflare-browser-test/scripts/intelligence-ui-persisted.test.mjs": {
+      "sha256": "9254eede7aa8b8fb33ec5ce19546f1ee10dc8b4b5bdf47270b58a4737219d32e",
+      "size": 692
+    },
+    "cloudflare-browser-test/scripts/normalize-tbr-inbound-anchor.mjs": {
+      "sha256": "5e8a448128823000554d91572fbbafff5fc639f2d67983a6d3eb5b0f029c6d51",
+      "size": 483
+    },
+    "cloudflare-browser-test/scripts/patch-connector-recovery.mjs": {
+      "sha256": "9e60f457d47451632af9b2b7328af012ea52e4b8737f59f5569940dd0bae0f57",
+      "size": 13008
+    },
+    "cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs": {
+      "sha256": "baf022e57707b97451821eed45e5a310d7de966d3fd3f2b827b491b492246469",
+      "size": 6815
+    },
+    "cloudflare-browser-test/scripts/patch-dev-tbr-shadow-split-v2.mjs": {
+      "sha256": "778dcaab60bbcd5ba5f2b6024a6e7771b16df9f1fa7ea6b28b5cf91cbdc2400e",
+      "size": 36258
+    },
+    "cloudflare-browser-test/scripts/patch-intelligence-ui-v3-hotfix.mjs": {
+      "sha256": "566e58e60082105cc8e36c65556599d238b8542dc1e029c7198ff64e83059aef",
+      "size": 4420
+    },
+    "cloudflare-browser-test/scripts/patch-intelligence-ui-v3.mjs": {
+      "sha256": "d4fa9f492f945ed2a55acc1cfde22aea59ed08f33748eae417144df583a7e4fc",
+      "size": 11100
+    },
+    "cloudflare-browser-test/scripts/patch-tbr-actual-arrival.mjs": {
+      "sha256": "2ed526d47a7c78bcaeef0132d74f91e4b6a186d65b344cca94fa82b9bef85d71",
+      "size": 4255
+    },
+    "cloudflare-browser-test/scripts/patch-tbr-inbound-quota.mjs": {
+      "sha256": "f1f6b1c3ef3be21cb161ab46343e04c5570e375a30fa6859ce9938af846739a2",
+      "size": 10073
+    },
+    "cloudflare-browser-test/scripts/patch-tbr-intelligence-v1.mjs": {
+      "sha256": "083e82b06f4256308d87b397f6bbe77c07dbc28998035d83695b3fba4002024e",
+      "size": 13348
+    },
+    "cloudflare-browser-test/scripts/patch-tbr-route-dedupe.mjs": {
+      "sha256": "393c77d72f42177ae08df6ac726b0fd57bb715fc1f7ffc09b1524ce2764769a5",
+      "size": 3674
+    },
+    "cloudflare-browser-test/scripts/patch-tbr-stale-split-browser-v2.mjs": {
+      "sha256": "a5422ce5d9ee1aa2690d3efb4f7a4837105958d0873ef684462c519321d506f3",
+      "size": 11421
+    },
+    "cloudflare-browser-test/scripts/tbr-bus-daily-split.test.mjs": {
+      "sha256": "f96adfce85da5882bee4b893e847b463564a986991e870c8d492521480d92216",
+      "size": 4770
+    },
+    "cloudflare-browser-test/scripts/tbr-bus-retry.test.mjs": {
+      "sha256": "2a640381f1da3a11baf84465133b54c99723c1e5334f206ea3821eddd9cc639f",
+      "size": 2026
+    },
+    "cloudflare-browser-test/scripts/tbr-diagnostic-rollup.test.mjs": {
+      "sha256": "c5af7b495b9b74e1c108baa98750c5f28ba4ffc909b0dc16abf20047adc057c1",
+      "size": 21922
+    },
+    "cloudflare-browser-test/scripts/tbr-intelligence-entry.test.mjs": {
+      "sha256": "bc000e53c6b5e6b678c4a80e1ce62534dab1a44a62624ca903310ee556b309e3",
+      "size": 3725
+    },
+    "cloudflare-browser-test/scripts/tbr-intelligence.test.mjs": {
+      "sha256": "2b0c19454be872d75ec4c88b51dfb93b44c14d7d1adedfe000d92ea167fe4b21",
+      "size": 5048
+    },
+    "cloudflare-browser-test/src/DEPLOY_TRIGGER_401_HUB_CATALOG.md": {
+      "sha256": "4db57129e37c352981dc700a0388676580f51b47245fc08608a13da2188020ed",
+      "size": 603
+    },
+    "cloudflare-browser-test/src/connection-error.js": {
+      "sha256": "78cded65c2d26541a78a860e3c84ab1afc3d9ee1c1b14fb793589965cdb6f1df",
+      "size": 27324
+    },
+    "cloudflare-browser-test/src/index.js": {
+      "sha256": "e01a72128ee6c2c5b3a2eb1a09c8d6d3949d4d11b42000c4cf72d6e678812eb1",
+      "size": 32016
+    },
+    "cloudflare-browser-test/src/tbr-diagnostic-rollup.js": {
+      "sha256": "479491e245f06d53f388fe5f04c125ae9d41498aecad1798e255de3a58f8a0ef",
+      "size": 15816
+    },
+    "cloudflare-browser-test/src/tbr-intelligence-entry.js": {
+      "sha256": "7e788986b6ee906000d46c799429f79e8d30c1a69e908c0741e993608d7da5a8",
+      "size": 10409
+    },
+    "cloudflare-browser-test/src/tbr-intelligence.js": {
+      "sha256": "b2c5e2e54d279c64f0abcfbb4f2ff659300fdc07fb1704db2b7c8c65513b02f2",
+      "size": 13062
+    },
+    "cloudflare-browser-test/src/tbr-shadow.js": {
+      "sha256": "7348eae5748083ef1dafe99acee6252c0e8a7f15c667555b5e85e992d9b25c90",
+      "size": 21997
+    },
+    "cloudflare-browser-test/wrangler.jsonc": {
+      "sha256": "f54817629868d9889bbe1d2cd3e7b3ff2a6ecbf54af6b42dd704454e6d14bbca",
+      "size": 563
+    },
+    "docs/DEV_RUNTIME_LOCK_CHECKPOINT.md": {
+      "sha256": "80cc561fc11622a69771ef294da1880439c6ee901af928b0ad2576e1cf8ddfd7",
+      "size": 11855
+    },
+    "docs/MS_OPERATIONAL_CONTRACT_V1.md": {
+      "sha256": "63ceab51b3e4caf84eaf3f7e2d6a851cfe29bcf6ff1d3e909468191847805398",
+      "size": 9195
+    },
+    "docs/REC-07_DEV_DEPLOYMENT_READINESS.md": {
+      "sha256": "cf6e735d4bd7e475d7b580357df737f81cab62a2e90e52b61dd53f8e35635afd",
+      "size": 2795
+    },
+    "favicon.svg": {
+      "sha256": "1869f65f2f44bd346807898e824e9a5582c0eb149c2f52c90af28ef7595aef31",
+      "size": 180
+    },
+    "index.html": {
+      "sha256": "465de62d949fde40dbebda10b898684b27465ad8b0da887552436814d39a2a2b",
+      "size": 448
+    },
+    "ms-report.html": {
+      "sha256": "d95a1adf4b906c8f4b09d5749d3921727cd77d7ede078e5492c1fb95e079b05f",
+      "size": 2779
+    },
+    "ms-report.js": {
+      "sha256": "8ff438fa3936e028cbfe872fd4b56de1348be71d942ef9ee2f39d066d631211e",
+      "size": 10257
+    },
+    "ms-route-status-v6.css": {
+      "sha256": "dc5cc2730f348be708a24b7281c550afd237cc6c751d692ab089789e7f456265",
+      "size": 6283
+    },
+    "ms-sync.user.js": {
+      "sha256": "c7d4b1f7258c3193cfd23c03015b0fe0e812a2a8afec13ee9c87e594532ae3a0",
+      "size": 9771
+    },
+    "ms-v4.css": {
+      "sha256": "70be045c4d5851b9cf41db00c24426f8ce99c59a535fb779cb6a5d96993976b1",
+      "size": 27729
+    },
+    "ms.html": {
+      "sha256": "d379365b2237d88ec4f8d14abd086354526a47249be8709c22701c5c6c1f230a",
+      "size": 30769
+    },
+    "ms.js": {
+      "sha256": "fab47e2c8ef822a8041302143c7a4f577ace8446a6ffd9b4be656c1f6ae408c8",
+      "size": 154552
+    },
+    "parity-check.html": {
+      "sha256": "d2f5a2e5b44c15767c912679f88b155c59dab68b058076501a0c00c66976f1a5",
+      "size": 15006
+    },
+    "proof-v2-actions.js": {
+      "sha256": "bfebd5d8c7656c89e476cbc235f07c8ef4496b92eb412b18cbd64438bcf7790e",
+      "size": 32698
+    },
+    "proof-v2-core.js": {
+      "sha256": "d5d0ff5a8f154c40a9b76f8dd47a2c95a6c2cc1ddaaba834f98a1dd687117d2f",
+      "size": 8223
+    },
+    "proof-v2-ui.js": {
+      "sha256": "c573f5778b7d4919cce03f17e5f74e42a7d738f0d3b6b3d46726f401e45e4b86",
+      "size": 19233
+    },
+    "proof.html": {
+      "sha256": "ab2ff65f08e0317e465d364b3e249312b6b6cc9f06dab98faea31dd509bcb9ce",
+      "size": 20363
+    },
+    "proof.js": {
+      "sha256": "ffc344dc9fcef191557a3eaac5411e92901850acb25a50657f45a245c6cdf8cf",
+      "size": 23911
+    },
+    "scan.html": {
+      "sha256": "e19ce4e0c38ee99abb7275b1b6483d9e2b331049900d4abb76837a54c6b1d3a6",
+      "size": 404
+    },
+    "scan.js": {
+      "sha256": "c4ce07c5bb64068a3265a63b885fe710c675b78bddb1c180917a62463199371a",
+      "size": 5646
+    },
+    "style.css": {
+      "sha256": "43af412edc691a941826ccda843362745b7b0469d1ec41b86059662af1329d1c",
+      "size": 135236
+    },
+    "supervisor-context.js": {
+      "sha256": "fc5989101022ad1afefa5001bcd999d1e5da660f2a4f6c9f22c1bb88f346584e",
+      "size": 9368
+    },
+    "supervisor-i18n.js": {
+      "sha256": "390deb430dd7c2e3cb47bee91ce27350ce764f58a0d74805615cb87c2217a42a",
+      "size": 29533
+    },
+    "supervisor-modules.js": {
+      "sha256": "f6eccc7d2e1f0a751bcfc088337b1aff8eeee6c1b29c8774d9d99112da93c88d",
+      "size": 3923
+    },
+    "supervisor-view.js": {
+      "sha256": "3708b9ce7e6c031410182ba36754eb788f204832852e5bbd9191f8463f0eda26",
+      "size": 18399
+    },
+    "supervisor.css": {
+      "sha256": "3955748c94e4c2ea717da38ce7294b31ff236cd49674706a37f48a4ba495dd7a",
+      "size": 15069
+    },
+    "supervisor.html": {
+      "sha256": "4a784bd81807e6f98ae01169c3d1b5df027300849f0e5e980a7822ae6c15878c",
+      "size": 23672
+    },
+    "supervisor.js": {
+      "sha256": "3af2f9140ca73395100d4c90b8ff915c986df5ce0c458edd3389fb0e1a5d905b",
+      "size": 53481
+    },
+    "sw.js": {
+      "sha256": "253b52726d148658de25eb4f96f6c81500275fec34da9152973e8edda4a89be0",
+      "size": 976
+    },
+    "version.json": {
+      "sha256": "9eb9ab6a7c6f7354520a832d2d2c04331e3073ab76c00c8ec0720fc89a43eac5",
+      "size": 65
+    },
+    "waiting.html": {
+      "sha256": "1b72e4c19ddf4dc8935827d44ba6d261cf75ef9bf96a9712e6f3338ccddaaff1",
+      "size": 518
+    },
+    "warehouse.html": {
+      "sha256": "e19ce4e0c38ee99abb7275b1b6483d9e2b331049900d4abb76837a54c6b1d3a6",
+      "size": 404
+    },
+    "worker/.gitignore": {
+      "sha256": "6769b9cbbac3b3fac9b1c44b1466195eac29947497d6512117c942dffa496c62",
+      "size": 64
+    },
+    "worker/db/schema.ts": {
+      "sha256": "ecaa4f58f3228e00e1d71d367fcd02abbcb5ca9accfc9363055d6d5a5641c9cd",
+      "size": 5586
+    },
+    "worker/migrations/0000_colossal_roland_deschain.sql": {
+      "sha256": "03074e703c4b46d4d62e8a658f78f09d9a818d6cefc463298084920e2853628c",
+      "size": 2476
+    },
+    "worker/migrations/0001_colorful_tattoo.sql": {
+      "sha256": "afe2009dd9cb6e20efcf6c7d1878be64b7c7c356d4581b5c04a48954f169e984",
+      "size": 244
+    },
+    "worker/migrations/0002_safe_gambit.sql": {
+      "sha256": "f8a975b71d6e317d13d7011a195f9e26943eedcd81f2d43739b27371005c70de",
+      "size": 236
+    },
+    "worker/migrations/0003_fluffy_forgotten_one.sql": {
+      "sha256": "e7fa36e590edb101794834773275708648a72e7d975ce3fb28c0ea459d8243f2",
+      "size": 137
+    },
+    "worker/migrations/0004_ms_pairing.sql": {
+      "sha256": "15ba18f644a41e34043b71eb452a699e258b35520334820ffe6ce3c6aedb35d4",
+      "size": 559
+    },
+    "worker/migrations/0005_preentry_parcels.sql": {
+      "sha256": "d431a970c88b880f1447cb116c4dffcd448e309629c80f7493e9a62ee350966c",
+      "size": 1034
+    },
+    "worker/migrations/0006_d1_read_cache.sql": {
+      "sha256": "0f1ed47a2373e213e6f6d6ad60f24cb7c3e78ff0b9c0369a2451488664e023d8",
+      "size": 657
+    },
+    "worker/migrations/0007_ms_history_read_index.sql": {
+      "sha256": "9f57702751c1a722ecc21f27e9cb0c7acadd9e002e8fe3a482bf3bebff5b0ad7",
+      "size": 177
+    },
+    "worker/migrations/0008_ms_sync_claims.sql": {
+      "sha256": "8011cfce34c9be8eba919e1186b36b42b8fb345068689aee5628fcec21055c38",
+      "size": 502
+    },
+    "worker/migrations/0009_ms_route_cancellations.sql": {
+      "sha256": "120647694ecfe8deed81c38d40ca362ecd47161b1485dda08edbe39f37394861",
+      "size": 506
+    },
+    "worker/migrations/0010_ms_daily_history_read_index.sql": {
+      "sha256": "734b8931e22a46a9f286f302d748b18afe8d8ae61f77a78494c89dba1df3a53f",
+      "size": 183
+    },
+    "worker/migrations/0011_hbi_truck_photos.sql": {
+      "sha256": "3a60ce35c7a75ee941afd447435607a77ed3a620b77edaae5470c930c70a65cb",
+      "size": 166
+    },
+    "worker/migrations/0012_ms_route_latest_pointer.sql": {
+      "sha256": "24099c5944192bf8235e8964550f3b83e60c586a52bd4477cfc86409e2dda715",
+      "size": 3410
+    },
+    "worker/migrations/meta/0000_snapshot.json": {
+      "sha256": "9f7ccb86f62c563cc604345964d2d721aed365faf39c5b90ef1c6260f1f7248c",
+      "size": 17794
+    },
+    "worker/migrations/meta/0001_snapshot.json": {
+      "sha256": "3089c114c035ba6121b9892115feb0e0bbaac67dffcb63592e088b0435e72517",
+      "size": 19301
+    },
+    "worker/migrations/meta/0002_snapshot.json": {
+      "sha256": "9b2cd72585bcdd9e5a8af42e0b5a3e58486e5178b4738bc1c593b1e080dc1d11",
+      "size": 20830
+    },
+    "worker/migrations/meta/0003_snapshot.json": {
+      "sha256": "ca3c9a1f21f0e454da650348f2c03a94258336354087f4b0e45123317984df07",
+      "size": 21237
+    },
+    "worker/migrations/meta/_journal.json": {
+      "sha256": "a2e040dc1f3e1f94d1fc425a44e3b30e444e4c0d0e0c6070a0de687fd7092847",
+      "size": 644
+    },
+    "worker/package-lock.json": {
+      "sha256": "89ddb16d8956916bbdeb3f81b28b067f6cc4106b743f82f2acb90f62841c9d43",
+      "size": 49330
+    },
+    "worker/package.json": {
+      "sha256": "df534373d6768824c06d21041c57a3e9577a8dc42888283b8289cb3f818a5220",
+      "size": 4015
+    },
+    "worker/scripts/import-sites-dev.mjs": {
+      "sha256": "813a7ece3f4f61a45c79de6479acdf3c585fa3a3537cb54e012ba6f1a72efb50",
+      "size": 5799
+    },
+    "worker/scripts/patch-dev-ms-archive.mjs": {
+      "sha256": "2bc08bd534ad6946500c825ab408917a95d007d818364eed8e8cf3286889862b",
+      "size": 20957
+    },
+    "worker/scripts/production-preflight.sql": {
+      "sha256": "695f3a9ff5b1e6a969e8c2dc94aa7a23d63450a29aecef48de9b643aac60187b",
+      "size": 1594
+    },
+    "worker/src/dev-acceptance-evidence.js": {
+      "sha256": "7cbcbda0d52c0573ed9dca754fdc52b3e658c7cb0e0e4522ac7432b143a005e2",
+      "size": 6472
+    },
+    "worker/src/index.js": {
+      "sha256": "1828c6b43f4c5ff5d087f036683d7ff60124b1b7b69b97aaf531e723b5d6e580",
+      "size": 116207
+    },
+    "worker/src/ms-history-pointer-v1.js": {
+      "sha256": "215d19b32a80b3fd1224116b95635d656edb14751563a5a56efaca6bff3f9eb8",
+      "size": 6990
+    },
+    "worker/src/ms-operational-truth-v1.js": {
+      "sha256": "f618e894916b052fe132203ccf9e463d7a7a13c04c87988875bb5d5777bd4a72",
+      "size": 6828
+    },
+    "worker/src/origin-manifest-v1.js": {
+      "sha256": "ff36181ef15f9aa4ab6209be98717308c80d6be31ef351df22834288a03bdc11",
+      "size": 45289
+    },
+    "worker/src/pno-inbound-scan-evidence.js": {
+      "sha256": "5567616457e68b3708acf9663d43a75ec7b3ef08c25768477088ff0ec132d11a",
+      "size": 22581
+    },
+    "worker/src/pno-passive-coverage.js": {
+      "sha256": "c26bd3cb2a784c4cd0a9e992c95e63e85f0b5c821e5e217a25312bbadc5c24b5",
+      "size": 10131
+    },
+    "worker/src/proof-control.js": {
+      "sha256": "27663db427df9ba1c80340c39f873c2899ce521f563560117572b57c5f9a0548",
+      "size": 25063
+    },
+    "worker/src/proof-editor.js": {
+      "sha256": "78e76d7194bfcfbab40bfa4c71a5f0e3c196ec7648313c6952c622c5a53a4cbf",
+      "size": 22904
+    },
+    "worker/src/proof-history-v10.js": {
+      "sha256": "ccfc75618e1635a41d41305055a6a77e857c40184f6336dbc565cad3d55d775c",
+      "size": 9474
+    },
+    "worker/src/proof-live-v2.js": {
+      "sha256": "247150f684ea64c2624e9446aa0426c6662f31c098afb82f01d907aaa0419af8",
+      "size": 13967
+    },
+    "worker/src/proof-plate-search-v5.js": {
+      "sha256": "469d76872f7462176c334035ab3e7e1238e07fa1507b117badb3976fdabfbdd2",
+      "size": 12044
+    },
+    "worker/src/proof-preview.js": {
+      "sha256": "283425b756486bbdbc290a9be3c27195d1880478461e0026151af4b056b55e92",
+      "size": 6634
+    },
+    "worker/src/proof-route-meta-v15.js": {
+      "sha256": "4729bf76abde9213fcb8c5c79407923973a62f25a53019e4a2bf79566eb6008b",
+      "size": 9334
+    },
+    "worker/src/proof-route-meta-v16.js": {
+      "sha256": "3bb7120cf5b2d9d60419d4b22cd364c95f665c71c1e2e4e6b71d96e206b2c152",
+      "size": 11826
+    },
+    "worker/src/proof-service-date-dev.js": {
+      "sha256": "93b076f5c899104a0d3b5955145f3c4029236c79c3efb78fd45d4496b6e784c4",
+      "size": 2950
+    },
+    "worker/src/proof-ui-v10.js": {
+      "sha256": "ea701e1cab6c9fd09c6a988a5d0d6cf992f6e34b3668c95e90a24f7254779851",
+      "size": 77471
+    },
+    "worker/src/proof-ui-v14.js": {
+      "sha256": "8f9eb5193b095823f273dbc9bd0442b8bcdaed9ccc54245a8229db36193cad37",
+      "size": 22861
+    },
+    "worker/src/proof-ui-v15.js": {
+      "sha256": "e177577409f8f87f9e090b09fc4fe9b52cb1732687905ad44b1a2261f64ee1db",
+      "size": 31687
+    },
+    "worker/src/proof-ui-v16.js": {
+      "sha256": "531b8b2b6ea7d6c4f781bcb6109f27c67d7abb270f986e3ef6f042f633302eba",
+      "size": 20002
+    },
+    "worker/src/proof-ui-v5.js": {
+      "sha256": "639f17c925d5cdb69586dc77dc7521547703f626e7185280d1cd7ae4c9209455",
+      "size": 30357
+    },
+    "worker/src/proof-v7-deploy-marker.txt": {
+      "sha256": "240329d2ebbc871f21dd0fddd3e9871ea8ab7918a0ad0a7ff9aa529b7c7390c3",
+      "size": 166
+    },
+    "worker/src/sync-policy.js": {
+      "sha256": "21bade799c1c382e0dea61febcd5f5033b314da385cd4dac3c63aa1876e4da95",
+      "size": 4631
+    },
+    "worker/src/turso-d1.js": {
+      "sha256": "924048c12c9bab28c89f026cae60da83189e82693d86f25b6ee4c28a68d498ef",
+      "size": 13471
+    },
+    "worker/src/turso-index.js": {
+      "sha256": "3847b6a26565b3506376a8d1c0a519c7473e36686375b772668435b37136e2db",
+      "size": 10063
+    },
+    "worker/tests/admin-page.test.mjs": {
+      "sha256": "0459912a1963ed72e7de631a86bab9962fb96f03f47fbf67e087cae1b804d459",
+      "size": 4546
+    },
+    "worker/tests/auth-session-resilience.test.mjs": {
+      "sha256": "5456b999eb9b98ad27bbce90821b93e72c0562acdf3ee2c3adb94b4de92cc31b",
+      "size": 9328
+    },
+    "worker/tests/bus-enrichment.test.mjs": {
+      "sha256": "2e80511956521c4591c287984e3a00a3b5ac9cbca487d983b02e66f4d787ac7e",
+      "size": 5760
+    },
+    "worker/tests/dev-archive-patch.test.mjs": {
+      "sha256": "1ac55d01ab13f95381dc224002b2bb6f6ed4d21bab7dbe0352f14fbeb1710b78",
+      "size": 2302
+    },
+    "worker/tests/dev-mobile-export-layout.test.mjs": {
+      "sha256": "04aeb4eb0d0710fa12ce6cdacbfdaa4157bc1f1a1e82efbb622de09111f2ae49",
+      "size": 3924
+    },
+    "worker/tests/dev-tablet-shell-v1.test.mjs": {
+      "sha256": "ae79d44df3fe815d58eb090b0f5d3abfece003ce66562873b949276e237b9e87",
+      "size": 1615
+    },
+    "worker/tests/frontend-requirements.test.mjs": {
+      "sha256": "e1996ecadebd35249bad07060c5f5ac08154bb0061f5f21b6e1778657a939ad4",
+      "size": 19248
+    },
+    "worker/tests/hbi-truck-photos.test.mjs": {
+      "sha256": "1c895a8f65b57b3c40283fd4c46e80e505610fed513536147b532c619e8b22ae",
+      "size": 7903
+    },
+    "worker/tests/ms-fast-first-paint.test.mjs": {
+      "sha256": "0156ed5c2cb13d66eef5486369c9dabe2ce0054e920719509a36076de337bdfd",
+      "size": 2735
+    },
+    "worker/tests/ms-har-browser-context.test.mjs": {
+      "sha256": "c5c3430359baecee589e1edbd51b203096a425c311333c94195f964059a2d36f",
+      "size": 1474
+    },
+    "worker/tests/ms-history-pointer-v1.test.mjs": {
+      "sha256": "2740a874cae12ad0ec92c6df6e59c492881a67af177b6fc8fe3ecd63b85ff6b4",
+      "size": 5481
+    },
+    "worker/tests/ms-owner-live-v8.test.mjs": {
+      "sha256": "5e9fafb0d4241b8eb5fbcef9ab6c7c027c792ac271f4b3194b93a2ec83d3d3e2",
+      "size": 2232
+    },
+    "worker/tests/ms-session-resilience.test.mjs": {
+      "sha256": "1d7d4f220a237560d2a0c8568a46caee41ba5590e45a6aa0c92342a501056aaf",
+      "size": 2924
+    },
+    "worker/tests/ms-transient-empty-guard.test.mjs": {
+      "sha256": "bd205723fc40ed21038a82ef2f511dc258d5f3a66fbc02ef84b0e4c05635a478",
+      "size": 2411
+    },
+    "worker/tests/parity.mjs": {
+      "sha256": "e9699a9726ce7c71ddd52df91475ed2b6b2044ae420d9c53504d3ac6524d2c72",
+      "size": 2278
+    },
+    "worker/tests/proof-command-center-v10.test.mjs": {
+      "sha256": "b1aa7025ce95e43ced0f5154ab009233741563ac856ea8a51d6eeb976d15eaac",
+      "size": 7443
+    },
+    "worker/tests/proof-ms-credential-parity.test.mjs": {
+      "sha256": "b6f411c5a55ef93cf3f411af77e505aa1c78f084a93f4533896d56605bc9f8c4",
+      "size": 2587
+    },
+    "worker/tests/proof-plate-har-v14.test.mjs": {
+      "sha256": "4b4fc492b6ff45ef3f1a8ad0af3e2338c0b5ff2af686fb68942ca67f97c699f1",
+      "size": 3467
+    },
+    "worker/tests/proof-polish-v15.test.mjs": {
+      "sha256": "9cc261fa3987ab910148e146b1fe8a7bf2baf5e0d80b715bab4ca7e13d641fbd",
+      "size": 2868
+    },
+    "worker/tests/proof-quick-day-v16-design.test.mjs": {
+      "sha256": "0198c973e4f5dc83e34faf1cc81c51c3ad782ea397272e51ec178ce69329f6c8",
+      "size": 782
+    },
+    "worker/tests/proof-quick-day-v16.test.mjs": {
+      "sha256": "1e750e89c94f642c70c2a472a06818d812ef9e9485e00ad3100271c0ef15a5ab",
+      "size": 4109
+    },
+    "worker/tests/proof-responsive-v14.test.mjs": {
+      "sha256": "02bfca138ccc8dacce33c3859a43871578d4e4d35457cfd848a2839b99353a0a",
+      "size": 1467
+    },
+    "worker/tests/proof-route-meta-v15.test.mjs": {
+      "sha256": "b7ca99b4639c0d98f8879b30437fa869317abb96aacab5c3311861130d2d19e2",
+      "size": 2362
+    },
+    "worker/tests/proof-route-meta-v16.test.mjs": {
+      "sha256": "ad8c402e127278a363950c7480caf7b232fa62956f7cb42374d5a88080d1ef5b",
+      "size": 2481
+    },
+    "worker/tests/proof-service-date-dev.test.mjs": {
+      "sha256": "19decc8aed29fc84dd682f722eeb909afd0380218db693a6b862e5b7a4c85103",
+      "size": 4440
+    },
+    "worker/tests/proof-smart-v8.test.mjs": {
+      "sha256": "f9e7bc4cab1b9385b90a17ad88d67b472a25ee1258355d34fd6e3cf376119dcb",
+      "size": 1755
+    },
+    "worker/tests/supervisor-core-shell.test.mjs": {
+      "sha256": "f0df59faf96fa3ebf356f6ffcd0fc812b28dd30ead0ba03e1fc509bfa647081a",
+      "size": 3614
+    },
+    "worker/tests/supervisor-event-console.test.mjs": {
+      "sha256": "b3b39c20127271a396214b70a55b32a50ba5bd41381cf29c51950ad4fd061299",
+      "size": 5400
+    },
+    "worker/tests/supervisor-guide-contract.test.mjs": {
+      "sha256": "be82b9219116399c721e082254b66d5fd5dd03ef1c21594cb19a6ea17309554c",
+      "size": 3895
+    },
+    "worker/tests/supervisor-incident-action-center.test.mjs": {
+      "sha256": "5250a6a986424191daab4acf0c2d4f9a063b6e465dae0f74198d87e2da0b7ef0",
+      "size": 6208
+    },
+    "worker/tests/supervisor-language-contract.test.mjs": {
+      "sha256": "1b2897c1df636e87971d33ef9e1a65392e4434ff000648de8d8f7a402aac44bb",
+      "size": 4693
+    },
+    "worker/tests/supervisor-module-registry.test.mjs": {
+      "sha256": "d4af7b500cde8c80016bf25c501ea25227280e274315fcfef96b516a5578cabd",
+      "size": 3652
+    },
+    "worker/tests/supervisor-overview-hub-health.test.mjs": {
+      "sha256": "bc04e320634f78d19abcb817d288d2d01585eaac6485d07b8c8082c8d7119566",
+      "size": 4214
+    },
+    "worker/tests/supervisor-queue-lifecycle.test.mjs": {
+      "sha256": "3b1115140c49ff1a4f19af5ce8d1fb3e1496aa5dd58879e2430a8d8ed0def358",
+      "size": 9385
+    },
+    "worker/tests/supervisor-quota-instrumentation.test.mjs": {
+      "sha256": "b773adf00608c8e20149d19d46d7df852888785b92d765f549ec8901bdaeaaa4",
+      "size": 9934
+    },
+    "worker/tests/supervisor-quota-protection.test.mjs": {
+      "sha256": "d939d3bb43019588a6e57d5decaed000287a8d7bd12af7afca1296cd88e511fb",
+      "size": 5153
+    },
+    "worker/tests/supervisor-shared-quota-center.test.mjs": {
+      "sha256": "0ae9e747a31127d972788980525452cd4477fbb32129a0a78fce993682278ceb",
+      "size": 5916
+    },
+    "worker/tests/supervisor-source-health.test.mjs": {
+      "sha256": "97b65db429639eaad2613e2453f23dbff710a78d720e066adf8cd4672f4603d0",
+      "size": 5488
+    },
+    "worker/tests/supervisor-system-context.test.mjs": {
+      "sha256": "448ed1e05102709b7aab8b16a22ee5f04f07439e1383c1e6f789cb0797a179b0",
+      "size": 7587
+    },
+    "worker/tests/sync-policy.test.mjs": {
+      "sha256": "932fd2fc151462ac6a7f160ddf4ad67309c40db482782c4f3e11b55d0f570f85",
+      "size": 8317
+    },
+    "worker/tests/turso-d1.test.mjs": {
+      "sha256": "e393b26158d64c94bdca64c82eea0873f892184fa6962dda1c2facf970d246e5",
+      "size": 8052
+    },
+    "worker/wrangler.dev.jsonc": {
+      "sha256": "90e20603dd23e22c047c768acca6b366ce86e3fe2b844df8b3977245ee0176ca",
+      "size": 773
+    },
+    "worker/wrangler.example.jsonc": {
+      "sha256": "df56b4d9f40f73f18ada6c5d69576f8b90ed7c9845e976e344155a99ee9ddd08",
+      "size": 431
+    }
+  },
+  "sourceCount": 496,
+  "assets": {
+    "admin.css": {
+      "sha256": "d5a5089f30c1c9ff7bc8a7a53e74da21c327d16b9efececd2a6263e7c59a1c4e",
+      "size": 7208
+    },
+    "admin.html": {
+      "sha256": "6965e67fc98036c1dfdc843500389be963348f945c4f209fe288d96c37fa4f43",
+      "size": 8219
+    },
+    "admin.js": {
+      "sha256": "539ed599bcf12143efa9a335620f88d7ccbbab967395de823910c82ecf100d55",
+      "size": 23491
+    },
+    "favicon.svg": {
+      "sha256": "1869f65f2f44bd346807898e824e9a5582c0eb149c2f52c90af28ef7595aef31",
+      "size": 180
+    },
+    "index.html": {
+      "sha256": "465de62d949fde40dbebda10b898684b27465ad8b0da887552436814d39a2a2b",
+      "size": 448
+    },
+    "ms-report.html": {
+      "sha256": "d3534d7d4094775d8a6a57ff95c7b09305281238ede28f36e1dd6eef339332dc",
+      "size": 7681
+    },
+    "ms-report.js": {
+      "sha256": "67acf22c6bc4688599738b1ebb9b3167cf41a21e11ca2847157223aa72b63d29",
+      "size": 11777
+    },
+    "ms-v4.css": {
+      "sha256": "70be045c4d5851b9cf41db00c24426f8ce99c59a535fb779cb6a5d96993976b1",
+      "size": 27729
+    },
+    "ms.html": {
+      "sha256": "d91c0e562ee1abe83c8908699b120e048f208922a53338328ef23ac019e27bfe",
+      "size": 35446
+    },
+    "ms.js": {
+      "sha256": "ae049e12f42bb514a31ee148e523f0fbe1bad683bbabdce66c39d049b9a2f9cd",
+      "size": 453147
+    },
+    "proof-v2-actions.js": {
+      "sha256": "bfebd5d8c7656c89e476cbc235f07c8ef4496b92eb412b18cbd64438bcf7790e",
+      "size": 32698
+    },
+    "proof-v2-core.js": {
+      "sha256": "d5d0ff5a8f154c40a9b76f8dd47a2c95a6c2cc1ddaaba834f98a1dd687117d2f",
+      "size": 8223
+    },
+    "proof-v2-ui.js": {
+      "sha256": "c573f5778b7d4919cce03f17e5f74e42a7d738f0d3b6b3d46726f401e45e4b86",
+      "size": 19233
+    },
+    "proof.html": {
+      "sha256": "bf7bc6625081f87281591764c8fdc6e2d06cac358ba390cc2956f34eb3e91c25",
+      "size": 24365
+    },
+    "proof.js": {
+      "sha256": "ffc344dc9fcef191557a3eaac5411e92901850acb25a50657f45a245c6cdf8cf",
+      "size": 23911
+    },
+    "safe-parity.html": {
+      "sha256": "354e17a2e3ac883ab83aba64ae36609edef715d46dcb74fd995b64191ef9be33",
+      "size": 9803
+    },
+    "scan.html": {
+      "sha256": "e19ce4e0c38ee99abb7275b1b6483d9e2b331049900d4abb76837a54c6b1d3a6",
+      "size": 404
+    },
+    "style.css": {
+      "sha256": "c4d96a2969ce96e5deffcde118d00a97c2161134c2fe471b9f4c6a6e987b9f37",
+      "size": 151574
+    },
+    "supervisor-context.js": {
+      "sha256": "fc5989101022ad1afefa5001bcd999d1e5da660f2a4f6c9f22c1bb88f346584e",
+      "size": 9368
+    },
+    "supervisor-i18n.js": {
+      "sha256": "390deb430dd7c2e3cb47bee91ce27350ce764f58a0d74805615cb87c2217a42a",
+      "size": 29533
+    },
+    "supervisor-modules.js": {
+      "sha256": "f6eccc7d2e1f0a751bcfc088337b1aff8eeee6c1b29c8774d9d99112da93c88d",
+      "size": 3923
+    },
+    "supervisor-view.js": {
+      "sha256": "3708b9ce7e6c031410182ba36754eb788f204832852e5bbd9191f8463f0eda26",
+      "size": 18399
+    },
+    "supervisor.css": {
+      "sha256": "3955748c94e4c2ea717da38ce7294b31ff236cd49674706a37f48a4ba495dd7a",
+      "size": 15069
+    },
+    "supervisor.html": {
+      "sha256": "4a784bd81807e6f98ae01169c3d1b5df027300849f0e5e980a7822ae6c15878c",
+      "size": 23672
+    },
+    "supervisor.js": {
+      "sha256": "3af2f9140ca73395100d4c90b8ff915c986df5ce0c458edd3389fb0e1a5d905b",
+      "size": 53481
+    },
+    "sw.js": {
+      "sha256": "1f532cd8b7600aaa0986211419c5ec13525f69e9d0fc65ccf2d266921dea70ab",
+      "size": 975
+    },
+    "waiting.html": {
+      "sha256": "1b72e4c19ddf4dc8935827d44ba6d261cf75ef9bf96a9712e6f3338ccddaaff1",
+      "size": 518
+    },
+    "warehouse.html": {
+      "sha256": "e19ce4e0c38ee99abb7275b1b6483d9e2b331049900d4abb76837a54c6b1d3a6",
+      "size": 404
+    }
+  },
+  "runtime": {
+    "bus-time-hot-lane-v14.js": {
+      "sha256": "0c3c1ae29c8ea9adbf75a5774f2772e4bfd95533202b3f6d9bd24b890db04d45",
+      "size": 85169
+    },
+    "dev-acceptance-evidence.js": {
+      "sha256": "7cbcbda0d52c0573ed9dca754fdc52b3e658c7cb0e0e4522ac7432b143a005e2",
+      "size": 6472
+    },
+    "index.js": {
+      "sha256": "3aba6bdb995e67a9789ab4745ad16dd8d688e50d9d2477fbc39850760028a7b0",
+      "size": 378211
+    },
+    "ms-history-pointer-v1.js": {
+      "sha256": "215d19b32a80b3fd1224116b95635d656edb14751563a5a56efaca6bff3f9eb8",
+      "size": 6990
+    },
+    "ms-operational-truth-v1.js": {
+      "sha256": "f618e894916b052fe132203ccf9e463d7a7a13c04c87988875bb5d5777bd4a72",
+      "size": 6828
+    },
+    "origin-manifest-v1.js": {
+      "sha256": "d3c4c47ce364c6aa65a2b5482f48a8893e992b8e5eaa4d7ea4e145ba2bbf8d6c",
+      "size": 56525
+    },
+    "pno-inbound-scan-evidence.js": {
+      "sha256": "5567616457e68b3708acf9663d43a75ec7b3ef08c25768477088ff0ec132d11a",
+      "size": 22581
+    },
+    "pno-passive-coverage.js": {
+      "sha256": "c26bd3cb2a784c4cd0a9e992c95e63e85f0b5c821e5e217a25312bbadc5c24b5",
+      "size": 10131
+    },
+    "proof-control.js": {
+      "sha256": "27663db427df9ba1c80340c39f873c2899ce521f563560117572b57c5f9a0548",
+      "size": 25063
+    },
+    "proof-editor.js": {
+      "sha256": "78e76d7194bfcfbab40bfa4c71a5f0e3c196ec7648313c6952c622c5a53a4cbf",
+      "size": 22904
+    },
+    "proof-history-v10.js": {
+      "sha256": "ccfc75618e1635a41d41305055a6a77e857c40184f6336dbc565cad3d55d775c",
+      "size": 9474
+    },
+    "proof-live-v2.js": {
+      "sha256": "247150f684ea64c2624e9446aa0426c6662f31c098afb82f01d907aaa0419af8",
+      "size": 13967
+    },
+    "proof-plate-search-v5.js": {
+      "sha256": "469d76872f7462176c334035ab3e7e1238e07fa1507b117badb3976fdabfbdd2",
+      "size": 12044
+    },
+    "proof-preview.js": {
+      "sha256": "283425b756486bbdbc290a9be3c27195d1880478461e0026151af4b056b55e92",
+      "size": 6634
+    },
+    "proof-route-meta-v15.js": {
+      "sha256": "4729bf76abde9213fcb8c5c79407923973a62f25a53019e4a2bf79566eb6008b",
+      "size": 9334
+    },
+    "proof-route-meta-v16.js": {
+      "sha256": "3bb7120cf5b2d9d60419d4b22cd364c95f665c71c1e2e4e6b71d96e206b2c152",
+      "size": 11826
+    },
+    "proof-service-date-dev.js": {
+      "sha256": "93b076f5c899104a0d3b5955145f3c4029236c79c3efb78fd45d4496b6e784c4",
+      "size": 2950
+    },
+    "proof-ui-v10.js": {
+      "sha256": "ea701e1cab6c9fd09c6a988a5d0d6cf992f6e34b3668c95e90a24f7254779851",
+      "size": 77471
+    },
+    "proof-ui-v14.js": {
+      "sha256": "8f9eb5193b095823f273dbc9bd0442b8bcdaed9ccc54245a8229db36193cad37",
+      "size": 22861
+    },
+    "proof-ui-v15.js": {
+      "sha256": "e177577409f8f87f9e090b09fc4fe9b52cb1732687905ad44b1a2261f64ee1db",
+      "size": 31687
+    },
+    "proof-ui-v16.js": {
+      "sha256": "531b8b2b6ea7d6c4f781bcb6109f27c67d7abb270f986e3ef6f042f633302eba",
+      "size": 20002
+    },
+    "proof-ui-v5.js": {
+      "sha256": "639f17c925d5cdb69586dc77dc7521547703f626e7185280d1cd7ae4c9209455",
+      "size": 30357
+    },
+    "proof-v7-deploy-marker.txt": {
+      "sha256": "240329d2ebbc871f21dd0fddd3e9871ea8ab7918a0ad0a7ff9aa529b7c7390c3",
+      "size": 166
+    },
+    "sync-policy.js": {
+      "sha256": "21bade799c1c382e0dea61febcd5f5033b314da385cd4dac3c63aa1876e4da95",
+      "size": 4631
+    },
+    "tbr-provenance-dev.js": {
+      "sha256": "cd4fe372b930f1299390ba1557e7fc6e0c459b44d51cebf988f07fa19d9daa9a",
+      "size": 7089
+    },
+    "turso-d1.js": {
+      "sha256": "e39db82feebde5eef7298aa809dc99fb38b3c798eba0a8a176bf44e531206768",
+      "size": 16279
+    },
+    "turso-index.js": {
+      "sha256": "3847b6a26565b3506376a8d1c0a519c7473e36686375b772668435b37136e2db",
+      "size": 10063
+    }
+  },
+  "assetTree": "d9dcbaac33bab0403201d3a1c3410da25a248dd930bef8631b34d60e19ba3924",
+  "runtimeTree": "856050787802465955c4ce55c557414c4746391ba39d1daa82c9c7008c6d8a9b",
+  "scriptUrl": "ms.js?v=20261114-wtr009-dev003-bounded-v1",
+  "cacheVersion": "20261114-wtr009-dev003-bounded-v1",
+  "evidence": "DEV003 bounded OptionB actual full composed asset; new derived identity, not approved golden",
+  "I03": "NOT FIXED; separate Work exporter not referenced by this workflow",
+  "servedMs": {
+    "sha256": "6778769004a66b01956b6468b2601b1ad129e3f7f96acebc3763340bd4c3b1d1",
+    "size": 481861,
+    "transform": "appendOriginManifestFrontend",
+    "runtimeModuleSHA256": "d3c4c47ce364c6aa65a2b5482f48a8893e992b8e5eaa4d7ea4e145ba2bbf8d6c"
+  }
+}

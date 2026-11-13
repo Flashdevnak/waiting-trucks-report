@@ -1,9 +1,18 @@
+import './pno-qr-test-compat-v3.mjs';
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 // Keep the diagnostic gate in the existing workflow's staging suite; no workflow change.
 import "./ms-turso-timeout-producer-v1.test.mjs";
 import "./pno-modal-lifecycle-stability-v1.test.mjs";
+import "./pno-source-quota-dev003.test.mjs";
+import "./ms-turso-late-settle-v1.test.mjs";
+import "./ms-turso-stall-containment-v1.test.mjs";
+import "./ms-turso-critical-path-phase-v1.test.mjs";
+import "./ms-route-source-page-timing-v1.test.mjs";
+import "./pno-destination-summary-rev73.test.mjs";
+import "./pno-bag-filter-parity-rev86.test.mjs";
+import "./pno-contract-closure-rev89.test.mjs";
 import { runInNewContext } from "node:vm";
 import {
   frontendHasIntegratedDevRuntime,
@@ -407,3 +416,36 @@ test("DEV Proof status uses only shared Session presence and bypasses Route heal
 
 // Diagnostic-only regression suite runs in the existing DEV staging gate.
 await import('./ms-redegrade-trace-v1.test.mjs');
+
+
+// Restored accepted P shared assertions; source/workflow identity authority versioned explicitly.
+test("Route page observer stages after the final critical-path patch without changing DEV deployment gates", async () => {
+  const composer = await readFile(new URL(".github/dev-tools/stage-dev-runtime.mjs", root), "utf8");
+  const phase = composer.indexOf('patchMsCriticalPathWorker(patchMsTursoStallContainmentV1(');
+  const route = composer.indexOf('patchMsRouteSourcePageTimingWorker(await readFile(workerTarget, "utf8"))');
+  assert.ok(phase >= 0 && route > phase);
+  assert.match(composer, /patchMsRouteSourcePageTimingFrontend\(await readFile\(frontendTarget, "utf8"\)\)/);
+  assert.match(workflow, /MS_ROUTE_SOURCE_PAGE_TIMING_V1_FRONTEND/);
+});
+
+
+// Restored accepted P shared assertions; source/workflow identity authority versioned explicitly.
+test("DEV phase script URL, service worker and deployed-asset smoke share one delivery contract", async () => {
+  const html = patchDevUiShellSource(await readFile(new URL("ms.html", root), "utf8"), "ms.html");
+  const sw = await readFile(new URL("sw.js", root), "utf8");
+  const identity=JSON.parse(await readFile(new URL('.github/dev-tools/wtr009-dev-identity.json',root),'utf8'));
+  const script = identity.scriptUrl;
+  assert.ok(html.includes(`src="${script}"`));
+  assert.doesNotMatch(html, /ms\.js\?v=20261003-pno-operational-truth-v1/);
+  assert.doesNotMatch(html, /ms\.js\?v=20261009-ms-turso-critical-path-phase-v1/);
+  assert.match(html, /serviceWorker\.register\('sw\.js',\{updateViaCache:'none'\}\)/);
+  assert.match(sw, /url\.searchParams\.set\("__fresh", VERSION\)/);
+  assert.match(sw, /cache: "no-store"/);
+  assert.ok(workflow.includes('const msScript=identity.scriptUrl;'));
+  assert.ok(workflow.includes("identity.servedMs.sha256"));
+  assert.match(workflow, /PNO.*asset/i);
+  assert.match(workflow, /live MS phase snapshot exporter missing/);
+  assert.match(workflow, /criticalPath: criticalPath\.snapshot\(\)/);
+  assert.match(workflow, /routeSourceTiming: currentMsRouteSourceTiming\(\)/);
+  assert.match(workflow, /MS_ROUTE_SOURCE_PAGE_TIMING_V1_FRONTEND/);
+});

@@ -1,3 +1,6 @@
+// DEV003 versioned contract migration: accepted P business data assertions restored; Target legacy owner-token assertions retained in history and behavioral equivalents tested on real bounded owner.
+import './pno-qr-test-compat-v3.mjs';
+import { harness as contractHarness, item as contractItem } from "./pno-rev89-contract-harness.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -40,13 +43,23 @@ test("V27 multi-drop summary dedupes repeated source rows and sums unique segmen
   assert.equal(grouped.get("AYU1TS8R72")?.expectedParcels, 355, "duplicate pages must not double 355");
 });
 
-test("V27 bag copy keeps latest action while parcel copy names current evidence state", () => {
+test("V27 bag copy keeps latest action while parcel copy names current evidence state", async () => {
   const front = stageFrontend(frontendSource);
   assert.match(front, /PNO_MODAL_COPY_MULTIDROP_TRUTH_V27/);
   assert.match(front, /const truth = pnoOperationalRawSummary\(row\)/);
-  assert.match(front, /\["#", "เลขถุงแบ็กกิ้ง", "ล่าสุด", "จำนวนพัสดุ", "HUB ถัดไป", "ชื่อสาขาต่อไป"\]/);
-  assert.match(front, /\["#", "PNO", "สถานะหลักฐาน", "ล่าสุด", "HUB ปลายทาง", "สาขาปลายทาง", "เวลา", \.\.\.\(pnoV18State\.selection === "union" \? \["จุดส่ง"\] : \[\]\)\]/);
-  const copyStart = front.indexOf("async function pnoV18CopyOwned(owner)");
+  const h=contractHarness([contractItem("COPY-LATEST","B","NE11","DELIVERY-R")]);await h.call('pnoV18Copy()');
+  assert.deepEqual(h.obs.clip.split("\n")[0].split("\t"),["#","เลขถุงแบ็กกิ้ง","ล่าสุด","จำนวนพัสดุ","HUB ปลายทาง","สาขาปลายทาง","ชื่อสาขาต่อไป"]);
+  assert.equal(h.obs.clip.split("\n")[1].split("\t")[2],"ปิดผนึก");
+  assert.equal(h.obs.clip.split("\n")[1].split("\t")[6],"NEXT_ONLY");
+  assert.equal(h.obs.fetch.length,0);
+  const parcelFixture = [contractItem("PARCEL-NQR", "B", "NE11", "DELIVERY-R")];
+  const parcelView = contractHarness(parcelFixture);parcelView.state.type="total";
+  parcelView.state.rows=parcelFixture;parcelView.state.filterRows=parcelFixture;
+  await parcelView.call('pnoV18Copy()');
+  assert.deepEqual(parcelView.obs.clip.split("\n")[0].split("\t"),["#","PNO","สถานะหลักฐาน","ล่าสุด","HUB ปลายทาง","สาขาปลายทาง","ชื่อสาขาต่อไป","เวลา"]);
+  assert.deepEqual(parcelView.obs.clip.split("\n")[1].split("\t").slice(4,7),["NE11","DELIVERY-R","NEXT_ONLY"]);
+  assert.equal(parcelView.obs.fetch.length,0);
+  const copyStart = front.indexOf("async function pnoV18Copy()");
   const copyEnd = front.indexOf("function pnoV18LineCell", copyStart);
   const copy = front.slice(copyStart, copyEnd);
   assert.match(copy, /pnoV18ParcelStatus\(row\)/);
@@ -65,7 +78,7 @@ test("Backing HUB aggregates parcel destination independently of route next_stor
 
 test("V27 LINE bag copy sorts HUB -> status -> bag and shows every bag without 30-row cap", () => {
   const front = stageFrontend(frontendSource);
-  const start = front.indexOf("async function pnoV18CopyLineOwned(owner)");
+  const start = front.indexOf("async function pnoV18CopyLine()");
   const end = front.indexOf("async function pnoV18Export", start);
   const block = front.slice(start, end);
   assert.match(block, /a\.summary\.hub\.localeCompare/);

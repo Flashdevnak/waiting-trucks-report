@@ -10,7 +10,7 @@ import { stageFrontend } from './stage-dev-runtime.mjs';
 import { patchMsRouteReadBudgetIsolationV1 } from './patch-ms-route-read-budget-isolation-v1.mjs';
 const root = path.resolve(import.meta.dirname, '../..');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ms-producer-test-'));
-for (const file of fs.readdirSync(root).filter(file => /\.(html|css)$/.test(file) || file === 'ms.js')) fs.copyFileSync(path.join(root, file), path.join(dir, file));
+for (const file of fs.readdirSync(root).filter(file => /\.(html|css)$/.test(file) || file === 'ms.js' || file === 'sw.js')) fs.copyFileSync(path.join(root, file), path.join(dir, file));
 fs.copyFileSync(path.join(root, 'worker/src/index.js'), path.join(dir, 'index.js'));
 execFileSync(process.execPath, [path.join(root, '.github/dev-tools/stage-dev-runtime.mjs'), path.join(dir, 'ms.js'), path.join(dir, 'index.js')], { stdio: 'pipe', timeout: 30000 });
 execFileSync(process.execPath, ['--check', path.join(dir, 'index.js')], { stdio: 'pipe' });
@@ -27,7 +27,7 @@ const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve()
 function harness(dev = true) {
   let clock = 100, calls = 0, nextTimer = 0;
   const timers = new Map(), messages = [];
-  const ctx = { Date: class extends Date { static now() { return clock; } }, console: { warn() {}, error() {} },
+  const ctx = { AbortController, Date: class extends Date { static now() { return clock; } }, console: { warn() {}, error() {} },
     setTimeout(fn, ms) { const id = ++nextTimer; timers.set(id, { fn, ms }); return id; }, clearTimeout(id) { timers.delete(id); },
     recentMsSync: new Map(), msOptionalData: () => new Map(), markAuxiliaryOccurrenceAmbiguity() {},
     normalizeProofId: value => value, normalizeMsAttendance: value => value, enrichMsRow: row => row,
@@ -263,7 +263,7 @@ test('non-DEV Worker is inert, leaves serialization unchanged, canonical source 
 });
 
 test('diagnostic-only helpers have no I/O, timer, storage, provider or acquisition path', () => {
-  const code=helpers+frontend.slice(frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'));
+  const code=helpers.split('// MS_TURSO_LATE_SETTLE_V1_WORKER')[0]+frontend.slice(frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'), frontend.indexOf('// MS_TURSO_LATE_SETTLE_V1_FRONTEND'));
   assert.doesNotMatch(code,/\bfetch\s*\(|new WebSocket\s*\(|setInterval\s*\(|setTimeout\s*\(|\.DB\.prepare\s*\(|\.storage\.(put|delete)\s*\(|localStorage|sessionStorage|apiPost\s*\(|curl_pno|msPno|tbrProvenance/);
   assert.match(worker,/remainingBudget = 2800/); assert.match(worker,/routePersistenceBudget = 60_000/); assert.match(worker,/remaining - \(Date.now\(\) - started\) < 200/);
   assert.match(worker,/env\.MS_OPTIONAL_ACCEPT\?\.\(name\)/); assert.match(worker,/sendAcceptedSnapshot\(branch, "MAIN_REFRESH_COMPLETION"\)/);
@@ -281,7 +281,7 @@ function frontHarness(host='waiting-trucks-report-api-dev.26nak-testdev.workers.
   const ctx={location:{hostname:host},performance:{now:()=>10},state:{auth:{token:'SECRET'},branch:'NE1'},
     document:{body:{append:node=>nodes.push(node)},getElementById:id=>nodes.find(n=>n.id===id),createElement:tag=>({tag,style:{},children:[],callbacks:{},append(...children){this.children.push(...children);},setAttribute(){},addEventListener(key,fn){this.callbacks[key]=fn;},querySelector(tag){return this.children.find(n=>n.tag===tag);},select(){}})},
     navigator:{clipboard:{writeText:async()=>{copies++;}}},handleRealtimeMessage:()=>7,applyLiveResult:()=>8,apiGet:async()=>{requests++;return {};},authUi:()=>9};
-  vm.createContext(ctx); vm.runInContext(frontend.slice(frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND')),ctx);
+  vm.createContext(ctx); vm.runInContext(frontend.slice(frontend.indexOf('// MS_TURSO_TIMEOUT_PRODUCER_V1_FRONTEND'),frontend.indexOf('// WTR_DEV_TARGET_FAULT_BOUNDARY_V1_BEGIN')),ctx);
   return {ctx,nodes,counts:()=>({requests,copies})};
 }
 
@@ -313,7 +313,7 @@ test('actual staged runMsRefresh credential catch retains exact operation proven
   assert.equal(refresh.errorOrigin,'CURRENT_OPERATION_FAILURE'); assert.equal(refresh.resultInstanceId,1);
 });
 
-test('actual staged runMsRefresh main catch correlates two successful cache reads and current WRITE timeout', async () => {
+test('actual staged runMsRefresh main catch correlates one successful cache read and current WRITE timeout', async () => {
   const h=harness(); let reads=0;
   h.ctx.recentMsSync.set('NE1',{result:{...prior}});
   Object.assign(h.ctx,{
@@ -326,12 +326,12 @@ test('actual staged runMsRefresh main catch correlates two successful cache read
     acquireMsSyncClaim:async()=>({acquired:true}),finishMsSyncClaim:async()=>{},
     syncMs:async(body,actor,env)=>env.DB._pipeline(requests('UPDATE ms_routes SET source_updated_at=? WHERE hub=?')),
   });
-  let actual=0; h.env.DB._pipeline=()=>{actual++;return actual<=2?Promise.resolve({}):new Promise(()=>{});};
+  let actual=0; h.env.DB._pipeline=()=>{actual++;return actual===1?Promise.resolve({}):new Promise(()=>{});};
   vm.runInContext('async '+fn('runMsRefresh'),h.ctx);
   const task=h.ctx.runMsRefresh(h.env,'NE1');await flush();h.expire();const result=await task;
-  assert.equal(reads,2);assert.equal(actual,3);assert.equal(result.status,'degraded');assert.equal(result.syncedAt,prior.syncedAt);
+  assert.equal(reads,1);assert.equal(actual,2);assert.equal(result.status,'degraded');assert.equal(result.syncedAt,prior.syncedAt);
   const trace=h.trace('NE1'),producer=trace.events.filter(e=>e.eventType==='TURSO_TIMEOUT_PRODUCED').at(-1),refresh=trace.events.at(-1);
-  assert.equal(producer.operationClass,'ROUTE_BATCH_WRITE');assert.equal(producer.readOrWrite,'WRITE');assert.equal(producer.dbOperationId,3);
+  assert.equal(producer.operationClass,'ROUTE_BATCH_WRITE');assert.equal(producer.readOrWrite,'WRITE');assert.equal(producer.dbOperationId,2);
   assert.equal(refresh.producerSequence,producer.sequence);assert.equal(refresh.errorOrigin,'CURRENT_OPERATION_FAILURE');
   h.owner.branch='NE1';h.owner.lastResult=h.ctx.mergeMsOptionalResult('NE1',result);h.owner.sendAcceptedSnapshot('NE1','MAIN_REFRESH_COMPLETION');
   assert.equal(h.trace('NE1').events.at(-1).timeoutProducerSequence,producer.sequence);

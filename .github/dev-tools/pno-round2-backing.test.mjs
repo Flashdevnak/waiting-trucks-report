@@ -31,9 +31,16 @@ test("Round2 uses exact Barcode proofId as the one-truck identity", () => {
 test("Round2 maps FBI pack_no first and preserves Backing rows", () => {
   assert.match(worker, /backingNo: text\(row\.pack_no \|\| row\.backingNo/);
   assert.match(worker, /filter\(\(row\) => row\.pno \|\| row\.backingNo\)/);
-  assert.ok(frontend.includes("<th>PNO</th><th>Backing / Bagging</th>"));
-  assert.ok(frontend.includes('"Backing / Bagging": row.backingNo || ""'));
-  assert.ok(frontend.includes('row.pno || ""') && frontend.includes('row.backingNo || ""'));
+  // DEV002 explicit QR contract migration; original P25 assertions preserved in handoff history.
+  // Preserve code order/data mapping; require both added QR columns, never just remove the failing assertion.
+  assert.ok(frontend.includes("<th>PNO</th><th>QR Code</th><th>Backing / Bagging</th><th>QR Code</th>"));
+  assert.ok(frontend.includes('pnoQrMarkup(item.pno)') && frontend.includes('pnoQrMarkup(item.backingNo)'));
+  const start=frontend.indexOf('async function pnoQrLegacyExport009() {');
+  const exportBody=frontend.slice(start,frontend.indexOf('\n}\n',start)+2);
+  assert.ok(start>0);
+  assert.ok(exportBody.includes("'เลขพัสดุ':item.pno") && exportBody.includes("'Backing / Bagging':item.backingNo||''"));
+  assert.ok(exportBody.includes("qrKeys:['เลขพัสดุ','Backing / Bagging']"));
+  assert.ok(exportBody.includes('await pnoV18EnsureParcelFilterRows(); if(!current())return;') && exportBody.includes('current()'));
 });
 
 test("Round2 locks latest accepted v8 progress/status palette", () => {

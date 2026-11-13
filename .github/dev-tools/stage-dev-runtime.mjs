@@ -1,6 +1,12 @@
+import {patchPnoCrossOpenBoundedV1} from "./patch-pno-cross-open-bounded-v1.mjs";
+import {patchPnoTruckQrHeaderV1} from "./patch-pno-truck-qr-header-v1.mjs";
+import {patchPnoTruckQrOwnerIntegrationV1} from "./patch-pno-truck-qr-owner-integration-v1.mjs";
+import {patchPnoIntegratedTargetBoundary} from "./patch-pno-integrated-target-boundary-v1.mjs";
+import { patchPnoBagFilterParityRev86 } from "./patch-pno-bag-filter-parity-rev86.mjs";
+import { patchPnoDestinationSummary } from "./patch-pno-destination-summary-rev73.mjs";
 import { execFileSync } from "node:child_process";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   patchDevMsArchive,
@@ -97,13 +103,22 @@ import { patchSupervisorAccessGuard } from "./patch-supervisor-access-guard.mjs"
 import { patchSupervisorSharedSnapshot } from "./patch-supervisor-shared-snapshot.mjs";
 import { patchMsResilienceFrontend, patchMsResilienceWorker } from "./patch-ms-resilience-v1.mjs";
 import { patchMsRedegradeTraceFrontendFinal, patchMsRedegradeTraceWorker } from "./patch-ms-redegrade-trace-v1.mjs";
+import { patchMsTursoStallContainmentV1, patchMsTursoStallAdapterV1 } from "./patch-ms-turso-stall-containment-v1.mjs";
+import { patchMsCriticalPathAdapter, patchMsCriticalPathWorker, patchMsCriticalPathFrontend } from "./patch-ms-turso-critical-path-phase-v1.mjs";
+import { patchMsRouteSourcePageTimingWorker, patchMsRouteSourcePageTimingFrontend } from "./patch-ms-route-source-page-timing-v1.mjs";
+import { patchMsTursoLateSettleFrontend, patchMsTursoLateSettleWorker } from "./patch-ms-turso-late-settle-v1.mjs";
 import { patchMsTursoTimeoutProducerFrontend, patchMsTursoTimeoutProducerWorker } from "./patch-ms-turso-timeout-producer-v1.mjs";
 import { patchMsRoutePersistenceV1 } from "./patch-ms-route-persistence-v1.mjs";
 import { patchMsRouteReadBudgetIsolationV1 } from "./patch-ms-route-read-budget-isolation-v1.mjs";
 import { patchPnoScanEvidenceUx } from "./patch-pno-scan-evidence-ux.mjs";
 import { patchPnoSegmentDestinationWorker } from "./patch-pno-segment-destination-truth.mjs";
 import { patchPnoSegmentDestinationFrontend } from "./patch-pno-segment-destination-frontend.mjs";
-import { patchPnoModalLifecycleStabilityV1 } from "./patch-pno-modal-lifecycle-stability-v1.mjs";
+import { patchPnoDestinationTablesStability } from "./patch-pno-destination-tables-stability-v1.mjs";
+import { patchPnoMobileModalScope } from "./patch-pno-mobile-modal-scope-v1.mjs";
+import { patchPnoQrClosure009R } from "./patch-pno-qr-closure-v1.mjs";
+import { patchPnoQrRelease009R2 } from "./patch-pno-qr-release-local-v1.mjs";
+import { patchPnoQrExcelLocal009 } from "./patch-pno-qr-excel-local-v1.mjs";
+import { patchPnoAsyncLifecycle } from "./patch-pno-async-lifecycle-v1.mjs";
 
 const devTbrReadonlyPatch = fileURLToPath(
   new URL("../../cloudflare-browser-test/scripts/patch-dev-tbr-shadow-readonly.mjs", import.meta.url),
@@ -198,10 +213,9 @@ export function patchDevUiShellSource(source, currentPage) {
     `href="${DEV_STYLE_HREF}"`,
   );
   if (currentPage === "ms.html") {
-    // The DEV modal script changed; ensure browsers acquire this version when
-    // an owner later deploys the explicitly approved DEV runtime.
+    // Deliver the PNO destination summary under a distinct DEV-only asset version.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261003-pno-operational-truth-v1"');
+      'src="ms.js?v=20261114-wtr009-dev003-bounded-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -313,6 +327,12 @@ export async function stageDevUiShell(frontendTarget) {
   console.log(`STAGED_DEV_UI_SHELL=${DEV_SHELL_MARKER}`);
   console.log(`STAGED_DEV_UI_STYLE=${DEV_STYLE_HREF}`);
   console.log("STAGED_DEV_UI_LEGACY_REDIRECTS=3");
+  const swPath=join(assetDir,"sw.js");
+  const sw=await readFile(swPath,"utf8");
+  const oldVersion='const VERSION = "20260911-02-mobile-schedule-status";';
+  const newVersion='const VERSION = "20261114-wtr009-dev003-bounded-v1";';
+  if(sw.split(oldVersion).length===2)await writeFile(swPath,sw.replace(oldVersion,newVersion),"utf8");
+  else if(sw.split(newVersion).length!==2)throw Error("WTR_DEV_SW_VERSION_ANCHOR");
 }
 
 function patchDevUnifiedHeaderStyle(source) {
@@ -483,9 +503,20 @@ export function stageFrontend(source) {
   output = patchMsResilienceFrontend(output);
   output = patchPnoScanEvidenceUx(output);
   output = patchPnoSegmentDestinationFrontend(output);
-  output = patchPnoModalLifecycleStabilityV1(output);
+  output = patchPnoBagFilterParityRev86(output);
+  output = patchPnoDestinationSummary(output);
   output = patchMsRedegradeTraceFrontendFinal(output);
-  output = patchMsTursoTimeoutProducerFrontend(output);
+  output = patchMsTursoLateSettleFrontend(patchMsTursoTimeoutProducerFrontend(output));
+  output = patchPnoDestinationTablesStability(output);
+  output = patchPnoMobileModalScope(output);
+  output = patchPnoAsyncLifecycle(output);
+  output = patchPnoQrExcelLocal009(output);
+  output = patchPnoQrClosure009R(output);
+  output = patchPnoQrRelease009R2(output);
+  output = patchPnoIntegratedTargetBoundary(output);
+  output = patchPnoTruckQrHeaderV1(output);
+  output = patchPnoTruckQrOwnerIntegrationV1(output);
+  output = patchPnoCrossOpenBoundedV1(output);
   return output;
 }
 
@@ -595,9 +626,26 @@ if (invokedPath) {
     throw new Error("DEV auxiliary-evidence completeness marker missing after staging");
   // Last: instrument the exact final DEV composition, after all TBR/PNO patches.
   await stageTbrProvenanceDev(workerTarget, frontendTarget);
+  await writeFile(frontendTarget, patchMsCriticalPathFrontend(await readFile(frontendTarget, "utf8")), "utf8");
   await writeFile(workerTarget,
-    patchMsTursoTimeoutProducerWorker(patchMsRedegradeTraceWorker(patchMsRouteReadBudgetIsolationV1(patchMsRoutePersistenceV1(patchMsResilienceWorker(await readFile(workerTarget, "utf8")))))),
+    patchMsTursoLateSettleWorker(patchMsTursoTimeoutProducerWorker(patchMsRedegradeTraceWorker(patchMsRouteReadBudgetIsolationV1(patchMsRoutePersistenceV1(patchMsResilienceWorker(await readFile(workerTarget, "utf8"))))))),
     "utf8");
+  // Final DEV product patch: no later composer can overwrite these guards.
+  const adapterTarget = join(dirname(workerTarget), "turso-d1.js");
+  const canonicalAdapter = new URL("../../worker/src/turso-d1.js", import.meta.url);
+  if (resolve(adapterTarget) === fileURLToPath(canonicalAdapter))
+    throw new Error("DEV staged adapter must not be canonical adapter");
+  let adapter;
+  try { adapter = await readFile(adapterTarget, "utf8"); }
+  catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    adapter = await readFile(canonicalAdapter, "utf8");
+  }
+  await writeFile(adapterTarget, patchMsCriticalPathAdapter(patchMsTursoStallAdapterV1(adapter)), "utf8");
+  await writeFile(workerTarget, patchMsCriticalPathWorker(patchMsTursoStallContainmentV1(await readFile(workerTarget, "utf8"))), "utf8");
+  // Observe the final DEV-only Route source path after the existing phase patch.
+  await writeFile(frontendTarget, patchMsRouteSourcePageTimingFrontend(await readFile(frontendTarget, "utf8")), "utf8");
+  await writeFile(workerTarget, patchMsRouteSourcePageTimingWorker(await readFile(workerTarget, "utf8")), "utf8");
   console.log(`Staged idempotent DEV frontend: ${frontendTarget}`);
   console.log(`Staged DEV worker runtime: ${workerTarget}`);
   console.log("STAGED_DEV_ROOT_ENTRY=PASS");

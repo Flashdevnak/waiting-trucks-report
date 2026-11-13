@@ -337,7 +337,7 @@ jobs:
           if((supervisorJs.match(/\bfetch\s*\(/g)||[]).length!==1||!supervisorJs.includes('fetch("/api/supervisor/snapshot"')) throw new Error('Supervisor shared snapshot transport contract missing');
           if(/new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced background transport');
           const {createHash}=await import('node:crypto');
-          const identity=JSON.parse(readFileSync('../.github/dev-tools/wtr009-dev-identity.json','utf8'));
+          const identity=JSON.parse(readFileSync('.github/dev-tools/wtr009-dev-identity.json','utf8'));
           const msScript=identity.scriptUrl;
           if(!ms.includes(`src="${msScript}"`)) throw new Error('live MS route timing script URL missing');
           const msJs=await get(msScript);

@@ -971,8 +971,8 @@
       "size": 1314
     },
     ".github/dev-tools/wtr009-dev-identity.test.mjs": {
-      "sha256": "f40222220cda3ea79593f96d6e79162ebc850fa03fd86e67c6249ad564f1c883",
-      "size": 4050
+      "sha256": "0adf44c581fc307455435c3cf07091613a3a9aa25fb4b499d54773dc6fd7ede2",
+      "size": 4941
     },
     ".github/diagnostics/completion-v3-trigger.txt": {
       "sha256": "6f37247a27f044b2de5df0075ed373c1b64ad00c979401adf84ebe1bb1687a77",
@@ -1059,8 +1059,8 @@
       "size": 12832
     },
     ".github/workflows/deploy-worker-dev.yml": {
-      "sha256": "955e03f3fe931d3cbb307506ca2f2536602e39a63bdffc73a31206b7efb49a6c",
-      "size": 30529
+      "sha256": "d3e1b4957736c816630638daf6fdb8ab0ac88a5ed77999b18c670113fd3ce44f",
+      "size": 30526
     },
     ".github/workflows/dev-all-hub-health-audit.yml": {
       "sha256": "03e377cb0eb6e7a6f96863470b28b69a199282c2f8b914ba9ec876ccc255324f",

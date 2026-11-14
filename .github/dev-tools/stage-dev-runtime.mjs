@@ -215,7 +215,7 @@ export function patchDevUiShellSource(source, currentPage) {
   if (currentPage === "ms.html") {
     // Deliver the PNO destination summary under a distinct DEV-only asset version.
     output = output.replace(/src=(['"])ms\.js(?:\?[^'\"]*)?\1/,
-      'src="ms.js?v=20261114-wtr009-dev003-bounded-v1"');
+      'src="ms.js?v=20261114-wtr009-dev005v-ui-v1"');
   }
   if (currentPage === "proof.html") {
     output = output.replace(
@@ -330,7 +330,7 @@ export async function stageDevUiShell(frontendTarget) {
   const swPath=join(assetDir,"sw.js");
   const sw=await readFile(swPath,"utf8");
   const oldVersion='const VERSION = "20260911-02-mobile-schedule-status";';
-  const newVersion='const VERSION = "20261114-wtr009-dev003-bounded-v1";';
+  const newVersion='const VERSION = "20261114-wtr009-dev005v-ui-v1";';
   if(sw.split(oldVersion).length===2)await writeFile(swPath,sw.replace(oldVersion,newVersion),"utf8");
   else if(sw.split(newVersion).length!==2)throw Error("WTR_DEV_SW_VERSION_ANCHOR");
 }

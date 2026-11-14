@@ -45,7 +45,7 @@ function pnoQrHydrate009() {
   const current = () => pnoAsyncOwn(owner) && signature === pnoAsyncActionSignature();
   if (!document.getElementById('pno-qr009-style')) {
     const style = document.createElement('style'); style.id = 'pno-qr009-style';
-    style.textContent = '.pno-qr009-button{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;width:80px;min-height:80px;max-width:100%;padding:3px;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:8px;cursor:pointer;font-size:10px}.pno-qr009-button img{display:block;width:72px;height:72px;image-rendering:pixelated}.pno-qr009-missing{font-size:11px;color:#64748b}.pno-qr009-dialog{max-width:min(90vw,420px);padding:16px;border:1px solid #cbd5e1;border-radius:12px}.pno-qr009-dialog img{width:100%;max-width:360px;image-rendering:pixelated}.pno-qr009-dialog p{overflow-wrap:anywhere}.pno-v18-mobile .pno-qr009-button{margin:6px 0}.pno-qr009-dialog::backdrop{background:#0008}';
+    style.textContent = '.pno-qr009-button{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;width:80px;min-height:80px;max-width:100%;padding:3px;border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:8px;cursor:pointer;font-size:10px}.pno-qr009-button img{display:block;width:72px;height:72px;image-rendering:pixelated}.pno-qr009-missing{font-size:11px;color:#64748b}.pno-qr009-dialog{width:min(420px,calc(100vw - 24px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;box-sizing:border-box;padding:56px 20px 20px;border:1px solid #cbd5e1;border-radius:12px;text-align:center;background:#fff}.pno-qr009-dialog img{display:block;width:min(100%,360px,calc(100dvh - 200px));max-width:100%;height:auto;aspect-ratio:1;object-fit:contain;margin:0 auto;image-rendering:pixelated}.pno-qr009-dialog p{max-width:100%;margin:12px auto 16px;line-height:1.5;overflow-wrap:anywhere;text-align:center}.pno-qr009-close-top{position:absolute;top:8px;right:8px;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#334155;font-size:26px;line-height:1;cursor:pointer}.pno-qr009-close-top:focus-visible,.pno-qr009-close-bottom:focus-visible{outline:2px solid #334155;outline-offset:2px}.pno-qr009-close-bottom{min-width:64px;min-height:44px;padding:8px 16px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#334155;cursor:pointer}.pno-v18-mobile .pno-qr009-button{margin:6px 0}.pno-qr009-dialog::backdrop{background:#0008}';
     document.head.append(style);
   }
   const load = button => {
@@ -67,9 +67,14 @@ function pnoQrHydrate009() {
       const image = document.createElement('img'); image.src = pnoQrUri009(code); image.alt = 'QR Code';
       const label = document.createElement('p'); label.textContent = code;
       const close = document.createElement('button'); close.type = 'button'; close.textContent = 'ปิด';
+      close.className = 'pno-qr009-close-bottom';
+      const topClose = document.createElement('button'); topClose.type = 'button';
+      topClose.className = 'pno-qr009-close-top'; topClose.textContent = '×';
+      topClose.setAttribute('aria-label','ปิดหน้าต่าง QR Code');
+      topClose.onclick = () => dialog.close();
       close.onclick = () => dialog.close();
       dialog.onclose = () => { dialog.remove(); if(pnoQrUi009.overlay===dialog)pnoQrUi009.overlay=null; if(current())pnoQrHydrate009(); };
-      dialog.append(image,label,close); document.body.append(dialog); pnoQrUi009.overlay=dialog; dialog.showModal();
+      dialog.append(topClose,image,label,close); document.body.append(dialog); pnoQrUi009.overlay=dialog; dialog.showModal();
     };
   }
 }

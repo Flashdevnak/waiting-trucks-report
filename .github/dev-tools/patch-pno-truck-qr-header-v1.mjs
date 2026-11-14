@@ -37,13 +37,13 @@ function pnoTruckQrRenderV1() {
   if (!document.getElementById('pno-truck-qr-v1-style')) {
     const style = document.createElement('style');
     style.id = 'pno-truck-qr-v1-style';
-    style.textContent = '.ms-page .pno-v18-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-right:46px}' +
-      '.ms-page .pno-v18-head>div:first-child{min-width:0;flex:1;overflow-wrap:anywhere}' +
-      '.ms-page .pno-truck-qr-v1{display:flex;flex:0 0 106px;align-items:center;flex-direction:column;gap:3px;padding:3px;border:1px solid #e2e8f0;border-radius:6px;background:#fff}' +
+    style.textContent = '.ms-page #pending-parcels-dialog .pno-v18-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:12px;padding:12px 42px 10px 16px}' +
+      '.ms-page #pending-parcels-dialog .pno-v18-head>div:first-child{min-width:0;overflow-wrap:anywhere}' +
+      '.ms-page .pno-truck-qr-v1{display:flex;flex:none;width:88px;max-width:100%;box-sizing:border-box;align-items:center;flex-direction:column;gap:2px;padding:3px;border:1px solid #e2e8f0;border-radius:6px;background:#fff}' +
       '.ms-page .pno-truck-qr-v1[hidden]{display:none}' +
-      '.ms-page .pno-truck-qr-v1 img{display:block;width:100px;height:100px;max-width:100%;image-rendering:pixelated}' +
-      '.ms-page .pno-truck-qr-v1 span{font-size:11px;font-weight:800;color:#20252b;letter-spacing:.1px;overflow-wrap:anywhere;text-align:center}' +
-      '@media(max-width:560px){.ms-page .pno-v18-head{padding-right:36px;gap:6px}.ms-page .pno-truck-qr-v1{flex-basis:88px;padding:1px}.ms-page .pno-truck-qr-v1 img{width:84px;height:84px}.ms-page .pno-truck-qr-v1 span{font-size:9px}}';
+      '.ms-page .pno-truck-qr-v1 img{display:block;width:80px;height:80px;max-width:100%;aspect-ratio:1;object-fit:contain;image-rendering:pixelated}' +
+      '.ms-page .pno-truck-qr-v1 span{max-width:100%;font-size:11px;line-height:1.3;font-weight:800;color:#20252b;letter-spacing:.1px;overflow-wrap:anywhere;text-align:center}' +
+      '@media(max-width:560px){.ms-page #pending-parcels-dialog .pno-v18-head{padding:10px 36px 10px 12px;gap:8px}.ms-page .pno-truck-qr-v1{width:80px}.ms-page .pno-truck-qr-v1 img{width:72px;height:72px}.ms-page .pno-truck-qr-v1 span{font-size:10px}}';
     document.head.append(style);
   }
 }

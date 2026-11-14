@@ -647,8 +647,8 @@
       "size": 7208
     },
     ".github/dev-tools/patch-pno-truck-qr-header-v1.mjs": {
-      "sha256": "65c3d73c834916f68388e92d05090760ea92e96c664b7a4aace62ea7dad77a98",
-      "size": 3795
+      "sha256": "19593a15b0613669c96b467063ecca184e9ad9d122974b5b0a1a70d9c38a7a49",
+      "size": 3974
     },
     ".github/dev-tools/patch-pno-truck-qr-owner-integration-v1.mjs": {
       "sha256": "dbf561322a84acb6a203d979a6b17b951a461c21f98dbe8ef82a6737a143a7f5",
@@ -807,8 +807,8 @@
       "size": 8664
     },
     ".github/dev-tools/pno-qr-ui-local-v1.js": {
-      "sha256": "e0a33edfe4ecd2d1fc348975eec756099988807ce684e082b248d10067910cc8",
-      "size": 9695
+      "sha256": "c5efdb755e987cc857b52b045e92826a8901005cafe7dcb47707b9804d46f69f",
+      "size": 10925
     },
     ".github/dev-tools/pno-rev89-contract-harness.mjs": {
       "sha256": "7ab7497f7accf55057bb7c01ee382f2c2ffdf6eb375cd63e93f3975ae6cb735e",
@@ -923,8 +923,8 @@
       "size": 556
     },
     ".github/dev-tools/stage-dev-runtime.mjs": {
-      "sha256": "172c7d1cb32087388eedbc6d7e3ed9c8c67ac3a0eec45b17d13ba4fc6caedf49",
-      "size": 50259
+      "sha256": "80b8192ae1dd18c02f43a48c2d3ef755aaa5dccf0584ebc1e48fea88a29f5794",
+      "size": 50251
     },
     ".github/dev-tools/stage-dev-runtime.test.mjs": {
       "sha256": "d2501223a5757fb3c9bb33a490221eff0bd1aba63dbb71af7b2e4fad0512ca24",
@@ -2030,12 +2030,12 @@
       "size": 27729
     },
     "ms.html": {
-      "sha256": "d91c0e562ee1abe83c8908699b120e048f208922a53338328ef23ac019e27bfe",
-      "size": 35446
+      "sha256": "569c384d60b112ad699a63ab4aad9c37b98ce3401b48523458f7c693a536e608",
+      "size": 35442
     },
     "ms.js": {
-      "sha256": "ae049e12f42bb514a31ee148e523f0fbe1bad683bbabdce66c39d049b9a2f9cd",
-      "size": 453147
+      "sha256": "6ae8797c619b943deefd3e243637fcd2bbc36ff25d6cd8a53657ba9c14e6f301",
+      "size": 454556
     },
     "proof-v2-actions.js": {
       "sha256": "bfebd5d8c7656c89e476cbc235f07c8ef4496b92eb412b18cbd64438bcf7790e",
@@ -2098,8 +2098,8 @@
       "size": 53481
     },
     "sw.js": {
-      "sha256": "1f532cd8b7600aaa0986211419c5ec13525f69e9d0fc65ccf2d266921dea70ab",
-      "size": 975
+      "sha256": "2dcbb20061f19a2b500bfede9fea5e8d80562a5cfdf328d2bf10d2fdf0c9cd73",
+      "size": 971
     },
     "waiting.html": {
       "sha256": "1b72e4c19ddf4dc8935827d44ba6d261cf75ef9bf96a9712e6f3338ccddaaff1",
@@ -2220,15 +2220,15 @@
       "size": 10063
     }
   },
-  "assetTree": "d9dcbaac33bab0403201d3a1c3410da25a248dd930bef8631b34d60e19ba3924",
+  "assetTree": "3da98c53a2dd68e3957c77d5f68a93e9c2c194fc3391f9f82325644bba1e13ae",
   "runtimeTree": "856050787802465955c4ce55c557414c4746391ba39d1daa82c9c7008c6d8a9b",
-  "scriptUrl": "ms.js?v=20261114-wtr009-dev003-bounded-v1",
-  "cacheVersion": "20261114-wtr009-dev003-bounded-v1",
-  "evidence": "DEV003 bounded OptionB actual full composed asset; new derived identity, not approved golden",
+  "scriptUrl": "ms.js?v=20261114-wtr009-dev005v-ui-v1",
+  "cacheVersion": "20261114-wtr009-dev005v-ui-v1",
+  "evidence": "DEV005V UI-only + isolated cache token proposal; derived offline; NOT OWNER-APPROVED",
   "I03": "NOT FIXED; separate Work exporter not referenced by this workflow",
   "servedMs": {
-    "sha256": "6778769004a66b01956b6468b2601b1ad129e3f7f96acebc3763340bd4c3b1d1",
-    "size": 481861,
+    "sha256": "3aec3ec9c8c6ea79e523c38030597d3c57d1504178c865b572926795ae9b342f",
+    "size": 483270,
     "transform": "appendOriginManifestFrontend",
     "runtimeModuleSHA256": "d3c4c47ce364c6aa65a2b5482f48a8893e992b8e5eaa4d7ea4e145ba2bbf8d6c"
   }

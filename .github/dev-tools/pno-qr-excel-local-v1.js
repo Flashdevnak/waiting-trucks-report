@@ -41,24 +41,176 @@ const col=i=>{let s='';for(i++;i;i=Math.floor((i-1)/26))s=String.fromCharCode(65
 function zip(entries){let offset=0;const local=[],central=[];const hdr=(len,fn)=>{let b=new Uint8Array(len);fn(new DataView(b.buffer));return b;};for(const [name,value]of entries){let n=utf8(name),v=typeof value==='string'?utf8(value):value,c=crc(v);let h=hdr(30,d=>{d.setUint32(0,0x04034b50,true);d.setUint16(4,20,true);d.setUint16(6,0x800,true);d.setUint32(14,c,true);d.setUint32(18,v.length,true);d.setUint32(22,v.length,true);d.setUint16(26,n.length,true);});local.push(h,n,v);central.push(hdr(46,d=>{d.setUint32(0,0x02014b50,true);d.setUint16(4,20,true);d.setUint16(6,20,true);d.setUint16(8,0x800,true);d.setUint32(16,c,true);d.setUint32(20,v.length,true);d.setUint32(24,v.length,true);d.setUint16(28,n.length,true);d.setUint32(42,offset,true);}),n);offset+=h.length+n.length+v.length;}
  const cd=concat(central),end=hdr(22,d=>{d.setUint32(0,0x06054b50,true);d.setUint16(8,entries.length,true);d.setUint16(10,entries.length,true);d.setUint32(12,cd.length,true);d.setUint32(16,offset,true);});return concat([...local,cd,end]);}
 const yieldTurn=()=>new Promise(resolve=>{if(typeof MessageChannel==='undefined'){resolve();return;}let c=new MessageChannel();c.port1.onmessage=()=>{c.port1.close();c.port2.close();resolve();};c.port2.postMessage(0);});
+
+// OOXML column widths use the Normal style, independently of visible text.
+// Courier New digits are 0.6 em wide: 12.5 pt at 96 DPI yields 10 px.
+const excelNormalDigitPixels = 10;
+const excelTextDigitPixels = 7;
+const excelColumnPadding = 5;
+const excelPixelsToPoints = 72 / 96;
+const excelLineHeight = 22;
+const excelTextPadding = 16;
+
+function excelColumnGeometry(targetPixels) {
+ const contentPixels = targetPixels - excelColumnPadding;
+ const width = Math.floor((contentPixels + excelColumnPadding) * 256 / excelNormalDigitPixels) / 256;
+ const rounding = Math.floor(128 / excelNormalDigitPixels);
+ const pixels = Math.floor(((256 * width + rounding) / 256) * excelNormalDigitPixels);
+ return {width, pixels};
+}
+
+function excelTextLineWidths(value) {
+ return String(value ?? '').split(/\r\n|\r|\n/).map(line => {
+  let pixels = 0;
+  for (const character of line) {
+   if (/\p{Mark}/u.test(character)) continue;
+   if (character === '\t') pixels += 28;
+   else if (character === ' ') pixels += 5;
+   else if (/[0-9]/.test(character)) pixels += excelTextDigitPixels;
+   else if (/[MW@%&mw]/.test(character)) pixels += 14;
+   else if (character.codePointAt(0) > 127) pixels += 16;
+   else pixels += 9;
+  }
+  return pixels;
+ });
+}
+
+function excelWrappedHeight(value, cellPixels) {
+ const usablePixels = cellPixels - excelTextPadding;
+ let lines = 0;
+ for (const linePixels of excelTextLineWidths(value)) {
+  // Reserve slack for native word breaks and font substitution on wrapped lines.
+  lines += linePixels <= usablePixels ? 1 : Math.ceil(linePixels / (usablePixels * 0.8));
+ }
+ return lines * excelLineHeight + excelTextPadding;
+}
+
+// Excel Place in Cell: cell.vm -> valueMetadata -> futureMetadata ->
+// _localImage rich value -> image relationship -> PNG inside the workbook.
+function addExcelLocalImageParts(entries, types, workbookRels, count, namespaces) {
+ if (!count) return;
+ const {rel, ss, docrel} = namespaces;
+ const rich = 'http://schemas.microsoft.com/office/spreadsheetml/2017/richdata';
+ const rel2022 = 'http://schemas.microsoft.com/office/2022/10/relationships/';
+ const rel2017 = 'http://schemas.microsoft.com/office/2017/06/relationships/';
+ const imageRelNs = 'http://schemas.microsoft.com/office/spreadsheetml/2022/richvaluerel';
+ const link = (id, type, target) => `<Relationship Id="${id}" Type="${type}" Target="${target}"/>`;
+ const part = (id, name, type, contentType, xmlText) => {
+  entries.push(['xl/' + name, xmlText]);
+  types.push(`<Override PartName="/xl/${name}" ContentType="${contentType}"/>`);
+  workbookRels.push(link(id, type, name));
+ };
+
+ const future = [], metadata = [], values = [], richRels = [], pngRels = [];
+ for (let i = 0; i < count; i++) {
+  const imageId = i + 1;
+  future.push(`<bk><extLst><ext uri="{3e2802c4-a4d2-4d8b-9148-e3be6c30e623}"><xlrd:rvb i="${i}"/></ext></extLst></bk>`);
+  metadata.push(`<bk><rc t="1" v="${i}"/></bk>`);
+  // CalcOrigin 5 denotes a standalone local image created without a formula.
+  values.push(`<rv s="0"><v>${i}</v><v>5</v></rv>`);
+  richRels.push(`<rel r:id="rId${imageId}"/>`);
+  pngRels.push(link('rId' + imageId, docrel + '/image', `../media/qr${imageId}.png`));
+ }
+
+ part('rIdMetadata','metadata.xml',docrel + '/sheetMetadata',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheetMetadata+xml',
+  `<metadata xmlns="${ss}" xmlns:xlrd="${rich}">` +
+  '<metadataTypes count="1"><metadataType name="XLRICHVALUE" minSupportedVersion="120000" copy="1" pasteAll="1" pasteValues="1" merge="1" splitFirst="1" rowColShift="1" clearFormats="1" clearComments="1" assign="1" coerce="1"/></metadataTypes>' +
+  `<futureMetadata name="XLRICHVALUE" count="${count}">${future.join('')}</futureMetadata>` +
+  `<valueMetadata count="${count}">${metadata.join('')}</valueMetadata></metadata>`);
+ part('rIdRichValueRel','richData/richValueRel.xml',rel2022 + 'richValueRel',
+  'application/vnd.ms-excel.richvaluerel+xml',
+  `<richValueRels xmlns="${imageRelNs}" xmlns:r="${docrel}">${richRels.join('')}</richValueRels>`);
+ part('rIdRichValues','richData/rdrichvalue.xml',rel2017 + 'rdRichValue',
+  'application/vnd.ms-excel.rdrichvalue+xml',
+  `<rvData xmlns="${rich}" count="${count}">${values.join('')}</rvData>`);
+ part('rIdRichStructure','richData/rdrichvaluestructure.xml',rel2017 + 'rdRichValueStructure',
+  'application/vnd.ms-excel.rdrichvaluestructure+xml',
+  `<rvStructures xmlns="${rich}" count="1"><s t="_localImage"><k n="_rvRel:LocalImageIdentifier" t="i"/><k n="CalcOrigin" t="i"/></s></rvStructures>`);
+
+ const specialKeys = ['_Self','_DisplayString','_Flags','_Format','_SubLabel','_Attribution','_Icon','_Display','_CanonicalPropertyNames','_ClassificationId'];
+ const flags = specialKeys.map(key => `<key name="${key}">` +
+  (key === '_Self' ? '<flag name="ExcludeFromFile" value="1"/>' : '') +
+  '<flag name="ExcludeFromCalcComparison" value="1"/></key>');
+ part('rIdRichTypes','richData/rdRichValueTypes.xml',rel2017 + 'rdRichValueTypes',
+  'application/vnd.ms-excel.rdrichvaluetypes+xml',
+  `<rvTypesInfo xmlns="${rich}2"><global><keyFlags>${flags.join('')}</keyFlags></global></rvTypesInfo>`);
+ entries.push(['xl/richData/_rels/richValueRel.xml.rels',`<Relationships xmlns="${rel}">${pngRels.join('')}</Relationships>`]);
+}
+
 async function workbook(sheets,{current=()=>true,yieldFn=yieldTurn}={}){
  const check=()=>{if(!current()){let e=Error('PNO_LOCAL_ASYNC_CANCELLED');e.code='PNO_LOCAL_ASYNC_CANCELLED';throw e;}};check();
  if(!Array.isArray(sheets)||!sheets.length||sheets.length>8||sheets.reduce((s,x)=>s+x.rows.length,0)>10000)throw Error('PNO_EXCEL_LIMIT_10000');
  const ns='http://schemas.openxmlformats.org',rel=ns+'/package/2006/relationships',ss=ns+'/spreadsheetml/2006/main',docrel=ns+'/officeDocument/2006/relationships';
+ const qrMinimumCellPixels = 160;
+ const qrColumn = excelColumnGeometry(qrMinimumCellPixels);
+ const missingQr = 'ไม่มีรหัสสำหรับสร้าง QR';
+ // At 96 DPI, 545 pixels are 408.75 pt, within Excel's row-height limit.
+ const maxRowPixels = 545;
  const entries=[],media=new Map(),sheetDefs=[],types=[],workRels=[];let processed=0;
+ const styles='<styleSheet xmlns="'+ss+'"><fonts count="2"><font><sz val="12.5"/><name val="Courier New"/><family val="3"/></font><font><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+ types.push('<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>');
+ workRels.push('<Relationship Id="rIdStyles" Type="'+docrel+'/styles" Target="styles.xml"/>');
+ entries.push(['xl/styles.xml',styles]);
  for(let si=0;si<sheets.length;si++){check();const spec=sheets[si],id=si+1,rows=spec.rows;if(!rows.length)throw Error('PNO_EXCEL_EMPTY_SHEET');let keys=Object.keys(rows[0]),columns=[];
   for(const key of keys){columns.push({key});if((spec.qrKeys||[]).includes(key))columns.push({key,qr:true});}
   if(columns.length>128||rows.some(r=>JSON.stringify(Object.keys(r))!==JSON.stringify(keys)))throw Error('PNO_EXCEL_COLUMNS');
-  let anchors=[],drawingRels=[],rowXml=[];const cell=(value,c,r)=>{const ref=col(c)+r;if(typeof value==='number'&&Number.isFinite(value))return '<c r="'+ref+'"><v>'+value+'</v></c>';if(typeof value==='boolean')return '<c r="'+ref+'" t="b"><v>'+(value?1:0)+'</v></c>';return '<c r="'+ref+'" t="inlineStr"><is><t xml:space="preserve">'+xml(value)+'</t></is></c>';};
-  rowXml.push('<row r="1" ht="28" customHeight="1">'+columns.map((c,i)=>cell(c.qr?'QR Code ('+c.key+')':c.key,i,1)).join('')+'</row>');
-  for(let ri=0;ri<rows.length;ri++){check();const r=ri+2,row=rows[ri];let cells=[];for(let ci=0;ci<columns.length;ci++){let c=columns[ci],value=row[c.key];if(!c.qr){cells.push(cell(value,ci,r));continue;}if(!valid(value)){cells.push(cell('ไม่มีรหัสสำหรับสร้าง QR',ci,r));continue;}
-    if(!media.has(value)){const mid=media.size+1;media.set(value,{id:mid,bytes:png(value)});}let image=media.get(value),rid=drawingRels.length+1;drawingRels.push('<Relationship Id="rId'+rid+'" Type="'+docrel+'/image" Target="../media/qr'+image.id+'.png"/>');anchors.push('<xdr:oneCellAnchor><xdr:from><xdr:col>'+ci+'</xdr:col><xdr:colOff>19050</xdr:colOff><xdr:row>'+(r-1)+'</xdr:row><xdr:rowOff>19050</xdr:rowOff></xdr:from><xdr:ext cx="1219200" cy="1219200"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="'+rid+'" name="QR '+r+'-'+ci+'"/><xdr:cNvPicPr/></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId'+rid+'"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1219200" cy="1219200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>');}
-   rowXml.push('<row r="'+r+'" ht="100" customHeight="1">'+cells.join('')+'</row>');if(++processed%32===0){await yieldFn();check();}}
-  let sheet='<worksheet xmlns="'+ss+'" xmlns:r="'+docrel+'"><cols>'+columns.map((c,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+(c.qr?20:24)+'" customWidth="1"/>').join('')+'</cols><sheetData>'+rowXml.join('')+'</sheetData>'+(anchors.length?'<drawing r:id="rId1"/>':'')+'</worksheet>';
+  let rowXml=[];const cell=(value,c,r)=>{const ref=col(c)+r;if(typeof value==='number'&&Number.isFinite(value))return '<c r="'+ref+'" s="0"><v>'+value+'</v></c>';if(typeof value==='boolean')return '<c r="'+ref+'" s="0" t="b"><v>'+(value?1:0)+'</v></c>';return '<c r="'+ref+'" s="0" t="inlineStr"><is><t xml:space="preserve">'+xml(value)+'</t></is></c>';};
+  const headers = columns.map(c => c.qr ? 'QR Code (' + c.key + ')' : c.key);
+  const geometry = columns.map((column, index) => {
+   if (column.qr) return qrColumn;
+   const isIdentifier = (spec.qrKeys || []).includes(column.key);
+   const minimumPixels = isIdentifier ? 152 : 72;
+   const maximumPixels = isIdentifier ? 320 : 288;
+   let target = minimumPixels;
+   const fit = value => {
+    for (const width of excelTextLineWidths(value)) {
+     target = Math.min(maximumPixels, Math.max(target, width + excelTextPadding));
+    }
+   };
+   fit(headers[index]);
+   for (const row of rows) {
+    if (target === maximumPixels) break;
+    fit(row[column.key]);
+   }
+   return excelColumnGeometry(target);
+  });
+  let headerPixels = 56;
+  for (let ci = 0; ci < columns.length; ci++) {
+   headerPixels = Math.max(headerPixels, excelWrappedHeight(headers[ci], geometry[ci].pixels));
+  }
+  headerPixels = Math.min(headerPixels, maxRowPixels);
+  rowXml.push('<row r="1" ht="'+(headerPixels*excelPixelsToPoints)+'" customHeight="1">'+headers.map((value,i)=>cell(value,i,1)).join('')+'</row>');
+  for(let ri=0;ri<rows.length;ri++){
+   check();
+   const r=ri+2,row=rows[ri];
+   let rowPixels = qrMinimumCellPixels;
+   for (let ci = 0; ci < columns.length; ci++) {
+    const column = columns[ci];
+    const value = row[column.key];
+    if (column.qr && valid(value)) continue;
+    rowPixels = Math.max(rowPixels, excelWrappedHeight(column.qr ? missingQr : value, geometry[ci].pixels));
+   }
+   rowPixels = Math.min(rowPixels, maxRowPixels);
+   const rowHeight = rowPixels * excelPixelsToPoints;
+   const cells=[];
+   for (let ci=0; ci<columns.length; ci++) {
+    const column=columns[ci], value=row[column.key];
+    if (!column.qr) { cells.push(cell(value,ci,r)); continue; }
+    if (!valid(value)) { cells.push(cell(missingQr,ci,r)); continue; }
+    if(!media.has(value)){const mid=media.size+1;media.set(value,{id:mid,bytes:png(value)});}
+    const image=media.get(value);
+    // This cached error is for readers without Excel Rich Value support.
+    // Supported Excel binds vm to the local image in this very cell.
+    cells.push('<c r="'+col(ci)+r+'" s="0" t="e" vm="'+image.id+'"><v>#VALUE!</v></c>');
+   }
+   rowXml.push('<row r="'+r+'" ht="'+rowHeight+'" customHeight="1">'+cells.join('')+'</row>');if(++processed%32===0){await yieldFn();check();}}
+  let sheet='<worksheet xmlns="'+ss+'" xmlns:r="'+docrel+'"><cols>'+geometry.map((column,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+column.width+'" customWidth="1"/>').join('')+'</cols><sheetData>'+rowXml.join('')+'</sheetData>'+'</worksheet>';
   entries.push(['xl/worksheets/sheet'+id+'.xml',sheet]);types.push('<Override PartName="/xl/worksheets/sheet'+id+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>');
-  if(anchors.length){entries.push(['xl/worksheets/_rels/sheet'+id+'.xml.rels','<Relationships xmlns="'+rel+'"><Relationship Id="rId1" Type="'+docrel+'/drawing" Target="../drawings/drawing'+id+'.xml"/></Relationships>'],['xl/drawings/drawing'+id+'.xml','<xdr:wsDr xmlns:xdr="'+ns+'/drawingml/2006/spreadsheetDrawing" xmlns:a="'+ns+'/drawingml/2006/main" xmlns:r="'+docrel+'">'+anchors.join('')+'</xdr:wsDr>'],['xl/drawings/_rels/drawing'+id+'.xml.rels','<Relationships xmlns="'+rel+'">'+drawingRels.join('')+'</Relationships>']);types.push('<Override PartName="/xl/drawings/drawing'+id+'.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>');}
   sheetDefs.push('<sheet name="'+xml(String(spec.name).slice(0,31).replace(/[\\/*?:\[\]]/g,'_'))+'" sheetId="'+id+'" r:id="rId'+id+'"/>');workRels.push('<Relationship Id="rId'+id+'" Type="'+docrel+'/worksheet" Target="worksheets/sheet'+id+'.xml"/>');}
- check();for(const m of media.values())entries.push(['xl/media/qr'+m.id+'.png',m.bytes]);
+ check();
+ addExcelLocalImageParts(entries,types,workRels,media.size,{rel,ss,docrel});
+ for(const m of media.values())entries.push(['xl/media/qr'+m.id+'.png',m.bytes]);
  entries.push(['[Content_Types].xml','<Types xmlns="'+ns+'/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+types.join('')+'</Types>'],['_rels/.rels','<Relationships xmlns="'+rel+'"><Relationship Id="rId1" Type="'+docrel+'/officeDocument" Target="xl/workbook.xml"/></Relationships>'],['xl/workbook.xml','<workbook xmlns="'+ss+'" xmlns:r="'+docrel+'"><sheets>'+sheetDefs.join('')+'</sheets></workbook>'],['xl/_rels/workbook.xml.rels','<Relationships xmlns="'+rel+'">'+workRels.join('')+'</Relationships>']);
  const bytes=zip(entries);check();return bytes;
 }

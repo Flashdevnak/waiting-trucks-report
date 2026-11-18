@@ -799,8 +799,8 @@
       "size": 1274
     },
     ".github/dev-tools/pno-qr-excel-local-v1.js": {
-      "sha256": "de526df755ad15f32f153b409e0ea6867eb8450ad3036dedc445aa47a5005607",
-      "size": 13059
+      "sha256": "03a29ffe62397e0be0c9adb9ccd790bbf2f1adc1c481d9be12d46d2d23d80898",
+      "size": 19917
     },
     ".github/dev-tools/pno-qr-test-compat-v3.mjs": {
       "sha256": "43b211c8e131b091e11ce9fe861587634caa6508e6117af33967e0001d802254",
@@ -923,8 +923,8 @@
       "size": 556
     },
     ".github/dev-tools/stage-dev-runtime.mjs": {
-      "sha256": "80b8192ae1dd18c02f43a48c2d3ef755aaa5dccf0584ebc1e48fea88a29f5794",
-      "size": 50251
+      "sha256": "2d595358c125384500aaf3d4f31636043347d24f120a771a22a1789f241ff21d",
+      "size": 50279
     },
     ".github/dev-tools/stage-dev-runtime.test.mjs": {
       "sha256": "d2501223a5757fb3c9bb33a490221eff0bd1aba63dbb71af7b2e4fad0512ca24",
@@ -2030,12 +2030,12 @@
       "size": 27729
     },
     "ms.html": {
-      "sha256": "569c384d60b112ad699a63ab4aad9c37b98ce3401b48523458f7c693a536e608",
-      "size": 35442
+      "sha256": "80101ebcb816d0ce16eb362555b3ca980dca562ce3af17c2086ec48e48aa72f5",
+      "size": 35456
     },
     "ms.js": {
-      "sha256": "6ae8797c619b943deefd3e243637fcd2bbc36ff25d6cd8a53657ba9c14e6f301",
-      "size": 454556
+      "sha256": "17ba88a7f35ee8c94785a03d55d043b0aca321962517755a366615bb99d7c825",
+      "size": 461414
     },
     "proof-v2-actions.js": {
       "sha256": "bfebd5d8c7656c89e476cbc235f07c8ef4496b92eb412b18cbd64438bcf7790e",
@@ -2098,8 +2098,8 @@
       "size": 53481
     },
     "sw.js": {
-      "sha256": "2dcbb20061f19a2b500bfede9fea5e8d80562a5cfdf328d2bf10d2fdf0c9cd73",
-      "size": 971
+      "sha256": "55ca8e8b3cd128a5b577a894e80d7ecac7ec2dd7b73f660495f119a5c64cbbc5",
+      "size": 985
     },
     "waiting.html": {
       "sha256": "1b72e4c19ddf4dc8935827d44ba6d261cf75ef9bf96a9712e6f3338ccddaaff1",
@@ -2220,15 +2220,15 @@
       "size": 10063
     }
   },
-  "assetTree": "3da98c53a2dd68e3957c77d5f68a93e9c2c194fc3391f9f82325644bba1e13ae",
+  "assetTree": "acdb8de0fac4f8cef4fd8c9ea4e17655062a7d9f4771a671fa8d07aa60edd1b4",
   "runtimeTree": "856050787802465955c4ce55c557414c4746391ba39d1daa82c9c7008c6d8a9b",
-  "scriptUrl": "ms.js?v=20261114-wtr009-dev005v-ui-v1",
-  "cacheVersion": "20261114-wtr009-dev005v-ui-v1",
-  "evidence": "DEV005V UI-only + isolated cache token proposal; derived offline; NOT OWNER-APPROVED",
+  "scriptUrl": "ms.js?v=20261119-wtr009-dev009b-excel365-in-cell-v1",
+  "cacheVersion": "20261119-wtr009-dev009b-excel365-in-cell-v1",
+  "evidence": "DEV009B owner-accepted Excel365 Place in Cell; generated predeploy identity on DEV649; runtime and QR UI unchanged; release gates pending",
   "I03": "NOT FIXED; separate Work exporter not referenced by this workflow",
   "servedMs": {
-    "sha256": "3aec3ec9c8c6ea79e523c38030597d3c57d1504178c865b572926795ae9b342f",
-    "size": 483270,
+    "sha256": "ed8a823eead4d71e92417806210ca9067fbf6f8505ed056f2093f14012440c2c",
+    "size": 490128,
     "transform": "appendOriginManifestFrontend",
     "runtimeModuleSHA256": "d3c4c47ce364c6aa65a2b5482f48a8893e992b8e5eaa4d7ea4e145ba2bbf8d6c"
   }

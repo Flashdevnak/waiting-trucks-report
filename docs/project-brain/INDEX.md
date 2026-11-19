@@ -1,23 +1,22 @@
 # Project Brain — Waiting Trucks Report
 
-เอกสารบนสาขา `docs/wtr-main-brain-v1` เป็นจุดเริ่มของการส่งต่องาน ให้เปิด GitHub ที่ ref นี้โดยระบุชัดเจนและบันทึก commit SHA ที่เปิดจริง สำหรับ ZIP ให้ตรวจ manifest ก่อนอ่าน
+เอกสารหลักระยะยาวของ WTR บน branch `docs/wtr-main-brain-v1` (ต้องตรวจ GitHub SHA สดก่อนใช้). Document branch ไม่ใช่ DEV runtime และไม่ถูกโหลดโดย AI โดยอัตโนมัติ: **ทุก Work Order ต้องสั่งให้อ่าน Index/AGENTS/Handoff ที่ exact ref**.
 
-## ลำดับการอ่าน
+## อ่านตามลำดับ
 
-1. [AGENTS.md](../../AGENTS.md) และ [Handoff ปัจจุบัน](HANDOFF_CURRENT_TH.md)
-2. [Project Brain และ contracts](PROJECT_BRAIN_TH.md) และ [Decision Log](DECISION_LOG.md)
-3. [Task Ledger](TASK_LEDGER.md), [Release Ledger](RELEASE_LEDGER.md) และ [Evidence Index](EVIDENCE_INDEX.md)
-4. สถานะ [WTR-011](work-orders/WTR-011_STATUS.md) และ [WTR-011R](work-orders/WTR-011R_STATUS.md) แล้วเปิด Work Order ฉบับเต็มที่ Owner อนุมัติ
-5. [Recovery Playbook](RECOVERY_PLAYBOOK_TH.md), [Work Order Template](WORK_ORDER_TEMPLATE_TH.md) และ [Review Template](REVIEW_TEMPLATE_TH.md)
+1. [AGENTS.md](../../AGENTS.md) → [Current Handoff](HANDOFF_CURRENT_TH.md) → [สถานะล่าสุด](system/CURRENT_STATUS_TH.md)
+2. [System Knowledge Base](system/README_TH.md) → [System Map](system/SYSTEM_MAP_TH.md) → [Source of Truth](system/SOURCE_OF_TRUTH_TH.md) → [Queue/Lifecycle Rules](system/QUEUE_LIFECYCLE_RULES_TH.md) → [Runtime/Release](system/RUNTIME_BUILD_RELEASE_TH.md)
+3. [Project Brain Contract](PROJECT_BRAIN_TH.md) → [Owner Decision Log](DECISION_LOG.md)
+4. [Task Ledger](TASK_LEDGER.md), [Release Ledger — historical](RELEASE_LEDGER.md) + [2026-11-20 release status](system/RELEASE_STATUS_20261120_TH.md), [Evidence Index — historical](EVIDENCE_INDEX.md) + [2026-11-20 evidence register](system/EVIDENCE_REGISTER_20261120_TH.md), [WTR-011 status](work-orders/WTR-011_STATUS.md), [WTR-011R status](work-orders/WTR-011R_STATUS.md)
+5. [Recovery Playbook](RECOVERY_PLAYBOOK_TH.md), [Work Order Template](WORK_ORDER_TEMPLATE_TH.md), [Review Template](REVIEW_TEMPLATE_TH.md)
+6. [System Deep Study (source-grounded reference)](references/SYSTEM_DEEP_STUDY_READONLY_20261120_TH.md)
 
-## อำนาจและหลักฐาน
+## อำนาจและความใหม่ของหลักฐาน
 
-| เรื่องที่ตัดสิน | แหล่งที่ใช้ |
-| --- | --- |
-| ขอบเขต สิทธิ์ และ release hold | Work Order และคำอนุมัติ Owner ที่ระบุ task, target, SHA และการกระทำ |
-| พฤติกรรมที่ต้องรักษา | Operational Contract และการตัดสินใจ Owner ที่ผูกกับหลักฐาน |
-| พฤติกรรมที่เกิดขึ้นใน source | ไฟล์หรือ diff ที่ Git SHA เต็ม และผลทดสอบบน source/exact staged artifact ที่ระบุ |
-| การ deploy และสถานะ runtime | GitHub run/job ที่ผูก exact SHA, Cloudflare version/traffic และ smoke สำหรับเวลาที่ตรวจ |
-| ประวัติและการส่งต่อ | Decision/Task/Release/Evidence ledgers และ timestamp ของหลักฐาน |
+- **สิทธิ์และการเปลี่ยนแปลง:** Work Order + Owner approval เฉพาะงาน เฉพาะ action. การอนุมัติ docs-only ไม่อนุมัติ WTR patch/deploy.
+- **กฎธุรกิจ:** Normative Operational Contract, Owner Decision Log, exact source/candidate patch ไม่ใช่คำสรุปที่ไม่ได้พิสูจน์.
+- **Code/Final Staged:** Git SHA, ordered patches, generated hash, results/logs โดยระบุ Node, fixtures และ source exact.
+- **Runtime ปัจจุบัน:** Cloudflare deployments/traffic at check time; docs/latest code SHA ไม่ใช่ deployed version โดยอัตโนมัติ.
+- **ความไม่แน่นอน:** บันทึก SOURCE VERIFIED / TESTED / LIVE VERIFIED / UNKNOWN / NOT PROVEN แยกกัน. หาก conflict ให้ใช้หลักฐานล่าสุดที่มี provenance และคงข้อความเก่าไว้ใน ledger เป็นประวัติ.
 
-เก็บข้อขัดแย้งไว้ทั้งสองฝั่งพร้อม provenance และวันเวลา เมื่อข้อมูลไม่ครบใช้สถานะ `NOT RUN`, `NOT STARTED`, `NOT ACCEPTED`, `UNKNOWN` หรือ `OWNER-REPORTED / NOT INDEPENDENTLY VERIFIED` ตามจริง ผู้รับช่วงต้องตรวจความใหม่ของ refs อีกครั้งก่อนใช้ค่าจาก handoff
+**บันทึกใหม่:** HAR ดิบกับข้อมูลส่วนบุคคล/Session ห้ามอยู่ใน GitHub นี้. WTR-011E ยัง LOCAL ONLY; WTR-011R HOLD; Production RELEASE HOLD.

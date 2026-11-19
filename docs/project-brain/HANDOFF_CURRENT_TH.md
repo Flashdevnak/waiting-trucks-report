@@ -1,18 +1,21 @@
-# Handoff ปัจจุบัน — WTR-BRAIN-001
+# Handoff ปัจจุบัน — WTR System Knowledge / 011E
+
+**As-of:** 20 พฤศจิกายน 2026 (Asia/Bangkok). ข้อมูลเป็น snapshot ต้องตรวจใหม่ในงานถัดไป.
 
 | รายการ | ค่า |
-| --- | --- |
+|---|---|
 | Repository | `Flashdevnak/waiting-trucks-report` |
-| DEV source ที่ตรวจล่าสุดตอนเริ่มงาน | `codex/dev-recovery-contract-v2` → `e6fe36b01b34866f6f90294df572f0dd015913d5` |
-| Default ref ที่ตรวจล่าสุดตอนเริ่มงาน | `main` → `39df260b214526c398e92e12444b5e144510812b` |
-| Docs ref | `docs/wtr-main-brain-v1`; **BLOCKED / ยังไม่มี remote ref**; ใช้ ZIP เพื่อรับช่วง |
-| DEV runtime identity | Worker version 650, UUID `1e8e7e6a-95b5-40d1-ba8d-5c6fbf763637`; ดู [Release Ledger](RELEASE_LEDGER.md) |
-| WTR-011 | `PENDING / NOT RUN`; candidate และ Node 22 `NOT ACCEPTED` |
-| WTR-011R | `NOT STARTED — WAITING ON ACCEPTED WTR-011 CANDIDATE` |
-| Release gates | `I03 NOT FIXED`, `Builder ROOT CAUSE UNKNOWN`, `Production RELEASE HOLD` |
+| DEV source | `codex/dev-recovery-contract-v2` @ `e6fe36b01b34866f6f90294df572f0dd015913d5` |
+| Main | `main` @ `39df260b214526c398e92e12444b5e144510812b` |
+| Docs ref | `docs/wtr-main-brain-v1` — **PUBLISHED**; pre-sync HEAD `f90b3bb2d2a5496c47ebd8775c1f1cdbc4fafa6a` ไม่ใช่ BLOCKED |
+| Docs publication | `f90b3bb2d2a5496c47ebd8775c1f1cdbc4fafa6a` จาก WTR-BRAIN-001R, 13 Markdown |
+| DEV Worker | Version 650, UUID `1e8e7e6a-95b5-40d1-ba8d-5c6fbf763637`, 100% traffic ณ read-only check 20 Nov |
+| Technical study | `references/SYSTEM_DEEP_STUDY_READONLY_20261120_TH.md` และ `system/` documents |
+| WTR-011E | **LOCAL ONLY / REVIEW REQUIRED** · A 17/17 targeted, B 6/8 not proven, optional Drop status patch only |
+| Node 22 / LIVE | Node22 NOT VERIFIED; real Drop 39/70m and TBR 12:37 NOT VERIFIED |
+| WTR-011R | HOLD / NOT STARTED |
+| Release | I03 NOT FIXED; Builder ROOT CAUSE UNKNOWN; Production RELEASE HOLD |
 
-รับช่วงด้วย [AGENTS.md](../../AGENTS.md) และ [Index](INDEX.md) แล้วตรวจ GitHub refs, Release Ledger และ Work Order ฉบับเต็ม งานถัดไปที่จัดลำดับไว้คือ **WTR-011 แบบ local-only** ภายใต้คำสั่งฉบับเต็มที่ Owner อนุมัติ หากการเผยแพร่ Brain ยัง blocked ให้ใช้ ZIP ที่ตรวจ hash แล้วทบทวน blocker ก่อนเขียน remote ref
+**รับช่วง:** เปิด [Index](INDEX.md) → [System Knowledge](system/README_TH.md) → [Current Status](system/CURRENT_STATUS_TH.md) → [Evidence Index](EVIDENCE_INDEX.md) และ Work Order ที่ Owner อนุมัติ. แยก Functional Parity A จาก Evidence Identity B และ Release/Live Gate.
 
-Blocker สำหรับการ publish คือ Cloudflare Workers Builds ของ Browser Connector มี branch include `*` / exclude `main` และ path include `*` / exclusions ว่าง จึงจับ docs branch และ Markdown ด้วย ดูแหล่งตรวจและเงื่อนไขเริ่มใหม่ใน `WTR_BRAIN_001_RECEIPT_TH.md`
-
-คำสั่ง WTR-BRAIN-001 จำกัดที่เอกสารและเงื่อนไข publish ของสาขาเอกสาร การดำเนินการ WTR-011/011R ต้องยึดขอบเขตงานของตัวเอง
+**งานถัดไป:** Docs-only knowledge sync/review ที่กำหนดสิทธิ์เฉพาะ ไม่รวมการแก้ Candidate/DEV Runtime. การแก้ WTR-011 Gate B หรือเปิด WTR-011R ต้องมีคำสั่งใหม่. HAR ดิบเก็บนอก GitHub; ห้ามอัปโหลด.

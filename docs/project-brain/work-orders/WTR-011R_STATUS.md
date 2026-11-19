@@ -1,9 +1,7 @@
-# WTR-011R — Candidate qualification
+# WTR-011R — Release Qualification
 
-**NOT STARTED — WAITING ON ACCEPTED WTR-011 CANDIDATE**
+**HOLD / NOT STARTED** as of 20 November 2026. WTR-011E is **local targeted-functional candidate**, not accepted release candidate.
 
-1. รับ exact base SHA, candidate SHA หรือ patch SHA-256, manifest และ Node 22 logs ของ WTR-011 ที่ตรวจรับแล้ว
-2. ตรวจ artifact identity, exact staged runtime, test evidence, scope และ gate I03 ตาม Work Order ของการตรวจรับ
-3. บันทึกผลใน [Review Template](../REVIEW_TEMPLATE_TH.md), [Task Ledger](../TASK_LEDGER.md) และ [Release Ledger](../RELEASE_LEDGER.md)
+Before WTR-011R, reviewer must independently prove: exact Base/Runtime/Asset identity and Node22, unresolved occurrence/prior admission Gate B, I03 security, builder/root-cause gates, full affected regressions including PNO and Excel 365, Native GUI/live transport for real affected Drop, current Cloudflare settings/Worker version/traffic, and explicit Owner review approval.
 
-การรับ candidate และอนุมัติให้ review มีผลตามขอบเขต Work Order เท่านั้น การ commit, push, dispatch หรือ deploy ต้องมีการอนุมัติสำหรับการกระทำนั้นโดยเฉพาะ
+Work Order / release review approval **is not** commit, push, workflow dispatch, deploy or rollback authorization; these require separate exact target/environment permissions. Production RELEASE HOLD.

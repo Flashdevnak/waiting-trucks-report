@@ -37,8 +37,6 @@ jobs:
     env:
       WTR_DEV_IDENTITY_KIND: ${{ inputs.approved_identity_kind }}
       WTR_APPROVED_IDENTITY_SHA256: ${{ inputs.approved_identity_sha256 }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     defaults:
       run:
         working-directory: worker
@@ -257,13 +255,22 @@ jobs:
           NODE
 
       - name: Verify Turso and auth secrets exist on DEV Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          npx wrangler secret list --config wrangler.dev.jsonc > /tmp/worker-secrets.json
-          node <<'NODE'
-          const fs=require('node:fs');
-          const text=fs.readFileSync('/tmp/worker-secrets.json','utf8');
+          node --input-type=module <<'NODE'
+          const {CLOUDFLARE_ACCOUNT_ID:account,CLOUDFLARE_API_TOKEN:token}=process.env;
+          if(!/^[a-f0-9]{32}$/.test(account||'')||!token) throw Error('DEV observability credentials missing or invalid');
+          const response=await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/waiting-trucks-report-api-dev/secrets`,{
+            headers:{Authorization:`Bearer ${token}`},redirect:'error',signal:AbortSignal.timeout(15000)
+          });
+          if(!response.ok) throw Error(`DEV secret metadata HTTP ${response.status}`);
+          const body=await response.json();
+          if(!body.success||!Array.isArray(body.result)) throw Error('DEV secret metadata invalid');
           const required=['TURSO_DATABASE_URL','TURSO_AUTH_TOKEN','AUTH_SECRET','PASSWORD_PEPPER'];
-          const missing=required.filter(name=>!text.includes(name));
+          const secretNames=new Set(body.result.filter(entry=>entry?.type==='secret_text').map(entry=>entry.name));
+          const missing=required.filter(name=>!secretNames.has(name));
           if(missing.length) throw new Error(`Missing required DEV Worker secrets: ${missing.join(', ')}`);
           console.log('DEV_TURSO_SECRETS=PASS');
           console.log('DEV_AUTH_SECRETS=PASS');
@@ -282,14 +289,15 @@ jobs:
           NODE
           node --test ../.github/dev-tools/wtr009-dev-identity.test.mjs
 
-      - name: Deploy DEV Worker on Turso via WTR-011P sealed publisher
+      - name: Prepare DEV sealed publisher dependencies
         if: ${{ github.event_name == 'workflow_dispatch' && env.WTR_DEV_IDENTITY_KIND == 'candidate' && github.ref == 'refs/heads/codex/dev-recovery-contract-v2' }}
         env:
           WTR_APPROVED_SOURCE_SHA: ${{ inputs.approved_source_sha }}
           WTR_APPROVED_IDENTITY_SHA256: ${{ inputs.approved_identity_sha256 }}
           WTR_APPROVED_PUBLISHER_SCOPE_SHA256: ${{ inputs.approved_publisher_scope_sha256 }}
           WTR_DEV_IDENTITY_KIND: candidate
-        run: |
+          WTR_SEALED_PUBLISHER_MODE: prepare-dependencies
+        run: &wtr011p_sealed_launcher |
           set -euo pipefail
           command -v sudo
           command -v setpriv
@@ -314,12 +322,40 @@ jobs:
           await import('data:text/javascript;base64,'+code.toString('base64'));
           NODE
           }
-          WTR_TRUSTED_NPM_DIR="$(launch_sealed_publisher prepare-dependencies)"
-          export WTR_TRUSTED_NPM_DIR
-          launch_sealed_publisher publish
+          case "${WTR_SEALED_PUBLISHER_MODE:-}" in
+            prepare-dependencies)
+              if [[ -n "${CLOUDFLARE_API_TOKEN:-}" || -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+                echo 'Provider credentials are forbidden during dependency preparation' >&2
+                exit 1
+              fi
+              capsule="$(launch_sealed_publisher prepare-dependencies)"
+              [[ "$capsule" =~ ^/var/lib/wtr011p-locked-npm-[A-Za-z0-9]{6}$ ]]
+              printf 'WTR_TRUSTED_NPM_DIR=%s\n' "$capsule" >> "$GITHUB_ENV"
+              ;;
+            publish)
+              [[ "${WTR_TRUSTED_NPM_DIR:-}" =~ ^/var/lib/wtr011p-locked-npm-[A-Za-z0-9]{6}$ ]]
+              launch_sealed_publisher publish
+              ;;
+            *) echo 'Invalid sealed publisher mode' >&2; exit 1 ;;
+          esac
+
+      - name: Deploy DEV Worker on Turso via WTR-011P sealed publisher
+        if: ${{ github.event_name == 'workflow_dispatch' && env.WTR_DEV_IDENTITY_KIND == 'candidate' && github.ref == 'refs/heads/codex/dev-recovery-contract-v2' }}
+        env:
+          WTR_APPROVED_SOURCE_SHA: ${{ inputs.approved_source_sha }}
+          WTR_APPROVED_IDENTITY_SHA256: ${{ inputs.approved_identity_sha256 }}
+          WTR_APPROVED_PUBLISHER_SCOPE_SHA256: ${{ inputs.approved_publisher_scope_sha256 }}
+          WTR_DEV_IDENTITY_KIND: candidate
+          WTR_SEALED_PUBLISHER_MODE: publish
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PUBLISH_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: *wtr011p_sealed_launcher
 
       - name: Verify active Worker has zero D1 bindings
         working-directory: .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           node <<'NODE'
           const account=process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -475,4 +511,7 @@ jobs:
       - name: Collect sanitized DEV acceptance from existing runtime cycles
         timeout-minutes: 4
         run: node ../.github/dev-tools/collect-dev-acceptance-tail.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 

@@ -96,7 +96,7 @@ const server = http.createServer(async (req, res) => {
     console.log("LOCAL_ASSET_MANIFEST_MS="+JSON.stringify(Object.entries(manifest).filter(([k])=>k.endsWith("/ms.js")||k==="ms.js")));
     if(names.length!==28 || !names.some(x=>x.endsWith("/ms.js")||x==="ms.js")) throw Error("wrong asset manifest");
     for (const name of names) {
-      const localName=name.replace(/^\\/+/, "");
+      const localName=name.replace(/^\/+/, "");
       if(localName.includes("..") || localName.startsWith("/")) throw Error("unsafe manifest asset name");
       const bytes=readFileSync(".dev-assets/"+localName);
       if(bytes.length!==manifest[name].size) throw Error("asset manifest size mismatch: "+name);

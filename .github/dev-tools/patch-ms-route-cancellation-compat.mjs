@@ -53,7 +53,7 @@ export function patchMsFirstSourceQueueFrontend(source) {
   output = replaceUnique(
     output,
     `function scheduleSection(row, mode) {\n  const incoming = mode === "arrival";\n  const plan = incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt;\n  const actual = incoming\n    ? confirmedEffectiveArrival(row)\n    : row.actualDepartureAt;\n  // Route confirms arrival. Once confirmed, the main value is the earliest\n  // matched Route/KIT/TBR timestamp; raw source values remain visible below.`,
-    `function scheduleSection(row, mode) {\n  const incoming = mode === "arrival";\n  const plan = incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt;\n  const actual = incoming\n    ? queueAdmissionArrival(row)\n    : row.actualDepartureAt;\n  // Incoming actual-used time is the earliest accepted Route-KIT/TBR timestamp.\n  // Raw Route and TBR source values remain separate below.`,
+    `function scheduleSection(row, mode) {\n  const incoming = mode === "arrival";\n  const plan = incoming ? row.estimatedArrivalAt : row.estimatedDepartureAt;\n  const actual = incoming\n    ? (isOrigin(row) ? originArrivalDisplayUsed(row) : queueAdmissionArrival(row))\n    : row.actualDepartureAt;\n  // Incoming actual-used time is the earliest accepted Route-KIT/TBR timestamp.\n  // Raw Route and TBR source values remain separate below.`,
     "arrival section shows the same used queue timestamp",
   );
 

@@ -1,4 +1,6 @@
 import './pno-qr-test-compat-v3.mjs';
+import {loadSelectedIdentity} from './verify-wtr009-dev-identity.mjs';
+import {fileURLToPath} from 'node:url';
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -433,7 +435,7 @@ test("Route page observer stages after the final critical-path patch without cha
 test("DEV phase script URL, service worker and deployed-asset smoke share one delivery contract", async () => {
   const html = patchDevUiShellSource(await readFile(new URL("ms.html", root), "utf8"), "ms.html");
   const sw = await readFile(new URL("sw.js", root), "utf8");
-  const identity=JSON.parse(await readFile(new URL('.github/dev-tools/wtr009-dev-identity.json',root),'utf8'));
+  const identity=loadSelectedIdentity(fileURLToPath(root));
   const script = identity.scriptUrl;
   assert.ok(html.includes(`src="${script}"`));
   assert.doesNotMatch(html, /ms\.js\?v=20261003-pno-operational-truth-v1/);

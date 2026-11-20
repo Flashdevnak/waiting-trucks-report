@@ -7,6 +7,7 @@ on:
       - .github/workflows/wtr-011p-publisher-validation.yml
       - .github/dev-tools/wtr-011p-local-upload-capture.mjs
       - .github/dev-tools/wtr011p-h-only-candidate-scope.json
+      - .github/dev-tools/wtr011p-sealed-publisher.mjs
       - .github/dev-tools/patch-ms-route-cancellation-compat.mjs
 
 permissions:
@@ -39,11 +40,12 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/feature/wtr-011p-h-only-publisher-guard"
           git merge-base --is-ancestor e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD
           git diff --name-only e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD | sort > /tmp/wtr011p-changed.txt
-          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 4
+          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 5
           grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr-011p-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr011p-h-only-candidate-scope.json' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-sealed-publisher.mjs' /tmp/wtr011p-changed.txt
           test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
           echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
       - name: Use Node.js 22
@@ -185,3 +187,17 @@ jobs:
             unset CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID CF_API_TOKEN CF_API_KEY CF_ACCOUNT_ID
             "$1" ../.github/dev-tools/wtr-011p-local-upload-capture.mjs "$2"
           ' _ "$(command -v node)" "$RUNNER_TEMP/wtr011p-wrangler-bundle/turso-index.js"
+
+      - name: Qualify root-owned sealed publisher snapshot (NO PROVIDER CALLS)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check .github/dev-tools/wtr011p-sealed-publisher.mjs
+          # This self-hash is a test fixture only; real dispatch requires
+          # the owner's independent, externally supplied SHA-256 pin.
+          local_sha="$(sha256sum .github/dev-tools/wtr011p-h-only-candidate-scope.json | awk '{print $1}')"
+          sudo env WTR_APPROVED_PUBLISHER_SCOPE_SHA256="$local_sha" \
+            "$(command -v node)" .github/dev-tools/wtr011p-sealed-publisher.mjs "$PWD" inspect
+          echo 'SEALED_PUBLISHER_PREPARE_ONLY=PASS'
+          echo 'CLOUDFLARE_PUBLISH=NOT_PERFORMED'

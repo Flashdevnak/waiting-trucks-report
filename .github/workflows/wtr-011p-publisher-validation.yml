@@ -1,0 +1,352 @@
+name: WTR-011P Publisher Offline Probe (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/wtr-011p-h-only-publisher-guard
+    paths:
+      - .github/workflows/wtr-011p-publisher-validation.yml
+      - .github/dev-tools/wtr-011p-local-upload-capture.mjs
+      - .github/dev-tools/wtr011p-h-only-candidate-scope.json
+      - .github/dev-tools/wtr011p-dependency-trust.mjs
+      - .github/dev-tools/wtr011p-dependency-trust.test.mjs
+      - .github/dev-tools/wtr011p-sealed-publisher.mjs
+      - .github/workflows/deploy-worker-dev.yml
+      - .github/dev-tools/patch-ms-route-cancellation-compat.mjs
+      - .github/dev-tools/wtr011p-dev-candidate-identity.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wtr-011o-one-shot-publisher-audit
+  cancel-in-progress: true
+
+jobs:
+  publisher-dry-run:
+    name: Wrangler 4.127.1 H-only offline publisher probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      WRANGLER_SEND_METRICS: "false"
+      CLOUDFLARE_SEND_METRICS: "false"
+      CLOUDFLARE_API_BASE_URL: http://127.0.0.1:9
+    steps:
+      - name: Checkout audit branch without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Report exact candidate source hashes (NOT OWNER APPROVAL)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,pathlib,hashlib
+          names=subprocess.check_output(['git','diff','--name-only','e6fe36b01b34866f6f90294df572f0dd015913d5','HEAD'],text=True).splitlines()
+          for name in sorted(names):
+              if name=='.github/dev-tools/wtr011p-dev-candidate-identity.json':continue
+              data=pathlib.Path(name).read_bytes()
+              print('CANDIDATE_FILE_SHA='+json.dumps({'name':name,'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)},sort_keys=True))
+          PY
+      - name: Confirm pinned DEV ancestry and test-only changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/feature/wtr-011p-h-only-publisher-guard"
+          git merge-base --is-ancestor e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD
+          git diff --name-only e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD | sort > /tmp/wtr011p-changed.txt
+          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 15
+          grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr-011p-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-h-only-candidate-scope.json' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-sealed-publisher.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-dependency-trust.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-dependency-trust.test.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/workflows/deploy-worker-dev.yml' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-dev-candidate-identity.json' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/verify-wtr009-dev-identity.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr009-dev-identity.test.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/ms-unload-completion-ui.test.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/stage-dev-runtime.test.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/pno-final-contract-artifact-v3.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/pno-destination-summary-rev73.test.mjs' /tmp/wtr011p-changed.txt
+          test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
+          echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Install locked Wrangler without Cloudflare credentials
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          const wrangler=JSON.parse(fs.readFileSync('node_modules/wrangler/package.json','utf8'));
+          assert.equal(lock.packages['node_modules/wrangler'].version,'4.127.1');
+          assert.equal(wrangler.version,'4.127.1');
+          assert.equal(process.versions.node,'22.16.0');
+          console.log('ACTUAL_NODE='+process.versions.node);
+          console.log('ACTUAL_WRANGLER='+wrangler.version);
+          console.log('LOCK_SHA256_VERIFIED_BY_NPM_CI=YES');
+          NODE
+      - name: Stage H-only with exact existing DEV stage chain
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .dev-assets .dev-runtime
+          mkdir -p .dev-assets .dev-runtime
+          cp -R src .dev-runtime/src
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor-context.js ../supervisor-i18n.js ../supervisor-modules.js ../supervisor-view.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
+          cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
+          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
+          node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js .dev-runtime/src/origin-manifest-v1.js
+      - name: Verify immutable Golden remains intact and H-only staged file identities
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          const golden=JSON.parse(fs.readFileSync('../.github/dev-tools/wtr009-dev-identity.json','utf8'));
+          const hex=b=>crypto.createHash('sha256').update(b).digest('hex');
+          const hSha='b0351e0a2d6eb1d5392fd019ba445b65ad1aca88a5b1bf8b130818f8592faae0';
+          const hSize=461464;
+          for(const [kind,base] of [['assets','.dev-assets'],['runtime','.dev-runtime/src']]){
+            const expected=golden[kind];
+            const actualFiles=[];
+            function walk(dir,prefix=''){
+              for(const e of fs.readdirSync(dir,{withFileTypes:true})){
+                const relative=path.join(prefix,e.name);
+                const target=path.join(dir,e.name);
+                assert.equal(e.isSymbolicLink(),false,'symlink in staged output: '+target);
+                if(e.isDirectory())walk(target,relative);
+                else {assert.equal(e.isFile(),true);actualFiles.push(relative.replaceAll(path.sep,'/'));}
+              }
+            }
+            walk(base);
+            assert.deepEqual(actualFiles.sort(),Object.keys(expected).sort(),'staged path set '+kind);
+            for(const name of Object.keys(expected)){
+              const bytes=fs.readFileSync(path.join(base,name));
+              const expectedHash=kind==='assets' && name==='ms.js'?hSha:expected[name].sha256;
+              const expectedSize=kind==='assets' && name==='ms.js'?hSize:expected[name].size;
+              assert.equal(hex(bytes),expectedHash,kind+'/'+name);
+              assert.equal(bytes.length,expectedSize,kind+'/'+name);
+            }
+            console.log('PINNED_'+kind.toUpperCase()+'_FILE_COUNT='+actualFiles.length);
+          }
+          console.log('H_ONLY_STAGED_HASHES=PASS');
+          NODE
+      - name: Execute real Wrangler offline dry-run bundler (no network upload)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(printenv CLOUDFLARE_API_TOKEN || true)"
+          test -z "$(printenv CLOUDFLARE_API_KEY || true)"
+          mkdir -p "$RUNNER_TEMP/wtr011p-wrangler-bundle"
+          env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_API_KEY -u CLOUDFLARE_ACCOUNT_ID -u CF_API_TOKEN \
+            ./node_modules/.bin/wrangler deploy .dev-runtime/src/turso-index.js \
+            --config wrangler.dev.jsonc --dry-run --outdir "$RUNNER_TEMP/wtr011p-wrangler-bundle"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,os
+          root=Path(os.environ['RUNNER_TEMP'])/'wtr011p-wrangler-bundle'
+          members=sorted(x for x in root.rglob('*') if x.is_file())
+          assert members,'Wrangler did not produce a bundle'
+          for p in members:
+              print('WRANGLER_OUTPUT',p.relative_to(root),hashlib.sha256(p.read_bytes()).hexdigest(),p.stat().st_size)
+          print('WRANGLER_4_127_1_DRY_RUN=PASS')
+          print('WRANGLER_LIVE_UPLOAD_PAYLOAD=NOT_VERIFIED')
+          print('I03_FINAL_UPLOAD_GATE=OPEN')
+          PY
+      - name: Re-verify H source and stage hashes after Wrangler invocation
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum .dev-assets/ms.js | cut -d' ' -f1)" = 'b0351e0a2d6eb1d5392fd019ba445b65ad1aca88a5b1bf8b130818f8592faae0'
+          test "$(sha256sum ../.github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
+          echo 'POST_WRANGLER_SOURCE_INTEGRITY=PASS'
+          echo 'NO_CLOUDFLARE_UPLOAD_PERFORMED=YES'
+
+      - name: Prepare root-protected locked npm install (registry only)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WTR_DEV_IDENTITY_KIND=candidate
+          export WTR_APPROVED_SOURCE_SHA="$GITHUB_SHA"
+          export WTR_APPROVED_PUBLISHER_SCOPE_SHA256="$(sha256sum .github/dev-tools/wtr011p-h-only-candidate-scope.json | cut -d' ' -f1)"
+          export WTR_APPROVED_IDENTITY_SHA256="$(sha256sum .github/dev-tools/wtr011p-dev-candidate-identity.json | cut -d' ' -f1)"
+          capsule="$(sudo --preserve-env=GITHUB_SHA,WTR_APPROVED_SOURCE_SHA,WTR_APPROVED_PUBLISHER_SCOPE_SHA256,WTR_APPROVED_IDENTITY_SHA256,WTR_DEV_IDENTITY_KIND \
+            "$(command -v node)" .github/dev-tools/wtr011p-sealed-publisher.mjs "$PWD" prepare-dependencies)"
+          [[ "$capsule" =~ ^/var/lib/wtr011p-locked-npm-[A-Za-z0-9]{6}$ ]]
+          printf 'WTR_TRUSTED_NPM_DIR=%s\n' "$capsule" >> "$GITHUB_ENV"
+          printf 'WTR_DEV_IDENTITY_KIND=%s\n' "$WTR_DEV_IDENTITY_KIND" >> "$GITHUB_ENV"
+          printf 'WTR_APPROVED_SOURCE_SHA=%s\n' "$WTR_APPROVED_SOURCE_SHA" >> "$GITHUB_ENV"
+          printf 'WTR_APPROVED_PUBLISHER_SCOPE_SHA256=%s\n' "$WTR_APPROVED_PUBLISHER_SCOPE_SHA256" >> "$GITHUB_ENV"
+          printf 'WTR_APPROVED_IDENTITY_SHA256=%s\n' "$WTR_APPROVED_IDENTITY_SHA256" >> "$GITHUB_ENV"
+          node --test .github/dev-tools/wtr011p-dependency-trust.test.mjs
+
+      - name: Capture Wrangler upload request using loopback-only isolated network (NO CLOUDFLARE)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(printenv CLOUDFLARE_API_TOKEN || true)"
+          test -z "$(printenv CLOUDFLARE_API_KEY || true)"
+          command -v sudo
+          command -v unshare
+          command -v ip
+          # The child has no external network routes: only 127.0.0.1 is up.
+          # Its staged artifacts, config and lockfile are read-only mounts.
+          sudo --preserve-env=GITHUB_SHA,WTR_TRUSTED_NPM_DIR unshare --mount --net -- bash -euo pipefail -c '
+            mount --make-rprivate /
+            ip link set lo up
+            test "$(ip -4 route show default | wc -l)" -eq 0
+            mount --bind .dev-assets .dev-assets
+            mount -o remount,bind,ro .dev-assets
+            mount --bind .dev-runtime/src .dev-runtime/src
+            mount -o remount,bind,ro .dev-runtime/src
+            mount --bind wrangler.dev.jsonc wrangler.dev.jsonc
+            mount -o remount,bind,ro wrangler.dev.jsonc
+            mount --bind package-lock.json package-lock.json
+            mount -o remount,bind,ro package-lock.json
+            export CLOUDFLARE_API_BASE_URL="http://127.0.0.1:9"
+            export WRANGLER_SEND_METRICS=false
+            export CLOUDFLARE_CF_FETCH_ENABLED=false
+            unset CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID CF_API_TOKEN CF_API_KEY CF_ACCOUNT_ID
+            "$1" ../.github/dev-tools/wtr-011p-local-upload-capture.mjs "$2"
+          ' _ "$(command -v node)" "$RUNNER_TEMP/wtr011p-wrangler-bundle/turso-index.js"
+
+      - name: Qualify root-owned sealed publisher snapshot (NO PROVIDER CALLS)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check .github/dev-tools/wtr011p-sealed-publisher.mjs
+          sudo --preserve-env=GITHUB_SHA,WTR_APPROVED_SOURCE_SHA,WTR_APPROVED_PUBLISHER_SCOPE_SHA256,WTR_APPROVED_IDENTITY_SHA256,WTR_DEV_IDENTITY_KIND,WTR_TRUSTED_NPM_DIR \
+            "$(command -v node)" .github/dev-tools/wtr011p-sealed-publisher.mjs "$PWD" inspect
+          echo 'SEALED_PUBLISHER_PREPARE_ONLY=PASS'
+          echo 'CLOUDFLARE_PUBLISH=NOT_PERFORMED'
+      - name: Assert real DEV workflow invokes sealed publisher only (NO DEPLOY)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          w=Path('.github/workflows/deploy-worker-dev.yml').read_text()
+          assert 'WTR-011P owner-pinned publisher scope' in w
+          assert 'launch_sealed_publisher publish' in w
+          assert 'launch_sealed_publisher prepare-dependencies' in w
+          assert 'Publisher launcher bytes mismatch' in w
+          assert 'run: npx wrangler deploy' not in w
+          assert 'approved_publisher_scope_sha256' in w
+          assert 'node-version: 22.16.0' in w
+          sealed=Path('.github/dev-tools/wtr011p-sealed-publisher.mjs').read_text()
+          assert 'const snapshot=new Map(verifiedInputs)' in sealed
+          assert 'snapshot.set(' not in sealed
+          assert 'verifiedInputs.set(dir+"/"+name,b)' in sealed
+          assert 'CLOUDFLARE_API_TOKEN' in w
+          print('DEV_WORKFLOW_SEALED_PUBLISHER_WIRED=PASS')
+          print('RELEASE_APPROVAL=NOT_GRANTED')
+          PY
+      - name: I03 negative admission tests on actual pinned inputs (NO CLOUD PROVIDER)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(printenv CLOUDFLARE_API_TOKEN || true)"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import os from 'node:os';
+          import assert from 'node:assert/strict';
+          import crypto from 'node:crypto';
+          import {spawnSync} from 'node:child_process';
+          const worker=process.cwd(), root=path.resolve(worker,'..');
+          const guard=path.join(root,'.github/dev-tools/wtr011p-sealed-publisher.mjs');
+          const scope=fs.readFileSync(path.join(root,'.github/dev-tools/wtr011p-h-only-candidate-scope.json'));
+          const pin=crypto.createHash('sha256').update(scope).digest('hex');
+          const kept='GITHUB_SHA,WTR_APPROVED_SOURCE_SHA,WTR_APPROVED_IDENTITY_SHA256,WTR_DEV_IDENTITY_KIND,WTR_TRUSTED_NPM_DIR';
+          const runner=()=>{
+            const r=spawnSync('sudo',['--preserve-env='+kept,'env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+pin,process.execPath,guard,root,'inspect'],
+              {cwd:root,encoding:'utf8',timeout:40000});
+            assert.equal(r.error,undefined,'guard invocation error: '+r.error);
+            return r;
+          };
+          let passed=0;
+          function reject(label,regex){
+            const result=runner();
+            assert.notEqual(result.status,0,label+' unexpectedly accepted');
+            assert.match(result.stderr,regex,label+' rejection reason');
+            console.log('WTR011P_NEGATIVE_'+label+'=PASS');
+            passed++;
+          }
+          const asset=path.join(worker,'.dev-assets/ms.js');
+          const orig=fs.readFileSync(asset);
+          try{
+            const wrong=Buffer.from(orig);wrong[25]^=0x01;
+            fs.writeFileSync(asset,wrong);
+            reject('HASH_MISMATCH',/WTR011P_PUBLISHER_HASH:.*ms[.]js/);
+          }finally{fs.writeFileSync(asset,orig);}
+          try{
+            fs.unlinkSync(asset);
+            fs.symlinkSync('../../ms.js',asset);
+            reject('SYMLINK_FILE',/WTR011P_PUBLISHER_SYMLINK/);
+          }finally{fs.rmSync(asset,{force:true});fs.writeFileSync(asset,orig);}
+          const hardlink=path.join(worker,'.wtr011p-negative-hardlink');
+          try{
+            fs.linkSync(asset,hardlink);
+            reject('HARDLINK_ASSET',/WTR011P_PUBLISHER_NONREGULAR_OR_HARDLINK/);
+          }finally{fs.rmSync(hardlink,{force:true});}
+          const config=path.join(worker,'wrangler.dev.jsonc'), configBytes=fs.readFileSync(config);
+          try{
+            fs.appendFileSync(config,'\n ');
+            reject('CONFIG_SWAP',/WTR011P_PUBLISHER_HASH:SOURCE_wrangler.dev.jsonc/);
+          }finally{fs.writeFileSync(config,configBytes);}
+          const stage=path.join(worker,'.dev-assets'),backup=path.join(worker,'.wtr011p-negative-assets-backup');
+          try{
+            fs.renameSync(stage,backup);
+            fs.symlinkSync(backup,stage,'dir');
+            reject('SYMLINK_PARENT',/WTR011P_PUBLISHER_SYMLINK/);
+          }finally{
+            if(fs.existsSync(stage)||fs.lstatSync(stage,{throwIfNoEntry:false}))fs.rmSync(stage,{force:true});
+            fs.renameSync(backup,stage);
+          }
+          const invalid=spawnSync('sudo',['--preserve-env='+kept,'env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+'0'.repeat(64),process.execPath,guard,root,'inspect'],
+            {cwd:root,encoding:'utf8',timeout:40000});
+          assert.notEqual(invalid.status,0);
+          assert.match(invalid.stderr,/WTR011P_PUBLISHER_OWNER_SCOPE_PIN_MISMATCH/);
+          console.log('WTR011P_NEGATIVE_WRONG_OWNER_PIN=PASS');passed++;
+          assert.equal(fs.readFileSync(asset).equals(orig),true,'stage restored');
+          assert.equal(fs.readFileSync(config).equals(configBytes),true,'config restored');
+          assert.equal(passed,6);
+          console.log('WTR011P_I03_SOURCE_ADMISSION_6_OF_6=PASS');
+          NODE
+      - name: Full Node22 H-only candidate check (not an Owner Release Pin)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ../.github/dev-tools/wtr011p-dev-candidate-identity.json
+          export WTR_DEV_IDENTITY_KIND=candidate
+          export WTR_APPROVED_IDENTITY_SHA256="$(sha256sum ../.github/dev-tools/wtr011p-dev-candidate-identity.json | cut -d' ' -f1)"
+          npm run check
+          echo 'WTR011P_CANDIDATE_NODE22_CHECK=PASS'

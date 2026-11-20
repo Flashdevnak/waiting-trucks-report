@@ -1,0 +1,37 @@
+{
+  "version": "WTR011P_H_ONLY_SCOPED_REVIEW_V1",
+  "status": "DRAFT_REVIEW_ONLY_NOT_RELEASE_AUTHORIZATION",
+  "baseCommit": "e6fe36b01b34866f6f90294df572f0dd015913d5",
+  "targetBranch": "codex/dev-recovery-contract-v2",
+  "targetWorker": "waiting-trucks-report-api-dev",
+  "approvedByOwnerFor": "implementation-branch-and-draft-pr-only",
+  "goldenManifestSha256": "7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30",
+  "cardHelper": {
+    "path": ".github/dev-tools/patch-ms-route-cancellation-compat.mjs",
+    "sha256": "44c41e5b0f80bab947dec76960b36a375f95ee5e057d8f03524a0b9ba8efb338"
+  },
+  "stagedFrontend": {
+    "path": "worker/.dev-assets/ms.js",
+    "sha256": "b0351e0a2d6eb1d5392fd019ba445b65ad1aca88a5b1bf8b130818f8592faae0",
+    "size": 461464
+  },
+  "expected": {
+    "workerFiles": 27,
+    "assetFiles": 28,
+    "changedStagedAsset": "ms.js",
+    "wranglerVersion": "4.127.1",
+    "nodeVersion": "22.16.0"
+  },
+  "publisherEvidence": {
+    "sourceWorkflow": "WTR-011O",
+    "realWranglerMockUpload": true,
+    "realCloudflareUpload": false,
+    "workerMultipartMatch": "DRY_RUN_BYTE_IDENTICAL"
+  },
+  "releaseGates": {
+    "I03": "OPEN_UNTIL_ACTUAL_DEV_WORKFLOW_INTEGRATED_AND_ACCEPTED",
+    "goldenUnchanged": true,
+    "candidateFullSourceDescriptor": "NOT_YET_REBASED_TO_WTR011P",
+    "releaseApproval": false
+  }
+}

@@ -1995,20 +1995,20 @@
       "size": 431
     },
     ".github/dev-tools/wtr-011p-local-upload-capture.mjs": {
-      "sha256": "533460500e4ea9939ec62bfddc0a5af9e69e361ff92bcb45cd46c57170222428",
-      "size": 9972
+      "sha256": "50b7fc0455e2f9c3bb9bec9f6862a824c875135c3208344b44f8d4171a300c45",
+      "size": 10255
     },
     ".github/dev-tools/wtr011p-h-only-candidate-scope.json": {
       "sha256": "b9adc671227509f8ed88b06ce55d70d077df237aa9e49eab48f7ea1740f36bec",
       "size": 1349
     },
     ".github/dev-tools/wtr011p-sealed-publisher.mjs": {
-      "sha256": "23860a3cc1c45bb3cabbb15d5ac9d2d191de62cbf2cc177485d5ff0cc72079ba",
-      "size": 8780
+      "sha256": "b58f2012035d395df6ec389049e8192e2dbbf21743af3004229b62bb382e5902",
+      "size": 10520
     },
     ".github/workflows/wtr-011p-publisher-validation.yml": {
-      "sha256": "e6bf4254b21d3941d85fddfffb63bda31140936be3750161b2258dad8bdb5390",
-      "size": 13491
+      "sha256": "6976dff2243e8987da9c1f0a8e4f66ef3fe07d7f10043dbdb9aed455f280e24e",
+      "size": 13517
     },
     ".github/dev-tools/wtr009-dev-identity.json": {
       "sha256": "7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30",

@@ -133,14 +133,18 @@ const env={...process.env,
   CLOUDFLARE_SEND_METRICS:"false",
   CLOUDFLARE_CF_FETCH_ENABLED:"false",
   CI:"true",
+  WTR_TEST_LOOPBACK_ONLY:"1",
+  WTR_DEV_IDENTITY_KIND:"candidate",
+  WTR_APPROVED_SOURCE_SHA:process.env.GITHUB_SHA,
+  WTR_APPROVED_IDENTITY_SHA256:sha(readFileSync("../.github/dev-tools/wtr011p-dev-candidate-identity.json")),
+  WTR_APPROVED_PUBLISHER_SCOPE_SHA256:sha(readFileSync("../.github/dev-tools/wtr011p-h-only-candidate-scope.json")),
 };
 for(const key of ["CLOUDFLARE_API_KEY","CLOUDFLARE_EMAIL","CF_API_TOKEN","CF_API_KEY","CF_ACCOUNT_ID"]){delete env[key]}
 const argv=[
-  "node_modules/wrangler/bin/wrangler.js","deploy",".dev-runtime/src/turso-index.js",
-  "--config","wrangler.dev.jsonc","--name",workerName
+  "../.github/dev-tools/wtr011p-sealed-publisher.mjs",resolve(".."),"publish"
 ];
 const p=spawn(process.execPath,argv,{cwd:process.cwd(),env,stdio:["ignore","pipe","pipe"]});
-const timer=setTimeout(()=>p.kill("SIGKILL"),60000);
+const timer=setTimeout(()=>p.kill("SIGKILL"),120000);
 for(const [stream,label] of [[p.stdout,"stdout"],[p.stderr,"stderr"]]){
   stream.setEncoding("utf8");stream.on("data",x=>{const line=x.slice(0,1500);
     logs.push(label+" "+line);if(logs.length>200)logs.shift();});

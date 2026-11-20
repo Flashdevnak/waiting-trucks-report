@@ -2003,8 +2003,8 @@
       "size": 1349
     },
     ".github/dev-tools/wtr011p-sealed-publisher.mjs": {
-      "sha256": "12c6711417b495497df445373894c484b56fe7f3f04d231f67c76c691ea87221",
-      "size": 11153
+      "sha256": "15d1d7f868376872c566652e2d4191df73343467623fcdd2773b4685a322939b",
+      "size": 11387
     },
     ".github/workflows/wtr-011p-publisher-validation.yml": {
       "sha256": "3577dba68319879228c912cba5f3ac50c5170d4a1d2426455d3bb1f75740c01c",

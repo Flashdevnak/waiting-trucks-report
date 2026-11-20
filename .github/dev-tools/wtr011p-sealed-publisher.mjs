@@ -30,14 +30,14 @@ function safe(base,name) {
  }
  return cur;
 }
-function get(base,name) {
+function get(base,name,allowNpmHardlink=false) {
  const file=safe(base,name);
  const st=fs.lstatSync(file);
- if(!st.isFile() || st.nlink!==1)fail("NONREGULAR_OR_HARDLINK:"+name);
+ if(!st.isFile() || (!allowNpmHardlink && st.nlink!==1))fail("NONREGULAR_OR_HARDLINK:"+name);
  const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
  try {
    const before=fs.fstatSync(fd);
-   if(!before.isFile()||before.nlink!==1)fail("CHANGED_FILE:"+name);
+   if(!before.isFile()||(!allowNpmHardlink && before.nlink!==1))fail("CHANGED_FILE:"+name);
    const b=fs.readFileSync(fd);
    const after=fs.fstatSync(fd);
    if(before.dev!==after.dev || before.ino!==after.ino || before.size!==after.size
@@ -88,7 +88,9 @@ if(config.name!=="waiting-trucks-report-api-dev" ||
  config.main!=="src/turso-index.js" || config.assets?.directory!=="./.dev-assets" ||
  config.vars?.DB_BACKEND!=="turso" || config.d1_databases)fail("CONFIG_TARGET");
 const lock=JSON.parse(verifiedInputs.get("package-lock.json").toString("utf8"));
-const wrangler=JSON.parse(get(worker,"node_modules/wrangler/package.json"));
+// npm-ci may use shared source hardlinks; this exception covers Wrangler metadata only.
+// All approved Source/Config/Artifact inputs still require nlink===1.
+const wrangler=JSON.parse(get(worker,"node_modules/wrangler/package.json",true));
 if(lock.packages?.["node_modules/wrangler"]?.version!=="4.127.1"||wrangler.version!=="4.127.1")fail("WRANGLER_VERSION");
 const groups=[[".dev-assets",golden.assets],[".dev-runtime/src",golden.runtime]];
 for(const [dir,expected] of groups) {

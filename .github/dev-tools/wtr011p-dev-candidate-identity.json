@@ -1059,8 +1059,8 @@
       "size": 12832
     },
     ".github/workflows/deploy-worker-dev.yml": {
-      "sha256": "124ccee908c35f48fa933e5407cbb23d9e5b27ba6309d555f9a04c726e64d4e7",
-      "size": 32987
+      "sha256": "cc5171e80b27b9fdbb7fc0e0e4a9a716d06423f1a8aa857b2573a855baa06bbb",
+      "size": 32979
     },
     ".github/workflows/dev-all-hub-health-audit.yml": {
       "sha256": "03e377cb0eb6e7a6f96863470b28b69a199282c2f8b914ba9ec876ccc255324f",

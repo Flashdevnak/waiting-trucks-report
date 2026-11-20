@@ -10,6 +10,7 @@ on:
       - .github/dev-tools/wtr011p-sealed-publisher.mjs
       - .github/workflows/deploy-worker-dev.yml
       - .github/dev-tools/patch-ms-route-cancellation-compat.mjs
+      - .github/dev-tools/wtr011p-dev-candidate-identity.json
 
 permissions:
   contents: read
@@ -34,6 +35,19 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Report exact candidate source hashes (NOT OWNER APPROVAL)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,pathlib,hashlib
+          names=subprocess.check_output(['git','diff','--name-only','e6fe36b01b34866f6f90294df572f0dd015913d5','HEAD'],text=True).splitlines()
+          for name in sorted(names):
+              if name=='.github/dev-tools/wtr011p-dev-candidate-identity.json':continue
+              data=pathlib.Path(name).read_bytes()
+              print('CANDIDATE_FILE_SHA='+json.dumps({'name':name,'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)},sort_keys=True))
+          PY
       - name: Confirm pinned DEV ancestry and test-only changes
         shell: bash
         run: |
@@ -41,13 +55,20 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/feature/wtr-011p-h-only-publisher-guard"
           git merge-base --is-ancestor e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD
           git diff --name-only e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD | sort > /tmp/wtr011p-changed.txt
-          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 6
+          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 13
           grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr-011p-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr011p-h-only-candidate-scope.json' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr011p-sealed-publisher.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/workflows/deploy-worker-dev.yml' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-dev-candidate-identity.json' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/verify-wtr009-dev-identity.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr009-dev-identity.test.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/ms-unload-completion-ui.test.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/stage-dev-runtime.test.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/pno-final-contract-artifact-v3.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/pno-destination-summary-rev73.test.mjs' /tmp/wtr011p-changed.txt
           test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
           echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
       - name: Use Node.js 22
@@ -219,3 +240,13 @@ jobs:
           print('DEV_WORKFLOW_SEALED_PUBLISHER_WIRED=PASS')
           print('RELEASE_APPROVAL=NOT_GRANTED')
           PY
+      - name: Full Node22 H-only candidate check (not an Owner Release Pin)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ../.github/dev-tools/wtr011p-dev-candidate-identity.json
+          export WTR_DEV_IDENTITY_KIND=candidate
+          export WTR_APPROVED_IDENTITY_SHA256="$(sha256sum ../.github/dev-tools/wtr011p-dev-candidate-identity.json | cut -d' ' -f1)"
+          npm run check
+          echo 'WTR011P_CANDIDATE_NODE22_CHECK=PASS'

@@ -1,4 +1,4 @@
-import {verifyServedProjection} from './verify-wtr009-dev-identity.mjs';
+import {loadSelectedIdentity,verifyServedProjection} from './verify-wtr009-dev-identity.mjs';
 import {finalPnoContractArtifact} from './pno-final-contract-artifact-v3.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +12,7 @@ import {stageFrontend,patchDevUiShellSource} from './stage-dev-runtime.mjs';
 import {pnoDestinationAggregate as aggregate,pnoDestinationHub,pnoDestinationDisplayBranch,
  pnoDestinationMarkup,patchPnoDestinationSummary,PNO_DESTINATION_STYLE} from './patch-pno-destination-summary-rev73.mjs';
 const canonical=fs.readFileSync(new URL('../../ms.js',import.meta.url),'utf8'),staged=stageFrontend(canonical);
-const DEV003_IDENTITY=JSON.parse(fs.readFileSync(new URL('./wtr009-dev-identity.json',import.meta.url),'utf8'));
+const DEV003_IDENTITY=finalPnoContractArtifact().identity;
 const PRE_DEV003_PINS=JSON.parse(fs.readFileSync(new URL('./pno-pre-dev003-function-pins.json',import.meta.url),'utf8')).functions;
 const row=(pno,hub,branch,extra={})=>({pno,targetHub:hub,targetBranch:branch,nextStoreName:'NEXT_STORE_NOT_DESTINATION',status:'รอ',lastAction:'รับ',...extra});
 const fixtures=[row('A','NE11','(TH1001)สาขาก'),row('B','10 NE11_HUB-ฮับอีสาน','(TH1001)สาขาก'),row('C','NE11','สาขาข'),
@@ -77,11 +77,11 @@ const workflowSource=fs.readFileSync(new URL('../workflows/deploy-worker-dev.yml
 const serviceWorkerSource=fs.readFileSync(path.join(finalPnoContractArtifact().assets,'sw.js'),'utf8');
 const delivered=(await verifyServedProjection(finalPnoContractArtifact().assets,finalPnoContractArtifact().runtime,DEV003_IDENTITY)).toString('utf8');
 function releaseSmoke(){
- const start=workflowSource.indexOf("          const identity=JSON.parse(readFileSync(");
+ const start=workflowSource.indexOf("          const identity=loadSelectedIdentity(process.cwd());");
  const end=workflowSource.indexOf("\n          if(!ms.includes('การเชื่อมต่อ MS",start);
  assert.ok(start>=0&&end>start,'actual manifest-bound workflow smoke checks exist');
- const compiled=new Function('ms','get','createHash','readFileSync','return (async()=>{'+workflowSource.slice(start,end)+'\nreturn msJs;})();');
- return (ms,get)=>compiled(ms,get,createHash,()=>JSON.stringify(DEV003_IDENTITY));
+ const compiled=new Function('ms','get','createHash','loadSelectedIdentity','process','return (async()=>{'+workflowSource.slice(start,end)+'\nreturn msJs;})();');
+ return (ms,get)=>compiled(ms,get,createHash,loadSelectedIdentity,{cwd:()=>finalPnoContractArtifact().root});
 }
 function serviceWorkerHarness(rejectFirst=false){
  const handlers={},calls=[];

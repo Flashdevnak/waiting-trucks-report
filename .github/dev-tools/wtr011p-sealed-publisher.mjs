@@ -14,7 +14,7 @@ const mode=process.argv[3]||"inspect";
 const ownerPin=process.env.WTR_APPROVED_PUBLISHER_SCOPE_SHA256;
 const scopeName=".github/dev-tools/wtr011p-h-only-candidate-scope.json";
 const goldenName=".github/dev-tools/wtr009-dev-identity.json";
-const goldenSha="7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf39fcc0b975aa0c30";
+const goldenSha="7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30";
 if(!["inspect","publish"].includes(mode))fail("INVALID_MODE");
 if(!/^[a-f0-9]{64}$/.test(ownerPin||""))fail("OWNER_SCOPE_PIN_REQUIRED");
 if(process.platform!=="linux" || process.getuid?.()!==0)fail("ROOT_SEALED_LAUNCHER_REQUIRED");
@@ -41,7 +41,7 @@ function get(base,name) {
    const b=fs.readFileSync(fd);
    const after=fs.fstatSync(fd);
    if(before.dev!==after.dev || before.ino!==after.ino || before.size!==after.size
-     || before.mtimeNs!==after.mtimeNs || before.ctimeNs!==after.ctimeNs
+     || before.mtimeMs!==after.mtimeMs || before.ctimeMs!==after.ctimeMs
      || b.length!==before.size)fail("CHANGED_DURING_READ:"+name);
    return b;
  }finally{fs.closeSync(fd)}

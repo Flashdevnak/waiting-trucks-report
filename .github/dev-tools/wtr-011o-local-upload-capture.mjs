@@ -50,6 +50,7 @@ const server = http.createServer(async (req, res) => {
   console.log("LOCAL_REQUEST "+JSON.stringify(item));
   res.setHeader("content-type","application/json");
   if(pathname.includes("/workers/services/") && req.method==="GET") {res.statusCode=404;res.end(JSON.stringify({success:false,errors:[{code:10007,message:"workers.api.error.script_not_found"}],messages:[],result:null}));return;}
+  if(pathname.endsWith("/secrets") && req.method==="GET") {res.end(envelope([]));return;}
   if(pathname.includes("/user/tokens/verify")) {res.end(envelope({id:"local-token",status:"active"}));return;}
   if(pathname === "/accounts") {res.end(envelope([fakeAccount]));return;}
   if(pathname.endsWith("/workers/subdomain")) {res.end(envelope({subdomain:"local-invalid",enabled:false}));return;}

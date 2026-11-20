@@ -131,14 +131,24 @@ function rejectOutsideLinks(dir) {
      const real=fs.realpathSync(file);
      if(!real.startsWith(realRoot))fail("DEPENDENCY_LINK_ESCAPE");
    }else if(st.isDirectory())walk(file);
-   else if(st.isFile()){if(st.nlink!==1)fail("DEPENDENCY_HARDLINK");}
-   else fail("DEPENDENCY_NONREGULAR");
+   else if(!st.isFile())fail("DEPENDENCY_NONREGULAR");
   }
  }
  walk(dir);
 }
 rejectOutsideLinks(modules);
 fs.cpSync(modules,path.join(destination,"node_modules"),{recursive:true,dereference:true});
+// npm may legitimately materialize hardlinked cache files; never execute those
+// shared source inodes. Verify that the sealed copy is detached before execution.
+function assertDetachedDependencyCopy(dir){
+ for(const name of fs.readdirSync(dir)){
+  const p=path.join(dir,name),st=fs.lstatSync(p);
+  if(st.isSymbolicLink())fail("SNAPSHOT_DEPENDENCY_SYMLINK");
+  if(st.isDirectory())assertDetachedDependencyCopy(p);
+  else if(!st.isFile()||st.nlink!==1)fail("SNAPSHOT_DEPENDENCY_NOT_DETACHED");
+ }
+}
+assertDetachedDependencyCopy(path.join(destination,"node_modules"));
 const rootPath=fs.realpathSync(root);
 for(const [n,b] of snapshot)if(!get(destination,n).equals(b))fail("SNAPSHOT_CHANGED:"+n);
 function makeReadOnly(dir){

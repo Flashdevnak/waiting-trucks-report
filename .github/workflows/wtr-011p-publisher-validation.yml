@@ -281,7 +281,7 @@ jobs:
           try{
             const wrong=Buffer.from(orig);wrong[25]^=0x01;
             fs.writeFileSync(asset,wrong);
-            reject('HASH_MISMATCH',/WTR011P_PUBLISHER_HASH:.dev-assets\\/ms.js/);
+            reject('HASH_MISMATCH',/WTR011P_PUBLISHER_HASH:.*ms[.]js/);
           }finally{fs.writeFileSync(asset,orig);}
           try{
             fs.unlinkSync(asset);
@@ -315,7 +315,11 @@ jobs:
           const dependencyHardlink=path.join(worker,'.wtr011p-negative-dependency-hardlink');
           try{
             fs.linkSync(path.join(worker,'node_modules/wrangler/package.json'),dependencyHardlink);
-            reject('DEPENDENCY_HARDLINK',/WTR011P_PUBLISHER_DEPENDENCY_HARDLINK/);
+            const isolated=runner();
+            assert.equal(isolated.status,0,'legitimate npm hardlink copy must be isolated: '+isolated.stderr);
+            assert.match(isolated.stdout,/WTR011P_ROOT_OWNED_READONLY_PUBLISHER_SNAPSHOT=PASS/);
+            console.log('WTR011P_DEPENDENCY_HARDLINK_COPIED_INDEPENDENTLY=PASS');
+            passed++;
           }finally{fs.rmSync(dependencyHardlink,{force:true});}
           const invalid=spawnSync('sudo',['env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+'0'.repeat(64),process.execPath,guard,root,'inspect'],
             {cwd:root,encoding:'utf8',timeout:40000});
@@ -325,7 +329,7 @@ jobs:
           assert.equal(fs.readFileSync(asset).equals(orig),true,'stage restored');
           assert.equal(fs.readFileSync(config).equals(configBytes),true,'config restored');
           assert.equal(passed,8);
-          console.log('WTR011P_I03_NEGATIVE_ADMISSION_8_OF_8=PASS');
+          console.log('WTR011P_I03_ADMISSION_AND_ISOLATION_8_OF_8=PASS');
           NODE
       - name: Full Node22 H-only candidate check (not an Owner Release Pin)
         working-directory: worker

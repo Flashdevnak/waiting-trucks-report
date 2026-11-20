@@ -57,6 +57,17 @@ const server = http.createServer(async (req, res) => {
   if(pathname === "/accounts") {res.end(envelope([fakeAccount]));return;}
   if(pathname.endsWith("/workers/subdomain")) {res.end(envelope({subdomain:"local-invalid",enabled:false}));return;}
   if(pathname.endsWith("/workers/scripts") && req.method==="GET") {res.end(envelope([]));return;}
+  if(pathname.endsWith("/assets-upload-session") && req.method==="POST") {
+    const parsed=JSON.parse(payload.toString("utf8"));
+    const manifest=parsed?.manifest;
+    if(!manifest || typeof manifest!=="object" || Array.isArray(manifest)) throw Error("missing asset upload manifest");
+    const names=Object.keys(manifest).sort();
+    console.log("LOCAL_ASSET_MANIFEST_COUNT="+names.length);
+    console.log("LOCAL_ASSET_MANIFEST_MS="+JSON.stringify(Object.entries(manifest).filter(([k])=>k.endsWith("/ms.js")||k==="ms.js")));
+    if(names.length!==28 || !names.some(x=>x.endsWith("/ms.js")||x==="ms.js")) throw Error("wrong asset manifest");
+    res.end(envelope({buckets:[],jwt:"wtr011o-local-fake-completion-token"}));
+    return;
+  }
   if(pathname.endsWith("/workers/assets/upload") || pathname.includes("/assets/upload")) {
     // Deliberately reject after capturing the full exact outgoing request bytes.
     res.statusCode=418;res.end(JSON.stringify({success:false,errors:[{code:9999,message:"LOCAL MOCK CAPTURED ASSET UPLOAD; NEVER PUBLISH"}],messages:[],result:null}));return;

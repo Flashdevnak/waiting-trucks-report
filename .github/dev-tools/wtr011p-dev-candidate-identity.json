@@ -2003,12 +2003,12 @@
       "size": 1349
     },
     ".github/dev-tools/wtr011p-sealed-publisher.mjs": {
-      "sha256": "7fe2d41c02f344cf5b5d474caa6decc89844693e19f8ad913f3fa79062904bd1",
-      "size": 10585
+      "sha256": "fa1f42fd1179713bc7ce49e2d015bd3eff91ce0931d383d53644b5f0da465893",
+      "size": 10639
     },
     ".github/workflows/wtr-011p-publisher-validation.yml": {
-      "sha256": "eea9b62121590fd921282afbe9e24b7d3f2346033cc544569089b33abfed153f",
-      "size": 13826
+      "sha256": "7b00cc1ad4a5fea75df04f4810878ceae3c6c4838e2a7fe254622da625fa8a9b",
+      "size": 18391
     },
     ".github/dev-tools/wtr009-dev-identity.json": {
       "sha256": "7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30",

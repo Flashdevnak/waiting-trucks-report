@@ -131,7 +131,8 @@ function rejectOutsideLinks(dir) {
      const real=fs.realpathSync(file);
      if(!real.startsWith(realRoot))fail("DEPENDENCY_LINK_ESCAPE");
    }else if(st.isDirectory())walk(file);
-   else if(!st.isFile())fail("DEPENDENCY_NONREGULAR");
+   else if(st.isFile()){if(st.nlink!==1)fail("DEPENDENCY_HARDLINK");}
+   else fail("DEPENDENCY_NONREGULAR");
   }
  }
  walk(dir);

@@ -245,6 +245,88 @@ jobs:
           print('DEV_WORKFLOW_SEALED_PUBLISHER_WIRED=PASS')
           print('RELEASE_APPROVAL=NOT_GRANTED')
           PY
+      - name: I03 negative admission tests on actual pinned inputs (NO CLOUD PROVIDER)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(printenv CLOUDFLARE_API_TOKEN || true)"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import os from 'node:os';
+          import assert from 'node:assert/strict';
+          import crypto from 'node:crypto';
+          import {spawnSync} from 'node:child_process';
+          const worker=process.cwd(), root=path.resolve(worker,'..');
+          const guard=path.join(root,'.github/dev-tools/wtr011p-sealed-publisher.mjs');
+          const scope=fs.readFileSync(path.join(root,'.github/dev-tools/wtr011p-h-only-candidate-scope.json'));
+          const pin=crypto.createHash('sha256').update(scope).digest('hex');
+          const runner=()=>{
+            const r=spawnSync('sudo',['env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+pin,process.execPath,guard,root,'inspect'],
+              {cwd:root,encoding:'utf8',timeout:40000});
+            assert.equal(r.error,undefined,'guard invocation error: '+r.error);
+            return r;
+          };
+          let passed=0;
+          function reject(label,regex){
+            const result=runner();
+            assert.notEqual(result.status,0,label+' unexpectedly accepted');
+            assert.match(result.stderr,regex,label+' rejection reason');
+            console.log('WTR011P_NEGATIVE_'+label+'=PASS');
+            passed++;
+          }
+          const asset=path.join(worker,'.dev-assets/ms.js');
+          const orig=fs.readFileSync(asset);
+          try{
+            const wrong=Buffer.from(orig);wrong[25]^=0x01;
+            fs.writeFileSync(asset,wrong);
+            reject('HASH_MISMATCH',/WTR011P_PUBLISHER_HASH:.dev-assets\\/ms.js/);
+          }finally{fs.writeFileSync(asset,orig);}
+          try{
+            fs.unlinkSync(asset);
+            fs.symlinkSync('../../ms.js',asset);
+            reject('SYMLINK_FILE',/WTR011P_PUBLISHER_SYMLINK/);
+          }finally{fs.rmSync(asset,{force:true});fs.writeFileSync(asset,orig);}
+          const hardlink=path.join(worker,'.wtr011p-negative-hardlink');
+          try{
+            fs.linkSync(asset,hardlink);
+            reject('HARDLINK_ASSET',/WTR011P_PUBLISHER_NONREGULAR_OR_HARDLINK/);
+          }finally{fs.rmSync(hardlink,{force:true});}
+          const config=path.join(worker,'wrangler.dev.jsonc'), configBytes=fs.readFileSync(config);
+          try{
+            fs.appendFileSync(config,'\n ');
+            reject('CONFIG_SWAP',/WTR011P_PUBLISHER_HASH:SOURCE_wrangler.dev.jsonc/);
+          }finally{fs.writeFileSync(config,configBytes);}
+          const stage=path.join(worker,'.dev-assets'),backup=path.join(worker,'.wtr011p-negative-assets-backup');
+          try{
+            fs.renameSync(stage,backup);
+            fs.symlinkSync(backup,stage,'dir');
+            reject('SYMLINK_PARENT',/WTR011P_PUBLISHER_SYMLINK/);
+          }finally{
+            if(fs.existsSync(stage)||fs.lstatSync(stage,{throwIfNoEntry:false}))fs.rmSync(stage,{force:true});
+            fs.renameSync(backup,stage);
+          }
+          const dependencyLink=path.join(worker,'node_modules/.wtr011p-negative-external-link');
+          try{
+            fs.symlinkSync('/etc/hosts',dependencyLink);
+            reject('DEPENDENCY_ESCAPE',/WTR011P_PUBLISHER_DEPENDENCY_LINK_ESCAPE/);
+          }finally{fs.rmSync(dependencyLink,{force:true});}
+          const dependencyHardlink=path.join(worker,'.wtr011p-negative-dependency-hardlink');
+          try{
+            fs.linkSync(path.join(worker,'node_modules/wrangler/package.json'),dependencyHardlink);
+            reject('DEPENDENCY_HARDLINK',/WTR011P_PUBLISHER_DEPENDENCY_HARDLINK/);
+          }finally{fs.rmSync(dependencyHardlink,{force:true});}
+          const invalid=spawnSync('sudo',['env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+'0'.repeat(64),process.execPath,guard,root,'inspect'],
+            {cwd:root,encoding:'utf8',timeout:40000});
+          assert.notEqual(invalid.status,0);
+          assert.match(invalid.stderr,/WTR011P_PUBLISHER_OWNER_SCOPE_PIN_MISMATCH/);
+          console.log('WTR011P_NEGATIVE_WRONG_OWNER_PIN=PASS');passed++;
+          assert.equal(fs.readFileSync(asset).equals(orig),true,'stage restored');
+          assert.equal(fs.readFileSync(config).equals(configBytes),true,'config restored');
+          assert.equal(passed,8);
+          console.log('WTR011P_I03_NEGATIVE_ADMISSION_8_OF_8=PASS');
+          NODE
       - name: Full Node22 H-only candidate check (not an Owner Release Pin)
         working-directory: worker
         shell: bash

@@ -77,15 +77,17 @@ if(scope.baseCommit!=="e6fe36b01b34866f6f90294df572f0dd015913d5" ||
 const helper=get(repo,scope.cardHelper.path);
 if(SHA(helper)!==scope.cardHelper.sha256)fail("HELPER_CHANGED");
 const worker=path.join(repo,"worker");
+const verifiedInputs=new Map();
 for(const name of ["wrangler.dev.jsonc","package-lock.json","package.json"]) {
  const data=get(worker,name);
  check(data,golden.source["worker/"+name],"SOURCE_"+name);
+ verifiedInputs.set(name,data);
 }
-const config=JSON.parse(get(worker,"wrangler.dev.jsonc"));
+const config=JSON.parse(verifiedInputs.get("wrangler.dev.jsonc").toString("utf8"));
 if(config.name!=="waiting-trucks-report-api-dev" ||
  config.main!=="src/turso-index.js" || config.assets?.directory!=="./.dev-assets" ||
  config.vars?.DB_BACKEND!=="turso" || config.d1_databases)fail("CONFIG_TARGET");
-const lock=JSON.parse(get(worker,"package-lock.json"));
+const lock=JSON.parse(verifiedInputs.get("package-lock.json").toString("utf8"));
 const wrangler=JSON.parse(get(worker,"node_modules/wrangler/package.json"));
 if(lock.packages?.["node_modules/wrangler"]?.version!=="4.127.1"||wrangler.version!=="4.127.1")fail("WRANGLER_VERSION");
 const groups=[[".dev-assets",golden.assets],[".dev-runtime/src",golden.runtime]];
@@ -98,6 +100,7 @@ for(const [dir,expected] of groups) {
     size:scope.stagedFrontend.size,sha256:scope.stagedFrontend.sha256
   }:expected[name];
   check(b,pin,dir+"/"+name);
+  verifiedInputs.set(dir+"/"+name,b);
  }
 }
 console.log("WTR011P_VERIFIED_28_ASSETS_27_RUNTIME=PASS");
@@ -106,10 +109,9 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),"wtr011p-sealed-"));
 fs.chmodSync(root,0o700);
 const destination=path.join(root,"worker");
 fs.mkdirSync(destination,{mode:0o700});
-const snapshot=new Map();
-for(const [rel] of [["wrangler.dev.jsonc"],["package.json"],["package-lock.json"]])snapshot.set(rel,get(worker,rel));
-for(const [dir,expected] of groups)
- for(const name of Object.keys(expected))snapshot.set(dir+"/"+name,get(worker,dir+"/"+name));
+// Publish the exact Buffers that passed verification, never a second workspace read.
+const snapshot=new Map(verifiedInputs);
+if(snapshot.size!==58)fail("VERIFIED_INPUT_SET_INCOMPLETE");
 function write(name,b) {
  const target=path.join(destination,name),parent=path.dirname(target);
  fs.mkdirSync(parent,{recursive:true,mode:0o700});

@@ -236,6 +236,11 @@ jobs:
           assert 'wtr011p-sealed-publisher.mjs .. publish' in w
           assert 'run: npx wrangler deploy' not in w
           assert 'approved_publisher_scope_sha256' in w
+          assert 'node-version: 22.16.0' in w
+          sealed=Path('.github/dev-tools/wtr011p-sealed-publisher.mjs').read_text()
+          assert 'const snapshot=new Map(verifiedInputs)' in sealed
+          assert 'snapshot.set(' not in sealed
+          assert 'verifiedInputs.set(dir+"/"+name,b)' in sealed
           assert 'CLOUDFLARE_API_TOKEN' in w
           print('DEV_WORKFLOW_SEALED_PUBLISHER_WIRED=PASS')
           print('RELEASE_APPROVAL=NOT_GRANTED')

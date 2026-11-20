@@ -6,6 +6,8 @@ on:
     paths:
       - .github/workflows/wtr-011p-publisher-validation.yml
       - .github/dev-tools/wtr-011p-local-upload-capture.mjs
+      - .github/dev-tools/wtr011p-h-only-candidate-scope.json
+      - .github/dev-tools/patch-ms-route-cancellation-compat.mjs
 
 permissions:
   contents: read
@@ -41,6 +43,7 @@ jobs:
           grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr-011p-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-h-only-candidate-scope.json' /tmp/wtr011p-changed.txt
           test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
           echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
       - name: Use Node.js 22

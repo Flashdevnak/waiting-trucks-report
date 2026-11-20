@@ -151,6 +151,24 @@ fs.chmodSync(destination,0o555);
 fs.chmodSync(root,0o555);
 for(const [n,b] of snapshot)if(!get(destination,n).equals(b))fail("SNAPSHOT_SEAL_HASH:"+n);
 console.log("WTR011P_ROOT_OWNED_READONLY_PUBLISHER_SNAPSHOT=PASS");
+// Probe the exact non-root UID used for the eventual upload process.
+// Every path must deny write-open without modifying a single input byte.
+const denyPaths=["wrangler.dev.jsonc",".dev-runtime/src/turso-index.js",".dev-assets/ms.js","package-lock.json"];
+const writeProbe=[
+ "const fs=require('node:fs');",
+ "for(const p of process.argv.slice(1)){",
+ "try{const fd=fs.openSync(p,fs.constants.O_WRONLY|fs.constants.O_NOFOLLOW);fs.closeSync(fd);process.exit(41);}",
+ "catch(e){if(e.code!=='EACCES'&&e.code!=='EROFS')throw e;}",
+ "}",
+ "console.log('WRITE_OPEN_DENIED_FOR_ALL='+process.argv.slice(1).length);"
+].join("");
+const denied=spawnSync("setpriv",["--reuid=65534","--regid=65534","--clear-groups",process.execPath,"-e",writeProbe,...denyPaths],{
+ cwd:destination,env:{PATH:process.env.PATH||"/usr/bin:/bin"},encoding:"utf8",timeout:15000
+});
+if(denied.error||denied.status!==0||!denied.stdout.includes("WRITE_OPEN_DENIED_FOR_ALL=4"))
+ fail("SAME_UID_WRITE_DENIAL_FAILED");
+for(const [n,b] of snapshot)if(!get(destination,n).equals(b))fail("AFTER_WRITE_PROBE_CHANGED:"+n);
+console.log("WTR011P_UNPRIVILEGED_PUBLISHER_WRITE_DENIAL_4_OF_4=PASS");
 if(mode==="inspect"){
  console.log("WTR011P_PUBLISH=NOT_INVOKED");
  process.exit(0);

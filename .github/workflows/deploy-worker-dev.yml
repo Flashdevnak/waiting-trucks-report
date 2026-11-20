@@ -15,6 +15,10 @@ on:
         description: 'Owner-reviewed SHA256 of DEV002 identity manifest; no default'
         required: true
         type: string
+      approved_publisher_scope_sha256:
+        description: 'Owner-reviewed SHA256 of WTR-011P publisher scope, no default'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -57,6 +61,24 @@ jobs:
           guard.assertDispatch({...process.env,WTR_ACTUAL_NODE_VERSION:process.versions.node},identity);
           guard.verifySource(process.cwd(),identity);
           console.log('OWNER_PINNED_DEV_SOURCE_AND_NODE22=PASS');
+          NODE
+
+      - name: WTR-011P owner-pinned publisher scope (fail closed)
+        working-directory: .
+        env:
+          WTR_APPROVED_PUBLISHER_SCOPE_SHA256: ${{ inputs.approved_publisher_scope_sha256 }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';import crypto from 'node:crypto';
+          const p='.github/dev-tools/wtr011p-h-only-candidate-scope.json';
+          const pin=process.env.WTR_APPROVED_PUBLISHER_SCOPE_SHA256||'';
+          if(!/^[a-f0-9]{64}$/.test(pin))throw Error('WTR011P_OWNER_SCOPE_PIN_REQUIRED');
+          const raw=fs.readFileSync(p);
+          if(crypto.createHash('sha256').update(raw).digest('hex')!==pin)throw Error('WTR011P_OWNER_SCOPE_MISMATCH');
+          const scope=JSON.parse(raw);
+          if(scope.releaseGates?.releaseApproval!==false||scope.targetBranch!=='codex/dev-recovery-contract-v2')
+            throw Error('WTR011P_UNREVIEWED_SCOPE');
+          console.log('OWNER_PINNED_WTR011P_SCOPE=PASS');
           NODE
 
       - name: Verify DEV ref guard contract
@@ -244,9 +266,21 @@ jobs:
           NODE
           node --test ../.github/dev-tools/wtr009-dev-identity.test.mjs
 
-      - name: Deploy DEV Worker on Turso
+      - name: Deploy DEV Worker on Turso via WTR-011P sealed publisher
         if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1' || github.ref == 'refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1' || github.ref == 'refs/heads/codex/dev-ms-turso-critical-path-phase-provenance-v1') }}
-        run: npx wrangler deploy .dev-runtime/src/turso-index.js --config wrangler.dev.jsonc
+        env:
+          WTR_APPROVED_SOURCE_SHA: ${{ inputs.approved_source_sha }}
+          WTR_APPROVED_IDENTITY_SHA256: ${{ inputs.approved_identity_sha256 }}
+          WTR_APPROVED_PUBLISHER_SCOPE_SHA256: ${{ inputs.approved_publisher_scope_sha256 }}
+          WTR_DEV_IDENTITY_KIND: candidate
+        run: |
+          set -euo pipefail
+          command -v sudo
+          command -v setpriv
+          # No raw workspace Wrangler invocation is allowed. Full candidate
+          # source and identity gates must pass first, or this never runs.
+          sudo --preserve-env=CLOUDFLARE_API_TOKEN,CLOUDFLARE_ACCOUNT_ID,WTR_APPROVED_SOURCE_SHA,WTR_APPROVED_IDENTITY_SHA256,WTR_APPROVED_PUBLISHER_SCOPE_SHA256,WTR_DEV_IDENTITY_KIND,GITHUB_SHA \
+            "$(command -v node)" ../.github/dev-tools/wtr011p-sealed-publisher.mjs .. publish
 
       - name: Verify active Worker has zero D1 bindings
         working-directory: .

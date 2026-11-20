@@ -84,7 +84,7 @@ const env={...process.env,
 for(const key of ["CLOUDFLARE_API_KEY","CLOUDFLARE_EMAIL","CF_API_TOKEN","CF_API_KEY","CF_ACCOUNT_ID"]){delete env[key]}
 const argv=[
   "node_modules/wrangler/bin/wrangler.js","deploy",".dev-runtime/src/turso-index.js",
-  "--config","wrangler.dev.jsonc","--name",workerName,"--no-bundle"
+  "--config","wrangler.dev.jsonc","--name",workerName
 ];
 const p=spawn(process.execPath,argv,{cwd:process.cwd(),env,stdio:["ignore","pipe","pipe"]});
 const timer=setTimeout(()=>p.kill("SIGKILL"),60000);

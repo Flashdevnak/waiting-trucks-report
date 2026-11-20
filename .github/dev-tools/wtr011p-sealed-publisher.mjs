@@ -167,6 +167,15 @@ if(mock){
 const scratch=fs.mkdtempSync(path.join(os.tmpdir(),"wtr011p-publisher-tmp-"));
 fs.chownSync(scratch,65534,65534);
 fs.chmodSync(scratch,0o700);
+// Wrangler requires a writable .wrangler/tmp for transient build output.
+// This symlink is created by the trusted root launcher AFTER sealing all
+// verified inputs. Its only target is a fresh isolated non-source scratch.
+const transient=path.join(scratch,"wrangler-work");
+fs.mkdirSync(transient,{mode:0o700});
+fs.chownSync(transient,65534,65534);
+fs.symlinkSync(transient,path.join(destination,".wrangler"));
+for(const [n,b] of snapshot)if(!get(destination,n).equals(b))fail("POST_SCRATCH_SEAL_CHANGED:"+n);
+console.log("WTR011P_WRANGLER_SCRATCH_SEPARATE_FROM_VERIFIED_INPUTS=PASS");
 const env={...process.env,HOME:scratch,TMPDIR:scratch,XDG_CONFIG_HOME:scratch,
  WRANGLER_SEND_METRICS:"false",WRANGLER_SEND_ERROR_REPORTS:"false"};
 const args=["--reuid=65534","--regid=65534","--clear-groups",

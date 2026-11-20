@@ -735,8 +735,8 @@
       "size": 19906
     },
     ".github/dev-tools/pno-destination-summary-rev73.test.mjs": {
-      "sha256": "bcad6488d7fcb7422dfa10d624661c1ba11e401eaed0521bc9772e7a6b07944e",
-      "size": 26684
+      "sha256": "609bd05b2fe85ab98d8dcd5b289c70025ce0cfcd614049eff72774390b85c4e3",
+      "size": 26836
     },
     ".github/dev-tools/pno-destination-tables-stability-v1.test.mjs": {
       "sha256": "a0f7e71269961219edffa59802895e47fd46014fa3cabcf7faaef451c35c90ab",

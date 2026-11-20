@@ -113,7 +113,7 @@ for(const [dir,expected] of groups)
 function write(name,b) {
  const target=path.join(destination,name),parent=path.dirname(target);
  fs.mkdirSync(parent,{recursive:true,mode:0o700});
- const fd=fs.openSync(target,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY|fs.constants.O_NOFOLLOW,0o400);
+ const fd=fs.openSync(target,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY|fs.constants.O_NOFOLLOW,0o444);
  try{fs.writeFileSync(fd,b)}finally{fs.closeSync(fd)}
 }
 for(const [n,b] of snapshot)write(n,b);

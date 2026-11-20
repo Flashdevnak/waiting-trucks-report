@@ -5,6 +5,7 @@ on:
       - audit/wtr-011o-publisher-wrangler-20261120
     paths:
       - .github/workflows/wtr-011o-publisher-offline-probe.yml
+      - .github/dev-tools/wtr-011o-local-upload-capture.mjs
 
 permissions:
   contents: read
@@ -36,9 +37,10 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/audit/wtr-011o-publisher-wrangler-20261120"
           git merge-base --is-ancestor e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD
           git diff --name-only e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD | sort > /tmp/wtr011o-changed.txt
-          test "$(wc -l < /tmp/wtr011o-changed.txt)" -eq 2
+          test "$(wc -l < /tmp/wtr011o-changed.txt)" -eq 3
           grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011o-changed.txt
           grep -Fxq '.github/workflows/wtr-011o-publisher-offline-probe.yml' /tmp/wtr011o-changed.txt
+          grep -Fxq '.github/dev-tools/wtr-011o-local-upload-capture.mjs' /tmp/wtr011o-changed.txt
           test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
           echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
       - name: Use Node.js 22
@@ -149,3 +151,34 @@ jobs:
           test "$(sha256sum ../.github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
           echo 'POST_WRANGLER_SOURCE_INTEGRITY=PASS'
           echo 'NO_CLOUDFLARE_UPLOAD_PERFORMED=YES'
+
+      - name: Capture Wrangler upload request using loopback-only isolated network (NO CLOUDFLARE)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(printenv CLOUDFLARE_API_TOKEN || true)"
+          test -z "$(printenv CLOUDFLARE_API_KEY || true)"
+          command -v sudo
+          command -v unshare
+          command -v ip
+          # The child has no external network routes: only 127.0.0.1 is up.
+          # Its staged artifacts, config and lockfile are read-only mounts.
+          sudo unshare --mount --net -- bash -euo pipefail -c '
+            mount --make-rprivate /
+            ip link set lo up
+            test "$(ip -4 route show default | wc -l)" -eq 0
+            mount --bind .dev-assets .dev-assets
+            mount -o remount,bind,ro .dev-assets
+            mount --bind .dev-runtime/src .dev-runtime/src
+            mount -o remount,bind,ro .dev-runtime/src
+            mount --bind wrangler.dev.jsonc wrangler.dev.jsonc
+            mount -o remount,bind,ro wrangler.dev.jsonc
+            mount --bind package-lock.json package-lock.json
+            mount -o remount,bind,ro package-lock.json
+            export CLOUDFLARE_API_BASE_URL="http://127.0.0.1:9"
+            export WRANGLER_SEND_METRICS=false
+            export CLOUDFLARE_CF_FETCH_ENABLED=false
+            unset CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID CF_API_TOKEN CF_API_KEY CF_ACCOUNT_ID
+            node ../.github/dev-tools/wtr-011o-local-upload-capture.mjs
+          '

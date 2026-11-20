@@ -11,6 +11,14 @@ on:
         description: 'Owner-reviewed exact DEV commit SHA; no default'
         required: true
         type: string
+      approved_identity_kind:
+        description: 'Fixed owner-reviewed identity mode (Golden or H-only candidate)'
+        required: true
+        type: choice
+        default: golden
+        options:
+          - golden
+          - candidate
       approved_identity_sha256:
         description: 'Owner-reviewed SHA256 of DEV002 identity manifest; no default'
         required: true
@@ -26,6 +34,9 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      WTR_DEV_IDENTITY_KIND: ${{ inputs.approved_identity_kind }}
+      WTR_APPROVED_IDENTITY_SHA256: ${{ inputs.approved_identity_sha256 }}
     defaults:
       run:
         working-directory: worker
@@ -52,12 +63,15 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs'; import crypto from 'node:crypto';
-          const file='.github/dev-tools/wtr009-dev-identity.json';
+          const kind=process.env.WTR_DEV_IDENTITY_KIND;
+          if(kind!=='golden'&&kind!=='candidate')throw Error('Unknown DEV identity kind');
+          const file=kind==='candidate'?'.github/dev-tools/wtr011p-dev-candidate-identity.json':'.github/dev-tools/wtr009-dev-identity.json';
           const raw=fs.readFileSync(file);const hash=crypto.createHash('sha256').update(raw).digest('hex');
           if(!/^[a-f0-9]{64}$/.test(process.env.WTR_APPROVED_IDENTITY_SHA256||'')||hash!==process.env.WTR_APPROVED_IDENTITY_SHA256)throw Error('Owner identity pin missing/mismatched');
-          const identity=JSON.parse(raw);const name='.github/dev-tools/verify-wtr009-dev-identity.mjs';
-          const code=fs.readFileSync(name);if(crypto.createHash('sha256').update(code).digest('hex')!==identity.source[name].sha256)throw Error('Verifier bytes not pinned');
+          const expected=JSON.parse(raw);const name='.github/dev-tools/verify-wtr009-dev-identity.mjs';
+          const code=fs.readFileSync(name);if(crypto.createHash('sha256').update(code).digest('hex')!==expected.source[name].sha256)throw Error('Verifier bytes not pinned');
           const guard=await import('data:text/javascript;base64,'+code.toString('base64'));
+          const identity=guard.loadSelectedIdentity(process.cwd());
           guard.assertDispatch({...process.env,WTR_ACTUAL_NODE_VERSION:process.versions.node},identity);
           guard.verifySource(process.cwd(),identity);
           console.log('OWNER_PINNED_DEV_SOURCE_AND_NODE22=PASS');
@@ -257,8 +271,8 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          import {verifyArtifacts,verifySource,verifyServedProjection} from '../.github/dev-tools/verify-wtr009-dev-identity.mjs';
-          const identity=JSON.parse(fs.readFileSync('../.github/dev-tools/wtr009-dev-identity.json','utf8'));
+          import {loadSelectedIdentity,verifyArtifacts,verifySource,verifyServedProjection} from '../.github/dev-tools/verify-wtr009-dev-identity.mjs';
+          const identity=loadSelectedIdentity('..');
           verifySource('..',identity);
           verifyArtifacts('.dev-assets','.dev-runtime/src',identity);
           await verifyServedProjection('.dev-assets','.dev-runtime/src',identity);
@@ -267,7 +281,7 @@ jobs:
           node --test ../.github/dev-tools/wtr009-dev-identity.test.mjs
 
       - name: Deploy DEV Worker on Turso via WTR-011P sealed publisher
-        if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1' || github.ref == 'refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1' || github.ref == 'refs/heads/codex/dev-ms-turso-critical-path-phase-provenance-v1') }}
+        if: ${{ github.event_name == 'workflow_dispatch' && env.WTR_DEV_IDENTITY_KIND == 'candidate' && github.ref == 'refs/heads/codex/dev-recovery-contract-v2' }}
         env:
           WTR_APPROVED_SOURCE_SHA: ${{ inputs.approved_source_sha }}
           WTR_APPROVED_IDENTITY_SHA256: ${{ inputs.approved_identity_sha256 }}
@@ -371,7 +385,8 @@ jobs:
           if((supervisorJs.match(/\bfetch\s*\(/g)||[]).length!==1||!supervisorJs.includes('fetch("/api/supervisor/snapshot"')) throw new Error('Supervisor shared snapshot transport contract missing');
           if(/new\s+WebSocket|new\s+EventSource|setInterval\s*\(/.test(supervisorJs)) throw new Error('Supervisor core introduced background transport');
           const {createHash}=await import('node:crypto');
-          const identity=JSON.parse(readFileSync('.github/dev-tools/wtr009-dev-identity.json','utf8'));
+          const {loadSelectedIdentity}=await import('./.github/dev-tools/verify-wtr009-dev-identity.mjs');
+          const identity=loadSelectedIdentity(process.cwd());
           const msScript=identity.scriptUrl;
           if(!ms.includes(`src="${msScript}"`)) throw new Error('live MS route timing script URL missing');
           const msJs=await get(msScript);

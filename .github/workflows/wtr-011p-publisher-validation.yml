@@ -192,7 +192,7 @@ jobs:
           command -v ip
           # The child has no external network routes: only 127.0.0.1 is up.
           # Its staged artifacts, config and lockfile are read-only mounts.
-          sudo unshare --mount --net -- bash -euo pipefail -c '
+          sudo --preserve-env=GITHUB_SHA unshare --mount --net -- bash -euo pipefail -c '
             mount --make-rprivate /
             ip link set lo up
             test "$(ip -4 route show default | wc -l)" -eq 0

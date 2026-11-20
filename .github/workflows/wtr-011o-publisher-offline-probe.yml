@@ -180,5 +180,5 @@ jobs:
             export WRANGLER_SEND_METRICS=false
             export CLOUDFLARE_CF_FETCH_ENABLED=false
             unset CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID CF_API_TOKEN CF_API_KEY CF_ACCOUNT_ID
-            node ../.github/dev-tools/wtr-011o-local-upload-capture.mjs
-          '
+            "$1" ../.github/dev-tools/wtr-011o-local-upload-capture.mjs
+          ' _ "$(command -v node)"

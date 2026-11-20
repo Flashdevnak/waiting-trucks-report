@@ -983,8 +983,8 @@
       "size": 5873
     },
     ".github/dev-tools/wtr011p-dependency-trust.mjs": {
-      "sha256": "dc27229a7acca0b23bd9c204a5339d9a482b00da7fd16866e3c08cd62f0a27bf",
-      "size": 7697
+      "sha256": "3cfabac238828cb132a3e7a5d88297dfd0bbe396f562a50acf65ef06b5e2e7cb",
+      "size": 8622
     },
     ".github/dev-tools/wtr011p-dependency-trust.test.mjs": {
       "sha256": "2ee7148e0f7ab08dc70b9f368e6a03a14f57821a109155600208363c1c6c7244",

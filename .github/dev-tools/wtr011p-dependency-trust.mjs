@@ -95,6 +95,14 @@ export function privateSealParent() {
   return PRIVATE_PARENT;
 }
 
+function npmConfigState(file) {
+  const st = fs.lstatSync(file, {bigint:true});
+  if (!path.isAbsolute(file) || !st.isFile() || st.uid !== 0n || st.nlink !== 1n ||
+      (st.mode & 0o7777n) !== 0o444n || st.size !== 0n || fs.realpathSync(file) !== file ||
+      fileBytes(file, st).length !== 0) fail("UNTRUSTED_NPM_CONFIG:" + file);
+  return st;
+}
+
 export function prepareTrustedDependencies(inputs, binding) {
   privateSealParent();
   const dir = fs.mkdtempSync(PREFIX);
@@ -106,6 +114,16 @@ export function prepareTrustedDependencies(inputs, binding) {
     for (const [name, bytes] of inputs) {
       fs.writeFileSync(path.join(install, name), bytes, {flag:"wx", mode:0o444});
     }
+    // The installer can read these siblings but cannot replace them through its writable cwd.
+    const npmConfigs = {
+      npm_config_userconfig: path.join(dir, "npm-user.npmrc"),
+      npm_config_globalconfig: path.join(dir, "npm-global.npmrc"),
+    };
+    const configStates = Object.values(npmConfigs).map(file => {
+      fs.writeFileSync(file, "", {flag:"wx", mode:0o444});
+      fs.chmodSync(file, 0o444);
+      return [file, npmConfigState(file)];
+    });
     const node = fs.realpathSync(process.execPath);
     const npm = fs.realpathSync(path.join(path.dirname(node), "npm"));
     fs.chmodSync(dir, 0o711);
@@ -120,12 +138,16 @@ export function prepareTrustedDependencies(inputs, binding) {
         cwd:install,
         env:{PATH:path.dirname(node) + ":/usr/bin:/bin", HOME:install,
           npm_config_cache:path.join(install, ".npm-cache"),
-          npm_config_userconfig:"/dev/null", npm_config_globalconfig:"/dev/null",
+          ...npmConfigs,
           npm_config_registry:"https://registry.npmjs.org/"},
         encoding:"utf8", timeout:180_000, killSignal:"SIGKILL", maxBuffer:4*1024*1024,
       });
     } finally {
       fs.chmodSync(dir, 0o700);
+    }
+    for (const [file, before] of configStates) {
+      if (!stable(before, npmConfigState(file))) fail("NPM_CONFIG_CHANGED:" + file);
+      fs.unlinkSync(file);
     }
     if (run.error || run.status !== 0) {
       process.stderr.write(run.stderr || String(run.error || run.status));

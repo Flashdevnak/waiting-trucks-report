@@ -5,7 +5,7 @@ on:
       - feature/wtr-011p-h-only-publisher-guard
     paths:
       - .github/workflows/wtr-011p-publisher-validation.yml
-      - .github/dev-tools/wtr-011o-local-upload-capture.mjs
+      - .github/dev-tools/wtr-011p-local-upload-capture.mjs
 
 permissions:
   contents: read
@@ -40,7 +40,7 @@ jobs:
           test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 4
           grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/wtr-011o-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr-011p-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
           test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
           echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
       - name: Use Node.js 22
@@ -180,5 +180,5 @@ jobs:
             export WRANGLER_SEND_METRICS=false
             export CLOUDFLARE_CF_FETCH_ENABLED=false
             unset CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID CF_API_TOKEN CF_API_KEY CF_ACCOUNT_ID
-            "$1" ../.github/dev-tools/wtr-011o-local-upload-capture.mjs "$2"
+            "$1" ../.github/dev-tools/wtr-011p-local-upload-capture.mjs "$2"
           ' _ "$(command -v node)" "$RUNNER_TEMP/wtr011p-wrangler-bundle/turso-index.js"

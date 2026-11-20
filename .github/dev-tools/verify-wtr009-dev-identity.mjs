@@ -83,6 +83,8 @@ export function loadSelectedIdentity(root,env=process.env){
   '.github/dev-tools/wtr-011p-local-upload-capture.mjs',
   '.github/dev-tools/wtr011p-h-only-candidate-scope.json',
   '.github/dev-tools/wtr011p-sealed-publisher.mjs',
+  '.github/dev-tools/wtr011p-dependency-trust.mjs',
+  '.github/dev-tools/wtr011p-dependency-trust.test.mjs',
   '.github/workflows/wtr-011p-publisher-validation.yml',
   '.github/dev-tools/wtr009-dev-identity.json'
  ];

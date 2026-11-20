@@ -15,7 +15,7 @@ const ownerPin=process.env.WTR_APPROVED_PUBLISHER_SCOPE_SHA256;
 const scopeName=".github/dev-tools/wtr011p-h-only-candidate-scope.json";
 const goldenName=".github/dev-tools/wtr009-dev-identity.json";
 const goldenSha="7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30";
-if(!["inspect","publish"].includes(mode))fail("INVALID_MODE");
+if(!["prepare-dependencies","inspect","publish"].includes(mode))fail("INVALID_MODE");
 if(!/^[a-f0-9]{64}$/.test(ownerPin||""))fail("OWNER_SCOPE_PIN_REQUIRED");
 if(process.platform!=="linux" || process.getuid?.()!==0)fail("ROOT_SEALED_LAUNCHER_REQUIRED");
 if(process.versions.node!=="22.16.0")fail("NODE_VERSION");
@@ -30,14 +30,14 @@ function safe(base,name) {
  }
  return cur;
 }
-function get(base,name,allowNpmHardlink=false) {
+function get(base,name) {
  const file=safe(base,name);
  const st=fs.lstatSync(file);
- if(!st.isFile() || (!allowNpmHardlink && st.nlink!==1))fail("NONREGULAR_OR_HARDLINK:"+name);
+ if(!st.isFile() || st.nlink!==1)fail("NONREGULAR_OR_HARDLINK:"+name);
  const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
  try {
    const before=fs.fstatSync(fd);
-   if(!before.isFile()||(!allowNpmHardlink && before.nlink!==1))fail("CHANGED_FILE:"+name);
+   if(!before.isFile()||before.nlink!==1)fail("CHANGED_FILE:"+name);
    const b=fs.readFileSync(fd);
    const after=fs.fstatSync(fd);
    if(before.dev!==after.dev || before.ino!==after.ino || before.size!==after.size
@@ -88,10 +88,25 @@ if(config.name!=="waiting-trucks-report-api-dev" ||
  config.main!=="src/turso-index.js" || config.assets?.directory!=="./.dev-assets" ||
  config.vars?.DB_BACKEND!=="turso" || config.d1_databases)fail("CONFIG_TARGET");
 const lock=JSON.parse(verifiedInputs.get("package-lock.json").toString("utf8"));
-// npm-ci may use shared source hardlinks; this exception covers Wrangler metadata only.
-// All approved Source/Config/Artifact inputs still require nlink===1.
-const wrangler=JSON.parse(get(worker,"node_modules/wrangler/package.json",true));
-if(lock.packages?.["node_modules/wrangler"]?.version!=="4.127.1"||wrangler.version!=="4.127.1")fail("WRANGLER_VERSION");
+if(lock.packages?.["node_modules/wrangler"]?.version!=="4.127.1")fail("WRANGLER_LOCK_VERSION");
+if(!/^[a-f0-9]{40}$/.test(process.env.GITHUB_SHA||"") ||
+ process.env.WTR_APPROVED_SOURCE_SHA!==process.env.GITHUB_SHA)fail("APPROVED_SOURCE_SHA");
+if(process.env.WTR_DEV_IDENTITY_KIND!=="candidate" || !/^[a-f0-9]{64}$/.test(process.env.WTR_APPROVED_IDENTITY_SHA256||""))fail("CANDIDATE_DESCRIPTOR_PIN_REQUIRED");
+const identityRaw=get(repo,".github/dev-tools/wtr011p-dev-candidate-identity.json");
+if(SHA(identityRaw)!==process.env.WTR_APPROVED_IDENTITY_SHA256)fail("CANDIDATE_DESCRIPTOR_HASH");
+const trustPath=".github/dev-tools/wtr011p-dependency-trust.mjs";
+const trustCode=get(repo,trustPath);
+check(trustCode,JSON.parse(identityRaw).source?.[trustPath],"DEPENDENCY_GUARD");
+const {dependencyDigest,populatePublisherDependencies,prepareTrustedDependencies,privateSealParent}=
+ await import("data:text/javascript;base64,"+trustCode.toString("base64"));
+
+const dependencyBinding=SHA(JSON.stringify([process.env.GITHUB_SHA,SHA(identityRaw),ownerPin,
+ SHA(verifiedInputs.get("package.json")),SHA(verifiedInputs.get("package-lock.json"))]));
+if(mode==="prepare-dependencies"){
+ const inputs=new Map(["package.json","package-lock.json"].map(n=>[n,verifiedInputs.get(n)]));
+ console.log(prepareTrustedDependencies(inputs,dependencyBinding));
+ process.exit(0);
+}
 const groups=[[".dev-assets",golden.assets],[".dev-runtime/src",golden.runtime]];
 for(const [dir,expected] of groups) {
  const found=paths(path.join(worker,dir));
@@ -107,7 +122,7 @@ for(const [dir,expected] of groups) {
 }
 console.log("WTR011P_VERIFIED_28_ASSETS_27_RUNTIME=PASS");
 // Create private copy inaccessible for writing to the normal runner UID.
-const root=fs.mkdtempSync(path.join(os.tmpdir(),"wtr011p-sealed-"));
+const root=fs.mkdtempSync(path.join(privateSealParent(),"wtr011p-sealed-"));
 fs.chmodSync(root,0o700);
 const destination=path.join(root,"worker");
 fs.mkdirSync(destination,{mode:0o700});
@@ -121,37 +136,11 @@ function write(name,b) {
  try{fs.writeFileSync(fd,b)}finally{fs.closeSync(fd)}
 }
 for(const [n,b] of snapshot)write(n,b);
-// Installed npm dependencies are copied from the locked npm-ci installation.
-// Symlinks may exist for npm CLI bins: resolve them and reject any escape.
-const modules=path.join(worker,"node_modules");
-function rejectOutsideLinks(dir) {
- const realRoot=fs.realpathSync(modules)+path.sep;
- function walk(d){
-  for(const name of fs.readdirSync(d)){
-   const file=path.join(d,name),st=fs.lstatSync(file);
-   if(st.isSymbolicLink()){
-     const real=fs.realpathSync(file);
-     if(!real.startsWith(realRoot))fail("DEPENDENCY_LINK_ESCAPE");
-   }else if(st.isDirectory())walk(file);
-   else if(!st.isFile())fail("DEPENDENCY_NONREGULAR");
-  }
- }
- walk(dir);
-}
-rejectOutsideLinks(modules);
-fs.cpSync(modules,path.join(destination,"node_modules"),{recursive:true,dereference:true});
-// npm may legitimately materialize hardlinked cache files; never execute those
-// shared source inodes. Verify that the sealed copy is detached before execution.
-function assertDetachedDependencyCopy(dir){
- for(const name of fs.readdirSync(dir)){
-  const p=path.join(dir,name),st=fs.lstatSync(p);
-  if(st.isSymbolicLink())fail("SNAPSHOT_DEPENDENCY_SYMLINK");
-  if(st.isDirectory())assertDetachedDependencyCopy(p);
-  else if(!st.isFile()||st.nlink!==1)fail("SNAPSHOT_DEPENDENCY_NOT_DETACHED");
- }
-}
-assertDetachedDependencyCopy(path.join(destination,"node_modules"));
-const rootPath=fs.realpathSync(root);
+// Only a protected locked npm-ci installation may supply executable dependencies.
+const installed=path.join(destination,"node_modules");
+const dependencyHash=populatePublisherDependencies(process.env.WTR_TRUSTED_NPM_DIR,installed,dependencyBinding);
+const wrangler=JSON.parse(get(destination,"node_modules/wrangler/package.json"));
+if(wrangler.version!=="4.127.1")fail("WRANGLER_VERSION");
 for(const [n,b] of snapshot)if(!get(destination,n).equals(b))fail("SNAPSHOT_CHANGED:"+n);
 function makeReadOnly(dir){
  for(const name of fs.readdirSync(dir)){
@@ -165,10 +154,12 @@ makeReadOnly(destination);
 fs.chmodSync(destination,0o555);
 fs.chmodSync(root,0o555);
 for(const [n,b] of snapshot)if(!get(destination,n).equals(b))fail("SNAPSHOT_SEAL_HASH:"+n);
+if(dependencyDigest(installed)!==dependencyHash)fail("DEPENDENCY_SEAL_HASH");
+console.log("WTR011P_DEPENDENCY_BYTE_SHA256="+dependencyHash);
 console.log("WTR011P_ROOT_OWNED_READONLY_PUBLISHER_SNAPSHOT=PASS");
 // Probe the exact non-root UID used for the eventual upload process.
 // Every path must deny write-open without modifying a single input byte.
-const denyPaths=["wrangler.dev.jsonc",".dev-runtime/src/turso-index.js",".dev-assets/ms.js","package-lock.json"];
+const denyPaths=["wrangler.dev.jsonc",".dev-runtime/src/turso-index.js",".dev-assets/ms.js","package-lock.json","node_modules/wrangler/bin/wrangler.js"];
 const writeProbe=[
  "const fs=require('node:fs');",
  "for(const p of process.argv.slice(1)){",
@@ -177,19 +168,17 @@ const writeProbe=[
  "}",
  "console.log('WRITE_OPEN_DENIED_FOR_ALL='+process.argv.slice(1).length);"
 ].join("");
-const denied=spawnSync("setpriv",["--reuid=65534","--regid=65534","--clear-groups",process.execPath,"-e",writeProbe,...denyPaths],{
+const denied=spawnSync("/usr/bin/setpriv",["--reuid=65534","--regid=65534","--clear-groups","--no-new-privs",process.execPath,"-e",writeProbe,...denyPaths],{
  cwd:destination,env:{PATH:process.env.PATH||"/usr/bin:/bin"},encoding:"utf8",timeout:15000
 });
-if(denied.error||denied.status!==0||!denied.stdout.includes("WRITE_OPEN_DENIED_FOR_ALL=4"))
+if(denied.error||denied.status!==0||!denied.stdout.includes("WRITE_OPEN_DENIED_FOR_ALL=5"))
  fail("SAME_UID_WRITE_DENIAL_FAILED");
 for(const [n,b] of snapshot)if(!get(destination,n).equals(b))fail("AFTER_WRITE_PROBE_CHANGED:"+n);
-console.log("WTR011P_UNPRIVILEGED_PUBLISHER_WRITE_DENIAL_4_OF_4=PASS");
+console.log("WTR011P_UNPRIVILEGED_PUBLISHER_WRITE_DENIAL_5_OF_5=PASS");
 if(mode==="inspect"){
  console.log("WTR011P_PUBLISH=NOT_INVOKED");
  process.exit(0);
 }
-if(!process.env.WTR_APPROVED_SOURCE_SHA || process.env.WTR_APPROVED_SOURCE_SHA!==process.env.GITHUB_SHA)fail("APPROVED_SOURCE_SHA");
-if(process.env.WTR_DEV_IDENTITY_KIND!=="candidate" || !/^[a-f0-9]{64}$/.test(process.env.WTR_APPROVED_IDENTITY_SHA256||""))fail("CANDIDATE_DESCRIPTOR_PIN_REQUIRED");
 const mock=process.env.WTR_TEST_LOOPBACK_ONLY==="1";
 if(mock){
  if(!/^http:\/\/127\.0\.0\.1:\d+$/.test(process.env.CLOUDFLARE_API_BASE_URL||"") ||
@@ -209,13 +198,17 @@ fs.chownSync(transient,65534,65534);
 fs.symlinkSync(transient,path.join(destination,".wrangler"));
 for(const [n,b] of snapshot)if(!get(destination,n).equals(b))fail("POST_SCRATCH_SEAL_CHANGED:"+n);
 console.log("WTR011P_WRANGLER_SCRATCH_SEPARATE_FROM_VERIFIED_INPUTS=PASS");
-const env={...process.env,HOME:scratch,TMPDIR:scratch,XDG_CONFIG_HOME:scratch,
+if(dependencyDigest(installed)!==dependencyHash)fail("DEPENDENCY_BEFORE_EXEC_HASH");
+const node=fs.realpathSync(process.execPath);
+const env={PATH:path.dirname(node)+":/usr/bin:/bin",HOME:scratch,TMPDIR:scratch,XDG_CONFIG_HOME:scratch,
+ NODE_OPTIONS:"--no-global-search-paths",CLOUDFLARE_API_TOKEN:process.env.CLOUDFLARE_API_TOKEN,CLOUDFLARE_ACCOUNT_ID:process.env.CLOUDFLARE_ACCOUNT_ID,
+ ...(mock?{CLOUDFLARE_API_BASE_URL:process.env.CLOUDFLARE_API_BASE_URL,CLOUDFLARE_CF_FETCH_ENABLED:"false"}:{}),
  WRANGLER_SEND_METRICS:"false",WRANGLER_SEND_ERROR_REPORTS:"false"};
-const args=["--reuid=65534","--regid=65534","--clear-groups",
- process.execPath,"node_modules/wrangler/bin/wrangler.js","deploy",
+const args=["--reuid=65534","--regid=65534","--clear-groups","--no-new-privs",
+ node,"node_modules/wrangler/bin/wrangler.js","deploy",
  ".dev-runtime/src/turso-index.js","--config","wrangler.dev.jsonc"];
 if(mock) args.push("--name","wtr011p-mock-only");
-const run=spawnSync("setpriv",args,{cwd:destination,env,stdio:"inherit",timeout:120000});
+const run=spawnSync("/usr/bin/setpriv",args,{cwd:destination,env,stdio:"inherit",timeout:120000});
 if(run.error)fail("WRANGLER_SPAWN:"+run.error.message);
 if(run.status!==0)fail("WRANGLER_EXIT:"+run.status);
 console.log("WTR011P_WRANGLER_DEPLOY_EXIT=PASS");

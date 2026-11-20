@@ -7,6 +7,8 @@ on:
       - .github/workflows/wtr-011p-publisher-validation.yml
       - .github/dev-tools/wtr-011p-local-upload-capture.mjs
       - .github/dev-tools/wtr011p-h-only-candidate-scope.json
+      - .github/dev-tools/wtr011p-dependency-trust.mjs
+      - .github/dev-tools/wtr011p-dependency-trust.test.mjs
       - .github/dev-tools/wtr011p-sealed-publisher.mjs
       - .github/workflows/deploy-worker-dev.yml
       - .github/dev-tools/patch-ms-route-cancellation-compat.mjs
@@ -55,12 +57,14 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/feature/wtr-011p-h-only-publisher-guard"
           git merge-base --is-ancestor e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD
           git diff --name-only e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD | sort > /tmp/wtr011p-changed.txt
-          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 13
+          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 15
           grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr-011p-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr011p-h-only-candidate-scope.json' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr011p-sealed-publisher.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-dependency-trust.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr011p-dependency-trust.test.mjs' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/workflows/deploy-worker-dev.yml' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/wtr011p-dev-candidate-identity.json' /tmp/wtr011p-changed.txt
           grep -Fxq '.github/dev-tools/verify-wtr009-dev-identity.mjs' /tmp/wtr011p-changed.txt
@@ -180,6 +184,25 @@ jobs:
           echo 'POST_WRANGLER_SOURCE_INTEGRITY=PASS'
           echo 'NO_CLOUDFLARE_UPLOAD_PERFORMED=YES'
 
+      - name: Prepare root-protected locked npm install (registry only)
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          export WTR_DEV_IDENTITY_KIND=candidate
+          export WTR_APPROVED_SOURCE_SHA="$GITHUB_SHA"
+          export WTR_APPROVED_PUBLISHER_SCOPE_SHA256="$(sha256sum .github/dev-tools/wtr011p-h-only-candidate-scope.json | cut -d' ' -f1)"
+          export WTR_APPROVED_IDENTITY_SHA256="$(sha256sum .github/dev-tools/wtr011p-dev-candidate-identity.json | cut -d' ' -f1)"
+          capsule="$(sudo --preserve-env=GITHUB_SHA,WTR_APPROVED_SOURCE_SHA,WTR_APPROVED_PUBLISHER_SCOPE_SHA256,WTR_APPROVED_IDENTITY_SHA256,WTR_DEV_IDENTITY_KIND \
+            "$(command -v node)" .github/dev-tools/wtr011p-sealed-publisher.mjs "$PWD" prepare-dependencies)"
+          [[ "$capsule" =~ ^/var/lib/wtr011p-locked-npm-[A-Za-z0-9]{6}$ ]]
+          printf 'WTR_TRUSTED_NPM_DIR=%s\n' "$capsule" >> "$GITHUB_ENV"
+          printf 'WTR_DEV_IDENTITY_KIND=%s\n' "$WTR_DEV_IDENTITY_KIND" >> "$GITHUB_ENV"
+          printf 'WTR_APPROVED_SOURCE_SHA=%s\n' "$WTR_APPROVED_SOURCE_SHA" >> "$GITHUB_ENV"
+          printf 'WTR_APPROVED_PUBLISHER_SCOPE_SHA256=%s\n' "$WTR_APPROVED_PUBLISHER_SCOPE_SHA256" >> "$GITHUB_ENV"
+          printf 'WTR_APPROVED_IDENTITY_SHA256=%s\n' "$WTR_APPROVED_IDENTITY_SHA256" >> "$GITHUB_ENV"
+          node --test .github/dev-tools/wtr011p-dependency-trust.test.mjs
+
       - name: Capture Wrangler upload request using loopback-only isolated network (NO CLOUDFLARE)
         working-directory: worker
         shell: bash
@@ -192,7 +215,7 @@ jobs:
           command -v ip
           # The child has no external network routes: only 127.0.0.1 is up.
           # Its staged artifacts, config and lockfile are read-only mounts.
-          sudo --preserve-env=GITHUB_SHA unshare --mount --net -- bash -euo pipefail -c '
+          sudo --preserve-env=GITHUB_SHA,WTR_TRUSTED_NPM_DIR unshare --mount --net -- bash -euo pipefail -c '
             mount --make-rprivate /
             ip link set lo up
             test "$(ip -4 route show default | wc -l)" -eq 0
@@ -217,10 +240,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check .github/dev-tools/wtr011p-sealed-publisher.mjs
-          # This self-hash is a test fixture only; real dispatch requires
-          # the owner's independent, externally supplied SHA-256 pin.
-          local_sha="$(sha256sum .github/dev-tools/wtr011p-h-only-candidate-scope.json | awk '{print $1}')"
-          sudo env WTR_APPROVED_PUBLISHER_SCOPE_SHA256="$local_sha" \
+          sudo --preserve-env=GITHUB_SHA,WTR_APPROVED_SOURCE_SHA,WTR_APPROVED_PUBLISHER_SCOPE_SHA256,WTR_APPROVED_IDENTITY_SHA256,WTR_DEV_IDENTITY_KIND,WTR_TRUSTED_NPM_DIR \
             "$(command -v node)" .github/dev-tools/wtr011p-sealed-publisher.mjs "$PWD" inspect
           echo 'SEALED_PUBLISHER_PREPARE_ONLY=PASS'
           echo 'CLOUDFLARE_PUBLISH=NOT_PERFORMED'
@@ -233,7 +253,9 @@ jobs:
           from pathlib import Path
           w=Path('.github/workflows/deploy-worker-dev.yml').read_text()
           assert 'WTR-011P owner-pinned publisher scope' in w
-          assert 'wtr011p-sealed-publisher.mjs .. publish' in w
+          assert 'launch_sealed_publisher publish' in w
+          assert 'launch_sealed_publisher prepare-dependencies' in w
+          assert 'Publisher launcher bytes mismatch' in w
           assert 'run: npx wrangler deploy' not in w
           assert 'approved_publisher_scope_sha256' in w
           assert 'node-version: 22.16.0' in w
@@ -262,8 +284,9 @@ jobs:
           const guard=path.join(root,'.github/dev-tools/wtr011p-sealed-publisher.mjs');
           const scope=fs.readFileSync(path.join(root,'.github/dev-tools/wtr011p-h-only-candidate-scope.json'));
           const pin=crypto.createHash('sha256').update(scope).digest('hex');
+          const kept='GITHUB_SHA,WTR_APPROVED_SOURCE_SHA,WTR_APPROVED_IDENTITY_SHA256,WTR_DEV_IDENTITY_KIND,WTR_TRUSTED_NPM_DIR';
           const runner=()=>{
-            const r=spawnSync('sudo',['env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+pin,process.execPath,guard,root,'inspect'],
+            const r=spawnSync('sudo',['--preserve-env='+kept,'env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+pin,process.execPath,guard,root,'inspect'],
               {cwd:root,encoding:'utf8',timeout:40000});
             assert.equal(r.error,undefined,'guard invocation error: '+r.error);
             return r;
@@ -307,29 +330,15 @@ jobs:
             if(fs.existsSync(stage)||fs.lstatSync(stage,{throwIfNoEntry:false}))fs.rmSync(stage,{force:true});
             fs.renameSync(backup,stage);
           }
-          const dependencyLink=path.join(worker,'node_modules/.wtr011p-negative-external-link');
-          try{
-            fs.symlinkSync('/etc/hosts',dependencyLink);
-            reject('DEPENDENCY_ESCAPE',/WTR011P_PUBLISHER_DEPENDENCY_LINK_ESCAPE/);
-          }finally{fs.rmSync(dependencyLink,{force:true});}
-          const dependencyHardlink=path.join(worker,'.wtr011p-negative-dependency-hardlink');
-          try{
-            fs.linkSync(path.join(worker,'node_modules/wrangler/package.json'),dependencyHardlink);
-            const isolated=runner();
-            assert.equal(isolated.status,0,'legitimate npm hardlink copy must be isolated: '+isolated.stderr);
-            assert.match(isolated.stdout,/WTR011P_ROOT_OWNED_READONLY_PUBLISHER_SNAPSHOT=PASS/);
-            console.log('WTR011P_DEPENDENCY_HARDLINK_COPIED_INDEPENDENTLY=PASS');
-            passed++;
-          }finally{fs.rmSync(dependencyHardlink,{force:true});}
-          const invalid=spawnSync('sudo',['env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+'0'.repeat(64),process.execPath,guard,root,'inspect'],
+          const invalid=spawnSync('sudo',['--preserve-env='+kept,'env','WTR_APPROVED_PUBLISHER_SCOPE_SHA256='+'0'.repeat(64),process.execPath,guard,root,'inspect'],
             {cwd:root,encoding:'utf8',timeout:40000});
           assert.notEqual(invalid.status,0);
           assert.match(invalid.stderr,/WTR011P_PUBLISHER_OWNER_SCOPE_PIN_MISMATCH/);
           console.log('WTR011P_NEGATIVE_WRONG_OWNER_PIN=PASS');passed++;
           assert.equal(fs.readFileSync(asset).equals(orig),true,'stage restored');
           assert.equal(fs.readFileSync(config).equals(configBytes),true,'config restored');
-          assert.equal(passed,8);
-          console.log('WTR011P_I03_ADMISSION_AND_ISOLATION_8_OF_8=PASS');
+          assert.equal(passed,6);
+          console.log('WTR011P_I03_SOURCE_ADMISSION_6_OF_6=PASS');
           NODE
       - name: Full Node22 H-only candidate check (not an Owner Release Pin)
         working-directory: worker

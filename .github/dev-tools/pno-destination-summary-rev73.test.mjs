@@ -121,7 +121,7 @@ test('REV98 unique version and full actual composed bytes match strict local pre
  assert.ok(workflowSource.includes("identity.servedMs.sha256"));
  assert.match(workflowSource,/verifyArtifacts\('/);
  assert.match(workflowSource,/live PNO isolated asset integrity mismatch/);
- assert.ok(workflowSource.includes("verifyArtifacts('.dev-assets'"));assert.ok(workflowSource.indexOf("verifyArtifacts('.dev-assets'")<workflowSource.indexOf('wtr011p-sealed-publisher.mjs .. publish'));assert.doesNotMatch(workflowSource,/run: npx wrangler deploy /);
+ assert.ok(workflowSource.includes("verifyArtifacts('.dev-assets'"));assert.ok(workflowSource.indexOf("verifyArtifacts('.dev-assets'")<workflowSource.indexOf('launch_sealed_publisher publish'));assert.doesNotMatch(workflowSource,/run: npx wrangler deploy /);
 });
 test('REV98 missing script URL fails before any asset fetch',async()=>{
  let calls=0;await assert.rejects(releaseSmoke()('<html>no script</html>',async()=>{calls++;return delivered;}),/script URL missing/);assert.equal(calls,0);

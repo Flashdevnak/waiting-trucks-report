@@ -1,0 +1,184 @@
+name: WTR-011P Publisher Offline Probe (NO DEPLOY)
+on:
+  push:
+    branches:
+      - feature/wtr-011p-h-only-publisher-guard
+    paths:
+      - .github/workflows/wtr-011p-publisher-validation.yml
+      - .github/dev-tools/wtr-011o-local-upload-capture.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wtr-011o-one-shot-publisher-audit
+  cancel-in-progress: true
+
+jobs:
+  publisher-dry-run:
+    name: Wrangler 4.127.1 H-only offline publisher probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      WRANGLER_SEND_METRICS: "false"
+      CLOUDFLARE_SEND_METRICS: "false"
+      CLOUDFLARE_API_BASE_URL: http://127.0.0.1:9
+    steps:
+      - name: Checkout audit branch without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Confirm pinned DEV ancestry and test-only changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/feature/wtr-011p-h-only-publisher-guard"
+          git merge-base --is-ancestor e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD
+          git diff --name-only e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD | sort > /tmp/wtr011p-changed.txt
+          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 4
+          grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' /tmp/wtr011p-changed.txt
+          grep -Fxq '.github/dev-tools/wtr-011o-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
+          test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
+          echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Install locked Wrangler without Cloudflare credentials
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          const wrangler=JSON.parse(fs.readFileSync('node_modules/wrangler/package.json','utf8'));
+          assert.equal(lock.packages['node_modules/wrangler'].version,'4.127.1');
+          assert.equal(wrangler.version,'4.127.1');
+          assert.equal(process.versions.node,'22.16.0');
+          console.log('ACTUAL_NODE='+process.versions.node);
+          console.log('ACTUAL_WRANGLER='+wrangler.version);
+          console.log('LOCK_SHA256_VERIFIED_BY_NPM_CI=YES');
+          NODE
+      - name: Stage H-only with exact existing DEV stage chain
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .dev-assets .dev-runtime
+          mkdir -p .dev-assets .dev-runtime
+          cp -R src .dev-runtime/src
+          cp ../waiting.html ../admin.html ../admin.js ../admin.css ../supervisor.html ../supervisor.js ../supervisor-context.js ../supervisor-i18n.js ../supervisor-modules.js ../supervisor-view.js ../supervisor.css ../ms-report.html ../ms-report.js ../ms.html ../ms.js ../proof.html ../proof.js ../style.css ../ms-v4.css ../sw.js ../favicon.svg .dev-assets/
+          cp ../proof-v2-core.js ../proof-v2-ui.js ../proof-v2-actions.js .dev-assets/
+          cp ../.github/dev-tools/safe-parity.html .dev-assets/safe-parity.html
+          node ../.github/dev-tools/stage-dev-runtime.mjs .dev-assets/ms.js .dev-runtime/src/index.js
+          node ../.github/dev-tools/patch-dev-origin-manifest-session-v2.mjs .dev-assets/ms.js .dev-runtime/src/origin-manifest-v1.js
+      - name: Verify immutable Golden remains intact and H-only staged file identities
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          const golden=JSON.parse(fs.readFileSync('../.github/dev-tools/wtr009-dev-identity.json','utf8'));
+          const hex=b=>crypto.createHash('sha256').update(b).digest('hex');
+          const hSha='b0351e0a2d6eb1d5392fd019ba445b65ad1aca88a5b1bf8b130818f8592faae0';
+          const hSize=461464;
+          for(const [kind,base] of [['assets','.dev-assets'],['runtime','.dev-runtime/src']]){
+            const expected=golden[kind];
+            const actualFiles=[];
+            function walk(dir,prefix=''){
+              for(const e of fs.readdirSync(dir,{withFileTypes:true})){
+                const relative=path.join(prefix,e.name);
+                const target=path.join(dir,e.name);
+                assert.equal(e.isSymbolicLink(),false,'symlink in staged output: '+target);
+                if(e.isDirectory())walk(target,relative);
+                else {assert.equal(e.isFile(),true);actualFiles.push(relative.replaceAll(path.sep,'/'));}
+              }
+            }
+            walk(base);
+            assert.deepEqual(actualFiles.sort(),Object.keys(expected).sort(),'staged path set '+kind);
+            for(const name of Object.keys(expected)){
+              const bytes=fs.readFileSync(path.join(base,name));
+              const expectedHash=kind==='assets' && name==='ms.js'?hSha:expected[name].sha256;
+              const expectedSize=kind==='assets' && name==='ms.js'?hSize:expected[name].size;
+              assert.equal(hex(bytes),expectedHash,kind+'/'+name);
+              assert.equal(bytes.length,expectedSize,kind+'/'+name);
+            }
+            console.log('PINNED_'+kind.toUpperCase()+'_FILE_COUNT='+actualFiles.length);
+          }
+          console.log('H_ONLY_STAGED_HASHES=PASS');
+          NODE
+      - name: Execute real Wrangler offline dry-run bundler (no network upload)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(printenv CLOUDFLARE_API_TOKEN || true)"
+          test -z "$(printenv CLOUDFLARE_API_KEY || true)"
+          mkdir -p "$RUNNER_TEMP/wtr011p-wrangler-bundle"
+          env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_API_KEY -u CLOUDFLARE_ACCOUNT_ID -u CF_API_TOKEN \
+            ./node_modules/.bin/wrangler deploy .dev-runtime/src/turso-index.js \
+            --config wrangler.dev.jsonc --dry-run --outdir "$RUNNER_TEMP/wtr011p-wrangler-bundle"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,os
+          root=Path(os.environ['RUNNER_TEMP'])/'wtr011p-wrangler-bundle'
+          members=sorted(x for x in root.rglob('*') if x.is_file())
+          assert members,'Wrangler did not produce a bundle'
+          for p in members:
+              print('WRANGLER_OUTPUT',p.relative_to(root),hashlib.sha256(p.read_bytes()).hexdigest(),p.stat().st_size)
+          print('WRANGLER_4_127_1_DRY_RUN=PASS')
+          print('WRANGLER_LIVE_UPLOAD_PAYLOAD=NOT_VERIFIED')
+          print('I03_FINAL_UPLOAD_GATE=OPEN')
+          PY
+      - name: Re-verify H source and stage hashes after Wrangler invocation
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum .dev-assets/ms.js | cut -d' ' -f1)" = 'b0351e0a2d6eb1d5392fd019ba445b65ad1aca88a5b1bf8b130818f8592faae0'
+          test "$(sha256sum ../.github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
+          echo 'POST_WRANGLER_SOURCE_INTEGRITY=PASS'
+          echo 'NO_CLOUDFLARE_UPLOAD_PERFORMED=YES'
+
+      - name: Capture Wrangler upload request using loopback-only isolated network (NO CLOUDFLARE)
+        working-directory: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(printenv CLOUDFLARE_API_TOKEN || true)"
+          test -z "$(printenv CLOUDFLARE_API_KEY || true)"
+          command -v sudo
+          command -v unshare
+          command -v ip
+          # The child has no external network routes: only 127.0.0.1 is up.
+          # Its staged artifacts, config and lockfile are read-only mounts.
+          sudo unshare --mount --net -- bash -euo pipefail -c '
+            mount --make-rprivate /
+            ip link set lo up
+            test "$(ip -4 route show default | wc -l)" -eq 0
+            mount --bind .dev-assets .dev-assets
+            mount -o remount,bind,ro .dev-assets
+            mount --bind .dev-runtime/src .dev-runtime/src
+            mount -o remount,bind,ro .dev-runtime/src
+            mount --bind wrangler.dev.jsonc wrangler.dev.jsonc
+            mount -o remount,bind,ro wrangler.dev.jsonc
+            mount --bind package-lock.json package-lock.json
+            mount -o remount,bind,ro package-lock.json
+            export CLOUDFLARE_API_BASE_URL="http://127.0.0.1:9"
+            export WRANGLER_SEND_METRICS=false
+            export CLOUDFLARE_CF_FETCH_ENABLED=false
+            unset CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID CF_API_TOKEN CF_API_KEY CF_ACCOUNT_ID
+            "$1" ../.github/dev-tools/wtr-011o-local-upload-capture.mjs "$2"
+          ' _ "$(command -v node)" "$RUNNER_TEMP/wtr011p-wrangler-bundle/turso-index.js"

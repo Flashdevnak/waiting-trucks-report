@@ -24,7 +24,8 @@ class RegistryTests(unittest.TestCase):
         task = registry.find(tasks, "WTR-011P")[0]
         self.assertEqual((task["mergeStatus"], task["releaseStatus"], task["runtimeVerification"]),
                          ("MERGED", "DEPLOY_PENDING", "NOT_VERIFIED"))
-        self.assertEqual(registry.find(tasks, "WTR-011R")[0]["status"], "BACKLOG")
+        feature = registry.find(tasks, "WTR-011R")[0]
+        self.assertEqual((feature["id"], feature["sourceBranch"]), ("WTR-011R", "codex/dev-recovery-contract-v2"))
         self.assertTrue(registry.find(tasks, "Excel"))
         self.assertEqual(registry.find(tasks, "WTR-001")[0]["status"], "UNKNOWN")
         registry.render(tasks, check=True)
@@ -140,7 +141,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "completion requires"):
             registry.validate_transition(self.registry, records, reviewed=[task["id"]])
         task["implementationSha"] = "f" * 40
-        task["tests"] = [evidence]
+        task["tests"].append(evidence)
         with self.assertRaisesRegex(ValueError, "independent Owner review"):
             registry.validate_transition(self.registry, records)
         registry.validate_transition(self.registry, records, reviewed=[task["id"]])

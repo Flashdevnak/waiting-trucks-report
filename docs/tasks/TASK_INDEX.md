@@ -1554,13 +1554,13 @@ Next action — Use the exact remaining credential gates and consolidated Owner 
 
 ## WTR-011R
 
-**Qualify remaining KIT/TBR arrival and Drop changes** · BACKLOG · NOT_DEPLOYED
+**Qualify remaining KIT/TBR arrival and Drop changes** · BLOCKED · NOT_DEPLOYED
 
-Current feature qualification backlog; exact occurrence and prior TBR-only admission remain unproven. The H-only WTR-011P release does not resolve these predicates.
+B1 and B2 reproduced offline on exact staged DEV source. Neither exact occurrence nor recoverable prior TBR-only admission can be proven from the available evidence.
 
-Next action — Prepare a bounded evidence-only qualification plan for exact occurrence and prior admission. Request separate Owner scope before implementation.
+Next action — Request the existing field contract and prior admission evidence using the cases in the evidence record. Ask separately before any passive observation or local implementation.
 
-[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md)
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md) · [Evidence 2](../../docs/WTR-011R_GATE_B_EVIDENCE.md) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md)
 
 ## WTR-012
 
@@ -1574,13 +1574,23 @@ Next action — Maintain the canonical registry, resume WTR-011P only with new p
 
 ## WTR-012S
 
-**Permanent Project Brain security hardening** · IN_REVIEW · NOT_DEPLOYED
+**Permanent Project Brain security hardening** · COMPLETED · NOT_DEPLOYED
 
-Defensive hardening of public metadata import, registry review and handoff on the security branch.
+Both security fixes accepted and merged through PR 124 into the protected Brain. GitHub merge and focused tests are linked.
 
-Next action — Review the security branch Draft PR and the Owner controls before considering merge.
+Next action — Use the protected Brain and existing focused checks for subsequent Brain maintenance.
 
-[Evidence 1](../../docs/WORK_ORDERS/WTR-012S.md)
+[Evidence 1](../../docs/WORK_ORDERS/WTR-012S.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/124) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/commit/e8c3a0eda92d2380bedc0b8632534b9e46a8e19c)
+
+## WTR-013
+
+**Investigate intermittent MS database degraded warning** · BACKLOG · NOT_DEPLOYED
+
+Last in the feature and repair backlog. Incident evidence remains private.
+
+Next action — Keep last in the backlog. Resume only on separate Owner prioritization.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/issues/125)
 
 ## WTR-BRAIN-001
 

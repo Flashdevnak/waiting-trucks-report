@@ -61,3 +61,13 @@ Individual Worker upload-session authorization, effective observability grants, 
 Next action — Use the exact remaining credential gates and consolidated Owner request in the parent WTR-011P record.
 
 [Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/123#issuecomment-7064118903)
+
+## WTR-011R
+
+**Qualify remaining KIT/TBR arrival and Drop changes** · BLOCKED · NOT_DEPLOYED
+
+B1 and B2 reproduced offline on exact staged DEV source. Neither exact occurrence nor recoverable prior TBR-only admission can be proven from the available evidence.
+
+Next action — Request the existing field contract and prior admission evidence using the cases in the evidence record. Ask separately before any passive observation or local implementation.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md) · [Evidence 2](../../docs/WTR-011R_GATE_B_EVIDENCE.md) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md)

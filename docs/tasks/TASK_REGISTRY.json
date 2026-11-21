@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "tasks": [
+    {
+      "checkedOn": "2026-11-21",
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "project-brain/wtr",
+      "baseSha": "afbe6e0e57b5d0a752303e39846538a439dda27d",
+      "implementationSha": "UNKNOWN",
+      "workOrders": [
+        "docs/WORK_ORDERS/WTR-012-MASTER.md"
+      ],
+      "pullRequests": [],
+      "issues": [],
+      "tests": [],
+      "evidence": [],
+      "blockers": [],
+      "dependencies": [],
+      "risks": [],
+      "tags": [
+        "handoff",
+        "project-brain"
+      ],
+      "mergeStatus": "UNKNOWN",
+      "releaseStatus": "UNKNOWN",
+      "runtimeVerification": "UNKNOWN",
+      "claim": {
+        "actor": "WTR-012 execution",
+        "scope": "Docs, registry and tooling",
+        "authorization": "docs/WORK_ORDERS/WTR-012-MASTER.md"
+      },
+      "id": "WTR-012",
+      "kind": "project-management",
+      "title": "Permanent online project brain",
+      "summary": "Publish the canonical task registry and recover the historical evidence.",
+      "status": "IN_PROGRESS",
+      "history": [
+        {
+          "date": "2026-11-21",
+          "status": "IN_PROGRESS",
+          "evidence": "docs/WORK_ORDERS/WTR-012-MASTER.md"
+        }
+      ],
+      "nextAction": "Index historical sources and verify the cold-session handoff.",
+      "handoff": "Read docs/NEW_AI_HANDOFF.md and query the task index."
+    },
+    {
+      "checkedOn": "2026-11-21",
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "UNKNOWN",
+      "implementationSha": "afbe6e0e57b5d0a752303e39846538a439dda27d",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/122",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/123"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/actions/runs/44848641565/job/136674466173"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/123#issuecomment-7064118903"
+      ],
+      "blockers": [
+        "DEV-only static assets upload authorization has not been established."
+      ],
+      "dependencies": [],
+      "risks": [],
+      "tags": [
+        "credentials",
+        "KIT",
+        "TBR",
+        "arrival",
+        "DEV",
+        "Turso"
+      ],
+      "mergeStatus": "MERGED",
+      "releaseStatus": "DEPLOY_PENDING",
+      "runtimeVerification": "NOT_VERIFIED",
+      "claim": null,
+      "id": "WTR-011P",
+      "kind": "dev-release",
+      "title": "H-only arrival card and sealed DEV publisher",
+      "summary": "PRs #122 and #123 are merged to DEV. Provider credential compatibility is still open.",
+      "status": "BLOCKED",
+      "history": [
+        {
+          "date": "2026-11-21",
+          "status": "BLOCKED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/123#issuecomment-7064118903"
+        }
+      ],
+      "nextAction": "Resolve the provider permission and obtain an explicit DEV dispatch decision.",
+      "handoff": "Read docs/RELEASE_STATUS.md and both PRs before any release work."
+    }
+  ]
+}

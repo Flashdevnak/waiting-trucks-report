@@ -30,3 +30,5 @@ python3 tools/project-brain/import_github.py commits --history-input wtr-commits
 Before publishing a refresh, inspect public-safe metadata and preserve prior evidence when a record disappears. Reconcile registry rows based on Work Order, exact commit/PR identity and any required Owner approval.
 
 WTR-012 intake covered **2,631 unique commits** reachable from 170 branch heads and 123 advertised PR heads. The fetched PR heads did not add new unique commits to the branch-ancestry count. The two Brain checkpoint commits are recorded separately in the live ref and [baseline](../SYSTEM_BASELINE.md).
+
+New imports use public metadata fields, canonical WTR GitHub links and title/ref-derived task hints. A task hint supplies a search lead. Historic hints may have originated in PR/issue bodies and require the same evidence review. Missing rows in a new scan retain their existing observation, including in full scans, and an older observation cannot replace a newer timestamp. Open the underlying GitHub record for current state. Commit shards retain already indexed commits if an input omits their former branch.

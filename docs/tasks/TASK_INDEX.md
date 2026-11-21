@@ -1572,6 +1572,16 @@ Next action — Maintain the canonical registry, resume WTR-011P only with new p
 
 [Evidence 1](../../docs/WORK_ORDERS/WTR-012-MASTER.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/commit/521033cac670d7501db7e75d9bc3870bd89e9660) · [Evidence 3](../../docs/tasks/RECOVERY_GAPS.md)
 
+## WTR-012S
+
+**Permanent Project Brain security hardening** · IN_REVIEW · NOT_DEPLOYED
+
+Defensive hardening of public metadata import, registry review and handoff on the security branch.
+
+Next action — Review the security branch Draft PR and the Owner controls before considering merge.
+
+[Evidence 1](../../docs/WORK_ORDERS/WTR-012S.md)
+
 ## WTR-BRAIN-001
 
 **Initial Brain bootstrap** · SUPERSEDED · UNKNOWN

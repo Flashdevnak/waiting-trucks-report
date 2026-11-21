@@ -3,8 +3,14 @@
 import argparse
 import json
 import re
+import subprocess
+from datetime import date
 from pathlib import Path
-from urllib.parse import urlparse
+
+from security import (
+    atomic_write, markdown_text, repository_path, require_public_text,
+    strict_json, validate_reference,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,21 +41,57 @@ TEXT_FIELDS = (
 )
 
 
+TASK_ID = re.compile(r"[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+")
+SHA = re.compile(r"[a-f0-9]{40}")
+MISSING = {"UNKNOWN", "NOT_RECOVERED"}
+LIST_FIELDS = ("tags", "dependencies", "blockers", "risks", "releaseRisks")
+PROTECTED = ("ownerAuthorization", "mergeStatus", "releaseStatus", "runtimeVerification")
+
+
+def validate_claim(claim, root):
+    if not isinstance(claim, dict) or set(claim) != {"actor", "scope", "authorization"}:
+        raise ValueError("Task needs an auditable claim")
+    for field in ("actor", "scope"):
+        if not claim[field] or not isinstance(claim[field], str) or not claim[field].strip():
+            raise ValueError("Task needs an auditable claim")
+        require_public_text(claim[field], f"claim.{field}")
+    validate_reference(claim["authorization"], root)
+
+
+def validate_date(value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError("Malformed registry date")
+    date.fromisoformat(value)
+
+
 def validate(registry, root=ROOT):
-    if registry.get("schemaVersion") != 1:
+    if (not isinstance(registry, dict) or set(registry) != {"schemaVersion", "tasks"}
+            or type(registry["schemaVersion"]) is not int or registry["schemaVersion"] != 1):
         raise ValueError("Unknown task registry schema")
-    records = registry.get("tasks", [])
+    records = registry["tasks"]
     if not isinstance(records, list) or not records:
         raise ValueError("Registry must contain a non-empty task list")
     ids = set()
+    allowed_fields = set(TEXT_FIELDS + LINK_FIELDS + LIST_FIELDS) | {
+        "id", "status", "history", "claim", "historical", "artifacts",
+        "ownerAuthorization", "testSummary",
+    }
     for task in records:
-        task_id = task.get("id", "")
-        if not re.fullmatch(r"[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+", task_id) or task_id in ids:
-            raise ValueError(f"Invalid or duplicate task ID {task_id!r}")
+        if not isinstance(task, dict) or task.keys() - allowed_fields:
+            raise ValueError("Malformed task or unknown task field")
+        task_id = task.get("id")
+        if not isinstance(task_id, str) or not TASK_ID.fullmatch(task_id) or task_id in ids:
+            raise ValueError("Invalid or duplicate task ID")
         ids.add(task_id)
         for name in TEXT_FIELDS:
             if not isinstance(task.get(name), str) or not task[name].strip():
                 raise ValueError(f"{task_id}: missing {name}")
+            require_public_text(task[name], name)
+        validate_date(task["checkedOn"])
+        if "testSummary" in task:
+            require_public_text(task["testSummary"], "testSummary")
+        if "historical" in task and type(task["historical"]) is not bool:
+            raise ValueError("Malformed historical flag")
         for field, allowed in (
             ("status", TASK_STATUSES), ("releaseStatus", RELEASE_STATUSES),
             ("mergeStatus", MERGE_STATUSES), ("runtimeVerification", RUNTIME_STATUSES),
@@ -57,38 +99,42 @@ def validate(registry, root=ROOT):
             if task.get(field) not in allowed:
                 raise ValueError(f"{task_id}: invalid {field}")
         for field in ("baseSha", "implementationSha"):
-            value = task[field]
-            if value not in ("UNKNOWN", "NOT_RECOVERED") and not re.fullmatch(r"[a-f0-9]{40}", value):
+            if task[field] not in MISSING and not SHA.fullmatch(task[field]):
                 raise ValueError(f"{task_id}: malformed {field}")
         for field in LINK_FIELDS:
             references = task.get(field)
             if not isinstance(references, list):
                 raise ValueError(f"{task_id}: {field} must be a list of references")
-            for ref in references:
-                web = urlparse(ref)
-                if web.scheme:
-                    if web.scheme != "https" or not web.netloc:
-                        raise ValueError(f"{task_id}: invalid reference in {field}")
-                    continue
-                local = (root / web.path).resolve()
-                if not local.is_relative_to(root.resolve()) or not local.is_file():
-                    raise ValueError(f"{task_id}: missing local reference {ref}")
-        for field in ("tags", "dependencies", "blockers", "risks"):
-            if not isinstance(task.get(field), list) or not all(isinstance(v, str) for v in task[field]):
+            for reference in references:
+                validate_reference(reference, root)
+        for field in LIST_FIELDS:
+            values = task.get(field, [] if field == "releaseRisks" else None)
+            if not isinstance(values, list):
                 raise ValueError(f"{task_id}: {field} must be a list of strings")
+            for value in values:
+                require_public_text(value, field)
+        if "ownerAuthorization" in task and task["ownerAuthorization"] not in tuple(MISSING):
+            validate_reference(task["ownerAuthorization"], root)
+        validate_artifacts(task.get("artifacts", []), root)
         history = task.get("history")
-        if not isinstance(history, list) or not history or history[-1].get("status") != task["status"]:
-            raise ValueError(f"{task_id}: current status must match last history entry")
+        if not isinstance(history, list) or not history:
+            raise ValueError(f"{task_id}: missing history")
         for event in history:
-            if event.get("status") not in TASK_STATUSES or not event.get("date") or not event.get("evidence"):
-                raise ValueError(f"{task_id}: incomplete history event")
-        if task["status"] == "IN_PROGRESS":
-            claim = task.get("claim")
-            if not isinstance(claim, dict) or not all(claim.get(key) for key in ("actor", "scope", "authorization")):
-                raise ValueError(f"{task_id}: needs an auditable claim")
+            if (not isinstance(event, dict) or set(event) != {"date", "status", "evidence"}
+                    or event["status"] not in TASK_STATUSES):
+                raise ValueError(f"{task_id}: malformed history event")
+            validate_date(event["date"])
+            validate_reference(event["evidence"], root)
+        if history[-1]["status"] != task["status"]:
+            raise ValueError(f"{task_id}: current status must match last history entry")
+        if [e["date"] for e in history] != sorted(e["date"] for e in history):
+            raise ValueError(f"{task_id}: history dates are out of order")
+        claim = task.get("claim")
+        if task["status"] == "IN_PROGRESS" or claim is not None:
+            validate_claim(claim, root)
         if task["status"] == "BLOCKED" and not task["blockers"]:
             raise ValueError(f"{task_id}: missing blocker")
-        if task["status"] in {"IN_PROGRESS", "BLOCKED"} and {task["nextAction"], task["handoff"]} & {"UNKNOWN", "NOT_RECOVERED"}:
+        if task["status"] in {"IN_PROGRESS", "BLOCKED"} and {task["nextAction"], task["handoff"]} & MISSING:
             raise ValueError(f"{task_id}: actionable handoff required")
         if task["releaseStatus"] == "DEV_RUNTIME_VERIFIED" and task["runtimeVerification"] != "VERIFIED":
             raise ValueError(f"{task_id}: release and runtime statuses conflict")
@@ -97,9 +143,80 @@ def validate(registry, root=ROOT):
     for task in records:
         for dependency in task["dependencies"]:
             if dependency not in ids or dependency == task["id"]:
-                raise ValueError(f"{task['id']}: invalid dependency {dependency}")
+                raise ValueError(f"{task['id']}: invalid dependency")
     return records
 
+
+def validate_artifacts(artifacts, root):
+    if not isinstance(artifacts, list):
+        raise ValueError("Malformed artifact list")
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or set(artifact) != {"name", "sha256", "availability", "durableDownload"}:
+            raise ValueError("Malformed artifact metadata")
+        if any(not isinstance(value, str) for value in artifact.values()):
+            raise ValueError("Malformed artifact metadata")
+        require_public_text(artifact["name"], "artifact.name")
+        if not re.fullmatch(r"[A-Za-z0-9_. ()-]+", artifact["name"]) or not re.fullmatch(r"[a-f0-9]{64}", artifact["sha256"]):
+            raise ValueError("Malformed artifact metadata")
+        if artifact["availability"] not in {"LOCAL_ONLY", "PUBLIC", "NOT_RECOVERED", "UNKNOWN"}:
+            raise ValueError("Malformed artifact availability")
+        if artifact["durableDownload"] not in MISSING:
+            validate_reference(artifact["durableDownload"], root)
+
+
+def validate_transition(previous, records, reviewed=()):
+    """Check a fresh trusted base. Review flags come from the operator, not the registry."""
+    old_tasks = {task["id"]: task for task in previous["tasks"]}
+    new_tasks = {task["id"]: task for task in records}
+    if old_tasks.keys() - new_tasks.keys():
+        raise ValueError("Existing task IDs cannot be removed or renamed")
+    if set(reviewed) - new_tasks.keys():
+        raise ValueError("Reviewed task ID is absent")
+    for task_id, task in new_tasks.items():
+        old = old_tasks.get(task_id)
+        if old:
+            history = old["history"]
+            if task["history"][:len(history)] != history:
+                raise ValueError(f"{task_id}: history must be append-only")
+            if any(not set(old[field]).issubset(task[field]) for field in LINK_FIELDS):
+                raise ValueError(f"{task_id}: prior evidence must be preserved")
+            if any(artifact not in task.get("artifacts", []) for artifact in old.get("artifacts", [])):
+                raise ValueError(f"{task_id}: prior artifact metadata must be preserved")
+            if old.get("claim") and task.get("claim") and old["claim"]["actor"] != task["claim"]["actor"]:
+                raise ValueError(f"{task_id}: existing claim must be released before transfer")
+        checked_fields = [field for field in PROTECTED if old and old.get(field) != task.get(field)]
+        if not old and (task.get("ownerAuthorization") not in (None, *MISSING)
+                        or task["mergeStatus"] == "MERGED"
+                        or task["releaseStatus"] not in {"UNKNOWN", "NOT_DEPLOYED"}
+                        or task["runtimeVerification"] not in {"UNKNOWN", "NOT_VERIFIED", "NOT_APPLICABLE"}):
+            checked_fields.append("new authority or release assertion")
+        if (old.get("claim") if old else None) != task.get("claim"):
+            checked_fields.append("claim")
+        if checked_fields and task_id not in reviewed:
+            raise ValueError(f"{task_id}: independent Owner review required for {', '.join(checked_fields)}")
+        if task["status"] == "COMPLETED" and (not old or old["status"] != "COMPLETED"):
+            if (not SHA.fullmatch(task["implementationSha"]) or not task["evidence"] or not task["tests"]
+                    or task["history"][-1]["evidence"] not in task["tests"] + task["evidence"]):
+                raise ValueError(f"{task_id}: completion requires implementation, tests and outcome evidence")
+            if task_id not in reviewed:
+                raise ValueError(f"{task_id}: independent Owner review required for completion")
+
+
+def validate_base(ref, tasks, reviewed, review_release):
+    if not SHA.fullmatch(ref):
+        raise ValueError("Fresh exact Brain base SHA required")
+
+    def prior(name):
+        return subprocess.check_output(["git", "show", f"{ref}:{name}"], cwd=ROOT)
+
+    subprocess.run(["git", "merge-base", "--is-ancestor", ref, "HEAD"], check=True, cwd=ROOT)
+    validate_transition(strict_json(prior("docs/tasks/TASK_REGISTRY.json")), tasks, reviewed)
+    decisions = repository_path(ROOT, "DECISION_LOG.md").read_bytes()
+    if not decisions.startswith(prior("DECISION_LOG.md")):
+        raise ValueError("Decision history must be append-only")
+    release = repository_path(ROOT, "docs/RELEASE_STATUS.md").read_bytes()
+    if release != prior("docs/RELEASE_STATUS.md") and not review_release:
+        raise ValueError("Independent Owner release review required")
 
 def find(tasks, query):
     exact = [t for t in tasks if t["id"].casefold() == query.casefold()]
@@ -124,8 +241,8 @@ def render(tasks, *, check=False):
                     continue
             lines += [
                 f"## {task['id']}", "",
-                f"**{task['title']}** · {task['status']} · {task['releaseStatus']}",
-                "", task["summary"], "", f"Next action — {task['nextAction']}", "",
+                f"**{markdown_text(task['title'])}** · {task['status']} · {task['releaseStatus']}",
+                "", markdown_text(task["summary"]), "", f"Next action — {markdown_text(task['nextAction'])}", "",
             ]
             links = list(dict.fromkeys(task["workOrders"] + task["pullRequests"] + task["evidence"]))[:3]
             if links:
@@ -134,20 +251,28 @@ def render(tasks, *, check=False):
                     for i, link in enumerate(links, 1)
                 ), ""]
         result = "\n".join(lines)
-        path = TASKS / filename
+        path = repository_path(ROOT, (TASKS / filename).relative_to(ROOT))
         if check:
             if not path.exists() or path.read_text(encoding="utf-8") != result:
                 raise ValueError(f"Stale generated view {filename}; run render")
         else:
-            path.write_text(result, encoding="utf-8")
+            atomic_write(ROOT, path, result)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("validate", "render", "find", "handoff"))
     parser.add_argument("query", nargs="?")
+    parser.add_argument("--base-ref", help="fresh canonical Brain commit SHA, for pre-publication checks")
+    parser.add_argument("--reviewed-task", action="append", default=[], help="ID after independent Owner review")
+    parser.add_argument("--review-release", action="store_true", help="confirm separate Owner review for release document")
     args = parser.parse_args()
-    tasks = validate(json.loads((TASKS / "TASK_REGISTRY.json").read_text(encoding="utf-8")))
+    path = repository_path(ROOT, "docs/tasks/TASK_REGISTRY.json")
+    tasks = validate(strict_json(path.read_bytes()))
+    if args.base_ref:
+        validate_base(args.base_ref, tasks, args.reviewed_task, args.review_release)
+    elif args.reviewed_task or args.review_release:
+        parser.error("review flags require --base-ref")
     if args.command in ("validate", "render"):
         render(tasks, check=args.command == "validate")
         print(f"Registry {args.command}: {len(tasks)} tasks")
@@ -169,5 +294,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError) as error:
-        raise SystemExit(str(error)) from error
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        message = "Registry JSON is malformed" if isinstance(error, json.JSONDecodeError) else str(error)
+        raise SystemExit(message) from None

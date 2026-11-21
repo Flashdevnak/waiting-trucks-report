@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/wtr-011p-h-only-publisher-guard
+      - feature/wtr-011p-dev-credential-boundary
     paths:
       - .github/workflows/wtr-011p-publisher-validation.yml
       - .github/dev-tools/wtr-011p-local-upload-capture.mjs
@@ -18,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: wtr-011o-one-shot-publisher-audit
+  group: ${{ github.ref == 'refs/heads/feature/wtr-011p-dev-credential-boundary' && 'wtr-011p-credential-boundary' || 'wtr-011o-one-shot-publisher-audit' }}
   cancel-in-progress: true
 
 jobs:
@@ -37,50 +38,142 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Confirm pinned DEV ancestry and test-only changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          changes="$RUNNER_TEMP/wtr011p-changed.txt"
+          case "$GITHUB_REF" in
+            refs/heads/feature/wtr-011p-h-only-publisher-guard)
+              base=e6fe36b01b34866f6f90294df572f0dd015913d5
+              git merge-base --is-ancestor "$base" HEAD
+              git diff --name-only "$base" HEAD | sort > "$changes"
+              test "$(wc -l < "$changes")" -eq 15
+              grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' "$changes"
+              grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' "$changes"
+              grep -Fxq '.github/dev-tools/wtr-011p-local-upload-capture.mjs' "$changes"
+              grep -Fxq '.github/dev-tools/wtr011p-h-only-candidate-scope.json' "$changes"
+              grep -Fxq '.github/dev-tools/wtr011p-sealed-publisher.mjs' "$changes"
+              grep -Fxq '.github/dev-tools/wtr011p-dependency-trust.mjs' "$changes"
+              grep -Fxq '.github/dev-tools/wtr011p-dependency-trust.test.mjs' "$changes"
+              grep -Fxq '.github/workflows/deploy-worker-dev.yml' "$changes"
+              grep -Fxq '.github/dev-tools/wtr011p-dev-candidate-identity.json' "$changes"
+              grep -Fxq '.github/dev-tools/verify-wtr009-dev-identity.mjs' "$changes"
+              grep -Fxq '.github/dev-tools/wtr009-dev-identity.test.mjs' "$changes"
+              grep -Fxq '.github/dev-tools/ms-unload-completion-ui.test.mjs' "$changes"
+              grep -Fxq '.github/dev-tools/stage-dev-runtime.test.mjs' "$changes"
+              grep -Fxq '.github/dev-tools/pno-final-contract-artifact-v3.mjs' "$changes"
+              grep -Fxq '.github/dev-tools/pno-destination-summary-rev73.test.mjs' "$changes"
+              ;;
+            refs/heads/feature/wtr-011p-dev-credential-boundary)
+              base=c090743b174a18e32d5bb93ee649e3d70fff3210
+              git merge-base --is-ancestor "$base" HEAD
+              git diff --no-renames --name-only "$base" HEAD | LC_ALL=C sort > "$changes"
+              diff -u "$changes" - <<'PATHS'
+          .github/dev-tools/dev-deploy-ref-guard.test.mjs
+          .github/dev-tools/verify-wtr009-dev-identity.mjs
+          .github/dev-tools/wtr011p-dev-candidate-identity.json
+          .github/workflows/deploy-worker-dev.yml
+          .github/workflows/wtr-011p-publisher-validation.yml
+          PATHS
+              test "$(git diff --no-renames --diff-filter=D --name-only "$base" HEAD)" = ""
+              ;;
+            *) echo 'Unauthorized publisher validation ref' >&2; exit 1 ;;
+          esac
+          printf 'WTR_VALIDATION_BASE=%s\n' "$base" >> "$GITHUB_ENV"
+          printf 'VALIDATION_HEAD=%s VALIDATION_BASE=%s\n' "$GITHUB_SHA" "$base"
+          test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
+          echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
       - name: Report exact candidate source hashes (NOT OWNER APPROVAL)
         working-directory: .
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json,subprocess,pathlib,hashlib
-          names=subprocess.check_output(['git','diff','--name-only','e6fe36b01b34866f6f90294df572f0dd015913d5','HEAD'],text=True).splitlines()
+          import json,subprocess,pathlib,hashlib,os
+          names=subprocess.check_output(['git','diff','--name-only',os.environ['WTR_VALIDATION_BASE'],'HEAD'],text=True).splitlines()
           for name in sorted(names):
               if name=='.github/dev-tools/wtr011p-dev-candidate-identity.json':continue
               data=pathlib.Path(name).read_bytes()
               print('CANDIDATE_FILE_SHA='+json.dumps({'name':name,'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)},sort_keys=True))
           PY
-      - name: Confirm pinned DEV ancestry and test-only changes
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF" = "refs/heads/feature/wtr-011p-h-only-publisher-guard"
-          git merge-base --is-ancestor e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD
-          git diff --name-only e6fe36b01b34866f6f90294df572f0dd015913d5 HEAD | sort > /tmp/wtr011p-changed.txt
-          test "$(wc -l < /tmp/wtr011p-changed.txt)" -eq 15
-          grep -Fxq '.github/dev-tools/patch-ms-route-cancellation-compat.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/workflows/wtr-011p-publisher-validation.yml' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/wtr-011p-local-upload-capture.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/wtr011p-h-only-candidate-scope.json' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/wtr011p-sealed-publisher.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/wtr011p-dependency-trust.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/wtr011p-dependency-trust.test.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/workflows/deploy-worker-dev.yml' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/wtr011p-dev-candidate-identity.json' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/verify-wtr009-dev-identity.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/wtr009-dev-identity.test.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/ms-unload-completion-ui.test.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/stage-dev-runtime.test.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/pno-final-contract-artifact-v3.mjs' /tmp/wtr011p-changed.txt
-          grep -Fxq '.github/dev-tools/pno-destination-summary-rev73.test.mjs' /tmp/wtr011p-changed.txt
-          test "$(sha256sum .github/dev-tools/wtr009-dev-identity.json | cut -d' ' -f1)" = '7b3e557cdb7e481a0eafc798e2f4f06115d9f4d792cf52bf39fcc0b975aa0c30'
-          echo 'AUDIT_ONLY_SOURCE_SCOPE=PASS'
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22.16.0
           cache: npm
           cache-dependency-path: worker/package-lock.json
+      - name: Validate DEV workflow YAML, refs, credential boundary and candidate source (PR 123)
+        if: github.ref == 'refs/heads/feature/wtr-011p-dev-credential-boundary'
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import yaml
+
+          def read_workflow(path):
+              return yaml.load(Path(path).read_text(), Loader=yaml.BaseLoader)
+
+          validation_path = '.github/workflows/wtr-011p-publisher-validation.yml'
+          validation = read_workflow(validation_path)
+          assert set(validation['on']) == {'push'}
+          assert validation['permissions'] == {'contents': 'read'}
+          secret_context = 'secrets' + '.'
+          assert secret_context not in Path(validation_path).read_text()
+          workflow = read_workflow('.github/workflows/deploy-worker-dev.yml')
+          assert set(workflow['on']) == {'workflow_dispatch'}
+          assert set(workflow['on']['workflow_dispatch']['inputs']) == {
+              'approved_source_sha', 'approved_identity_kind', 'approved_identity_sha256',
+              'approved_publisher_scope_sha256',
+          }
+          assert 'env' not in workflow
+          job = workflow['jobs']['deploy']
+          assert set(job['env']) == {'WTR_DEV_IDENTITY_KIND', 'WTR_APPROVED_IDENTITY_SHA256'}
+          steps = {step.get('name'): step for step in job['steps']}
+          prepare = steps['Prepare DEV sealed publisher dependencies']
+          publish_name = 'Deploy DEV Worker on Turso via WTR-011P sealed publisher'
+          publish = steps[publish_name]
+          assert prepare['run'] == publish['run'] and prepare['if'] == publish['if']
+          assert prepare['env']['WTR_SEALED_PUBLISHER_MODE'] == 'prepare-dependencies'
+          assert publish['env']['WTR_SEALED_PUBLISHER_MODE'] == 'publish'
+          tokens = {
+              publish_name: 'CLOUDFLARE_DEV_PUBLISH_API_TOKEN',
+              'Verify Turso and auth secrets exist on DEV Worker': 'CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN',
+              'Verify active Worker has zero D1 bindings': 'CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN',
+              'Collect sanitized DEV acceptance from existing runtime cycles': 'CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN',
+          }
+          expression = '$' + '{{ ' + secret_context
+          assert set(tokens).issubset(steps)
+          for step in job['steps']:
+              env = step.get('env', {})
+              token = tokens.get(step.get('name'))
+              expected = {} if token is None else {
+                  'CLOUDFLARE_API_TOKEN': expression + token + ' }}',
+                  'CLOUDFLARE_ACCOUNT_ID': expression + 'CLOUDFLARE_ACCOUNT_ID }}',
+              }
+              assert {k: v for k, v in env.items() if k.startswith(('CLOUDFLARE_', 'CF_')) or secret_context in v} == expected
+          for job_to_check in (job, validation['jobs']['publisher-dry-run']):
+              for step in job_to_check['steps']:
+                  if 'run' in step:
+                      subprocess.run(['bash', '-n'], input=step['run'], text=True, check=True)
+          print('DEV_WORKFLOW_YAML_AND_CREDENTIAL_BOUNDARY=PASS')
+          PY
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID CF_API_TOKEN CF_API_KEY CF_ACCOUNT_ID; do
+            if [[ -v "$name" ]]; then echo "Unexpected provider credential variable: $name" >&2; exit 1; fi
+          done
+          node --test .github/dev-tools/dev-deploy-ref-guard.test.mjs
+          export WTR_DEV_IDENTITY_KIND=candidate
+          export WTR_APPROVED_IDENTITY_SHA256="$(sha256sum .github/dev-tools/wtr011p-dev-candidate-identity.json | cut -d' ' -f1)"
+          node --input-type=module <<'NODE'
+          import { loadSelectedIdentity } from './.github/dev-tools/verify-wtr009-dev-identity.mjs';
+          const candidate = loadSelectedIdentity(process.cwd());
+          console.log('CANDIDATE_SOURCE_IDENTITY=PASS files=' + candidate.sourceCount);
+          console.log('CANDIDATE_SHA256=' + process.env.WTR_APPROVED_IDENTITY_SHA256);
+          NODE
       - name: Install locked Wrangler without Cloudflare credentials
         working-directory: worker
         shell: bash

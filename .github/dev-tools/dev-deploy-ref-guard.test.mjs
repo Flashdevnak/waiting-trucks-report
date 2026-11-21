@@ -24,7 +24,8 @@ function step(name) {
 }
 
 const guard = step("Authorize DEV source ref");
-const deploy = step("Deploy DEV Worker on Turso");
+const prepare = step("Prepare DEV sealed publisher dependencies");
+const deploy = step("Deploy DEV Worker on Turso via WTR-011P sealed publisher");
 const guardRunMarker = "        run: |\n";
 assert.ok(guard.text.includes(guardRunMarker), "DEV authorization must execute a shell guard");
 const guardScript = guard.text.split(guardRunMarker)[1].split("\n")
@@ -48,23 +49,27 @@ function runGuard({ event = "workflow_dispatch", ref, refName = "", sha = "a".re
   });
 }
 
-const deployExpression = deploy.text.match(/if: \$\{\{ (.*?) \}\}/)?.[1];
-assert.ok(deployExpression, "deploy condition missing");
-// Evaluate only this closed boolean grammar; no Actions functions or loose ref matching.
-assert.match(deployExpression, /^github\.event_name == 'workflow_dispatch' && \(github\.ref == 'refs\/heads\/codex\/dev-recovery-contract-v2' \|\| github\.ref == 'refs\/heads\/codex\/dev-ms-late-settle-provenance-v1' \|\| github\.ref == 'refs\/heads\/codex\/dev-lh-manifest-accepted-truth-adaptive-refresh-v1' \|\| github\.ref == 'refs\/heads\/codex\/dev-ms-turso-critical-path-phase-provenance-v1'\)$/);
-const evaluateDeploy = new Function("github", `return (${deployExpression});`);
-function deployAllowed({ event = "workflow_dispatch", ref, refName = "", sha = "a".repeat(40) }) {
-  return evaluateDeploy({ event_name: event, ref, ref_name: refName, sha });
+const dispatchExpression = "github.event_name == 'workflow_dispatch' && env.WTR_DEV_IDENTITY_KIND == 'candidate' && github.ref == 'refs/heads/codex/dev-recovery-contract-v2'";
+for (const publisherStep of [prepare, deploy]) {
+  assert.equal(publisherStep.text.match(/if: \$\{\{ (.*?) \}\}/)?.[1], dispatchExpression);
+}
+// Execute only the exact condition checked above.
+const evaluateDeploy = new Function("github", "env", `return (${dispatchExpression});`);
+function deployAllowed({ event = "workflow_dispatch", ref, identityKind = "candidate" }) {
+  return evaluateDeploy({ event_name: event, ref }, { WTR_DEV_IDENTITY_KIND: identityKind });
 }
 
-test("shell guard and deploy gate authorize exactly the same four full refs", () => {
+test("shell guard preserves four full refs while the publisher is pinned to DEV candidate", () => {
   const refs = text => [...new Set([...text.matchAll(/refs\/heads\/codex\/[a-z0-9-]+/g)].map(match => match[0]))].sort();
   assert.deepEqual(refs(guardScript), [...allowedRefs].sort());
-  assert.deepEqual(refs(deployExpression), [...allowedRefs].sort());
-  assert.doesNotMatch(guardScript + deployExpression, /contains\(|startsWith\(|codex\/\*|GITHUB_REF_NAME/);
+  assert.deepEqual(refs(dispatchExpression), [allowedRef]);
+  assert.doesNotMatch(guardScript + dispatchExpression, /contains\(|startsWith\(|codex\/\*|GITHUB_REF_NAME/);
   for (const ref of allowedRefs) for (const sha of ["0".repeat(40), "f".repeat(40)]) {
     assert.equal(runGuard({ ref, sha }).status, 0);
-    assert.equal(deployAllowed({ ref, sha }), true);
+    assert.equal(deployAllowed({ ref, sha }), ref === allowedRef);
+  }
+  for (const identityKind of ["golden", "", "unreviewed"]) {
+    assert.equal(deployAllowed({ ref: allowedRef, identityKind }), false);
   }
 });
 
@@ -86,10 +91,11 @@ test("the real workflow guards before checkout and gates its DEV mutation", () =
   assert.ok(guard.start < deploy.start);
   assert.ok(workflow.includes("      - name: Verify DEV ref guard contract\n        run: node --test ../.github/dev-tools/dev-deploy-ref-guard.test.mjs"));
   assert.ok(workflow.indexOf("      - name: Verify DEV ref guard contract") < deploy.start);
-  assert.ok(deploy.text.includes("        if: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/codex/dev-recovery-contract-v2' || github.ref == 'refs/heads/codex/dev-ms-late-settle-provenance-v1' || github.ref == 'refs/heads/codex/dev-lh-manifest-accepted-truth-adaptive-refresh-v1' || github.ref == 'refs/heads/codex/dev-ms-turso-critical-path-phase-provenance-v1') }}"));
-  assert.match(deploy.text, /run: npx wrangler deploy \.dev-runtime\/src\/turso-index\.js --config wrangler\.dev\.jsonc/);
-  assert.equal((workflow.match(/wrangler deploy /g) || []).length, 1);
-  assert.doesNotMatch(workflow.slice(0, deploy.start), /\bwrangler\s+(?:deploy|secret\s+(?:put|delete))\b|cloudflare\/wrangler-action@/i);
+  assert.ok(prepare.start < deploy.start);
+  assert.match(prepare.text, /launch_sealed_publisher prepare-dependencies/);
+  assert.match(prepare.text, /launch_sealed_publisher publish/);
+  assert.match(deploy.text, /run: \*wtr011p_sealed_launcher/);
+  assert.doesNotMatch(workflow, /\bwrangler\s+(?:deploy|secret\s+(?:put|delete))\b|cloudflare\/wrangler-action@/i);
 });
 
 for (const [name, scenario, allowed] of [
@@ -142,9 +148,29 @@ for (const [name, scenario, allowed] of [
     const result = runGuard(scenario);
     assert.equal(result.status === 0, allowed, result.stderr);
     if (!allowed) assert.match(result.stderr, /DEV deployment refused: unauthorized source ref/);
-    assert.equal(deployAllowed(scenario), allowed, "deploy condition must match shell authorization");
+    assert.equal(deployAllowed(scenario), allowed && scenario.ref === allowedRef,
+      "the sealed publisher must only accept a manual DEV candidate");
   });
 }
+
+test("provider credentials are scoped to sealed publish and DEV observability steps", () => {
+  const observe = [
+    step("Verify Turso and auth secrets exist on DEV Worker"),
+    step("Verify active Worker has zero D1 bindings"),
+    step("Collect sanitized DEV acceptance from existing runtime cycles"),
+  ];
+  const prefix = workflow.slice(0, workflow.indexOf("    steps:\n"));
+  assert.doesNotMatch(prefix + prepare.text, /\$\{\{ secrets\.CLOUDFLARE_/);
+  assert.doesNotMatch(workflow, /secrets\.CLOUDFLARE_API_TOKEN\b/);
+  assert.equal([...workflow.matchAll(/\$\{\{ secrets\.CLOUDFLARE_DEV_PUBLISH_API_TOKEN \}\}/g)].length, 1);
+  assert.match(deploy.text, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_DEV_PUBLISH_API_TOKEN \}\}/);
+  assert.equal([...workflow.matchAll(/\$\{\{ secrets\.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN \}\}/g)].length, 3);
+  for (const target of observe) {
+    assert.match(target.text, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN \}\}/);
+  }
+  assert.doesNotMatch(observe[0].text, /npx|node_modules/);
+  assert.match(observe[0].text, /waiting-trucks-report-api-dev\/secrets/);
+});
 
 test("application staging block matches the reviewed DEV CSS asset contract", () => {
   const start = workflow.indexOf("      - name: Stage DEV runtime and enforce checkpoint contracts\n");

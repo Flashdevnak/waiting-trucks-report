@@ -6535,30 +6535,35 @@
     {
       "id": "WTR-011R",
       "title": "Qualify remaining KIT/TBR arrival and Drop changes",
-      "summary": "Current feature qualification backlog; exact occurrence and prior TBR-only admission remain unproven. The H-only WTR-011P release does not resolve these predicates.",
-      "status": "BACKLOG",
+      "summary": "B1 and B2 reproduced offline on exact staged DEV source. Neither exact occurrence nor recoverable prior TBR-only admission can be proven from the available evidence.",
+      "status": "BLOCKED",
       "kind": "feature",
-      "checkedOn": "2026-11-21",
+      "checkedOn": "2026-11-22",
       "historical": true,
       "sourceBranch": "codex/dev-recovery-contract-v2",
-      "workingBranch": "UNKNOWN",
-      "baseSha": "UNKNOWN",
+      "workingBranch": "docs/wtr-011r-gate-b-handoff",
+      "baseSha": "afbe6e0e57b5d0a752303e39846538a439dda27d",
       "implementationSha": "UNKNOWN",
       "mergeStatus": "UNKNOWN",
       "releaseStatus": "NOT_DEPLOYED",
       "runtimeVerification": "NOT_VERIFIED",
       "workOrders": [
-        "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md"
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md",
+        "docs/WTR-011R_GATE_B_EVIDENCE.md"
       ],
       "pullRequests": [],
       "issues": [],
-      "tests": [],
+      "tests": [
+        "docs/WTR-011R_GATE_B_EVIDENCE.md#focused-test-evidence"
+      ],
       "evidence": [
         "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md",
-        "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md"
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md",
+        "docs/WTR-011R_GATE_B_EVIDENCE.md"
       ],
       "blockers": [
-        "Exact occurrence / prior admission evidence and Owner authorization."
+        "B1 requires a stable shared Route to BusTime occurrence identifier or an authoritative crosswalk.",
+        "B2 requires a prior admission receipt tied to the exact occurrence and recoverable after restart."
       ],
       "dependencies": [
         "WTR-011F"
@@ -6571,15 +6576,21 @@
         "source provenance"
       ],
       "claim": null,
-      "nextAction": "Prepare a bounded evidence-only qualification plan for exact occurrence and prior admission. Request separate Owner scope before implementation.",
-      "handoff": "Open linked evidence and check the recorded branch and SHA against GitHub.",
+      "nextAction": "Request the existing field contract and prior admission evidence using the cases in the evidence record. Ask separately before any passive observation or local implementation.",
+      "handoff": "Read the Gate B evidence record and WTR-011E/F package references. Recheck DEV and Brain SHAs. Targeted Node 22 execution and live evidence remain unverified.",
       "history": [
         {
           "date": "2026-11-21",
           "status": "BACKLOG",
           "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md"
+        },
+        {
+          "date": "2026-11-22",
+          "status": "BLOCKED",
+          "evidence": "docs/WTR-011R_GATE_B_EVIDENCE.md"
         }
-      ]
+      ],
+      "testSummary": "Node 24.22.3. DEV occurrence 3/8 with the same five Golden failures. B+E 6/8. Witnesses 5/5, contracts 31/33 with two baseline failures, targeted provenance 5/5. Node 22 not verified."
     },
     {
       "checkedOn": "2026-11-21",
@@ -6746,33 +6757,40 @@
     {
       "id": "WTR-012S",
       "title": "Permanent Project Brain security hardening",
-      "summary": "Defensive hardening of public metadata import, registry review and handoff on the security branch.",
+      "summary": "Both security fixes accepted and merged through PR 124 into the protected Brain. GitHub merge and focused tests are linked.",
       "kind": "security",
-      "status": "IN_REVIEW",
-      "checkedOn": "2026-11-21",
+      "status": "COMPLETED",
+      "checkedOn": "2026-11-22",
       "historical": false,
       "sourceBranch": "project-brain/wtr",
       "workingBranch": "security/wtr-012s",
       "baseSha": "d5c131a22f120bd7e82effef453f33f06c372de8",
-      "implementationSha": "UNKNOWN",
-      "mergeStatus": "UNMERGED",
+      "implementationSha": "133f3c54258a9e4a40032c11268a62048db44054",
+      "mergeStatus": "MERGED",
       "releaseStatus": "NOT_DEPLOYED",
       "runtimeVerification": "NOT_APPLICABLE",
       "workOrders": [
         "docs/WORK_ORDERS/WTR-012S.md"
       ],
-      "pullRequests": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/124"
+      ],
       "issues": [],
-      "tests": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/124#issuecomment-7065536001"
+      ],
       "evidence": [
-        "docs/WORK_ORDERS/WTR-012S.md"
+        "docs/WORK_ORDERS/WTR-012S.md",
+        "https://github.com/Flashdevnak/waiting-trucks-report/commit/e8c3a0eda92d2380bedc0b8632534b9e46a8e19c",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/124#issuecomment-7065785947",
+        "DECISION_LOG.md"
       ],
       "blockers": [],
       "dependencies": [
         "WTR-012"
       ],
       "risks": [
-        "Effective GitHub rule enforcement needs Owner verification."
+        "Sole-writer ruleset has zero required GitHub approvals. No independent GitHub approval was recorded."
       ],
       "tags": [
         "security",
@@ -6780,13 +6798,63 @@
         "registry"
       ],
       "claim": null,
-      "nextAction": "Review the security branch Draft PR and the Owner controls before considering merge.",
-      "handoff": "Fetch the security branch and look up the Draft PR by exact head. Keep the original 160 records and use WTR-011R for the existing feature backlog.",
+      "nextAction": "Use the protected Brain and existing focused checks for subsequent Brain maintenance.",
+      "handoff": "Use the exact PR, merge commit and Owner authorization checkpoint. Review remains separate from future merge or release permissions.",
       "history": [
         {
           "date": "2026-11-21",
           "status": "IN_REVIEW",
           "evidence": "docs/WORK_ORDERS/WTR-012S.md"
+        },
+        {
+          "date": "2026-11-22",
+          "status": "COMPLETED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/124#issuecomment-7065785947"
+        }
+      ],
+      "ownerAuthorization": "https://github.com/Flashdevnak/waiting-trucks-report/pull/124#issuecomment-7065785947",
+      "testSummary": "26/26 focused tests reported from the final fresh-clone candidate and reproduced on the merged Brain tree during WTR-011R."
+    },
+    {
+      "id": "WTR-013",
+      "title": "Investigate intermittent MS database degraded warning",
+      "summary": "Last in the feature and repair backlog. Incident evidence remains private.",
+      "kind": "repair",
+      "status": "BACKLOG",
+      "checkedOn": "2026-11-22",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "UNKNOWN",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [],
+      "issues": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/issues/125"
+      ],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/issues/125"
+      ],
+      "blockers": [],
+      "dependencies": [],
+      "risks": [],
+      "tags": [
+        "MS",
+        "Turso",
+        "backlog"
+      ],
+      "claim": null,
+      "nextAction": "Keep last in the backlog. Resume only on separate Owner prioritization.",
+      "handoff": "Start from Issue 125 and obtain Owner-approved sanitized evidence before any incident investigation.",
+      "history": [
+        {
+          "date": "2026-11-22",
+          "status": "BACKLOG",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/issues/125"
         }
       ]
     }

@@ -112,6 +112,16 @@ Next action — Maintain the canonical registry, resume WTR-011P only with new p
 
 [Evidence 1](../../docs/WORK_ORDERS/WTR-012-MASTER.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/commit/521033cac670d7501db7e75d9bc3870bd89e9660) · [Evidence 3](../../docs/tasks/RECOVERY_GAPS.md)
 
+## WTR-012S
+
+**Permanent Project Brain security hardening** · COMPLETED · NOT_DEPLOYED
+
+Both security fixes accepted and merged through PR 124 into the protected Brain. GitHub merge and focused tests are linked.
+
+Next action — Use the protected Brain and existing focused checks for subsequent Brain maintenance.
+
+[Evidence 1](../../docs/WORK_ORDERS/WTR-012S.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/124) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/commit/e8c3a0eda92d2380bedc0b8632534b9e46a8e19c)
+
 ## WTR-BRAIN-001
 
 **Initial Brain bootstrap** · SUPERSEDED · UNKNOWN

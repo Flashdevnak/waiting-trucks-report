@@ -1,0 +1,77 @@
+name: WTR Storage DEV Offline Export Pilot (Manual Only)
+
+# No PR, push or schedule trigger. Draft PR creation cannot run this.
+# This is NOT a deploy or database migration path.
+on:
+  workflow_dispatch:
+    inputs:
+      approved_dev_sha:
+        description: 'Exact reviewed DEV SHA (40 hex)'
+        required: true
+        type: string
+      approved_pilot_sha:
+        description: 'Exact reviewed PR #128 pilot commit (40 hex)'
+        required: true
+        type: string
+      approved_database:
+        description: 'Exact Turso DEV database name'
+        required: true
+        type: string
+      export_consent:
+        description: 'Type EXPORT_DEV_OFFLINE_ONLY after approval to process DEV business data on this runner'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wtr-storage-export-dev-sole-runner
+  cancel-in-progress: false
+
+jobs:
+  offline-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify source and manual Owner inputs (no secrets)
+        env:
+          APPROVED_DEV_SHA: ${{ inputs.approved_dev_sha }}
+          APPROVED_PILOT_SHA: ${{ inputs.approved_pilot_sha }}
+          APPROVED_DATABASE: ${{ inputs.approved_database }}
+          OWNER_CONSENT: ${{ inputs.export_consent }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_REF" = 'refs/heads/codex/wtr-storage-opt005-draft-export-pilot'
+          test "$(git rev-parse HEAD)" = "$APPROVED_PILOT_SHA"
+          test "$GITHUB_SHA" = "$APPROVED_PILOT_SHA"
+          test "$APPROVED_DEV_SHA" = '381126281e6b3e0d6c4c38bd0699e941addceb83'
+          DEV_HEAD=$(git ls-remote --exit-code origin refs/heads/codex/dev-recovery-contract-v2 | cut -f1)
+          test "$DEV_HEAD" = "$APPROVED_DEV_SHA"
+          git merge-base --is-ancestor "$APPROVED_DEV_SHA" "$APPROVED_PILOT_SHA"
+          git diff --name-only "$APPROVED_DEV_SHA" "$APPROVED_PILOT_SHA" | LC_ALL=C sort > "$RUNNER_TEMP/wtr-verified-files"
+          diff "$RUNNER_TEMP/wtr-verified-files" - <<'FILES'
+          .github/storage-opt/export_snapshot_pilot.py
+          .github/workflows/wtr-storage-dev-offline-export.yml
+          docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md
+          FILES
+          test "$APPROVED_DATABASE" = 'waiting-trucks-dev-turso-20260902192750'
+          test "$OWNER_CONSENT" = 'EXPORT_DEV_OFFLINE_ONLY'
+          test -f .github/storage-opt/export_snapshot_pilot.py
+          python3 -m py_compile .github/storage-opt/export_snapshot_pilot.py
+          test "$(df -Pk "$RUNNER_TEMP" | awk 'NR==2 {print $4}')" -ge 8388608
+          printf 'SOURCE_PIN=PASS\nOWNER_CONSENT=PASS\nDISK_GATE=PASS\n'
+      - name: Block live export under the current credential policy
+        run: |
+          # The pinned CLI invokes the platform API to mint a DB credential.
+          # Keep the export secret out of the job until a compatible route exists.
+          printf 'TURSO_EXPORT=BLOCKED: CLI v1.0.34 mints a database token\n' >&2
+          exit 1

@@ -105,6 +105,32 @@ class RegistryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "independent Owner review"):
                 registry.validate_transition(self.registry, records)
 
+    def test_authoritative_status_transitions_require_review(self):
+        for status in ("ACCEPTED", "CANCELLED", "SUPERSEDED"):
+            with self.subTest(status=status):
+                records = deepcopy(self.registry["tasks"])
+                task = next(row for row in records if row["id"] == "WTR-011R")
+                task["status"] = status
+                task["history"].append({
+                    "date": task["checkedOn"], "status": status, "evidence": task["evidence"][0],
+                })
+                with self.assertRaisesRegex(ValueError, f"independent Owner review required for status {status}"):
+                    registry.validate_transition(self.registry, records, reviewed=["WTR-012"])
+                registry.validate_transition(self.registry, records, reviewed=[task["id"]])
+
+                # A later non-authoritative status cannot hide an intervening decision.
+                task["status"] = "READY"
+                task["history"].append({**task["history"][-1], "status": "READY"})
+                with self.assertRaisesRegex(ValueError, "independent Owner review"):
+                    registry.validate_transition(self.registry, records)
+
+    def test_normal_status_progress_does_not_require_review(self):
+        records = deepcopy(self.registry["tasks"])
+        task = next(row for row in records if row["id"] == "WTR-011R")
+        task["status"] = "READY"
+        task["history"].append({"date": task["checkedOn"], "status": task["status"], "evidence": task["evidence"][0]})
+        registry.validate_transition(self.registry, records)
+
     def test_completion_and_reopening_preserve_evidence(self):
         records = deepcopy(self.registry["tasks"])
         task = next(r for r in records if r["id"] == "WTR-011R")
@@ -187,13 +213,16 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(query["created"], ">=2026-11-20T00:00:00Z")
             row = {"id": 1, "name": "fixture", "display_title": "fixture", "head_branch": "dev",
                    "head_sha": "1" * 40, "status": "completed", "conclusion": "success", "event": "push",
-                   "created_at": "2026-11-21T00:00:00Z", "path": ".github/workflows/test.yml",
+                   "created_at": "2026-11-21T00:00:00Z", "updated_at": "2026-11-21T01:00:00Z",
+                   "run_attempt": 2, "path": ".github/workflows/test.yml",
                    "html_url": "https://github.com/example/repo/actions/runs/1"}
             return {"workflow_runs": [dict(row, id=n) for n in range(1, 31)], "total_count": 31}
 
         result = import_github.scan("runs", 1, "2026-11-20T00:00:00Z", opener=response)
         self.assertFalse(result["complete"])
         self.assertEqual(result["total"], 31)
+        self.assertEqual(result["data"][0]["updated"], "2026-11-21T01:00:00Z")
+        self.assertEqual(result["data"][0]["attempt"], 2)
 
     def test_commit_export_redacts_explicit_credential_fields(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -236,14 +265,64 @@ class ImportTests(unittest.TestCase):
             import_github.scan("issues", 2, opener=lambda route, query: [row, row])
 
     def test_full_or_partial_import_does_not_delete_or_regress_existing_rows(self):
-        new = {"n": 2, "updated": "2026-11-21"}
-        stable = {"n": 1, "updated": "2026-11-21"}
-        stale = {"n": 1, "updated": "2025-11-21"}
-        old_only = {"n": 3, "updated": "2026-11-20"}
+        new = {"n": 2, "updated": "2026-11-21T00:00:00Z"}
+        stable = {"n": 1, "updated": "2026-11-21T00:00:00Z"}
+        stale = {"n": 1, "updated": "2025-11-21T00:00:00Z"}
+        old_only = {"n": 3, "updated": "2026-11-20T00:00:00Z"}
         for complete in (True, False):
             previous = {"complete": True, "data": [stable, old_only]}
             result = import_github.merge_snapshot(previous, {"complete": complete, "data": [stale, new]}, "n")
             self.assertEqual(result["data"], [stable, old_only, new])
+
+    def test_actions_import_rejects_stale_updates_and_preserves_missing_runs(self):
+        current = {"id": 1, "created": "2026-11-21T00:00:00Z", "updated": "2026-11-21T02:00:00Z",
+                   "attempt": 2, "state": "completed", "result": "success"}
+        past_only = {**current, "id": 2}
+        new_run = {**current, "id": 3}
+        previous = {"complete": True, "data": [current, past_only]}
+        for incoming in (
+            {**current, "updated": "2026-11-21T08:30:00+07:00", "state": "in_progress", "result": None},
+            {**current, "attempt": 1, "updated": "2026-11-21T03:00:00Z", "result": "failure"},
+            {**current, "updated": None, "result": "failure"},
+            {**current, "result": "failure"},
+            {**current, "updated": "2026-11-21T03:00:00Z", "state": "queued", "result": None},
+        ):
+            with self.subTest(incoming=incoming):
+                result = import_github.merge_snapshot(
+                    previous, {"complete": True, "data": [incoming, new_run]}, "id"
+                )
+                self.assertEqual(result["data"], [current, past_only, new_run])
+
+    def test_actions_import_accepts_newer_rerun_and_completion(self):
+        current = {"id": 1, "created": "2026-11-21T00:00:00Z", "updated": "2026-11-21T02:00:00Z",
+                   "attempt": 2, "state": "completed", "result": "success"}
+        rerun = {**current, "attempt": 3, "updated": "2026-11-21T02:05:00Z", "state": "queued", "result": None}
+        done = {**rerun, "updated": "2026-11-21T02:10:00Z", "state": "completed", "result": "failure"}
+        for old, new in ((current, rerun), (rerun, done)):
+            result = import_github.merge_snapshot(
+                {"complete": True, "data": [old]}, {"complete": True, "data": [new]}, "id"
+            )
+            self.assertEqual(result["data"], [new])
+
+    def test_actions_import_keeps_legacy_completion_without_comparable_freshness(self):
+        legacy = {"id": 1, "created": "2026-11-21T00:00:00Z", "state": "completed", "result": "success"}
+        dated = {**legacy, "attempt": 1, "updated": "2026-11-21T02:00:00Z"}
+        previous = {"complete": True, "data": [legacy]}
+        for old_or_conflicting in ({**dated, "state": "queued", "result": None}, {**dated, "result": "failure"}):
+            result = import_github.merge_snapshot(
+                previous, {"complete": True, "data": [old_or_conflicting]}, "id"
+            )
+            self.assertEqual(result["data"], [legacy])
+        result = import_github.merge_snapshot(previous, {"complete": True, "data": [dated]}, "id")
+        self.assertEqual(result["data"], [dated])
+
+    def test_release_publication_time_does_not_order_edits(self):
+        original = {"tag": "fixture", "title": "Existing release", "published": "2026-11-21T00:00:00Z"}
+        fetched = {**original, "title": "Unordered edit"}
+        result = import_github.merge_snapshot(
+            {"complete": True, "data": [original]}, {"complete": True, "data": [fetched]}, "tag"
+        )
+        self.assertEqual(result["data"], [original])
 
     def test_commit_history_and_symlink_destination_are_protected(self):
         with tempfile.TemporaryDirectory() as directory:

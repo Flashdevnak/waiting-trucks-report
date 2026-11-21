@@ -46,6 +46,7 @@ SHA = re.compile(r"[a-f0-9]{40}")
 MISSING = {"UNKNOWN", "NOT_RECOVERED"}
 LIST_FIELDS = ("tags", "dependencies", "blockers", "risks", "releaseRisks")
 PROTECTED = ("ownerAuthorization", "mergeStatus", "releaseStatus", "runtimeVerification")
+REVIEWED_STATUSES = {"ACCEPTED", "CANCELLED", "SUPERSEDED"}
 
 
 def validate_claim(claim, root):
@@ -185,6 +186,14 @@ def validate_transition(previous, records, reviewed=()):
             if old.get("claim") and task.get("claim") and old["claim"]["actor"] != task["claim"]["actor"]:
                 raise ValueError(f"{task_id}: existing claim must be released before transfer")
         checked_fields = [field for field in PROTECTED if old and old.get(field) != task.get(field)]
+        if old:
+            statuses = [old["status"]] + [
+                event["status"] for event in task["history"][len(old["history"]):]
+            ]
+            checked_fields.extend(
+                f"status {status}" for previous_status, status in zip(statuses, statuses[1:])
+                if status in REVIEWED_STATUSES and status != previous_status
+            )
         if not old and (task.get("ownerAuthorization") not in (None, *MISSING)
                         or task["mergeStatus"] == "MERGED"
                         or task["releaseStatus"] not in {"UNKNOWN", "NOT_DEPLOYED"}

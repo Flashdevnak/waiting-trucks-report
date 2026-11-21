@@ -91,7 +91,9 @@ def record(kind, row):
         return dict(id=n, name=public_text(row["name"]), title=public_text(row["display_title"]),
                     ref=public_text(row["head_branch"]) if row["head_branch"] else None,
                     sha=sha(row["head_sha"]), state=public_text(row["status"]), result=field_text(row["conclusion"]), event=public_text(row["event"]),
-                    created=timestamp(row["created_at"]), path=public_text(row["path"]), url=f"{GITHUB}/actions/runs/{n}")
+                    created=timestamp(row["created_at"]), updated=timestamp(row.get("updated_at")),
+                    attempt=number(row["run_attempt"]) if row.get("run_attempt") is not None else None,
+                    path=public_text(row["path"]), url=f"{GITHUB}/actions/runs/{n}")
     tag = public_text(row["tag_name"])
     if not re.fullmatch(r"[\w./-]+", tag) or any(part in {".", ".."} for part in tag.split("/")):
         raise ValueError("Unsafe release tag")
@@ -203,13 +205,46 @@ def write_commits(raw, target, root=ROOT):
     return len(entries)
 
 
+def update_time(row):
+    value = timestamp(row.get("updated"))
+    if value is None:
+        return None
+    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if instant.utcoffset() is None:
+        raise ValueError("Metadata update timestamp must include an offset")
+    return instant
+
+
+def use_new_observation(old, new, key):
+    if key == "tag":
+        # Release creation/publication dates do not order edits to a release.
+        return False
+    old_time, new_time = update_time(old), update_time(new)
+    if new_time is None or (old_time is not None and new_time < old_time):
+        return False
+    if key != "id":
+        return old_time is None or new_time > old_time
+
+    old_attempt, new_attempt = old.get("attempt"), new.get("attempt")
+    if old_attempt is not None and (new_attempt is None or new_attempt < old_attempt):
+        return False
+    newer_attempt = old_attempt is not None and new_attempt is not None and new_attempt > old_attempt
+    if old_time is None:
+        # The legacy index saved only created_at, which is shared across attempts.
+        same_result = (old.get("state"), old.get("result")) == (new.get("state"), new.get("result"))
+        return same_result or (old.get("state") != "completed" and new.get("state") == "completed")
+    if old.get("state") == "completed" and not newer_attempt:
+        if new.get("state") != "completed":
+            return False
+    return new_time > old_time or newer_attempt
+
+
 def merge_snapshot(previous, snapshot, key):
     combined = {row[key]: row for row in previous.get("data", [])}
     for row in snapshot["data"]:
         old = combined.get(row[key])
-        if old and (old.get("updated") or "") > (row.get("updated") or ""):
-            continue
-        combined[row[key]] = row
+        if old is None or use_new_observation(old, row, key):
+            combined[row[key]] = row
     result = {**snapshot, "data": list(combined.values())}
     if previous and (snapshot.get("since") or not snapshot["complete"]):
         result["previousFullScan"] = previous.get(

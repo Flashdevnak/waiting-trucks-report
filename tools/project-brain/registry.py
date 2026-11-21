@@ -105,6 +105,9 @@ def find(tasks, query):
     exact = [t for t in tasks if t["id"].casefold() == query.casefold()]
     if exact:
         return exact
+    if match := re.fullmatch(r"(?i)(?:PR\s*)?#(\d+)", query):
+        refs = (f"/pull/{match[1]}", f"/issues/{match[1]}")
+        return [t for t in tasks if any(url.endswith(refs) for url in t["pullRequests"] + t["issues"])]
     return [t for t in tasks if query.casefold() in json.dumps(t, ensure_ascii=False).casefold()]
 
 
@@ -112,8 +115,13 @@ def render(tasks, *, check=False):
     for filename, (title, statuses) in VIEWS.items():
         lines = [f"# {title}", "", "Generated from [TASK_REGISTRY.json](TASK_REGISTRY.json).", ""]
         for task in sorted(tasks, key=lambda r: r["id"]):
-            if task["status"] not in statuses or filename == "HISTORICAL_TASKS.md" and not task.get("historical"):
+            if task["status"] not in statuses:
                 continue
+            if filename == "HISTORICAL_TASKS.md" and not task.get("historical"):
+                continue
+            if filename == "ACTIVE_TASKS.md" and task.get("historical"):
+                if task["status"] not in {"READY", "IN_PROGRESS", "IN_REVIEW"}:
+                    continue
             lines += [
                 f"## {task['id']}", "",
                 f"**{task['title']}** · {task['status']} · {task['releaseStatus']}",

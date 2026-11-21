@@ -6,3 +6,6 @@
 - [WTR-011P release scope and follow-up](https://github.com/Flashdevnak/waiting-trucks-report/pull/123#issuecomment-7064118903)
 
 Use each task's registry record to resolve related work orders. A checkpoint describes observed work and does not substitute for the Owner's authorization.
+
+- [Sanitized historical Work Order recovery index](RECOVERED_INDEX.md)
+- [WTR-011P consolidated Owner decision](WTR-011P-OWNER-DECISION.md)

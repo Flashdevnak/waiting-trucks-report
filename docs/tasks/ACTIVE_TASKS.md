@@ -2,12 +2,12 @@
 
 Generated from [TASK_REGISTRY.json](TASK_REGISTRY.json).
 
-## WTR-012
+## GH-PR-59
 
-**Permanent online project brain** · IN_PROGRESS · UNKNOWN
+**fix(dev): make BusTime source health demand-aware** · IN_REVIEW · UNKNOWN
 
-Publish the canonical task registry and recover the historical evidence.
+GitHub evidence group by exact head branch. Original work-order ID is NOT_RECOVERED.
 
-Next action — Index historical sources and verify the cold-session handoff.
+Next action — Read the linked PR state and SHA. Resolve any higher-level task linkage by evidence before resuming.
 
-[Evidence 1](../../docs/WORK_ORDERS/WTR-012-MASTER.md)
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/59)

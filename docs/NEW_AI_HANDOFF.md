@@ -9,3 +9,5 @@ Search by exact ID, keyword, PR, relationship or SHA. Check the claim and remote
 **Copy into a new chat**
 
 > Open GitHub Flashdevnak/waiting-trucks-report, branch project-brain/wtr, read docs/NEW_AI_HANDOFF.md and AGENTS.md, verify current Brain and DEV refs, then find the existing Task ID and its evidence before continuing within Owner authorization.
+
+The active release is **WTR-011P / CRED-002 BLOCKED**. The only approval document is [WTR-011P Owner decision](WORK_ORDERS/WTR-011P-OWNER-DECISION.md). WTR-011R is the feature backlog and retains the exact occurrence/admission evidence blocker. Find older WTR and REC/SUP IDs in [historical tasks](tasks/HISTORICAL_TASKS.md); use [recovery gaps](tasks/RECOVERY_GAPS.md) when the local original is missing.

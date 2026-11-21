@@ -17,3 +17,11 @@ python3 tools/project-brain/registry.py render
 5. **Publish checkpoint.** Render and validate; inspect git status and scoped diff; check current remote refs and workflow side effects. On conflict preserve both histories and resolve affected records by evidence. Publish via fast-forward on authorized branches and fetch the remote SHA. If publishing is unauthorized, report the exact local artifacts and what remains pending.
 
 Task status and release status use the enum sets in the validator. Core fields are required; old records may explicitly say `UNKNOWN` or `NOT_RECOVERED`. Implementation, deployment and live verification require distinct evidence. GitHub PR closure by itself is not task completion or cancellation.
+
+Run the focused tests before changing registry tooling:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/project-brain -v
+```
+
+Example lookup paths include `find '#123'` for a PR association, `find WTR-009` for a preserved feature, and `handoff WTR-011P` for the structured remaining release gate. A clean checkout of the Brain branch is enough to validate or search without ChatGPT history or Cloudflare access.

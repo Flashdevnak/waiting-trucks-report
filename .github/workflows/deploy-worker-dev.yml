@@ -256,7 +256,7 @@ jobs:
 
       - name: Verify Turso and auth secrets exist on DEV Worker
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           node --input-type=module <<'NODE'
@@ -347,14 +347,14 @@ jobs:
           WTR_APPROVED_PUBLISHER_SCOPE_SHA256: ${{ inputs.approved_publisher_scope_sha256 }}
           WTR_DEV_IDENTITY_KIND: candidate
           WTR_SEALED_PUBLISHER_MODE: publish
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_PUBLISH_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: *wtr011p_sealed_launcher
 
       - name: Verify active Worker has zero D1 bindings
         working-directory: .
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           node <<'NODE'
@@ -512,6 +512,6 @@ jobs:
         timeout-minutes: 4
         run: node ../.github/dev-tools/collect-dev-acceptance-tail.mjs
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 

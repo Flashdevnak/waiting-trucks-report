@@ -141,10 +141,10 @@ jobs:
           assert prepare['env']['WTR_SEALED_PUBLISHER_MODE'] == 'prepare-dependencies'
           assert publish['env']['WTR_SEALED_PUBLISHER_MODE'] == 'publish'
           tokens = {
-              publish_name: 'CLOUDFLARE_DEV_PUBLISH_API_TOKEN',
-              'Verify Turso and auth secrets exist on DEV Worker': 'CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN',
-              'Verify active Worker has zero D1 bindings': 'CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN',
-              'Collect sanitized DEV acceptance from existing runtime cycles': 'CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN',
+              publish_name: 'CLOUDFLARE_API_TOKEN',
+              'Verify Turso and auth secrets exist on DEV Worker': 'CLOUDFLARE_API_TOKEN',
+              'Verify active Worker has zero D1 bindings': 'CLOUDFLARE_API_TOKEN',
+              'Collect sanitized DEV acceptance from existing runtime cycles': 'CLOUDFLARE_API_TOKEN',
           }
           expression = '$' + '{{ ' + secret_context
           assert set(tokens).issubset(steps)

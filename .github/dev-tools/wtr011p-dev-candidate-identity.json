@@ -111,8 +111,8 @@
       "size": 1439
     },
     ".github/dev-tools/dev-deploy-ref-guard.test.mjs": {
-      "sha256": "2bfb719ca9f1f091ad12e388ccd01be42516ae17f07c3a5f169921f10d420723",
-      "size": 10935
+      "sha256": "57f7068455a7034152be67f064d1e637d2a17b5f10d96f57f3893ab1e16bc224",
+      "size": 10809
     },
     ".github/dev-tools/dev-live-route-recovery-hotfix.test.mjs": {
       "sha256": "5cb8adbc80aacbc4d462cf11a325f1ab18569448b08a97bdda12fa9da49d5312",
@@ -1083,8 +1083,8 @@
       "size": 12832
     },
     ".github/workflows/deploy-worker-dev.yml": {
-      "sha256": "665b88b3cb81a74e3c0c0941539250da8340926530da3eaa9127148c618b2c78",
-      "size": 37288
+      "sha256": "4d81748cb65dcf97a236702c751599c178499a7d492643a0f5fbb9f914d99d1a",
+      "size": 37222
     },
     ".github/workflows/dev-all-hub-health-audit.yml": {
       "sha256": "03e377cb0eb6e7a6f96863470b28b69a199282c2f8b914ba9ec876ccc255324f",
@@ -1331,8 +1331,8 @@
       "size": 9088
     },
     ".github/workflows/wtr-011p-publisher-validation.yml": {
-      "sha256": "44444924b9b9821ac0f344be49b183cf0f1118a6e6bd603af24ad7e4a5ea1d8d",
-      "size": 24891
+      "sha256": "387d45306466bc93e24c593e26351b6c1954fc8e794fd46641222b3a0ec86025",
+      "size": 24825
     },
     "README.md": {
       "sha256": "9cacd7ebc6b51fd32ba0b8aa08d89e4833dae63b702e561b039acf05454498bc",

@@ -77,7 +77,8 @@ export function loadSelectedIdentity(root,env=process.env){
   '.github/dev-tools/pno-destination-summary-rev73.test.mjs',
   '.github/dev-tools/pno-final-contract-artifact-v3.mjs',
   '.github/dev-tools/stage-dev-runtime.test.mjs',
-  '.github/dev-tools/wtr009-dev-identity.test.mjs'
+  '.github/dev-tools/wtr009-dev-identity.test.mjs',
+  '.github/dev-tools/dev-deploy-ref-guard.test.mjs'
  ]);
  const added=[
   '.github/dev-tools/wtr-011p-local-upload-capture.mjs',

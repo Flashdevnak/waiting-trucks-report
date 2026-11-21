@@ -161,12 +161,11 @@ test("provider credentials are scoped to sealed publish and DEV observability st
   ];
   const prefix = workflow.slice(0, workflow.indexOf("    steps:\n"));
   assert.doesNotMatch(prefix + prepare.text, /\$\{\{ secrets\.CLOUDFLARE_/);
-  assert.doesNotMatch(workflow, /secrets\.CLOUDFLARE_API_TOKEN\b/);
-  assert.equal([...workflow.matchAll(/\$\{\{ secrets\.CLOUDFLARE_DEV_PUBLISH_API_TOKEN \}\}/g)].length, 1);
-  assert.match(deploy.text, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_DEV_PUBLISH_API_TOKEN \}\}/);
-  assert.equal([...workflow.matchAll(/\$\{\{ secrets\.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN \}\}/g)].length, 3);
+  assert.doesNotMatch(workflow, /secrets\.CLOUDFLARE_DEV_(?:PUBLISH|OBSERVABILITY)_API_TOKEN\b/);
+  assert.equal([...workflow.matchAll(/\$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/g)].length, 4);
+  assert.match(deploy.text, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
   for (const target of observe) {
-    assert.match(target.text, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_DEV_OBSERVABILITY_API_TOKEN \}\}/);
+    assert.match(target.text, /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
   }
   assert.doesNotMatch(observe[0].text, /npx|node_modules/);
   assert.match(observe[0].text, /waiting-trucks-report-api-dev\/secrets/);

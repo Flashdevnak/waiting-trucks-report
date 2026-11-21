@@ -6742,6 +6742,53 @@
           "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/commit/52f2859d5688ba35583ef9e5d56117b7745dff9f"
         }
       ]
+    },
+    {
+      "id": "WTR-012S",
+      "title": "Permanent Project Brain security hardening",
+      "summary": "Defensive hardening of public metadata import, registry review and handoff on the security branch.",
+      "kind": "security",
+      "status": "IN_REVIEW",
+      "checkedOn": "2026-11-21",
+      "historical": false,
+      "sourceBranch": "project-brain/wtr",
+      "workingBranch": "security/wtr-012s",
+      "baseSha": "d5c131a22f120bd7e82effef453f33f06c372de8",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "UNMERGED",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_APPLICABLE",
+      "workOrders": [
+        "docs/WORK_ORDERS/WTR-012S.md"
+      ],
+      "pullRequests": [],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "docs/WORK_ORDERS/WTR-012S.md"
+      ],
+      "blockers": [],
+      "dependencies": [
+        "WTR-012"
+      ],
+      "risks": [
+        "Effective GitHub rule enforcement needs Owner verification."
+      ],
+      "tags": [
+        "security",
+        "project-brain",
+        "registry"
+      ],
+      "claim": null,
+      "nextAction": "Review the security branch Draft PR and the Owner controls before considering merge.",
+      "handoff": "Fetch the security branch and look up the Draft PR by exact head. Keep the original 160 records and use WTR-011R for the existing feature backlog.",
+      "history": [
+        {
+          "date": "2026-11-21",
+          "status": "IN_REVIEW",
+          "evidence": "docs/WORK_ORDERS/WTR-012S.md"
+        }
+      ]
     }
   ]
 }

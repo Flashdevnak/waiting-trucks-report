@@ -3,14 +3,16 @@
 import argparse
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import re
 import subprocess
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from security import REPO, atomic_write, classifications, public_text, repository_path, strict_json
 
 
-REPO = "Flashdevnak/waiting-trucks-report"
 BASE = f"https://api.github.com/repos/{REPO}"
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = ROOT / "docs" / "project-index"
@@ -18,52 +20,101 @@ ID = re.compile(
     r"\b(?:WTR[-_ ][A-Z]*[-_ ]?\d{3}[A-Z]*(?:[-_ ](?:DEV[-_ ]?\d{3}[A-Z]*|RC\d{2}|CRED[-_ ]?\d{3}))?"
     r"|(?:REC|SUP|CRED)[-_ ]\d{2,3}[A-Z]*)\b", re.I,
 )
-SENSITIVE = re.compile(
-    r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
-    r"eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,})\b|"
-    r"(?i:(?:authorization|cookie|password|token|secret)\s*[:=]\s*\S+)"
-)
+SHA = re.compile(r"[a-f0-9]{40}")
+GITHUB = f"https://github.com/{REPO}"
 
 
-def safe(value):
+def scrub(value):
     if isinstance(value, str):
-        return SENSITIVE.sub("[redacted]", value)
+        return "[redacted]" if classifications(value) else value
     if isinstance(value, list):
-        return [safe(v) for v in value]
+        return [scrub(v) for v in value]
     if isinstance(value, dict):
-        return {k: safe(v) for k, v in value.items()}
+        if any(classifications(key) for key in value):
+            raise ValueError("Sensitive metadata key")
+        return {key: scrub(item) for key, item in value.items()}
     return value
 
 
+def number(value):
+    if type(value) is not int or value < 1:
+        raise ValueError("Malformed GitHub record ID")
+    return value
+
+
+def sha(value):
+    if not isinstance(value, str) or not SHA.fullmatch(value):
+        raise ValueError("Malformed Git SHA")
+    return value
+
+
+def timestamp(value):
+    if value is None:
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T[0-9:+.Z-]+", value):
+        raise ValueError("Malformed metadata timestamp")
+    datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return value
+
+
+def flag(value):
+    if type(value) is not bool:
+        raise ValueError("Malformed metadata flag")
+    return value
+
+
+def field_text(value):
+    return public_text(value) if value is not None else None
+
+
 def record(kind, row):
+    if not isinstance(row, dict):
+        raise ValueError("Malformed GitHub record")
     if kind == "pr":
-        mentions = sorted(set(ID.findall(f'{row["title"]} {row["head"]["ref"]} {row.get("body") or ""}')))
-        return dict(n=row["number"], title=row["title"], state=row["state"], draft=row["draft"],
-                    head=row["head"]["ref"], headSha=row["head"]["sha"], base=row["base"]["ref"],
-                    baseSha=row["base"]["sha"], mergeSha=row["merge_commit_sha"] if row["merged_at"] else None,
-                    updated=row["updated_at"], merged=row["merged_at"], closed=row["closed_at"],
-                    created=row["created_at"], taskMentions=mentions, url=row["html_url"])
+        n = number(row["number"])
+        title, head = public_text(row["title"]), public_text(row["head"]["ref"])
+        mentions = sorted(set(ID.findall(f"{title} {head}")))
+        return dict(n=n, title=title, state=public_text(row["state"]), draft=flag(row["draft"]),
+                    head=head, headSha=sha(row["head"]["sha"]), base=public_text(row["base"]["ref"]),
+                    baseSha=sha(row["base"]["sha"]),
+                    mergeSha=sha(row["merge_commit_sha"]) if row["merged_at"] else None,
+                    updated=timestamp(row["updated_at"]), merged=timestamp(row["merged_at"]), closed=timestamp(row["closed_at"]),
+                    created=timestamp(row["created_at"]), taskMentions=mentions, url=f"{GITHUB}/pull/{n}")
     if kind == "issues":
-        return dict(n=row["number"], title=row["title"], state=row["state"], reason=row.get("state_reason"),
-                    pr=bool(row.get("pull_request")), updated=row["updated_at"], created=row["created_at"],
-                    closed=row["closed_at"], labels=[i["name"] for i in row["labels"]],
-                    taskMentions=sorted(set(ID.findall(f'{row["title"]} {row.get("body") or ""}'))),
-                    url=row["html_url"])
+        n, title = number(row["number"]), public_text(row["title"])
+        return dict(n=n, title=title, state=public_text(row["state"]), reason=field_text(row.get("state_reason")),
+                    pr=bool(row.get("pull_request")), updated=timestamp(row["updated_at"]), created=timestamp(row["created_at"]),
+                    closed=timestamp(row["closed_at"]), labels=[public_text(i["name"]) for i in row["labels"]],
+                    taskMentions=sorted(set(ID.findall(title))), url=f"{GITHUB}/issues/{n}")
     if kind == "runs":
-        return dict(id=row["id"], name=row["name"], title=row["display_title"], ref=row["head_branch"],
-                    sha=row["head_sha"], state=row["status"], result=row["conclusion"], event=row["event"],
-                    created=row["created_at"], path=row["path"], url=row["html_url"])
-    return dict(tag=row["tag_name"], title=row["name"], created=row["created_at"],
-                published=row["published_at"], prerelease=row["prerelease"], draft=row["draft"],
-                url=row["html_url"])
+        n = number(row["id"])
+        return dict(id=n, name=public_text(row["name"]), title=public_text(row["display_title"]),
+                    ref=public_text(row["head_branch"]) if row["head_branch"] else None,
+                    sha=sha(row["head_sha"]), state=public_text(row["status"]), result=field_text(row["conclusion"]), event=public_text(row["event"]),
+                    created=timestamp(row["created_at"]), updated=timestamp(row.get("updated_at")),
+                    attempt=number(row["run_attempt"]) if row.get("run_attempt") is not None else None,
+                    path=public_text(row["path"]), url=f"{GITHUB}/actions/runs/{n}")
+    tag = public_text(row["tag_name"])
+    if not re.fullmatch(r"[\w./-]+", tag) or any(part in {".", ".."} for part in tag.split("/")):
+        raise ValueError("Unsafe release tag")
+    return dict(tag=tag, title=public_text(row["name"] or ""), created=timestamp(row["created_at"]),
+                published=timestamp(row["published_at"]), prerelease=flag(row["prerelease"]), draft=flag(row["draft"]),
+                url=f"{GITHUB}/releases/tag/{tag}")
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def read_api(route, query):
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "wtr-project-brain-index"}
     if token := os.environ.get("GH_TOKEN"):
         headers["Authorization"] = f"Bearer {token}"
-    with urlopen(Request(f"{BASE}/{route}?{urlencode(query)}", headers=headers), timeout=25) as response:
-        return json.load(response)
+    with build_opener(NoRedirect()).open(
+        Request(f"{BASE}/{route}?{urlencode(query)}", headers=headers), timeout=25
+    ) as response:
+        return strict_json(response.read())
 
 
 def scan(kind, page_cap, since=None, opener=read_api):
@@ -76,16 +127,28 @@ def scan(kind, page_cap, since=None, opener=read_api):
     if since and kind == "runs":
         options["created"] = f">={since}"
     rows, pages, total, complete = [], [], None, False
+    seen = set()
     for page in range(1, page_cap + 1):
         data = opener(route, {**options, "page": page})
         if kind == "runs":
             total = data["total_count"]
+            if type(total) is not int or total < 0:
+                raise ValueError("Malformed run count")
             data = data["workflow_runs"]
+        if not isinstance(data, list) or any(not isinstance(row, dict) for row in data):
+            raise ValueError("Malformed GitHub page")
         pages.append({"page": page, "count": len(data)})
-        if since and kind == "pr":
-            rows.extend(record(kind, row) for row in data if row["updated_at"] >= since)
-        else:
-            rows.extend(record(kind, row) for row in data if kind != "issues" or not row.get("pull_request"))
+        key = {"pr": "number", "issues": "number", "runs": "id", "releases": "tag_name"}[kind]
+        for row in data:
+            identity = public_text(row[key]) if kind == "releases" else number(row[key])
+            if identity in seen:
+                raise ValueError("Duplicate GitHub records across pages; retry from fresh pagination")
+            seen.add(identity)
+            if (since and kind == "pr" and row["updated_at"] < since) or (
+                kind == "issues" and row.get("pull_request")
+            ):
+                continue
+            rows.append(record(kind, row))
         if len(data) < options["per_page"] or (
             since and kind == "pr" and data[-1]["updated_at"] < since
         ):
@@ -94,36 +157,100 @@ def scan(kind, page_cap, since=None, opener=read_api):
     return {"pages": pages, "total": total, "complete": complete, "since": since, "data": rows}
 
 
-def write_json(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(safe(data), ensure_ascii=False, separators=(",", ":")) + "\n"
-    temp = path.with_suffix(path.suffix + ".tmp")
-    temp.write_text(payload, encoding="utf-8")
-    temp.replace(path)
+def write_json(path, data, root=ROOT):
+    payload = json.dumps(scrub(data), ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n"
+    atomic_write(root, path, payload)
+
+
+def index_file(directory, filename, root=ROOT):
+    return repository_path(root, (directory / filename).relative_to(root))
 
 
 def git_snapshot():
-    remote = f"https://github.com/{REPO}.git"
-    dev = subprocess.check_output(["git", "ls-remote", "--heads", "--tags", remote], text=True).splitlines()
-    refs = {ref: sha for sha, ref in (line.split("\t") for line in dev)}
-    return {"heads": {r.removeprefix("refs/heads/"): s for r, s in refs.items() if r.startswith("refs/heads/")},
-            "tags": {r.removeprefix("refs/tags/"): s for r, s in refs.items() if r.startswith("refs/tags/")}}
+    remote = f"{GITHUB}.git"
+    remote_refs = subprocess.check_output(["git", "ls-remote", "--heads", "--tags", remote], text=True)
+    refs = {}
+    for line in remote_refs.splitlines():
+        digest, ref = line.split("\t", 1)
+        if public_text(ref) != ref or not ref.startswith(("refs/heads/", "refs/tags/")):
+            raise ValueError("Unsafe Git ref")
+        refs[ref] = sha(digest)
+    heads = {r.removeprefix("refs/heads/"): h for r, h in refs.items() if r.startswith("refs/heads/")}
+    tags = {r.removeprefix("refs/tags/"): h for r, h in refs.items() if r.startswith("refs/tags/")}
+    if not heads:
+        raise ValueError("Empty remote branch listing")
+    return {"heads": heads, "tags": tags}
 
 
-def write_commits(raw, target):
-    rows = []
+def write_commits(raw, target, root=ROOT):
+    # Preserve indexed history even when the input omits old branches or commits.
+    new_rows = {}
     for line in raw.splitlines():
-        sha, date, title = line.split("\t", 2)
-        rows.append([sha, date, title])
-    count = 0
-    for start in range(0, len(rows), 300):
-        count += 1
-        write_json(target / f"commits-{count:02}.json", rows[start:start + 300])
-    for path in target.glob("commits-*.json"):
-        if re.fullmatch(r"commits-\d+.json", path.name) and int(path.stem.split("-")[1]) > count:
-            path.unlink()
-    return len(rows)
+        digest, stamp, title = line.split("\t", 2)
+        new_rows.setdefault(sha(digest), [digest, timestamp(stamp), public_text(title)])
+    if not new_rows:
+        raise ValueError("Commit input is empty")
+    rows = {}
+    directory = index_file(target, "commits-01.json", root).parent
+    for path in sorted(directory.glob("commits-*.json")):
+        previous = index_file(target, path.name, root)
+        for row in strict_json(previous.read_bytes()):
+            rows.setdefault(sha(row[0]), row)
+    for digest, row in new_rows.items():
+        rows.setdefault(digest, row)
+    entries = list(rows.values())
+    for offset in range(0, len(entries), 300):
+        path = index_file(target, f"commits-{offset // 300 + 1:02}.json", root)
+        write_json(path, entries[offset:offset + 300], root)
+    return len(entries)
 
+
+def update_time(row):
+    value = timestamp(row.get("updated"))
+    if value is None:
+        return None
+    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if instant.utcoffset() is None:
+        raise ValueError("Metadata update timestamp must include an offset")
+    return instant
+
+
+def use_new_observation(old, new, key):
+    if key == "tag":
+        # Release creation/publication dates do not order edits to a release.
+        return False
+    old_time, new_time = update_time(old), update_time(new)
+    if new_time is None or (old_time is not None and new_time < old_time):
+        return False
+    if key != "id":
+        return old_time is None or new_time > old_time
+
+    old_attempt, new_attempt = old.get("attempt"), new.get("attempt")
+    if old_attempt is not None and (new_attempt is None or new_attempt < old_attempt):
+        return False
+    newer_attempt = old_attempt is not None and new_attempt is not None and new_attempt > old_attempt
+    if old_time is None:
+        # The legacy index saved only created_at, which is shared across attempts.
+        same_result = (old.get("state"), old.get("result")) == (new.get("state"), new.get("result"))
+        return same_result or (old.get("state") != "completed" and new.get("state") == "completed")
+    if old.get("state") == "completed" and not newer_attempt:
+        if new.get("state") != "completed":
+            return False
+    return new_time > old_time or newer_attempt
+
+
+def merge_snapshot(previous, snapshot, key):
+    combined = {row[key]: row for row in previous.get("data", [])}
+    for row in snapshot["data"]:
+        old = combined.get(row[key])
+        if old is None or use_new_observation(old, row, key):
+            combined[row[key]] = row
+    result = {**snapshot, "data": list(combined.values())}
+    if previous and (snapshot.get("since") or not snapshot["complete"]):
+        result["previousFullScan"] = previous.get(
+            "previousFullScan", previous["complete"] and not previous.get("since")
+        )
+    return result
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -135,7 +262,9 @@ def main():
     if args.max_pages < 1:
         parser.error("--max-pages must be positive")
     if args.kind == "refs":
-        write_json(INDEX / "refs.json", git_snapshot())
+        path = index_file(INDEX, "refs.json")
+        previous = strict_json(path.read_bytes()) if path.exists() else {}
+        write_json(path, {**previous, **git_snapshot()})
         return
     if args.kind == "commits":
         if not args.history_input:
@@ -146,18 +275,15 @@ def main():
     scan_result = scan(args.kind, args.max_pages, args.since)
     if args.since and not scan_result["complete"]:
         parser.error("page cap hit; increase cap before advancing incremental checkpoint")
-    path = INDEX / f"{args.kind}.json"
-    if path.exists() and (args.since or not scan_result["complete"]):
-        previous = json.loads(path.read_text(encoding="utf-8"))
-        combined = {row[key]: row for row in previous["data"]}
-        combined.update({row[key]: row for row in scan_result["data"]})
-        scan_result["data"] = list(combined.values())
-        scan_result["previousFullScan"] = previous.get(
-            "previousFullScan", previous["complete"] and not previous.get("since")
-        )
-    write_json(path, scan_result)
-    print(f"{args.kind}: {len(scan_result['data'])} indexed; complete request={scan_result['complete']}")
+    path = index_file(INDEX, f"{args.kind}.json")
+    previous = strict_json(path.read_bytes()) if path.exists() else {}
+    merged = merge_snapshot(previous, scan_result, key)
+    write_json(path, merged)
+    print(f"{args.kind}: {len(merged['data'])} indexed; complete request={merged['complete']}")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError):
+        raise SystemExit("Import stopped: source, metadata or destination failed validation") from None

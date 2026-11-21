@@ -30,3 +30,12 @@ python3 tools/project-brain/import_github.py commits --history-input wtr-commits
 Before publishing a refresh, inspect public-safe metadata and preserve prior evidence when a record disappears. Reconcile registry rows based on Work Order, exact commit/PR identity and any required Owner approval.
 
 WTR-012 intake covered **2,631 unique commits** reachable from 170 branch heads and 123 advertised PR heads. The fetched PR heads did not add new unique commits to the branch-ancestry count. The two Brain checkpoint commits are recorded separately in the live ref and [baseline](../SYSTEM_BASELINE.md).
+
+New imports use public metadata fields, canonical WTR GitHub links and title/ref-derived task hints. A task hint supplies a search lead. Historic hints may have originated in PR/issue bodies and require the same evidence review. Missing rows in a new scan retain their existing observation, including in full scans, and freshness is evaluated by record type. Open the underlying GitHub record for current state. Commit shards retain already indexed commits if an input omits their former branch.
+
+Freshness rules for matching IDs or tags:
+
+- **PRs and issues:** use GitHub `updated_at`. Older, equal or missing update timestamps retain the indexed observation.
+- **Actions runs:** use GitHub `updated_at` and `run_attempt`. Lower attempts and older updates are ignored. A completed run can return to an active state only with evidence of a higher attempt. Legacy rows only have `created_at`, which does not order attempts. A dated update can enrich a matching outcome or advance an unfinished legacy row to completed. A conflicting legacy completion stays indexed until independently reconciled. The incremental Actions filter selects by creation time, so reruns of older IDs can require a wider scan.
+- **Releases:** creation and publication times do not order edits. Retain existing same-tag observations for manual review.
+- **Refs and commits:** refs describe the latest successful remote listing. The commit index keeps existing objects by SHA and adds missing ones.

@@ -6,3 +6,5 @@
 - [Coverage and recovery gaps](tasks/RECOVERY_GAPS.md) record what can be recovered now. A reported ZIP is not an online artifact unless a durable, safe link is available.
 
 Import snapshots — [GitHub evidence](project-index/README.md) · [Recovered work orders and local package hashes](WORK_ORDERS/RECOVERED_INDEX.md) · [WTR-011P decision and exact pins](WORK_ORDERS/WTR-011P-OWNER-DECISION.md).
+
+- [WTR-D1-HYBRID-001 sanitized pilot evidence](EVIDENCE/WTR-D1-HYBRID-001.md): reported private-host runs and prior read-only observations; composite parity, limitations, and protected artifacts. [HYBRID-002 work order](WORK_ORDERS/WTR-D1-HYBRID-002.md) is the local implementation scope, not runtime proof.

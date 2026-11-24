@@ -7,3 +7,7 @@ The registry on `project-brain/wtr` is the canonical task state. Markdown views 
 [Architecture](docs/ARCHITECTURE.md) · [Operational contract](docs/OPERATIONAL_CONTRACT.md) · [System baseline](docs/SYSTEM_BASELINE.md) · [Current work order](docs/WORK_ORDERS/WTR-012-MASTER.md)
 
 The DEV release source remains `codex/dev-recovery-contract-v2`. Obtain the latest refs from GitHub in each session.
+
+## Storage migration checkpoint (proposed docs-only supplement, 2026-11-25)
+
+[HYBRID-001 sanitized pilot evidence and decisions](docs/EVIDENCE/WTR-D1-HYBRID-001.md) · [HYBRID-002 work order](docs/WORK_ORDERS/WTR-D1-HYBRID-002.md). Owner reports HYBRID-002 in progress on local Codex; no candidate accepted. Composite pilot parity is not live migration or cutover approval. Registry reconciliation remains pending independent validation and review of overlapping Draft PR #126. Existing release gates and Production RELEASE HOLD remain unchanged.

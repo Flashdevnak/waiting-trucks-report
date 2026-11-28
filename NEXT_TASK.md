@@ -2,9 +2,11 @@
 
 ## Critical path — Migration recovery
 
-[WTR-MIGRATION-RECOVERY](docs/tasks/TASK_INDEX.md#wtr-migration-recovery) is the current priority. The latest checkpoint is [WTR-MIGRATION-RECOVERY-006R4](docs/tasks/TASK_INDEX.md#wtr-migration-recovery-006r4). The Owner reports the local implementation complete and Windows 32 PASS with 7 Linux cases skipped. **WSL qualification PENDING · focused Slot 71 NOT_RUN · Full B2 BLOCKED · I03 OPEN · Builder RCA UNKNOWN.**
+[WTR-MIGRATION-RECOVERY](docs/tasks/TASK_INDEX.md#wtr-migration-recovery) is the current priority. The latest checkpoint is [WTR-MIGRATION-RECOVERY-006R4Q](docs/tasks/TASK_INDEX.md#wtr-migration-recovery-006r4q), **BLOCKED at INTERLOCK_RECOVERY_REQUIRED**. The executor reports Linux kernel fixture results of 3 PASS, 3 FAIL and 1 ERROR, and confirms a protected-state incident. The renewal lock pending marker was preserved, ledger counts are 4 / 2 / 2, and the privilege boundary is UNQUALIFIED. Focused Slot 71 NOT_RUN, Full B2 BLOCKED, I03 OPEN, Builder RCA UNKNOWN. [R4Q evidence](docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4q)
 
-**Next action.** Preserve the existing R4 work. The current executor supplies a sanitized WSL checkpoint when available. Main Brain verifies the exact base and working identity, adapter SHA-256, tests actually run, and scope before accepting the checkpoint or deciding the next narrow action. Keep the historical Full B2 failure and expired focused authority. Fresh independent review and separate current Owner authorization are required for protected execution. [Evidence and gate history](docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4)
+1. **ChatGPT Work** — Prepare Incident Containment & Fixture Correction and submit the scoped plan and fixture for independent review.
+2. **Codex PC** — HOLD / NO RETRY. Preserve the marker, ledger and existing work.
+3. **Codex Cloud** — Isolated Linux qualification only after independent review of the corrected fixture and explicit Owner authorization. Protected-state recovery requires its own independent review and Owner authorization.
 
 Raw JSON remains the migration default. Preserve read performance and 100% of data. DEV last verified at Version 651, Turso default, D1 bindings zero. HYBRID-007 DEV cutover remains gated. HYBRID-008 and **Production remain on RELEASE HOLD**.
 

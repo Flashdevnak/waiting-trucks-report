@@ -10,6 +10,6 @@ The DEV release source remains `codex/dev-recovery-contract-v2`. Obtain the late
 
 ## Current work
 
-[Migration recovery](NEXT_TASK.md#critical-path--migration-recovery) is the current critical path. The latest Owner-reported R4 checkpoint awaits WSL qualification. Keep Slot 71 and Full B2 gated, I03 open, and Builder RCA unknown. [Reconciled evidence](docs/EVIDENCE/WTR-012U-CONTINUITY.md) · [Pilot evidence](docs/EVIDENCE/WTR-D1-HYBRID-001.md) · [Adapter work order](docs/WORK_ORDERS/WTR-D1-HYBRID-002.md)
+[Migration recovery](NEXT_TASK.md#critical-path--migration-recovery) is the current critical path. The latest executor-reported R4Q checkpoint is blocked at INTERLOCK_RECOVERY_REQUIRED. ChatGPT Work prepares incident containment and fixture correction. Codex PC holds without retry. Keep Slot 71 and Full B2 gated, I03 open, and Builder RCA unknown. [Reconciled evidence](docs/EVIDENCE/WTR-012U-CONTINUITY.md) · [Pilot evidence](docs/EVIDENCE/WTR-D1-HYBRID-001.md) · [Adapter work order](docs/WORK_ORDERS/WTR-D1-HYBRID-002.md)
 
 Main Brain, ChatGPT Work, Codex Cloud and Codex PC use the same task IDs, evidence and claim records. Start from the [cross-tool handoff](docs/NEW_AI_HANDOFF.md) on each new session. DEV Version 651 is the last supported acceptance checkpoint. Turso remains the default and D1 bindings are zero. Production RELEASE HOLD.

@@ -7989,7 +7989,9 @@
       "issues": [],
       "tests": [],
       "evidence": [
-        "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4"
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4q"
       ],
       "blockers": [
         "Owner-reported only. WSL result, exact working SHA and accepted checkpoint have not been recovered."
@@ -8010,13 +8012,18 @@
         "reasoningEffort": "UNKNOWN",
         "workingSha": "UNKNOWN"
       },
-      "nextAction": "Wait for the existing executor to deliver the sanitized WSL qualification checkpoint for independent acceptance. Retain the local SHA-256 and protect the existing work.",
-      "handoff": "Do not take over the existing Owner work. Main Brain reviews its accepted WSL handoff when available. Slot 71 and Full B2 still require separate current authority.",
+      "nextAction": "Keep the Owner-reported Windows checkpoint and adapter SHA-256. Follow RECOVERY-006R4Q for the later WSL outcome and containment routing.",
+      "handoff": "The earlier PENDING observation describes this checkpoint. The later executor result and current holds are recorded in RECOVERY-006R4Q.",
       "history": [
         {
           "date": "2026-11-28",
           "status": "BLOCKED",
           "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4"
+        },
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228"
         }
       ],
       "artifacts": [
@@ -8028,6 +8035,72 @@
         }
       ],
       "testSummary": "Owner-reported Windows 32 PASS / 7 Linux skipped. WSL qualification PENDING. Slot 71 NOT_RUN. Full B2 BLOCKED. I03 OPEN."
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY-006R4Q",
+      "title": "R4 WSL qualification and incident containment",
+      "summary": "Executor-reported Linux kernel fixture result 3 PASS / 3 FAIL / 1 ERROR / 0 skipped. INTERLOCK_RECOVERY_REQUIRED. Protected-state incident confirmed in the executor report.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4q"
+      ],
+      "blockers": [
+        "INTERLOCK_RECOVERY_REQUIRED. Protected-state incident confirmed in the executor report. Privilege boundary UNQUALIFIED.",
+        "Renewal lock pending marker preserved. Ledger 4 / 2 / 2. Focused Slot 71 NOT_RUN, Full B2 BLOCKED, I03 OPEN, Builder RCA UNKNOWN."
+      ],
+      "dependencies": [
+        "WTR-MIGRATION-RECOVERY-006R4"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "CODEX_PC",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "ChatGPT Work prepares Incident Containment and Fixture Correction for independent review. Codex PC holds without retry. Codex Cloud may qualify only the corrected isolated Linux fixture after explicit Owner authorization.",
+      "handoff": "Main Brain reviews the containment record and corrected synthetic-only fixture. Keep the pending marker and ledger intact. Separate authorization is required for protected-state recovery.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228"
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "RECOVERY-006R4 adapter",
+          "sha256": "9aa36563ca5bcd13f7c7d53bea9398c39c26e3e6b249e109eca7c1aec91a5e7c",
+          "availability": "LOCAL_ONLY",
+          "durableDownload": "NOT_RECOVERED"
+        }
+      ],
+      "testSummary": "Executor-reported WSL2 kernel fixture 3 PASS / 3 FAIL / 1 ERROR / 0 skipped. First failing kernel assertion was lock custody."
     },
     {
       "id": "WTR-MIGRATION-RECOVERY",
@@ -8054,13 +8127,17 @@
         "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7222051293",
         "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740",
         "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7240005182",
-        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4q"
       ],
       "blockers": [
-        "Current R4 qualification pending. Slot 71 NOT_RUN on the focused path, Full B2 blocked, I03 open, Builder RCA unknown."
+        "INTERLOCK_RECOVERY_REQUIRED. Protected-state incident confirmed in the executor report. Privilege boundary UNQUALIFIED.",
+        "Renewal lock pending marker preserved. Ledger 4 / 2 / 2. Focused Slot 71 NOT_RUN, Full B2 BLOCKED, I03 OPEN, Builder RCA UNKNOWN."
       ],
       "dependencies": [
-        "WTR-MIGRATION-RECOVERY-006R4"
+        "WTR-MIGRATION-RECOVERY-006R4",
+        "WTR-MIGRATION-RECOVERY-006R4Q"
       ],
       "risks": [],
       "tags": [
@@ -8075,13 +8152,18 @@
         "reasoningEffort": "UNKNOWN",
         "workingSha": "UNKNOWN"
       },
-      "nextAction": "Reconcile RECOVERY-006R4 first when an accepted WSL checkpoint arrives. Main Brain then reviews the exact narrow next scope without duplicating the assessment.",
-      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "nextAction": "ChatGPT Work prepares Incident Containment and Fixture Correction for independent review. Codex PC holds without retry. Codex Cloud may qualify only the corrected isolated Linux fixture after explicit Owner authorization.",
+      "handoff": "Resume through RECOVERY-006R4Q. Preserve the R4 owner report and prior Full B2 history. Main Brain reviews exact scope before any protected recovery or qualification.",
       "history": [
         {
           "date": "2026-11-28",
           "status": "BLOCKED",
           "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        },
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228"
         }
       ]
     },
@@ -8105,9 +8187,13 @@
       "issues": [],
       "tests": [],
       "evidence": [
-        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4q"
       ],
-      "blockers": [],
+      "blockers": [
+        "Independent review and explicit Owner publication scope are pending. The branch matches a Browser-Test Preview trigger. Zero-cost impact is unverified."
+      ],
       "dependencies": [],
       "risks": [],
       "tags": [
@@ -8120,15 +8206,20 @@
         "tool": "CODEX_CLOUD",
         "model": "UNKNOWN",
         "reasoningEffort": "UNKNOWN",
-        "workingSha": "UNKNOWN"
+        "workingSha": "b8635c5b28e218a5fa60e2832eb88f5009ba489e"
       },
-      "nextAction": "Review the local candidate and exact changed-file inventory before any publication.",
+      "nextAction": "Main Brain reviews the exact local candidate and patch. Owner publication approval is required before any push or Draft PR.",
       "handoff": "Read the local checkpoint and exact commit from the delivery manifest. Recheck the canonical Brain and overlap with PRs 126 and 129 before any approved publication.",
       "history": [
         {
           "date": "2026-11-28",
           "status": "IN_REVIEW",
           "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        },
+        {
+          "date": "2026-11-28",
+          "status": "IN_REVIEW",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228"
         }
       ]
     },

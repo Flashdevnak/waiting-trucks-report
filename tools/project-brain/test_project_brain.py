@@ -45,6 +45,25 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("WSL qualification PENDING", checkpoint["testSummary"])
         self.assertEqual(registry.find(tasks, "#125")[0]["status"], "BACKLOG")
 
+    def test_r4q_routes_containment_before_linux_qualification(self):
+        tasks = registry.validate(self.registry)
+        current = registry.find(tasks, "WTR-MIGRATION-RECOVERY")[0]
+        r4 = registry.find(tasks, "WTR-MIGRATION-RECOVERY-006R4")[0]
+        r4q = registry.find(tasks, "WTR-MIGRATION-RECOVERY-006R4Q")[0]
+        source = "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228"
+        route = (registry.ROOT / "NEXT_TASK.md").read_text(encoding="utf-8")
+        self.assertEqual(current["dependencies"][-1], r4q["id"])
+        self.assertEqual(r4q["dependencies"], [r4["id"]])
+        self.assertIn(f"#{r4q['id'].lower()}", route)
+        self.assertEqual(r4q["status"], "BLOCKED")
+        self.assertEqual(r4q["history"][-1]["evidence"], source)
+        self.assertEqual(r4["history"][-1]["evidence"], source)
+        self.assertIn("INTERLOCK_RECOVERY_REQUIRED", r4q["blockers"][0])
+        self.assertIn("3 PASS / 3 FAIL / 1 ERROR", r4q["testSummary"])
+        self.assertIn("HOLD / NO RETRY", route)
+        self.assertIn("explicit Owner authorization", r4q["nextAction"])
+        self.assertIsNone(r4q["claim"])
+
     def test_active_claim_requires_exact_checkpoint_and_unique_id(self):
         doc = deepcopy(self.registry)
         row, other = doc["tasks"][:2]

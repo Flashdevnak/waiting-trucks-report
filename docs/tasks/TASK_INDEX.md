@@ -1588,9 +1588,9 @@ Next action — Use the protected Brain and existing focused checks for subseque
 
 Local Draft PR candidate on the verified Brain base. Cross-tool claim and execution fields extend the existing registry.
 
-Next action — Review the local candidate and exact changed-file inventory before any publication.
+Next action — Main Brain reviews the exact local candidate and patch. Owner publication approval is required before any push or Draft PR.
 
-[Evidence 1](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md)
+[Evidence 1](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228) · [Evidence 3](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4q)
 
 ## WTR-013
 
@@ -1748,7 +1748,7 @@ Next action — Retain RELEASE HOLD. Reopen only after DEV qualification and sep
 
 Migration is the current critical path. Raw first, read performance non-regression and 100% data preservation. Turso remains default and D1 disabled.
 
-Next action — Reconcile RECOVERY-006R4 first when an accepted WSL checkpoint arrives. Main Brain then reviews the exact narrow next scope without duplicating the assessment.
+Next action — ChatGPT Work prepares Incident Containment and Fixture Correction for independent review. Codex PC holds without retry. Codex Cloud may qualify only the corrected isolated Linux fixture after explicit Owner authorization.
 
 [Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7222051293) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740)
 
@@ -1818,9 +1818,19 @@ Next action — Carry forward the failed gates and expiry. Follow RECOVERY-006R4
 
 Owner reports local implementation complete. Windows 32 PASS / 7 Linux skipped. WSL qualification PENDING. Slot 71 NOT_RUN, Full B2 BLOCKED, I03 OPEN.
 
-Next action — Wait for the existing executor to deliver the sanitized WSL qualification checkpoint for independent acceptance. Retain the local SHA-256 and protect the existing work.
+Next action — Keep the Owner-reported Windows checkpoint and adapter SHA-256. Follow RECOVERY-006R4Q for the later WSL outcome and containment routing.
 
-[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4)
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228)
+
+## WTR-MIGRATION-RECOVERY-006R4Q
+
+**R4 WSL qualification and incident containment** · BLOCKED · NOT_DEPLOYED
+
+Executor-reported Linux kernel fixture result 3 PASS / 3 FAIL / 1 ERROR / 0 skipped. INTERLOCK_RECOVERY_REQUIRED. Protected-state incident confirmed in the executor report.
+
+Next action — ChatGPT Work prepares Incident Containment and Fixture Correction for independent review. Codex PC holds without retry. Codex Cloud may qualify only the corrected isolated Linux fixture after explicit Owner authorization.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228) · [Evidence 3](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4q)
 
 ## WTR-STORAGE-OPT-005
 

@@ -22,9 +22,9 @@ Next action — Read the linked PR state and SHA. Resolve any higher-level task 
 
 Local Draft PR candidate on the verified Brain base. Cross-tool claim and execution fields extend the existing registry.
 
-Next action — Review the local candidate and exact changed-file inventory before any publication.
+Next action — Main Brain reviews the exact local candidate and patch. Owner publication approval is required before any push or Draft PR.
 
-[Evidence 1](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md)
+[Evidence 1](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7241029228) · [Evidence 3](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4q)
 
 ## WTR-D1-HYBRID-001
 

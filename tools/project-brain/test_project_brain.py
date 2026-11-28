@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import json
+from subprocess import CompletedProcess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -23,11 +24,87 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(registry.find(tasks, "#123")[0]["id"], "WTR-011P")
         task = registry.find(tasks, "WTR-011P")[0]
         self.assertEqual((task["mergeStatus"], task["releaseStatus"], task["runtimeVerification"]),
-                         ("MERGED", "DEPLOY_PENDING", "NOT_VERIFIED"))
+                         ("MERGED", "DEV_RUNTIME_VERIFIED", "VERIFIED"))
         self.assertEqual(registry.find(tasks, "WTR-011R")[0]["status"], "BACKLOG")
         self.assertTrue(registry.find(tasks, "Excel"))
         self.assertEqual(registry.find(tasks, "WTR-001")[0]["status"], "UNKNOWN")
         registry.render(tasks, check=True)
+
+    def test_cold_migration_routing_and_r4_evidence(self):
+        tasks = registry.validate(self.registry)
+        current = registry.find(tasks, "WTR-MIGRATION-RECOVERY")[0]
+        checkpoint = registry.find(tasks, current["dependencies"][0])[0]
+        self.assertEqual(checkpoint["id"], "WTR-MIGRATION-RECOVERY-006R4")
+        routing = (registry.ROOT / "NEXT_TASK.md").read_text(encoding="utf-8")
+        self.assertIn(f"#{current['id'].lower()}", routing)
+        self.assertIn(f"#{checkpoint['id'].lower()}", routing)
+        self.assertEqual(checkpoint["status"], "BLOCKED")
+        self.assertIsNone(checkpoint["claim"])
+        self.assertEqual(checkpoint["execution"]["workingSha"], "UNKNOWN")
+        self.assertEqual(checkpoint["artifacts"][0]["availability"], "LOCAL_ONLY")
+        self.assertIn("WSL qualification PENDING", checkpoint["testSummary"])
+        self.assertEqual(registry.find(tasks, "#125")[0]["status"], "BACKLOG")
+
+    def test_active_claim_requires_exact_checkpoint_and_unique_id(self):
+        doc = deepcopy(self.registry)
+        row, other = doc["tasks"][:2]
+        authority = "docs/TASK_SYSTEM.md"
+        row["ownerAuthorization"] = authority
+        row["claim"] = {"id": "CLAIM-1", "actor": "Operator", "scope": "Docs", "authorization": authority}
+        row["execution"] = {"tool": "CODEX_CLOUD", "model": "UNKNOWN", "reasoningEffort": "UNKNOWN",
+                            "workingSha": row["baseSha"]}
+        registry.validate(doc)
+        row["execution"]["workingSha"] = "UNKNOWN"
+        with self.assertRaisesRegex(ValueError, "exact base and working refs"):
+            registry.validate(doc)
+        row["execution"]["workingSha"] = row["baseSha"]
+        other["ownerAuthorization"] = authority
+        other["claim"] = deepcopy(row["claim"])
+        other["execution"] = deepcopy(row["execution"])
+        with self.assertRaisesRegex(ValueError, "Duplicate active claim"):
+            registry.validate(doc)
+
+    def test_cross_tool_claim_requires_release_and_review(self):
+        previous = deepcopy(self.registry)
+        records = deepcopy(previous["tasks"])
+        row = records[0]
+        authority = "docs/TASK_SYSTEM.md"
+        row["ownerAuthorization"] = authority
+        row["claim"] = {"id": "CLAIM-1", "actor": "Operator", "scope": "Docs", "authorization": authority}
+        row["execution"] = {"tool": "CODEX_CLOUD", "model": "UNKNOWN", "reasoningEffort": "UNKNOWN",
+                            "workingSha": row["baseSha"]}
+        with self.assertRaisesRegex(ValueError, "require a history entry"):
+            registry.validate_transition(previous, records, [row["id"]])
+        row["history"].append({"date": row["checkedOn"], "status": row["status"], "evidence": authority})
+        with self.assertRaisesRegex(ValueError, "independent Owner review"):
+            registry.validate_transition(previous, records)
+        registry.validate_transition(previous, records, [row["id"]])
+
+        claimed = {"tasks": deepcopy(records)}
+        row["execution"]["workingSha"] = "b" * 40
+        registry.validate_transition(claimed, records)
+        row["execution"]["tool"] = "CODEX_PC"
+        with self.assertRaisesRegex(ValueError, "must be released"):
+            registry.validate_transition(claimed, records, [row["id"]])
+        row["execution"]["tool"] = "CODEX_CLOUD"
+        row["claim"]["id"] = "CLAIM-2"
+        with self.assertRaisesRegex(ValueError, "must be released"):
+            registry.validate_transition(claimed, records, [row["id"]])
+        row["claim"] = None
+        row["history"].append({"date": row["checkedOn"], "status": row["status"], "evidence": authority})
+        registry.validate_transition(claimed, records, [row["id"]])
+        released = {"tasks": deepcopy(records)}
+        row["claim"] = {"id": "CLAIM-2", "actor": "Operator", "scope": "Docs", "authorization": authority}
+        row["execution"]["tool"] = "CODEX_PC"
+        row["history"].append({"date": row["checkedOn"], "status": row["status"], "evidence": "docs/NEW_AI_HANDOFF.md"})
+        registry.validate_transition(released, records, [row["id"]])
+
+    def test_malformed_artifact_sha_rejected(self):
+        doc = deepcopy(self.registry)
+        row = next(task for task in doc["tasks"] if task["id"] == "WTR-MIGRATION-RECOVERY-006R4")
+        row["artifacts"][0]["sha256"] = "9aa36563"
+        with self.assertRaisesRegex(ValueError, "Malformed artifact metadata"):
+            registry.validate(doc)
 
     def test_duplicate_ids_rejected(self):
         doc = deepcopy(self.registry)
@@ -140,7 +217,7 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "completion requires"):
             registry.validate_transition(self.registry, records, reviewed=[task["id"]])
         task["implementationSha"] = "f" * 40
-        task["tests"] = [evidence]
+        task["tests"].append(evidence)
         with self.assertRaisesRegex(ValueError, "independent Owner review"):
             registry.validate_transition(self.registry, records)
         registry.validate_transition(self.registry, records, reviewed=[task["id"]])
@@ -163,9 +240,12 @@ class RegistryTests(unittest.TestCase):
                 if command[-1].endswith(":docs/RELEASE_STATUS.md"):
                     return b"Production RELEASE HOLD\n"
                 return json.dumps(self.registry).encode()
-            with patch.object(registry, "ROOT", root), patch.object(registry.subprocess, "run"), (
-                patch.object(registry.subprocess, "check_output", side_effect=prior)
-            ):
+            resolved = CompletedProcess([], 0, stdout="a" * 40 + "\n")
+            with patch.object(registry, "ROOT", root), (
+                patch.object(registry.subprocess, "run", return_value=resolved)
+            ), patch.object(registry.subprocess, "check_output", side_effect=prior):
+                with self.assertRaisesRegex(ValueError, "fetched canonical Brain tip"):
+                    registry.validate_base("b" * 40, self.registry["tasks"], [], False)
                 with self.assertRaisesRegex(ValueError, "release review required"):
                     registry.validate_base("a" * 40, self.registry["tasks"], [], False)
                 decisions.write_text("Replacement decision\n")

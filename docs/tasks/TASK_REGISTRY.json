@@ -6171,30 +6171,33 @@
       "artifacts": []
     },
     {
-      "checkedOn": "2026-11-21",
+      "checkedOn": "2026-11-22",
       "sourceBranch": "codex/dev-recovery-contract-v2",
       "workingBranch": "feature/wtr-011p-dev-credential-boundary",
       "baseSha": "e6fe36b01b34866f6f90294df572f0dd015913d5",
-      "implementationSha": "afbe6e0e57b5d0a752303e39846538a439dda27d",
+      "implementationSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
       "workOrders": [
         "docs/WORK_ORDERS/WTR-011P-OWNER-DECISION.md"
       ],
       "pullRequests": [
         "https://github.com/Flashdevnak/waiting-trucks-report/pull/122",
-        "https://github.com/Flashdevnak/waiting-trucks-report/pull/123"
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/123",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/127"
       ],
       "issues": [],
       "tests": [
-        "https://github.com/Flashdevnak/waiting-trucks-report/actions/runs/44848641565/job/136674466173"
+        "https://github.com/Flashdevnak/waiting-trucks-report/actions/runs/44848641565/job/136674466173",
+        "https://github.com/Flashdevnak/waiting-trucks-report/actions/runs/44948044758"
       ],
       "evidence": [
         "https://github.com/Flashdevnak/waiting-trucks-report/pull/123#issuecomment-7064118903",
         "docs/WORK_ORDERS/WTR-011P-OWNER-DECISION.md",
-        "docs/WORK_ORDERS/WTR-011P-OWNER-DECISION.md"
+        "docs/WORK_ORDERS/WTR-011P-OWNER-DECISION.md",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/127#issuecomment-7068895813",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/127#issuecomment-7069135491",
+        "https://github.com/Flashdevnak/waiting-trucks-report/actions/runs/44948044758"
       ],
-      "blockers": [
-        "DEV-only static assets upload authorization has not been established."
-      ],
+      "blockers": [],
       "dependencies": [],
       "risks": [],
       "tags": [
@@ -6206,27 +6209,33 @@
         "Turso"
       ],
       "mergeStatus": "MERGED",
-      "releaseStatus": "DEPLOY_PENDING",
-      "runtimeVerification": "NOT_VERIFIED",
+      "releaseStatus": "DEV_RUNTIME_VERIFIED",
+      "runtimeVerification": "VERIFIED",
       "claim": null,
       "id": "WTR-011P",
       "kind": "dev-release",
       "title": "H-only arrival card and sealed DEV publisher",
-      "summary": "PRs #122 and #123 are merged to DEV. Provider credential compatibility is still open.",
-      "status": "BLOCKED",
+      "summary": "H-only Arrival Correction delivered on DEV Version 651 at 100% traffic. Workflow smoke passed, Turso default, D1 bindings zero. Production RELEASE HOLD.",
+      "status": "COMPLETED",
       "history": [
         {
           "date": "2026-11-21",
           "status": "BLOCKED",
           "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/123#issuecomment-7064118903"
+        },
+        {
+          "date": "2026-11-22",
+          "status": "COMPLETED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/127#issuecomment-7069135491"
         }
       ],
-      "nextAction": "Get provider confirmation for the exact scoped endpoints, then return the single Owner decision record.",
-      "handoff": "Use the consolidated Owner decision and exact pinned Workflow evidence. Preserve all guards.",
-      "testSummary": "GitHub Node 22.16.0 Wrangler 4.127.1; 49/49 ref guard, 9/9 dependency, 6/6 negative probes, 583/583 regression; mock upload only.",
+      "nextAction": "Retain Version 650 as rollback reference. Obtain separate Owner authority for any new dispatch, credential change or rollback.",
+      "handoff": "Use the Version 651 acceptance checkpoint and DEV workflow run. Preserve Gate B1 and B2 as independent WTR-011R blockers.",
+      "testSummary": "GitHub Node 22.16.0 Wrangler 4.127.1; 49/49 ref guard, 9/9 dependency, 6/6 negative probes, 583/583 regression; mock upload only. DEV workflow dispatch with Node 22 and binding and public MS smoke checks passed. Work reported desktop and 340px visual smoke.",
       "releaseRisks": [
         "Scoped static asset upload and observability authorization unproven",
-        "Shared runner credential boundary requires Owner decision"
+        "Shared runner credential boundary requires Owner decision",
+        "Original narrow provider credential scope remains unproven. The accepted DEV run used the existing legacy credential under separate historical authority."
       ]
     },
     {
@@ -6535,30 +6544,41 @@
     {
       "id": "WTR-011R",
       "title": "Qualify remaining KIT/TBR arrival and Drop changes",
-      "summary": "Current feature qualification backlog; exact occurrence and prior TBR-only admission remain unproven. The H-only WTR-011P release does not resolve these predicates.",
+      "summary": "Parked feature backlog with Gate B dependencies. Offline reproduction and the preservation revision document unresolved exact occurrence and prior admission.",
       "status": "BACKLOG",
       "kind": "feature",
-      "checkedOn": "2026-11-21",
+      "checkedOn": "2026-11-22",
       "historical": true,
       "sourceBranch": "codex/dev-recovery-contract-v2",
-      "workingBranch": "UNKNOWN",
-      "baseSha": "UNKNOWN",
+      "workingBranch": "docs/wtr-011r-gate-b-handoff",
+      "baseSha": "afbe6e0e57b5d0a752303e39846538a439dda27d",
       "implementationSha": "UNKNOWN",
-      "mergeStatus": "UNKNOWN",
+      "mergeStatus": "UNMERGED",
       "releaseStatus": "NOT_DEPLOYED",
       "runtimeVerification": "NOT_VERIFIED",
       "workOrders": [
-        "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md"
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md",
+        "docs/WTR-011R_GATE_B_EVIDENCE.md"
       ],
-      "pullRequests": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/126"
+      ],
       "issues": [],
-      "tests": [],
+      "tests": [
+        "docs/WTR-011R_GATE_B_EVIDENCE.md#focused-test-evidence",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/126#issuecomment-7068123830"
+      ],
       "evidence": [
         "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md",
-        "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md"
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md",
+        "docs/WTR-011R_GATE_B_EVIDENCE.md",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/126#issuecomment-7067760001",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/126#issuecomment-7067990091",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/126#issuecomment-7068123830"
       ],
       "blockers": [
-        "Exact occurrence / prior admission evidence and Owner authorization."
+        "B1 requires a stable shared Route to BusTime occurrence identifier or an authoritative crosswalk.",
+        "B2 requires a prior admission receipt tied to the exact occurrence and recoverable after restart."
       ],
       "dependencies": [
         "WTR-011F"
@@ -6571,13 +6591,33 @@
         "source provenance"
       ],
       "claim": null,
-      "nextAction": "Prepare a bounded evidence-only qualification plan for exact occurrence and prior admission. Request separate Owner scope before implementation.",
-      "handoff": "Open linked evidence and check the recorded branch and SHA against GitHub.",
+      "nextAction": "Wait for an authoritative occurrence ID or crosswalk, recoverable prior admission evidence and separate Owner prioritization.",
+      "handoff": "Use the existing Gate B evidence and preservation review. Recheck DEV pins and do not repeat the local iteration without new evidence.",
       "history": [
         {
           "date": "2026-11-21",
           "status": "BACKLOG",
           "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md"
+        },
+        {
+          "date": "2026-11-22",
+          "status": "BACKLOG",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/126#issuecomment-7068123830"
+        }
+      ],
+      "testSummary": "Node 24.22.3. DEV occurrence 3/8 with the same five Golden failures. B+E 6/8. Witnesses 5/5, contracts 31/33 with two baseline failures, targeted provenance 5/5. Node 22 not verified. Main Brain checked 16/16 archive members. Preservation revision reported 14/15 with one business acceptance failure.",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "499d18ad94f3c321f30b894a261195ec46bcd0d8"
+      },
+      "artifacts": [
+        {
+          "name": "WTR-011R preservation revision ZIP",
+          "sha256": "cfa8f0ba873941d17554bb3fba322e23c58d3816591142e9ae2e3e3663b8a42c",
+          "availability": "LOCAL_ONLY",
+          "durableDownload": "NOT_RECOVERED"
         }
       ]
     },
@@ -6746,33 +6786,40 @@
     {
       "id": "WTR-012S",
       "title": "Permanent Project Brain security hardening",
-      "summary": "Defensive hardening of public metadata import, registry review and handoff on the security branch.",
+      "summary": "Both security fixes accepted and merged through PR 124 into the protected Brain. GitHub merge and focused tests are linked.",
       "kind": "security",
-      "status": "IN_REVIEW",
-      "checkedOn": "2026-11-21",
+      "status": "COMPLETED",
+      "checkedOn": "2026-11-22",
       "historical": false,
       "sourceBranch": "project-brain/wtr",
       "workingBranch": "security/wtr-012s",
       "baseSha": "d5c131a22f120bd7e82effef453f33f06c372de8",
-      "implementationSha": "UNKNOWN",
-      "mergeStatus": "UNMERGED",
+      "implementationSha": "133f3c54258a9e4a40032c11268a62048db44054",
+      "mergeStatus": "MERGED",
       "releaseStatus": "NOT_DEPLOYED",
       "runtimeVerification": "NOT_APPLICABLE",
       "workOrders": [
         "docs/WORK_ORDERS/WTR-012S.md"
       ],
-      "pullRequests": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/124"
+      ],
       "issues": [],
-      "tests": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/124#issuecomment-7065536001"
+      ],
       "evidence": [
-        "docs/WORK_ORDERS/WTR-012S.md"
+        "docs/WORK_ORDERS/WTR-012S.md",
+        "https://github.com/Flashdevnak/waiting-trucks-report/commit/e8c3a0eda92d2380bedc0b8632534b9e46a8e19c",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/124#issuecomment-7065785947",
+        "DECISION_LOG.md"
       ],
       "blockers": [],
       "dependencies": [
         "WTR-012"
       ],
       "risks": [
-        "Effective GitHub rule enforcement needs Owner verification."
+        "Sole-writer ruleset has zero required GitHub approvals. No independent GitHub approval was recorded."
       ],
       "tags": [
         "security",
@@ -6780,13 +6827,1351 @@
         "registry"
       ],
       "claim": null,
-      "nextAction": "Review the security branch Draft PR and the Owner controls before considering merge.",
-      "handoff": "Fetch the security branch and look up the Draft PR by exact head. Keep the original 160 records and use WTR-011R for the existing feature backlog.",
+      "nextAction": "Use the protected Brain and existing focused checks for subsequent Brain maintenance.",
+      "handoff": "Use the exact PR, merge commit and Owner authorization checkpoint. Review remains separate from future merge or release permissions.",
       "history": [
         {
           "date": "2026-11-21",
           "status": "IN_REVIEW",
           "evidence": "docs/WORK_ORDERS/WTR-012S.md"
+        },
+        {
+          "date": "2026-11-22",
+          "status": "COMPLETED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/124#issuecomment-7065785947"
+        }
+      ],
+      "ownerAuthorization": "https://github.com/Flashdevnak/waiting-trucks-report/pull/124#issuecomment-7065785947",
+      "testSummary": "26/26 focused tests reported on the final candidate and reproduced on the exact merged Brain base during WTR-012U."
+    },
+    {
+      "id": "WTR-STORAGE-OPT-005",
+      "title": "Draft private Turso snapshot verifier",
+      "summary": "Draft-only export design. GitHub head and draft state verified. Real export and workflow execution were outside its approval.",
+      "status": "IN_REVIEW",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "codex/wtr-storage-opt005-draft-export-pilot",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "UNMERGED",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md"
+      ],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+      ],
+      "blockers": [],
+      "dependencies": [],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "635370f8bf02803912dc247f9ffc1bd632d505ac"
+      },
+      "nextAction": "Retain the original proposal and refer to the 007 blocker for any resume.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "IN_REVIEW",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+        }
+      ]
+    },
+    {
+      "id": "WTR-STORAGE-OPT-006",
+      "title": "Check credential and dispatch constraints",
+      "summary": "Draft is disabled before credentials. No authorized hosted data handling or usable dispatch route was established.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "codex/wtr-storage-opt005-draft-export-pilot",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "UNMERGED",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md#wtr-storage-opt-006-update"
+      ],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md#wtr-storage-opt-006-update",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+      ],
+      "blockers": [
+        "Provider-certified consistent export boundary and separately authorized access are missing."
+      ],
+      "dependencies": [
+        "WTR-STORAGE-OPT-005"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "635370f8bf02803912dc247f9ffc1bd632d505ac"
+      },
+      "nextAction": "Retain the fail-closed workflow as evidence. Resume through 007 only under separate Owner scope.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+        }
+      ]
+    },
+    {
+      "id": "WTR-STORAGE-OPT-007",
+      "title": "Verify offline export and replay boundary",
+      "summary": "8/8 focused verifier checks reported on a small fixture. Later isolated pilot parity is separate from a provider-certified snapshot generation and durable write position.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "codex/wtr-storage-opt005-draft-export-pilot",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "UNMERGED",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md#wtr-storage-opt-007-export-and-replay-verification"
+      ],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md#wtr-storage-opt-007-export-and-replay-verification"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md#wtr-storage-opt-007-export-and-replay-verification",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+      ],
+      "blockers": [
+        "Provider-certified consistent export boundary and separately authorized access are missing."
+      ],
+      "dependencies": [
+        "WTR-STORAGE-OPT-006"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "635370f8bf02803912dc247f9ffc1bd632d505ac"
+      },
+      "nextAction": "Wait for a provider-supported consistent snapshot and proven boundary on an authorized private host.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/pull/128"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-001",
+      "title": "Isolated D1 composite pilot parity",
+      "summary": "Main Brain accepted composite parity for isolated adapter work. The original changed-bookmark gate failed and provider-certified migration boundary remains unverified.",
+      "status": "TESTED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [
+        "docs/EVIDENCE/WTR-D1-HYBRID-001.md"
+      ],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "docs/EVIDENCE/WTR-D1-HYBRID-001.md"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226865872",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [],
+      "dependencies": [],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Carry the pilot limits into HYBRID-002 and preserve the original failed gate.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "TESTED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-002",
+      "title": "Storage adapter and runtime compatibility",
+      "summary": "Owner reported Codex PC implementation in progress at the draft checkpoint. No accepted adapter Candidate is established. HYBRID-002T composition is a bounded milestone.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [
+        "docs/WORK_ORDERS/WTR-D1-HYBRID-002.md"
+      ],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7165794629",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226865872",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "Full B2 remains blocked, I03 open and Builder RCA unknown."
+      ],
+      "dependencies": [
+        "WTR-D1-HYBRID-001"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "CODEX_PC",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Use the existing local work order and wait for the migration qualification evidence. Preserve Turso default and disabled D1.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-002T",
+      "title": "B2 composition and full qualification",
+      "summary": "V3 composition passed 28/28/28. Full B2 Stage DEV retest failed at Slot 71 with 70/84 captures and 42/47 groups. Focused checks 15/15 and SUP-12 passed.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7180785273",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7221763304"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7165794629",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7180785273",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7180842406",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7195919358",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7203117031",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7219752953",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7220761494",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7221335256",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7221763304",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7222051293",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "Slot 71 protocol failure is unresolved. Full B2 blocked and I03 open."
+      ],
+      "dependencies": [
+        "WTR-D1-HYBRID-002"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Resume through the current WTR-MIGRATION-RECOVERY handoff after exact review. Retain all historical and focused assertions.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-003",
+      "title": "Lossless codec prototype",
+      "summary": "Local synthetic lossless codec result accepted as reported.",
+      "status": "TESTED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226967408"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226896393",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226967408",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226993728",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [],
+      "dependencies": [
+        "WTR-D1-HYBRID-002"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Retain the prototype as synthetic evidence. Raw JSON remains the migration default.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "TESTED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-004",
+      "title": "Synthetic API and historical asOf checks",
+      "summary": "Local SQLite and API/asOf results accepted as reported.",
+      "status": "TESTED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227083696"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227083696",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227102224",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [],
+      "dependencies": [
+        "WTR-D1-HYBRID-003"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Carry shape, pointer and asOf parity assertions forward for separately qualified migration.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "TESTED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-005",
+      "title": "Ordered catch-up and recovery prototype",
+      "summary": "Local synthetic catch-up and replay result accepted as reported.",
+      "status": "TESTED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227200892"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227200892",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227229696",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [],
+      "dependencies": [
+        "WTR-D1-HYBRID-004"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Retain ordered reconciliation and zero-loss requirements. Provider continuity remains unverified.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "TESTED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-006",
+      "title": "Synthetic performance and rollback rehearsal",
+      "summary": "Local parity and recovery accepted as reported. Compressed API page p95 materially regressed.",
+      "status": "TESTED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227405249"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227405249",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227427866",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [],
+      "dependencies": [
+        "WTR-D1-HYBRID-005"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Retain all measurements and use raw-first design. Do not infer provider costs or runtime parity.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "TESTED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-006A",
+      "title": "Bounded hydration experiment",
+      "summary": "Local correctness accepted as reported. Concurrency tuning stopped.",
+      "status": "TESTED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227548657"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227548657",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227573442",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [],
+      "dependencies": [
+        "WTR-D1-HYBRID-006"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Retain evidence and the decision to stop gzip concurrency tuning.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "TESTED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-006B",
+      "title": "Adaptive storage policy comparison",
+      "summary": "Local synthetic evidence accepted as reported. Raw first selected. Compression and dedup deferred.",
+      "status": "TESTED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227662949"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227662949",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [],
+      "dependencies": [
+        "WTR-D1-HYBRID-006A"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Freeze storage experiments and return to migration qualification.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "TESTED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-007",
+      "title": "Controlled DEV migration cutover",
+      "summary": "Readiness gated. No cutover, D1 binding or live DB change is authorized.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226865872",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "Full B2 blocked. Provider boundary unverified. Separate Owner cutover scope required."
+      ],
+      "dependencies": [
+        "WTR-D1-HYBRID-002T",
+        "WTR-D1-HYBRID-006B",
+        "WTR-STORAGE-OPT-007"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Require Full B2, I03 disposition, certified migration boundary, API and performance parity, replay and rollback evidence, then an exact Owner decision.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-D1-HYBRID-008",
+      "title": "Production migration release",
+      "summary": "Production RELEASE HOLD. Production migration has not started.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "PRODUCTION_HOLD",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7180842406",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "DEV cutover has not run and Production is on RELEASE HOLD."
+      ],
+      "dependencies": [
+        "WTR-D1-HYBRID-007"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Retain RELEASE HOLD. Reopen only after DEV qualification and separate explicit release authority.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY-001",
+      "title": "Bounded Slot 71 evidence and validation-route assessment",
+      "summary": "Initiating supervisor error remains unknown. Main Brain completed the read-only route comparison. Existing Full B2 controls do not admit a focused subset.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226722246"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7222051293",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226722246",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226758136",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226789297",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "No demonstrated B2-equivalent replacement and no fresh execution scope."
+      ],
+      "dependencies": [
+        "WTR-D1-HYBRID-002T"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Reuse the existing analysis. A replacement route requires obligation mapping, independent review and fresh Owner scope.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY-002",
+      "title": "Focused Slot 71 preparation",
+      "summary": "Read-only preparation established that the existing full matrix cannot be narrowed with its current pins. Slot 71 NOT_RUN.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228045062",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "Current full-scope controls do not authorize focused admission."
+      ],
+      "dependencies": [
+        "WTR-MIGRATION-RECOVERY-001"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Retain the exact historical assertions and refer to the later focused review checkpoint.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY-003",
+      "title": "Focused Slot 71 local review draft",
+      "summary": "Local draft and 5/5 inert tests reported. Exact review and authority remained pending at this checkpoint. Slot 71 NOT_RUN.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228206539"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228206539",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "Inert tests do not establish protected admission or execution."
+      ],
+      "dependencies": [
+        "WTR-MIGRATION-RECOVERY-002"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Use the later custody checkpoint without repeating the inert tests merely for status.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY-004",
+      "title": "Focused authority and custody review draft",
+      "summary": "5/5 inert custody tests reported. Privileged filesystem and lock operations were simulated. Slot 71 NOT_RUN.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228465235"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228465235",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "Draft scope alone grants no execution authority."
+      ],
+      "dependencies": [
+        "WTR-MIGRATION-RECOVERY-003"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Retain custody and shared ledger boundaries. Use the later WSL preflight checkpoint.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY-005",
+      "title": "Protected custody preflight",
+      "summary": "Read-only WSL preflight PASS as reported. Authority issuance blocked and execution NOT_RUN.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228738123"
+      ],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228738123",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "The preflight did not establish successful protected admission."
+      ],
+      "dependencies": [
+        "WTR-MIGRATION-RECOVERY-004"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Use the later exact authority disposition and preserve the existing ledger.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY-006",
+      "title": "Focused admission stopped at Owner attestation and time window",
+      "summary": "Initial attestation failed. Later published authority expired before launch. Slot 71 NOT_RUN and ledger marker counts remained 4/2/2.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228864590",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7240005182",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "The published focused receipt expired. No admission, reservation or focused execution occurred."
+      ],
+      "dependencies": [
+        "WTR-MIGRATION-RECOVERY-005"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Carry forward the failed gates and expiry. Follow RECOVERY-006R4 for the latest reported local checkpoint.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY-006R4",
+      "title": "Owner-reported local adapter revision",
+      "summary": "Owner reports local implementation complete. Windows 32 PASS / 7 Linux skipped. WSL qualification PENDING. Slot 71 NOT_RUN, Full B2 BLOCKED, I03 OPEN.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "UNKNOWN",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4"
+      ],
+      "blockers": [
+        "Owner-reported only. WSL result, exact working SHA and accepted checkpoint have not been recovered."
+      ],
+      "dependencies": [
+        "WTR-MIGRATION-RECOVERY-006"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Wait for the existing executor to deliver the sanitized WSL qualification checkpoint for independent acceptance. Retain the local SHA-256 and protect the existing work.",
+      "handoff": "Do not take over the existing Owner work. Main Brain reviews its accepted WSL handoff when available. Slot 71 and Full B2 still require separate current authority.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4"
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "RECOVERY-006R4 adapter",
+          "sha256": "9aa36563ca5bcd13f7c7d53bea9398c39c26e3e6b249e109eca7c1aec91a5e7c",
+          "availability": "LOCAL_ONLY",
+          "durableDownload": "NOT_RECOVERED"
+        }
+      ],
+      "testSummary": "Owner-reported Windows 32 PASS / 7 Linux skipped. WSL qualification PENDING. Slot 71 NOT_RUN. Full B2 BLOCKED. I03 OPEN."
+    },
+    {
+      "id": "WTR-MIGRATION-RECOVERY",
+      "title": "Migration recovery critical path",
+      "summary": "Migration is the current critical path. Raw first, read performance non-regression and 100% data preservation. Turso remains default and D1 disabled.",
+      "status": "BLOCKED",
+      "kind": "migration",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "381126281e6b3e0d6c4c38bd0699e941addceb83",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129"
+      ],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7222051293",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740",
+        "https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7240005182",
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [
+        "Current R4 qualification pending. Slot 71 NOT_RUN on the focused path, Full B2 blocked, I03 open, Builder RCA unknown."
+      ],
+      "dependencies": [
+        "WTR-MIGRATION-RECOVERY-006R4"
+      ],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "migration"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "UNKNOWN",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Reconcile RECOVERY-006R4 first when an accepted WSL checkpoint arrives. Main Brain then reviews the exact narrow next scope without duplicating the assessment.",
+      "handoff": "Read the latest linked evidence and the canonical handoff. Recheck owner scope and exact refs before any execution.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "BLOCKED",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-012U",
+      "title": "Unified AI continuity and registry sync",
+      "summary": "Local Draft PR candidate on the verified Brain base. Cross-tool claim and execution fields extend the existing registry.",
+      "status": "IN_REVIEW",
+      "kind": "governance",
+      "checkedOn": "2026-11-28",
+      "historical": false,
+      "sourceBranch": "project-brain/wtr",
+      "workingBranch": "docs/wtr-012u-unified-continuity",
+      "baseSha": "e8c3a0eda92d2380bedc0b8632534b9e46a8e19c",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "UNMERGED",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_APPLICABLE",
+      "workOrders": [],
+      "pullRequests": [],
+      "issues": [],
+      "tests": [],
+      "evidence": [
+        "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+      ],
+      "blockers": [],
+      "dependencies": [],
+      "risks": [],
+      "tags": [
+        "continuity",
+        "governance"
+      ],
+      "claim": null,
+      "ownerAuthorization": "UNKNOWN",
+      "execution": {
+        "tool": "CODEX_CLOUD",
+        "model": "UNKNOWN",
+        "reasoningEffort": "UNKNOWN",
+        "workingSha": "UNKNOWN"
+      },
+      "nextAction": "Review the local candidate and exact changed-file inventory before any publication.",
+      "handoff": "Read the local checkpoint and exact commit from the delivery manifest. Recheck the canonical Brain and overlap with PRs 126 and 129 before any approved publication.",
+      "history": [
+        {
+          "date": "2026-11-28",
+          "status": "IN_REVIEW",
+          "evidence": "docs/EVIDENCE/WTR-012U-CONTINUITY.md"
+        }
+      ]
+    },
+    {
+      "id": "WTR-013",
+      "title": "Investigate intermittent MS database degraded warning",
+      "summary": "Last in the feature and repair backlog. Incident evidence remains private.",
+      "kind": "repair",
+      "status": "BACKLOG",
+      "checkedOn": "2026-11-22",
+      "historical": false,
+      "sourceBranch": "codex/dev-recovery-contract-v2",
+      "workingBranch": "UNKNOWN",
+      "baseSha": "UNKNOWN",
+      "implementationSha": "UNKNOWN",
+      "mergeStatus": "NOT_APPLICABLE",
+      "releaseStatus": "NOT_DEPLOYED",
+      "runtimeVerification": "NOT_VERIFIED",
+      "workOrders": [],
+      "pullRequests": [],
+      "issues": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/issues/125"
+      ],
+      "tests": [],
+      "evidence": [
+        "https://github.com/Flashdevnak/waiting-trucks-report/issues/125"
+      ],
+      "blockers": [],
+      "dependencies": [],
+      "risks": [],
+      "tags": [
+        "MS",
+        "Turso",
+        "backlog"
+      ],
+      "claim": null,
+      "nextAction": "Keep last in the backlog. Resume only on separate Owner prioritization.",
+      "handoff": "Start from Issue 125 and obtain Owner-approved sanitized evidence before any incident investigation.",
+      "history": [
+        {
+          "date": "2026-11-22",
+          "status": "BACKLOG",
+          "evidence": "https://github.com/Flashdevnak/waiting-trucks-report/issues/125"
         }
       ]
     }

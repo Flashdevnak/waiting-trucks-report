@@ -1474,11 +1474,11 @@ Next action — Use the WTR-011P scope for the H-only release or WTR-011R for fu
 
 ## WTR-011P
 
-**H-only arrival card and sealed DEV publisher** · BLOCKED · DEPLOY_PENDING
+**H-only arrival card and sealed DEV publisher** · COMPLETED · DEV_RUNTIME_VERIFIED
 
-PRs #122 and #123 are merged to DEV. Provider credential compatibility is still open.
+H-only Arrival Correction delivered on DEV Version 651 at 100% traffic. Workflow smoke passed, Turso default, D1 bindings zero. Production RELEASE HOLD.
 
-Next action — Get provider confirmation for the exact scoped endpoints, then return the single Owner decision record.
+Next action — Retain Version 650 as rollback reference. Obtain separate Owner authority for any new dispatch, credential change or rollback.
 
 [Evidence 1](../../docs/WORK_ORDERS/WTR-011P-OWNER-DECISION.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/122) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/123)
 
@@ -1556,11 +1556,11 @@ Next action — Use the exact remaining credential gates and consolidated Owner 
 
 **Qualify remaining KIT/TBR arrival and Drop changes** · BACKLOG · NOT_DEPLOYED
 
-Current feature qualification backlog; exact occurrence and prior TBR-only admission remain unproven. The H-only WTR-011P release does not resolve these predicates.
+Parked feature backlog with Gate B dependencies. Offline reproduction and the preservation revision document unresolved exact occurrence and prior admission.
 
-Next action — Prepare a bounded evidence-only qualification plan for exact occurrence and prior admission. Request separate Owner scope before implementation.
+Next action — Wait for an authoritative occurrence ID or crosswalk, recoverable prior admission evidence and separate Owner prioritization.
 
-[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md)
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md) · [Evidence 2](../../docs/WTR-011R_GATE_B_EVIDENCE.md) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/126)
 
 ## WTR-012
 
@@ -1574,13 +1574,33 @@ Next action — Maintain the canonical registry, resume WTR-011P only with new p
 
 ## WTR-012S
 
-**Permanent Project Brain security hardening** · IN_REVIEW · NOT_DEPLOYED
+**Permanent Project Brain security hardening** · COMPLETED · NOT_DEPLOYED
 
-Defensive hardening of public metadata import, registry review and handoff on the security branch.
+Both security fixes accepted and merged through PR 124 into the protected Brain. GitHub merge and focused tests are linked.
 
-Next action — Review the security branch Draft PR and the Owner controls before considering merge.
+Next action — Use the protected Brain and existing focused checks for subsequent Brain maintenance.
 
-[Evidence 1](../../docs/WORK_ORDERS/WTR-012S.md)
+[Evidence 1](../../docs/WORK_ORDERS/WTR-012S.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/124) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/commit/e8c3a0eda92d2380bedc0b8632534b9e46a8e19c)
+
+## WTR-012U
+
+**Unified AI continuity and registry sync** · IN_REVIEW · NOT_DEPLOYED
+
+Local Draft PR candidate on the verified Brain base. Cross-tool claim and execution fields extend the existing registry.
+
+Next action — Review the local candidate and exact changed-file inventory before any publication.
+
+[Evidence 1](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md)
+
+## WTR-013
+
+**Investigate intermittent MS database degraded warning** · BACKLOG · NOT_DEPLOYED
+
+Last in the feature and repair backlog. Incident evidence remains private.
+
+Next action — Keep last in the backlog. Resume only on separate Owner prioritization.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/issues/125)
 
 ## WTR-BRAIN-001
 
@@ -1611,3 +1631,223 @@ The original Brain system knowledge sync is published at its pinned commit and r
 Next action — Use WTR-012 for current task and release status.
 
 [Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/commit/52f2859d5688ba35583ef9e5d56117b7745dff9f) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/INDEX.md)
+
+## WTR-D1-HYBRID-001
+
+**Isolated D1 composite pilot parity** · TESTED · NOT_DEPLOYED
+
+Main Brain accepted composite parity for isolated adapter work. The original changed-bookmark gate failed and provider-certified migration boundary remains unverified.
+
+Next action — Carry the pilot limits into HYBRID-002 and preserve the original failed gate.
+
+[Evidence 1](../../docs/EVIDENCE/WTR-D1-HYBRID-001.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226865872)
+
+## WTR-D1-HYBRID-002
+
+**Storage adapter and runtime compatibility** · BLOCKED · NOT_DEPLOYED
+
+Owner reported Codex PC implementation in progress at the draft checkpoint. No accepted adapter Candidate is established. HYBRID-002T composition is a bounded milestone.
+
+Next action — Use the existing local work order and wait for the migration qualification evidence. Preserve Turso default and disabled D1.
+
+[Evidence 1](../../docs/WORK_ORDERS/WTR-D1-HYBRID-002.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7165794629)
+
+## WTR-D1-HYBRID-002T
+
+**B2 composition and full qualification** · BLOCKED · NOT_DEPLOYED
+
+V3 composition passed 28/28/28. Full B2 Stage DEV retest failed at Slot 71 with 70/84 captures and 42/47 groups. Focused checks 15/15 and SUP-12 passed.
+
+Next action — Resume through the current WTR-MIGRATION-RECOVERY handoff after exact review. Retain all historical and focused assertions.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7165794629) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7180785273)
+
+## WTR-D1-HYBRID-003
+
+**Lossless codec prototype** · TESTED · NOT_DEPLOYED
+
+Local synthetic lossless codec result accepted as reported.
+
+Next action — Retain the prototype as synthetic evidence. Raw JSON remains the migration default.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226896393) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226967408)
+
+## WTR-D1-HYBRID-004
+
+**Synthetic API and historical asOf checks** · TESTED · NOT_DEPLOYED
+
+Local SQLite and API/asOf results accepted as reported.
+
+Next action — Carry shape, pointer and asOf parity assertions forward for separately qualified migration.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227083696) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227102224)
+
+## WTR-D1-HYBRID-005
+
+**Ordered catch-up and recovery prototype** · TESTED · NOT_DEPLOYED
+
+Local synthetic catch-up and replay result accepted as reported.
+
+Next action — Retain ordered reconciliation and zero-loss requirements. Provider continuity remains unverified.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227200892) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227229696)
+
+## WTR-D1-HYBRID-006
+
+**Synthetic performance and rollback rehearsal** · TESTED · NOT_DEPLOYED
+
+Local parity and recovery accepted as reported. Compressed API page p95 materially regressed.
+
+Next action — Retain all measurements and use raw-first design. Do not infer provider costs or runtime parity.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227405249) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227427866)
+
+## WTR-D1-HYBRID-006A
+
+**Bounded hydration experiment** · TESTED · NOT_DEPLOYED
+
+Local correctness accepted as reported. Concurrency tuning stopped.
+
+Next action — Retain evidence and the decision to stop gzip concurrency tuning.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227548657) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227573442)
+
+## WTR-D1-HYBRID-006B
+
+**Adaptive storage policy comparison** · TESTED · NOT_DEPLOYED
+
+Local synthetic evidence accepted as reported. Raw first selected. Compression and dedup deferred.
+
+Next action — Freeze storage experiments and return to migration qualification.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227662949) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740)
+
+## WTR-D1-HYBRID-007
+
+**Controlled DEV migration cutover** · BLOCKED · NOT_DEPLOYED
+
+Readiness gated. No cutover, D1 binding or live DB change is authorized.
+
+Next action — Require Full B2, I03 disposition, certified migration boundary, API and performance parity, replay and rollback evidence, then an exact Owner decision.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226865872) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740)
+
+## WTR-D1-HYBRID-008
+
+**Production migration release** · BLOCKED · PRODUCTION_HOLD
+
+Production RELEASE HOLD. Production migration has not started.
+
+Next action — Retain RELEASE HOLD. Reopen only after DEV qualification and separate explicit release authority.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7180842406) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740)
+
+## WTR-MIGRATION-RECOVERY
+
+**Migration recovery critical path** · BLOCKED · NOT_DEPLOYED
+
+Migration is the current critical path. Raw first, read performance non-regression and 100% data preservation. Turso remains default and D1 disabled.
+
+Next action — Reconcile RECOVERY-006R4 first when an accepted WSL checkpoint arrives. Main Brain then reviews the exact narrow next scope without duplicating the assessment.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7222051293) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7227685740)
+
+## WTR-MIGRATION-RECOVERY-001
+
+**Bounded Slot 71 evidence and validation-route assessment** · BLOCKED · NOT_DEPLOYED
+
+Initiating supervisor error remains unknown. Main Brain completed the read-only route comparison. Existing Full B2 controls do not admit a focused subset.
+
+Next action — Reuse the existing analysis. A replacement route requires obligation mapping, independent review and fresh Owner scope.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7222051293) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7226722246)
+
+## WTR-MIGRATION-RECOVERY-002
+
+**Focused Slot 71 preparation** · BLOCKED · NOT_DEPLOYED
+
+Read-only preparation established that the existing full matrix cannot be narrowed with its current pins. Slot 71 NOT_RUN.
+
+Next action — Retain the exact historical assertions and refer to the later focused review checkpoint.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228045062) · [Evidence 3](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md)
+
+## WTR-MIGRATION-RECOVERY-003
+
+**Focused Slot 71 local review draft** · BLOCKED · NOT_DEPLOYED
+
+Local draft and 5/5 inert tests reported. Exact review and authority remained pending at this checkpoint. Slot 71 NOT_RUN.
+
+Next action — Use the later custody checkpoint without repeating the inert tests merely for status.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228206539) · [Evidence 3](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md)
+
+## WTR-MIGRATION-RECOVERY-004
+
+**Focused authority and custody review draft** · BLOCKED · NOT_DEPLOYED
+
+5/5 inert custody tests reported. Privileged filesystem and lock operations were simulated. Slot 71 NOT_RUN.
+
+Next action — Retain custody and shared ledger boundaries. Use the later WSL preflight checkpoint.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228465235) · [Evidence 3](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md)
+
+## WTR-MIGRATION-RECOVERY-005
+
+**Protected custody preflight** · BLOCKED · NOT_DEPLOYED
+
+Read-only WSL preflight PASS as reported. Authority issuance blocked and execution NOT_RUN.
+
+Next action — Use the later exact authority disposition and preserve the existing ledger.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228738123) · [Evidence 3](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md)
+
+## WTR-MIGRATION-RECOVERY-006
+
+**Focused admission stopped at Owner attestation and time window** · BLOCKED · NOT_DEPLOYED
+
+Initial attestation failed. Later published authority expired before launch. Slot 71 NOT_RUN and ledger marker counts remained 4/2/2.
+
+Next action — Carry forward the failed gates and expiry. Follow RECOVERY-006R4 for the latest reported local checkpoint.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7228864590) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/129#issuecomment-7240005182)
+
+## WTR-MIGRATION-RECOVERY-006R4
+
+**Owner-reported local adapter revision** · BLOCKED · NOT_DEPLOYED
+
+Owner reports local implementation complete. Windows 32 PASS / 7 Linux skipped. WSL qualification PENDING. Slot 71 NOT_RUN, Full B2 BLOCKED, I03 OPEN.
+
+Next action — Wait for the existing executor to deliver the sanitized WSL qualification checkpoint for independent acceptance. Retain the local SHA-256 and protect the existing work.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/129) · [Evidence 2](../../docs/EVIDENCE/WTR-012U-CONTINUITY.md#recovery-006r4)
+
+## WTR-STORAGE-OPT-005
+
+**Draft private Turso snapshot verifier** · IN_REVIEW · NOT_DEPLOYED
+
+Draft-only export design. GitHub head and draft state verified. Real export and workflow execution were outside its approval.
+
+Next action — Retain the original proposal and refer to the 007 blocker for any resume.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/128)
+
+## WTR-STORAGE-OPT-006
+
+**Check credential and dispatch constraints** · BLOCKED · NOT_DEPLOYED
+
+Draft is disabled before credentials. No authorized hosted data handling or usable dispatch route was established.
+
+Next action — Retain the fail-closed workflow as evidence. Resume through 007 only under separate Owner scope.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md#wtr-storage-opt-006-update) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/128)
+
+## WTR-STORAGE-OPT-007
+
+**Verify offline export and replay boundary** · BLOCKED · NOT_DEPLOYED
+
+8/8 focused verifier checks reported on a small fixture. Later isolated pilot parity is separate from a provider-certified snapshot generation and durable write position.
+
+Next action — Wait for a provider-supported consistent snapshot and proven boundary on an authorized private host.
+
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/635370f8bf02803912dc247f9ffc1bd632d505ac/docs/WORK_ORDERS/WTR-STORAGE-OPT-005-DRAFT-EXPORT-PILOT.md#wtr-storage-opt-007-export-and-replay-verification) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/128)

@@ -47,16 +47,46 @@ MISSING = {"UNKNOWN", "NOT_RECOVERED"}
 LIST_FIELDS = ("tags", "dependencies", "blockers", "risks", "releaseRisks")
 PROTECTED = ("ownerAuthorization", "mergeStatus", "releaseStatus", "runtimeVerification")
 REVIEWED_STATUSES = {"ACCEPTED", "CANCELLED", "SUPERSEDED"}
+CANONICAL_BASE_REF = "refs/remotes/origin/project-brain/wtr"
 
 
-def validate_claim(claim, root):
-    if not isinstance(claim, dict) or set(claim) != {"actor", "scope", "authorization"}:
+EXECUTION_TOOLS = {"MAIN_BRAIN", "CHATGPT_WORK", "CODEX_CLOUD", "CODEX_PC", "UNKNOWN"}
+
+
+def validate_execution(execution):
+    fields = {"tool", "model", "reasoningEffort", "workingSha"}
+    if not isinstance(execution, dict) or set(execution) != fields:
+        raise ValueError("Malformed execution checkpoint")
+    for field in fields:
+        if not isinstance(execution[field], str) or not execution[field].strip():
+            raise ValueError(f"Missing execution {field}")
+        require_public_text(execution[field], f"execution.{field}")
+    if execution["tool"] not in EXECUTION_TOOLS:
+        raise ValueError("Unknown execution tool")
+    sha = execution["workingSha"]
+    if sha not in MISSING and not SHA.fullmatch(sha):
+        raise ValueError("Malformed execution working SHA")
+
+
+def validate_claim(claim, task, root):
+    legacy_fields = {"actor", "scope", "authorization"}
+    if not isinstance(claim, dict) or set(claim) not in (legacy_fields, legacy_fields | {"id"}):
         raise ValueError("Task needs an auditable claim")
     for field in ("actor", "scope"):
-        if not claim[field] or not isinstance(claim[field], str) or not claim[field].strip():
+        if not isinstance(claim[field], str) or not claim[field].strip():
             raise ValueError("Task needs an auditable claim")
         require_public_text(claim[field], f"claim.{field}")
     validate_reference(claim["authorization"], root)
+    if "id" in claim:
+        if task["status"] in {"COMPLETED", "CANCELLED", "SUPERSEDED"}:
+            raise ValueError("Closed tasks must release their active claim")
+        if not isinstance(claim["id"], str) or not TASK_ID.fullmatch(claim["id"]):
+            raise ValueError("Malformed claim ID")
+        if (task.get("ownerAuthorization") != claim["authorization"]
+                or not SHA.fullmatch(task["baseSha"]) or task["workingBranch"] in MISSING
+                or not task.get("execution") or task["execution"]["tool"] == "UNKNOWN"
+                or not SHA.fullmatch(task["execution"]["workingSha"])):
+            raise ValueError("Active claim requires Owner scope, execution tool and exact base and working refs")
 
 
 def validate_date(value):
@@ -73,9 +103,10 @@ def validate(registry, root=ROOT):
     if not isinstance(records, list) or not records:
         raise ValueError("Registry must contain a non-empty task list")
     ids = set()
+    claim_ids = set()
     allowed_fields = set(TEXT_FIELDS + LINK_FIELDS + LIST_FIELDS) | {
         "id", "status", "history", "claim", "historical", "artifacts",
-        "ownerAuthorization", "testSummary",
+        "ownerAuthorization", "testSummary", "execution",
     }
     for task in records:
         if not isinstance(task, dict) or task.keys() - allowed_fields:
@@ -130,9 +161,15 @@ def validate(registry, root=ROOT):
             raise ValueError(f"{task_id}: current status must match last history entry")
         if [e["date"] for e in history] != sorted(e["date"] for e in history):
             raise ValueError(f"{task_id}: history dates are out of order")
+        if "execution" in task:
+            validate_execution(task["execution"])
         claim = task.get("claim")
         if task["status"] == "IN_PROGRESS" or claim is not None:
-            validate_claim(claim, root)
+            validate_claim(claim, task, root)
+            if "id" in claim:
+                if claim["id"] in claim_ids:
+                    raise ValueError("Duplicate active claim ID")
+                claim_ids.add(claim["id"])
         if task["status"] == "BLOCKED" and not task["blockers"]:
             raise ValueError(f"{task_id}: missing blocker")
         if task["status"] in {"IN_PROGRESS", "BLOCKED"} and {task["nextAction"], task["handoff"]} & MISSING:
@@ -183,8 +220,20 @@ def validate_transition(previous, records, reviewed=()):
                 raise ValueError(f"{task_id}: prior evidence must be preserved")
             if any(artifact not in task.get("artifacts", []) for artifact in old.get("artifacts", [])):
                 raise ValueError(f"{task_id}: prior artifact metadata must be preserved")
-            if old.get("claim") and task.get("claim") and old["claim"]["actor"] != task["claim"]["actor"]:
-                raise ValueError(f"{task_id}: existing claim must be released before transfer")
+            if old.get("claim") and task.get("claim"):
+                old_claim = old["claim"]
+                claim = task["claim"]
+                if (old_claim["actor"] != claim["actor"] or old_claim.get("id") != claim.get("id")
+                        or old.get("execution", {}).get("tool") != task.get("execution", {}).get("tool")
+                        or old["baseSha"] != task["baseSha"] or old["workingBranch"] != task["workingBranch"]):
+                    raise ValueError(f"{task_id}: existing claim must be released before transfer")
+        claim = task.get("claim")
+        old_claim = old.get("claim") if old else None
+        if (old and claim != old_claim and any(c and "id" in c for c in (claim, old_claim))
+                and task["history"] == old["history"]):
+            raise ValueError(f"{task_id}: active claim changes require a history entry")
+        if claim and "id" not in claim and claim != old_claim:
+            raise ValueError(f"{task_id}: new or revised claims require an execution checkpoint and claim ID")
         checked_fields = [field for field in PROTECTED if old and old.get(field) != task.get(field)]
         if old:
             statuses = [old["status"]] + [
@@ -215,6 +264,15 @@ def validate_base(ref, tasks, reviewed, review_release):
     if not SHA.fullmatch(ref):
         raise ValueError("Fresh exact Brain base SHA required")
 
+    canonical = subprocess.run(
+        ["git", "rev-parse", "--verify", CANONICAL_BASE_REF], cwd=ROOT, capture_output=True,
+        text=True, check=False,
+    )
+    if canonical.returncode:
+        raise ValueError("Fetch origin/project-brain/wtr before exact-base validation")
+    if ref != canonical.stdout.strip():
+        raise ValueError("Base SHA must match the fetched canonical Brain tip")
+
     def prior(name):
         return subprocess.check_output(["git", "show", f"{ref}:{name}"], cwd=ROOT)
 
@@ -226,6 +284,7 @@ def validate_base(ref, tasks, reviewed, review_release):
     release = repository_path(ROOT, "docs/RELEASE_STATUS.md").read_bytes()
     if release != prior("docs/RELEASE_STATUS.md") and not review_release:
         raise ValueError("Independent Owner release review required")
+
 
 def find(tasks, query):
     exact = [t for t in tasks if t["id"].casefold() == query.casefold()]
@@ -240,6 +299,19 @@ def find(tasks, query):
 def render(tasks, *, check=False):
     for filename, (title, statuses) in VIEWS.items():
         lines = [f"# {title}", "", "Generated from [TASK_REGISTRY.json](TASK_REGISTRY.json).", ""]
+        if filename == "ACTIVE_TASKS.md":
+            lines += ["## Active claims", ""]
+            for task in sorted(tasks, key=lambda record: record["id"]):
+                claim = task.get("claim")
+                if claim:
+                    tool = task.get("execution", {}).get("tool", "UNKNOWN")
+                    claim_id = claim.get("id", "LEGACY")
+                    branch = markdown_text(task["workingBranch"])
+                    actor = markdown_text(claim["actor"])
+                    lines.append(f"- {task['id']} · {claim_id} · {actor} · {tool} · {branch}")
+            if lines[-1] == "":
+                lines.append("No recorded active claims.")
+            lines.append("")
         for task in sorted(tasks, key=lambda r: r["id"]):
             if task["status"] not in statuses:
                 continue
@@ -272,7 +344,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("validate", "render", "find", "handoff"))
     parser.add_argument("query", nargs="?")
-    parser.add_argument("--base-ref", help="fresh canonical Brain commit SHA, for pre-publication checks")
+    parser.add_argument("--base-ref", help="full SHA of the freshly fetched origin/project-brain/wtr tip")
     parser.add_argument("--reviewed-task", action="append", default=[], help="ID after independent Owner review")
     parser.add_argument("--review-release", action="store_true", help="confirm separate Owner review for release document")
     args = parser.parse_args()

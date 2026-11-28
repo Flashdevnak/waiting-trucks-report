@@ -62,6 +62,16 @@ Next action — Use the WTR-011P scope for the H-only release or WTR-011R for fu
 
 [Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/pull/122) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/actions/runs/44848641565) · [Evidence 3](../../docs/WORK_ORDERS/RECOVERED_INDEX.md#wtr-011n)
 
+## WTR-011P
+
+**H-only arrival card and sealed DEV publisher** · COMPLETED · DEV_RUNTIME_VERIFIED
+
+H-only Arrival Correction delivered on DEV Version 651 at 100% traffic. Workflow smoke passed, Turso default, D1 bindings zero. Production RELEASE HOLD.
+
+Next action — Retain Version 650 as rollback reference. Obtain separate Owner authority for any new dispatch, credential change or rollback.
+
+[Evidence 1](../../docs/WORK_ORDERS/WTR-011P-OWNER-DECISION.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/122) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/123)
+
 ## WTR-011P-CRED-001
 
 **Initial credential and rollback attestation** · SUPERSEDED · UNKNOWN
@@ -111,6 +121,16 @@ Canonical Brain bootstrap, task recovery, cold-session validation and WTR-011P h
 Next action — Maintain the canonical registry, resume WTR-011P only with new provider evidence and retain WTR-011R in the feature backlog.
 
 [Evidence 1](../../docs/WORK_ORDERS/WTR-012-MASTER.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/commit/521033cac670d7501db7e75d9bc3870bd89e9660) · [Evidence 3](../../docs/tasks/RECOVERY_GAPS.md)
+
+## WTR-012S
+
+**Permanent Project Brain security hardening** · COMPLETED · NOT_DEPLOYED
+
+Both security fixes accepted and merged through PR 124 into the protected Brain. GitHub merge and focused tests are linked.
+
+Next action — Use the protected Brain and existing focused checks for subsequent Brain maintenance.
+
+[Evidence 1](../../docs/WORK_ORDERS/WTR-012S.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/pull/124) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/commit/e8c3a0eda92d2380bedc0b8632534b9e46a8e19c)
 
 ## WTR-BRAIN-001
 

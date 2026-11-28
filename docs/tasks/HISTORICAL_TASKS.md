@@ -1546,11 +1546,11 @@ Next action — Use the exact remaining credential gates and consolidated Owner 
 
 **Qualify remaining KIT/TBR arrival and Drop changes** · BACKLOG · NOT_DEPLOYED
 
-Current feature qualification backlog; exact occurrence and prior TBR-only admission remain unproven. The H-only WTR-011P release does not resolve these predicates.
+Parked feature backlog with Gate B dependencies. Offline reproduction and the preservation revision document unresolved exact occurrence and prior admission.
 
-Next action — Prepare a bounded evidence-only qualification plan for exact occurrence and prior admission. Request separate Owner scope before implementation.
+Next action — Wait for an authoritative occurrence ID or crosswalk, recoverable prior admission evidence and separate Owner prioritization.
 
-[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md) · [Evidence 2](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/system/CURRENT_STATUS_TH.md)
+[Evidence 1](https://github.com/Flashdevnak/waiting-trucks-report/blob/52f2859d5688ba35583ef9e5d56117b7745dff9f/docs/project-brain/work-orders/WTR-011R_STATUS.md) · [Evidence 2](../../docs/WTR-011R_GATE_B_EVIDENCE.md) · [Evidence 3](https://github.com/Flashdevnak/waiting-trucks-report/pull/126)
 
 ## WTR-BRAIN-001
 

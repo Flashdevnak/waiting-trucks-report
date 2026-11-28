@@ -6,3 +6,6 @@
 - [Coverage and recovery gaps](tasks/RECOVERY_GAPS.md) record what can be recovered now. A reported ZIP is not an online artifact unless a durable, safe link is available.
 
 Import snapshots — [GitHub evidence](project-index/README.md) · [Recovered work orders and local package hashes](WORK_ORDERS/RECOVERED_INDEX.md) · [WTR-011P decision and exact pins](WORK_ORDERS/WTR-011P-OWNER-DECISION.md).
+
+- [WTR-012U reconciliation](EVIDENCE/WTR-012U-CONTINUITY.md) records DEV 651 acceptance, WTR-012S merge, overlapping drafts, storage boundaries and the current Migration Recovery ledger.
+- [WTR-011R Gate B evidence](WTR-011R_GATE_B_EVIDENCE.md), [HYBRID-001 composite pilot](EVIDENCE/WTR-D1-HYBRID-001.md) and [HYBRID-002 local work order](WORK_ORDERS/WTR-D1-HYBRID-002.md) retain the bounded evidence from the two Brain drafts.
